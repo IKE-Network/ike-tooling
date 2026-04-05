@@ -66,6 +66,14 @@ public class ReleaseMojo extends AbstractMojo {
     boolean deploySite;
 
     /**
+     * Publish the site to GitHub Pages after internal site deploy.
+     * Uses {@code ike:publish-site} to force-push an orphan commit
+     * to the {@code gh-pages} branch.
+     */
+    @Parameter(property = "publishSite", defaultValue = "true")
+    boolean publishSite;
+
+    /**
      * GitHub repository for issue tracking, used to look up a milestone
      * named {@code <artifactId> v<version>} for release notes generation.
      * If the milestone exists, its closed issues are formatted as the
@@ -161,6 +169,9 @@ public class ReleaseMojo extends AbstractMojo {
             if (deploySite) {
                 getLog().info("[DRY RUN] Would deploy site to: " +
                         "scpexe://proxy/srv/ike-site/" + projectId + "/release");
+            }
+            if (publishSite && deploySite) {
+                getLog().info("[DRY RUN] Would publish site to GitHub Pages (gh-pages branch)");
             }
             getLog().info("[DRY RUN] Would deploy to Nexus from tag v" +
                     releaseVersion + " (last — irreversible)");
@@ -350,6 +361,17 @@ public class ReleaseMojo extends AbstractMojo {
                 ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
             }
 
+            // Publish to GitHub Pages (overwritable — safe to retry).
+            // Uses the staged site already in target/staging/ from the
+            // site:stage step above.
+            if (publishSite && deploySite) {
+                getLog().info("Publishing site to GitHub Pages...");
+                ReleaseSupport.exec(gitRoot, getLog(),
+                        mvnw.getAbsolutePath(), "ike:publish-site", "-B",
+                        "-DpublishMessage=site: publish " + projectId
+                                + " " + releaseVersion);
+            }
+
             // Nexus deploy LAST — irreversible, only after everything
             // else has succeeded. Install first so reactor siblings
             // with BOM imports can resolve classified artifacts.
@@ -402,6 +424,9 @@ public class ReleaseMojo extends AbstractMojo {
         getLog().info("  Deployed to Nexus");
         if (deploySite) {
             getLog().info("  Site: http://ike.komet.sh/" + projectId + "/release/");
+        }
+        if (publishSite && deploySite) {
+            getLog().info("  GitHub Pages: https://ike.network/" + projectId + "/");
         }
         getLog().info("  Merged to main");
         getLog().info("  Next version: " + nextVersion);
@@ -456,6 +481,7 @@ public class ReleaseMojo extends AbstractMojo {
         getLog().info("  Tag:            v" + releaseVersion);
         getLog().info("  Project:        " + projectId);
         getLog().info("  Deploy site:    " + deploySite);
+        getLog().info("  Publish site:   " + publishSite);
         getLog().info("  Skip verify:    " + skipVerify);
         getLog().info("  Dry run:        " + dryRun);
         getLog().info("");
