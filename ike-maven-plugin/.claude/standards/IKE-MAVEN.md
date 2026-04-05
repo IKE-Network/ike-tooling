@@ -205,6 +205,9 @@ and running `mvn deploy`. This produces untagged, unreproducible artifacts.
 **During development**, all versions remain `-SNAPSHOT`. Only release
 scripts may transition a version to a non-SNAPSHOT release.
 
+See `IKE-RELEASE.md` for issue tracking conventions, milestone workflow,
+and release notes generation.
+
 ### Standards Version Coordination
 
 The `ike-build-standards` version is managed inline in `ike-parent`'s

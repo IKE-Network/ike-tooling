@@ -47,7 +47,6 @@ class CheckpointSupport {
                            boolean deploySite, boolean skipVerify, Log log)
             throws MojoExecutionException {
         File gitRoot = ReleaseSupport.gitRoot(dir);
-        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, log);
         File rootPom = new File(gitRoot, "pom.xml");
 
         String oldVersion = ReleaseSupport.readPomVersion(rootPom);
@@ -57,8 +56,13 @@ class CheckpointSupport {
         logAudit(gitRoot, oldVersion, checkpointVersion, tagName,
                 projectId, deploySite, skipVerify, log);
 
-        // Validate clean worktree
+        // Validate clean worktree before resolving the wrapper —
+        // this check is cheap and should fail fast before any
+        // file-system probing for mvnw.
         ReleaseSupport.requireCleanWorktree(gitRoot);
+
+        // Resolve Maven wrapper after validation passes
+        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, log);
 
         // Set POM version to checkpoint version
         log.info("Setting version: " + oldVersion + " -> " + checkpointVersion);
@@ -153,7 +157,6 @@ class CheckpointSupport {
                        boolean deploySite, boolean skipVerify, Log log)
             throws MojoExecutionException {
         File gitRoot = ReleaseSupport.gitRoot(dir);
-        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, log);
         File rootPom = new File(gitRoot, "pom.xml");
 
         String oldVersion = ReleaseSupport.readPomVersion(rootPom);

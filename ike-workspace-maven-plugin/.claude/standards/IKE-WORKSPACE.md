@@ -13,31 +13,134 @@ Workspace operations are implemented as Maven plugin goals in
 Single-repo goals (release, setup, asciidoc, etc.) remain in
 `ike-maven-plugin` with the `ike:` prefix.
 
-## Prerequisites
+## Bootstrap Checklist
 
-### Maven Settings
+Follow these steps in order on a new machine.
 
-Add `network.ike` to `<pluginGroups>` in `~/.m2/settings.xml`:
+### 1. Install Java 25
+
+Install JDK 25 via [sdkman](https://sdkman.io/) (`sdk install java 25-open`)
+or download from [jdk.java.net](https://jdk.java.net/25/).
+
+### 2. Install Maven 4.0.0-rc-5
+
+Install Maven 4.0.0-rc-5 or later. After workspace creation, the Maven
+wrapper (`mvnw`) handles this automatically — but you need a working `mvn`
+to run `ws:create` in the first place.
+
+### 3. Configure `~/.m2/settings.xml`
+
+**This is the most common source of setup failures.** Your settings.xml
+must include three things: plugin group resolution, Nexus repository
+access, and credentials.
+
+**If `<pluginGroups>` is missing, all `ws:*` and `ike:*` goals will fail
+with: "No plugin found for prefix 'ws'."**
+
+Minimal working configuration:
 
 ```xml
-<settings>
-  <pluginGroups>
-    <pluginGroup>network.ike</pluginGroup>
-  </pluginGroups>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+          https://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <!-- REQUIRED: resolves ws: and ike: goal prefixes -->
+    <pluginGroups>
+        <pluginGroup>network.ike</pluginGroup>
+    </pluginGroups>
+
+    <!-- Nexus credentials (env vars read from macOS Keychain — see below) -->
+    <servers>
+        <server>
+            <id>ike-public</id>
+            <username>${env.IKE_USER}</username>
+            <password>${env.IKE_PWD_RELEASES}</password>
+        </server>
+        <server>
+            <id>ike-snapshots</id>
+            <username>${env.IKE_USER}</username>
+            <password>${env.IKE_PWD_RELEASES}</password>
+        </server>
+        <server>
+            <id>ike-releases</id>
+            <username>${env.IKE_USER}</username>
+            <password>${env.IKE_PWD_RELEASES}</password>
+        </server>
+    </servers>
+
+    <!-- Plugin and dependency resolution from IKE Nexus -->
+    <profiles>
+        <profile>
+            <id>use-ike-public</id>
+            <repositories>
+                <repository>
+                    <id>ike-public</id>
+                    <url>https://nexus.tinkar.org/repository/ike-public/</url>
+                    <releases><enabled>true</enabled></releases>
+                    <snapshots><enabled>true</enabled></snapshots>
+                </repository>
+            </repositories>
+            <pluginRepositories>
+                <pluginRepository>
+                    <id>ike-public</id>
+                    <url>https://nexus.tinkar.org/repository/ike-public/</url>
+                    <releases><enabled>true</enabled></releases>
+                    <snapshots><enabled>true</enabled></snapshots>
+                </pluginRepository>
+            </pluginRepositories>
+        </profile>
+    </profiles>
+
+    <activeProfiles>
+        <activeProfile>use-ike-public</activeProfile>
+    </activeProfiles>
 </settings>
 ```
 
-### Workspace POM
+Set Nexus credentials in your shell profile (`.zshrc`):
 
-The workspace root must contain a `pom.xml` that declares both plugins:
+```bash
+export IKE_USER="$(security find-generic-password -a "$USER" -s IKE_USER -w 2>/dev/null || true)"
+export IKE_PWD_RELEASES="$(security find-generic-password -a "$USER" -s IKE_PWD_RELEASES -w 2>/dev/null || true)"
+```
+
+Store them in macOS Keychain:
+
+```bash
+security add-generic-password -a "$USER" -s IKE_USER -w "<your-nexus-username>"
+security add-generic-password -a "$USER" -s IKE_PWD_RELEASES -w "<your-nexus-password>"
+```
+
+### 4. Create a Workspace
+
+```bash
+mvn ws:create -Dname=my-workspace
+```
+
+If you omit `-Dname`, the goal prompts interactively. This generates:
+- `pom.xml` — aggregator with file-activated profiles
+- `workspace.yaml` — empty manifest
+- `mvnw` / `.mvn/` — Maven wrapper at the configured version
+- `.gitignore` — whitelist strategy
+
+Then add components and initialize:
+
+```bash
+cd my-workspace
+mvn ws:add -Drepo=https://github.com/org/repo.git
+mvn ws:init
+```
+
+### Workspace POM Reference
+
+`ws:create` generates the workspace POM automatically. For reference,
+the generated structure looks like:
 
 ```xml
 <project xmlns="http://maven.apache.org/POM/4.1.0" ...>
     <modelVersion>4.1.0</modelVersion>
 
-    <!-- Inherit ike-parent to get managed plugin versions
-         (including ike-tooling.version). Use the latest
-         released ike-parent version from Nexus. -->
     <parent>
         <groupId>network.ike</groupId>
         <artifactId>ike-parent</artifactId>
@@ -45,20 +148,18 @@ The workspace root must contain a `pom.xml` that declares both plugins:
         <relativePath/>
     </parent>
 
-    <groupId>network.ike</groupId>
-    <artifactId>ike-workspace</artifactId>
-    <version>1.0.0</version>
+    <groupId>local.aggregate</groupId>
+    <artifactId>my-workspace</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <build>
         <plugins>
-            <!-- Workspace goals (ws:*) — version managed by ike-parent -->
             <plugin>
                 <groupId>network.ike</groupId>
                 <artifactId>ike-workspace-maven-plugin</artifactId>
                 <version>${ike-tooling.version}</version>
             </plugin>
-            <!-- Single-repo goals (ike:*) — version managed by ike-parent -->
             <plugin>
                 <groupId>network.ike</groupId>
                 <artifactId>ike-maven-plugin</artifactId>
@@ -67,10 +168,10 @@ The workspace root must contain a `pom.xml` that declares both plugins:
         </plugins>
     </build>
 
-    <!-- File-activated profiles for partial checkout -->
+    <!-- File-activated profiles added by ws:add -->
     <profiles>
         <profile>
-            <id>component-name</id>
+            <id>with-component-name</id>
             <activation>
                 <file><exists>${project.basedir}/component-name/pom.xml</exists></file>
             </activation>
@@ -78,7 +179,6 @@ The workspace root must contain a `pom.xml` that declares both plugins:
                 <subproject>component-name</subproject>
             </subprojects>
         </profile>
-        <!-- Repeat for each component -->
     </profiles>
 </project>
 ```

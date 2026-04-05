@@ -54,6 +54,55 @@ No single convention prevents all classes of error.
 We stack defenses so that each layer catches
 what the previous layer misses.
 
+== Why Workspace Tooling Must Be Build-Aware
+
+Multi-repository coordination involves three distinct systems:
+
+* *Source control (Git)* — tracks file history, branches, commits
+* *Build system (Maven)* — declares dependencies, versions, artifact coordinates, build order
+* *Artifact repository (Nexus)* — stores and serves compiled artifacts
+
+Git submodules and subtrees operate exclusively on the source axis.
+They know repository URLs, commit SHAs, and directory placement.
+They know nothing about:
+
+* *Build order* — which repository must build before which
+* *Dependency relationships* — which artifacts flow between repositories
+* *Version coordination* — which properties to update when an upstream releases
+* *Branch-qualified versioning* — the convention that encodes branch identity into the POM version
+* *POM structure* — the reactor hierarchy, parent inheritance, dependency management
+
+These are build system concerns.
+The question "in what order do I release these five repositories?"
+can only be answered by reading POMs.
+Git has no opinion about it.
+
+The IKE Workspace tooling is implemented as Maven plugin goals
+rather than standalone scripts or Git hooks
+because the problem being solved _is_ a build coordination problem.
+A tool that only sees source commits cannot orchestrate
+build ordering, version cascades, or release sequencing.
+
+This is a deliberate coupling.
+The workspace plugin reads POMs to derive inter-repository dependencies,
+determine build order via topological sort,
+and propagate version updates after releases.
+When `ws:add` registers a new component,
+it clones the repository and scans its POM
+to discover which other workspace components it depends on —
+and which existing components depend on it.
+This bidirectional resolution works regardless of the order
+in which components are added.
+
+A git-only tool would have to reinvent dependency graph analysis,
+version property management,
+and release ordering —
+all capabilities the build system already provides.
+Coupling to Maven is the principled choice:
+it keeps workspace operations cohesive
+(one toolchain, one invocation pattern, one distribution mechanism)
+and grounded in the authoritative source of dependency truth.
+
 == Defense in Depth — The Swiss Cheese Model
 
 James Reason's Swiss cheese model,
