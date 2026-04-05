@@ -138,7 +138,8 @@ public final class ManifestReader {
                 stringField(fields, "groupId", ""),
                 deps,
                 stringField(fields, "notes", null),
-                stringField(fields, "maven-version", null)
+                stringField(fields, "maven-version", null),
+                stringField(fields, "parent", null)
         );
     }
 

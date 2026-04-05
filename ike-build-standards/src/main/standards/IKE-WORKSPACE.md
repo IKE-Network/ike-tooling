@@ -7,11 +7,11 @@ through `workspace.yaml` — a YAML manifest that declares all components,
 their inter-repository dependencies, groups, and component types.
 
 Workspace operations are implemented as Maven plugin goals in
-`ike-workspace-maven-plugin`, invokable via the `ws:` prefix (requires
-`network.ike` in `~/.m2/settings.xml` `<pluginGroups>`).
-
-Single-repo goals (release, setup, asciidoc, etc.) remain in
-`ike-maven-plugin` with the `ike:` prefix.
+`ike-workspace-maven-plugin` (prefix `ws:`), which is co-released with
+`ike-parent` in the `ike-pipeline` reactor. Single-repo goals (release,
+setup, asciidoc, etc.) are in `ike-maven-plugin` (prefix `ike:`), which
+is in the `ike-tooling` reactor. Both require `network.ike` in
+`~/.m2/settings.xml` `<pluginGroups>`.
 
 ## Bootstrap Checklist
 
@@ -153,17 +153,18 @@ the generated structure looks like:
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
+    <!-- Plugin versions are inherited from ike-parent pluginManagement.
+         ike-parent declares ike-maven-plugin at ${ike-tooling.version}
+         and ike-workspace-maven-plugin at ${project.version} (co-released). -->
     <build>
         <plugins>
             <plugin>
                 <groupId>network.ike</groupId>
                 <artifactId>ike-workspace-maven-plugin</artifactId>
-                <version>${ike-tooling.version}</version>
             </plugin>
             <plugin>
                 <groupId>network.ike</groupId>
                 <artifactId>ike-maven-plugin</artifactId>
-                <version>${ike-tooling.version}</version>
             </plugin>
         </plugins>
     </build>

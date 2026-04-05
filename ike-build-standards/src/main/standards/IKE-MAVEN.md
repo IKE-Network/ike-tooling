@@ -89,8 +89,9 @@ but the doc pipeline does not activate (they lack `src/docs/asciidoc/`):
 
 The `ike-maven-plugin` and `ike-workspace-model` are in a separate
 reactor (`ike-tooling`) at `github.com/kec/ike-tooling`.
-ike-pipeline consumes the plugin as an external build dependency at
-`${ike-tooling.version}`.
+The `ike-workspace-maven-plugin` is in the `ike-pipeline` reactor,
+co-released with `ike-parent`. ike-pipeline consumes `ike-maven-plugin`
+as an external build dependency at `${ike-tooling.version}`.
 
 These are built and installed first in the reactor. The Maven reactor handles build ordering automatically.
 

@@ -16,6 +16,9 @@ import java.util.List;
  * @param notes        free-text migration or status notes
  * @param mavenVersion Maven version for the wrapper (e.g., "4.0.0-rc-5"),
  *                     overrides {@link Defaults#mavenVersion()}. Null to inherit.
+ * @param parent       component name of the Maven parent POM, or null if the
+ *                     parent is not a workspace component. Used by ws:verify
+ *                     and ws:align to enforce parent version alignment.
  */
 public record Component(
         String name,
@@ -27,5 +30,6 @@ public record Component(
         String groupId,
         List<Dependency> dependsOn,
         String notes,
-        String mavenVersion
+        String mavenVersion,
+        String parent
 ) {}
