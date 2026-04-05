@@ -1,7 +1,13 @@
 package network.ike.plugin.ws;
 
+import network.ike.workspace.BomAnalysis;
 import network.ike.workspace.Component;
+import network.ike.workspace.PublishedArtifactSet;
 import network.ike.workspace.WorkspaceGraph;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import network.ike.plugin.ws.vcs.VcsOperations;
 import network.ike.plugin.ws.vcs.VcsState;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -44,6 +50,7 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
 
         if (isWorkspaceMode()) {
             verifyWorkspaceManifest();
+            verifyBomCascade();
             verifyWorkspaceVcs();
         } else {
             verifyBareVcs();
@@ -76,6 +83,56 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
             for (String error : errors) {
                 getLog().error("    ✗ " + error);
             }
+        }
+    }
+
+    // ── BOM cascade verification ──────────────────────────────────
+
+    private void verifyBomCascade() throws MojoExecutionException {
+        WorkspaceGraph graph = loadGraph();
+        File root = workspaceRoot();
+
+        // Build published artifact sets for all components
+        Map<String, Set<PublishedArtifactSet.Artifact>> workspaceArtifacts =
+                new LinkedHashMap<>();
+        for (String name : graph.manifest().components().keySet()) {
+            java.nio.file.Path compDir = root.toPath().resolve(name);
+            if (java.nio.file.Files.exists(compDir.resolve("pom.xml"))) {
+                try {
+                    workspaceArtifacts.put(name,
+                            PublishedArtifactSet.scan(compDir));
+                } catch (java.io.IOException e) {
+                    getLog().debug("Could not scan " + name + ": " + e.getMessage());
+                }
+            }
+        }
+
+        try {
+            var issues = BomAnalysis.analyzeCascadeIssues(
+                    root.toPath(), graph.manifest(), workspaceArtifacts);
+
+            if (issues.isEmpty()) {
+                getLog().info("");
+                getLog().info("  BOM cascade: all dependency edges can cascade  ✓");
+            } else {
+                getLog().info("");
+                getLog().warn("  BOM cascade: " + issues.size() + " gap(s) detected");
+                for (var issue : issues) {
+                    getLog().warn("    " + issue.componentName() + " → "
+                            + issue.dependsOn()
+                            + ": no version-property or workspace BOM import");
+                    if (!issue.externalBomPins().isEmpty()) {
+                        for (var bom : issue.externalBomPins()) {
+                            getLog().warn("      external BOM: "
+                                    + bom.groupId() + ":" + bom.artifactId()
+                                    + ":" + bom.version()
+                                    + " (may pin workspace artifact versions)");
+                        }
+                    }
+                }
+            }
+        } catch (java.io.IOException e) {
+            getLog().warn("  BOM cascade check failed: " + e.getMessage());
         }
     }
 

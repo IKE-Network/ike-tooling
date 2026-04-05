@@ -323,6 +323,19 @@ public class WsCreateMojo extends AbstractMojo {
                     "git", "remote", "add", "origin", remoteUrl);
             getLog().info("  ✓ remote: " + remoteUrl);
         }
+
+        // Auto-commit scaffold so ws:add and ws:feature-start
+        // have a baseline commit to work from.
+        try {
+            ReleaseSupport.exec(wsDir.toFile(), getLog(),
+                    "git", "add", ".");
+            ReleaseSupport.exec(wsDir.toFile(), getLog(),
+                    "git", "commit", "-m", "workspace: initial scaffold");
+            getLog().info("  ✓ initial commit");
+        } catch (MojoExecutionException e) {
+            getLog().warn("  Auto-commit failed (set git user.email/user.name): "
+                    + e.getMessage());
+        }
     }
 
     /**

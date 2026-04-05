@@ -155,7 +155,7 @@ class WsAddDependencyDerivationTest {
         assertThat(yaml).doesNotContain("component: lib-a");
 
         // Simulate backfill: add dependency edge to lib-b
-        String updated = WsAddMojo.addDependencyEdge(yaml, "lib-b", "lib-a");
+        String updated = WsAddMojo.addDependencyEdge(yaml, "lib-b", "lib-a", null);
 
         assertThat(updated).contains("component: lib-a");
         assertThat(updated).contains("relationship: build");
@@ -170,7 +170,7 @@ class WsAddDependencyDerivationTest {
                     depends-on: []
                 """;
 
-        String result = WsAddMojo.addDependencyEdge(yaml, "my-lib", "upstream");
+        String result = WsAddMojo.addDependencyEdge(yaml, "my-lib", "upstream", null);
 
         assertThat(result)
                 .contains("component: upstream")
@@ -189,7 +189,7 @@ class WsAddDependencyDerivationTest {
                         relationship: build
                 """;
 
-        String result = WsAddMojo.addDependencyEdge(yaml, "my-lib", "new-dep");
+        String result = WsAddMojo.addDependencyEdge(yaml, "my-lib", "new-dep", null);
 
         assertThat(result)
                 .contains("component: existing-dep")
@@ -292,7 +292,10 @@ class WsAddDependencyDerivationTest {
 
     /**
      * Invoke the private deriveDependencies method reflectively.
+     * Converts List<DerivedDep> result to comma-separated string
+     * for assertion simplicity.
      */
+    @SuppressWarnings("unchecked")
     private String invokeDeriveForward(Path wsDir, Path manifestPath,
                                         Path componentDir, String componentName)
             throws Exception {
@@ -300,7 +303,11 @@ class WsAddDependencyDerivationTest {
         var method = WsAddMojo.class.getDeclaredMethod(
                 "deriveDependencies", Path.class, Path.class, Path.class, String.class);
         method.setAccessible(true);
-        return (String) method.invoke(mojo, wsDir, manifestPath,
-                componentDir, componentName);
+        var result = (java.util.List<WsAddMojo.DerivedDep>) method.invoke(
+                mojo, wsDir, manifestPath, componentDir, componentName);
+        if (result == null || result.isEmpty()) return null;
+        return result.stream()
+                .map(WsAddMojo.DerivedDep::component)
+                .collect(java.util.stream.Collectors.joining(","));
     }
 }

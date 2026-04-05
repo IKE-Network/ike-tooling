@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Add a component repository to an existing workspace.
@@ -120,6 +121,9 @@ public class WsAddMojo extends AbstractMojo {
     @Parameter(property = "skipClone", defaultValue = "false")
     private boolean skipClone;
 
+    /** Derived dependency with optional version-property name. */
+    record DerivedDep(String component, String versionProperty) {}
+
     /** Creates this goal instance. */
     public WsAddMojo() {}
 
@@ -158,7 +162,7 @@ public class WsAddMojo extends AbstractMojo {
         // Clone so we can scan the POM for groupId and dependencies
         Path componentDir = wsDir.resolve(component);
         boolean cloned = false;
-        String derivedDeps = null;
+        List<DerivedDep> derivedDeps = null;
 
         if (!skipClone && !Files.exists(componentDir)) {
             cloneComponent(wsDir);
@@ -210,8 +214,11 @@ public class WsAddMojo extends AbstractMojo {
         if (groupId != null && !groupId.isBlank()) {
             getLog().info("  GroupId:   " + groupId);
         }
-        if (derivedDeps != null && !derivedDeps.isBlank()) {
-            getLog().info("  Depends:   " + derivedDeps + " (derived from POM)");
+        if (derivedDeps != null && !derivedDeps.isEmpty()) {
+            String depNames = derivedDeps.stream()
+                    .map(DerivedDep::component)
+                    .collect(Collectors.joining(", "));
+            getLog().info("  Depends:   " + depNames + " (derived from POM)");
         } else {
             getLog().info("  Depends:   (none)");
         }
@@ -260,6 +267,15 @@ public class WsAddMojo extends AbstractMojo {
             }
         }
 
+        // Auto-commit workspace.yaml + pom.xml changes
+        try {
+            ReleaseSupport.exec(wsDir.toFile(), getLog(), "git", "add", "workspace.yaml", "pom.xml");
+            ReleaseSupport.exec(wsDir.toFile(), getLog(), "git", "commit", "-m", "workspace: add " + component);
+            getLog().info("  \u2713 committed workspace.yaml + pom.xml");
+        } catch (Exception e) {
+            getLog().warn("  Auto-commit failed (non-fatal): " + e.getMessage());
+        }
+
         // Version alignment: update dependency versions in the newly
         // added component (and any backfilled components) to match
         // workspace SNAPSHOT versions. Changes are left uncommitted
@@ -291,7 +307,7 @@ public class WsAddMojo extends AbstractMojo {
 
     // ── YAML generation ──────────────────────────────────────────
 
-    void appendComponentToManifest(Path manifestPath, String derivedDeps)
+    void appendComponentToManifest(Path manifestPath, List<DerivedDep> derivedDeps)
             throws IOException {
         String yaml = Files.readString(manifestPath, StandardCharsets.UTF_8);
 
@@ -310,13 +326,13 @@ public class WsAddMojo extends AbstractMojo {
         if (groupId != null && !groupId.isBlank()) {
             entry.append("    groupId: ").append(groupId).append("\n");
         }
-        if (derivedDeps != null && !derivedDeps.isBlank()) {
+        if (derivedDeps != null && !derivedDeps.isEmpty()) {
             entry.append("    depends-on:\n");
-            for (String dep : derivedDeps.split(",")) {
-                dep = dep.trim();
-                if (!dep.isEmpty()) {
-                    entry.append("      - component: ").append(dep).append("\n");
-                    entry.append("        relationship: build\n");
+            for (DerivedDep dep : derivedDeps) {
+                entry.append("      - component: ").append(dep.component()).append("\n");
+                entry.append("        relationship: build\n");
+                if (dep.versionProperty() != null) {
+                    entry.append("        version-property: ").append(dep.versionProperty()).append("\n");
                 }
             }
         } else {
@@ -344,18 +360,18 @@ public class WsAddMojo extends AbstractMojo {
      * the newly derived dependencies.
      */
     void updateComponentDependencies(Path manifestPath, String componentName,
-                                      String derivedDeps) throws IOException {
+                                      List<DerivedDep> derivedDeps) throws IOException {
         String yaml = Files.readString(manifestPath, StandardCharsets.UTF_8);
 
         // Build the new depends-on block
         StringBuilder newDeps = new StringBuilder();
-        if (derivedDeps != null && !derivedDeps.isBlank()) {
+        if (derivedDeps != null && !derivedDeps.isEmpty()) {
             newDeps.append("    depends-on:\n");
-            for (String dep : derivedDeps.split(",")) {
-                dep = dep.trim();
-                if (!dep.isEmpty()) {
-                    newDeps.append("      - component: ").append(dep).append("\n");
-                    newDeps.append("        relationship: build\n");
+            for (DerivedDep dep : derivedDeps) {
+                newDeps.append("      - component: ").append(dep.component()).append("\n");
+                newDeps.append("        relationship: build\n");
+                if (dep.versionProperty() != null) {
+                    newDeps.append("        version-property: ").append(dep.versionProperty()).append("\n");
                 }
             }
         } else {
@@ -440,7 +456,7 @@ public class WsAddMojo extends AbstractMojo {
      *
      * @param manifestPath path to workspace.yaml
      * @param componentDir the cloned component directory
-     * @return comma-separated component names, or null if none found
+     * @return list of derived dependencies, or null if none found
      */
     /**
      * Derive dependencies by scanning the new component's POMs for
@@ -452,19 +468,30 @@ public class WsAddMojo extends AbstractMojo {
      * correctly handles components that share a groupId (e.g.,
      * tinkar-core and tinkar-composer both use {@code dev.ikm.tinkar}).
      */
-    private String deriveDependencies(Path wsDir, Path manifestPath,
-                                       Path componentDir, String componentName)
+    private List<DerivedDep> deriveDependencies(Path wsDir, Path manifestPath,
+                                                Path componentDir, String componentName)
             throws IOException {
         // Collect all groupId:artifactId pairs referenced by this component
         Set<String> referencedArtifacts = extractReferencedArtifacts(
                 componentDir.resolve("pom.xml"));
         if (referencedArtifacts.isEmpty()) return null;
 
+        // Read the new component's <properties> for version-property detection
+        Map<String, String> newCompProperties;
+        try {
+            DocumentBuilder db = DBF.newDocumentBuilder();
+            Document doc = db.parse(componentDir.resolve("pom.xml").toFile());
+            newCompProperties = readProperties(doc.getDocumentElement());
+        } catch (Exception e) {
+            newCompProperties = Map.of();
+        }
+
         Manifest manifest = ManifestReader.read(manifestPath);
 
-        List<String> matched = new ArrayList<>();
+        List<DerivedDep> matched = new ArrayList<>();
         for (Map.Entry<String, Component> entry : manifest.components().entrySet()) {
             String existingName = entry.getKey();
+            Component existingComp = entry.getValue();
 
             // Never depend on yourself
             if (existingName.equals(componentName)) continue;
@@ -480,13 +507,24 @@ public class WsAddMojo extends AbstractMojo {
             for (PublishedArtifactSet.Artifact artifact : published) {
                 String key = artifact.groupId() + ":" + artifact.artifactId();
                 if (referencedArtifacts.contains(key)) {
-                    matched.add(existingName);
+                    // Try to find a property whose value matches the upstream version
+                    String versionProperty = null;
+                    String upstreamVersion = existingComp.version();
+                    if (upstreamVersion != null && !newCompProperties.isEmpty()) {
+                        for (Map.Entry<String, String> prop : newCompProperties.entrySet()) {
+                            if (upstreamVersion.equals(prop.getValue())) {
+                                versionProperty = prop.getKey();
+                                break;
+                            }
+                        }
+                    }
+                    matched.add(new DerivedDep(existingName, versionProperty));
                     break;
                 }
             }
         }
 
-        return matched.isEmpty() ? null : String.join(",", matched);
+        return matched.isEmpty() ? null : matched;
     }
 
     /**
@@ -547,7 +585,7 @@ public class WsAddMojo extends AbstractMojo {
 
             if (!dependsOnNew) continue;
 
-            yaml = addDependencyEdge(yaml, existingName, newComponent);
+            yaml = addDependencyEdge(yaml, existingName, newComponent, null);
             updated++;
             getLog().info("  → " + existingName + " depends on " + newComponent);
         }
@@ -565,7 +603,10 @@ public class WsAddMojo extends AbstractMojo {
      * to an existing list.
      */
     static String addDependencyEdge(String yaml, String componentName,
-                                    String dependsOnName) {
+                                    String dependsOnName, String versionProperty) {
+        String versionPropertyLine = (versionProperty != null)
+                ? "        version-property: " + versionProperty + "\n" : "";
+
         // Case 1: depends-on: [] — replace with populated entry
         String emptyDeps = "(" + componentName + ":[\\s\\S]*?)(depends-on:\\s*\\[])";
         Pattern emptyPattern = Pattern.compile(emptyDeps);
@@ -574,21 +615,23 @@ public class WsAddMojo extends AbstractMojo {
             String replacement = emptyMatcher.group(1)
                     + "depends-on:\n"
                     + "      - component: " + dependsOnName + "\n"
-                    + "        relationship: build";
+                    + "        relationship: build\n"
+                    + versionPropertyLine;
             return emptyMatcher.replaceFirst(Matcher.quoteReplacement(replacement));
         }
 
         // Case 2: existing depends-on list — append before next component
         // or section. Find the component's depends-on block and add an entry.
         String existingDeps = "(" + componentName
-                + ":[\\s\\S]*?depends-on:\\n)((?:\\s+- component:.*\\n\\s+relationship:.*\\n)*)";
+                + ":[\\s\\S]*?depends-on:\\n)((?:\\s+- component:.*\\n(?:\\s+relationship:.*\\n)(?:\\s+version-property:.*\\n)?)*)";
         Pattern existingPattern = Pattern.compile(existingDeps);
         Matcher existingMatcher = existingPattern.matcher(yaml);
         if (existingMatcher.find()) {
             String replacement = existingMatcher.group(1)
                     + existingMatcher.group(2)
                     + "      - component: " + dependsOnName + "\n"
-                    + "        relationship: build\n";
+                    + "        relationship: build\n"
+                    + versionPropertyLine;
             return existingMatcher.replaceFirst(Matcher.quoteReplacement(replacement));
         }
 

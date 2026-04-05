@@ -120,3 +120,35 @@ Single-component releases use `ike:release`. Multi-component coordinated
 releases use `ws:release`. See the Workspace Release Orchestration
 section in `IKE-WORKSPACE.md` for the full workflow, including dry runs,
 cascade updates, and recovery from failures.
+
+## Issue Tracking Discipline
+
+### File Before Implementing
+
+Every code change must trace to a tracked issue. File the issue in
+IKE-Network/ike-issues BEFORE starting implementation, not
+retroactively. This ensures release notes are complete without
+manual cleanup.
+
+Pattern: file issue → assign to milestone → implement → close
+issue → release closes milestone.
+
+### Artifact Labels
+
+Use workspace component artifactIds as labels (e.g., `tinkar-core`,
+`komet`, `ike-tooling`). The workspace aggregator gets its own label
+(e.g., `komet-ws`) for cross-cutting issues. Labels stay at the
+component level — the unit of release. Submodule detail goes in the
+issue description.
+
+### Milestone Discipline
+
+Create the milestone when planning a release or filing the first
+issue for it. Assign every issue as it is committed or triaged.
+Close the milestone after the release ships. `ike:release`
+closes the milestone automatically when a matching one is found.
+
+### Commit Messages
+
+Use the `Assisted-by: Claude (Anthropic)` trailer when AI tools
+assisted with implementation. The developer is the sole author.

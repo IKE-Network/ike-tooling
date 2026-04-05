@@ -2,8 +2,10 @@ package network.ike.plugin.ws;
 
 import network.ike.plugin.ReleaseSupport;
 
+import network.ike.workspace.BomAnalysis;
 import network.ike.workspace.Component;
 import network.ike.workspace.ManifestWriter;
+import network.ike.workspace.PublishedArtifactSet;
 import network.ike.workspace.VersionSupport;
 import network.ike.workspace.WorkspaceGraph;
 import network.ike.plugin.ws.vcs.VcsOperations;
@@ -118,6 +120,11 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
         }
         getLog().info("");
 
+        // Analyze BOM cascade issues and prompt for confirmation
+        if (!skipVersion) {
+            checkBomCascadeAndConfirm(graph, root);
+        }
+
         List<String> created = new ArrayList<>();
         List<String> skippedNotCloned = new ArrayList<>();
         List<String> skippedAlreadyOnBranch = new ArrayList<>();
@@ -204,6 +211,7 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
         // Cascade version-property updates to downstream components
         if (!created.isEmpty() && !dryRun && !skipVersion) {
             cascadeVersionProperties(graph, root, sorted, branchName);
+            cascadeBomImports(graph, root, sorted, branchName);
         }
 
         // Auto-push each branched component with IKE_VCS_CONTEXT
@@ -505,6 +513,188 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
         } catch (MojoExecutionException e) {
             getLog().warn("    Could not check/unshallow " + name
                     + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Analyze BOM cascade issues before starting the feature.
+     * If issues are found, prompt the developer for confirmation.
+     * In headless mode (no console), log warnings and proceed.
+     */
+    private void checkBomCascadeAndConfirm(WorkspaceGraph graph, File root)
+            throws MojoExecutionException {
+        // Build published artifact sets
+        java.util.Map<String, java.util.Set<PublishedArtifactSet.Artifact>>
+                workspaceArtifacts = new java.util.LinkedHashMap<>();
+        for (String name : graph.manifest().components().keySet()) {
+            java.nio.file.Path compDir = root.toPath().resolve(name);
+            if (java.nio.file.Files.exists(compDir.resolve("pom.xml"))) {
+                try {
+                    workspaceArtifacts.put(name,
+                            PublishedArtifactSet.scan(compDir));
+                } catch (java.io.IOException e) {
+                    // Skip
+                }
+            }
+        }
+
+        java.util.List<BomAnalysis.CascadeIssue> issues;
+        try {
+            issues = BomAnalysis.analyzeCascadeIssues(
+                    root.toPath(), graph.manifest(), workspaceArtifacts);
+        } catch (java.io.IOException e) {
+            getLog().warn("  BOM cascade check failed: " + e.getMessage());
+            return;
+        }
+
+        if (issues.isEmpty()) return;
+
+        // Report issues
+        getLog().warn("");
+        getLog().warn("  ╔══════════════════════════════════════════════════════════╗");
+        getLog().warn("  ║  BOM Cascade Gaps Detected                              ║");
+        getLog().warn("  ╚══════════════════════════════════════════════════════════╝");
+        getLog().warn("");
+        getLog().warn("  The following dependency edges have no version-property or");
+        getLog().warn("  workspace-internal BOM import. Feature-start CANNOT cascade");
+        getLog().warn("  version changes for these automatically:");
+        getLog().warn("");
+
+        for (var issue : issues) {
+            getLog().warn("    " + issue.componentName() + " → " + issue.dependsOn());
+            for (var bom : issue.externalBomPins()) {
+                getLog().warn("      external BOM: " + bom.groupId()
+                        + ":" + bom.artifactId() + ":" + bom.version());
+            }
+        }
+
+        getLog().warn("");
+        getLog().warn("  These components may resolve stale versions from external BOMs");
+        getLog().warn("  instead of the feature branch versions.");
+        getLog().warn("");
+
+        // Prompt for confirmation (interactive mode)
+        java.io.Console console = System.console();
+        if (console != null) {
+            String response = console.readLine(
+                    "  Proceed with feature-start? (yes/no): ");
+            if (response == null || !response.trim().toLowerCase().startsWith("y")) {
+                throw new MojoExecutionException(
+                        "Feature-start aborted by user. Fix BOM cascade gaps first.");
+            }
+        } else {
+            // Headless — try IDE fallback
+            System.out.print("  Proceed with feature-start? (yes/no): ");
+            System.out.flush();
+            try {
+                java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(System.in));
+                String response = reader.readLine();
+                if (response == null || !response.trim().toLowerCase().startsWith("y")) {
+                    throw new MojoExecutionException(
+                            "Feature-start aborted. Fix BOM cascade gaps first.");
+                }
+            } catch (java.io.IOException e) {
+                getLog().warn("  Non-interactive mode — proceeding with warnings.");
+            }
+        }
+    }
+
+    /**
+     * Cascade BOM import version updates to downstream components.
+     *
+     * <p>When an upstream component's version changes (e.g., tinkar-core
+     * gets a branch-qualified version), downstream components that import
+     * a BOM published by the upstream need their import version updated.
+     */
+    private void cascadeBomImports(WorkspaceGraph graph, File root,
+                                    List<String> sorted, String branchName)
+            throws MojoExecutionException {
+        // Build published artifact sets and new version map
+        java.util.Map<String, java.util.Set<PublishedArtifactSet.Artifact>>
+                workspaceArtifacts = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> newVersions = new java.util.LinkedHashMap<>();
+
+        for (String name : sorted) {
+            Component comp = graph.manifest().components().get(name);
+            java.nio.file.Path compDir = root.toPath().resolve(name);
+
+            if (java.nio.file.Files.exists(compDir.resolve("pom.xml"))) {
+                try {
+                    workspaceArtifacts.put(name,
+                            PublishedArtifactSet.scan(compDir));
+                } catch (java.io.IOException e) {
+                    // Skip
+                }
+            }
+
+            // Resolve effective version (same logic as the branching loop)
+            String effectiveVersion = comp.version();
+            if (effectiveVersion == null || effectiveVersion.isEmpty()) {
+                File pom = new File(new File(root, name), "pom.xml");
+                if (pom.exists()) {
+                    try {
+                        effectiveVersion = ReleaseSupport.readPomVersion(pom);
+                    } catch (MojoExecutionException e) { /* skip */ }
+                }
+            }
+            if (effectiveVersion != null && !effectiveVersion.isEmpty()) {
+                newVersions.put(name, VersionSupport.branchQualifiedVersion(
+                        effectiveVersion, branchName));
+            }
+        }
+
+        // For each component in topological order, check if it imports
+        // a BOM published by an upstream component that got a new version
+        for (String name : sorted) {
+            Component comp = graph.manifest().components().get(name);
+            File dir = new File(root, name);
+            java.nio.file.Path pomPath = dir.toPath().resolve("pom.xml");
+
+            if (!java.nio.file.Files.exists(pomPath)) continue;
+
+            java.util.List<BomAnalysis.BomImport> bomImports;
+            try {
+                bomImports = BomAnalysis.extractBomImports(
+                        pomPath, workspaceArtifacts);
+            } catch (java.io.IOException e) {
+                continue;
+            }
+
+            boolean pomChanged = false;
+            for (BomAnalysis.BomImport bom : bomImports) {
+                if (!bom.isWorkspaceInternal()) continue;
+
+                String upstreamName = bom.publishingComponent();
+                if (!newVersions.containsKey(upstreamName)) continue;
+
+                String newVersion = newVersions.get(upstreamName);
+                try {
+                    boolean updated = BomAnalysis.updateBomImportVersion(
+                            pomPath, bom.groupId(), bom.artifactId(), newVersion);
+                    if (updated) {
+                        getLog().info("    " + name + ": BOM import "
+                                + bom.groupId() + ":" + bom.artifactId()
+                                + " → " + newVersion);
+                        pomChanged = true;
+                    }
+                } catch (java.io.IOException e) {
+                    getLog().warn("    Could not update BOM import in "
+                            + name + ": " + e.getMessage());
+                }
+            }
+
+            if (pomChanged) {
+                try {
+                    ReleaseSupport.exec(dir, getLog(), "git", "add", "pom.xml");
+                    ReleaseSupport.exec(dir, getLog(),
+                            "git", "commit", "-m",
+                            "feature: update BOM imports for " + branchName);
+                } catch (MojoExecutionException e) {
+                    getLog().warn("    Could not commit BOM update in "
+                            + name + ": " + e.getMessage());
+                }
+            }
         }
     }
 }
