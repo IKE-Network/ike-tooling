@@ -573,7 +573,8 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
         getLog().warn("  instead of the feature branch versions.");
         getLog().warn("");
 
-        // Prompt for confirmation (interactive mode)
+        // Prompt for confirmation (interactive mode only).
+        // In non-interactive mode (tests, CI), warn and proceed.
         java.io.Console console = System.console();
         if (console != null) {
             String response = console.readLine(
@@ -583,20 +584,8 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
                         "Feature-start aborted by user. Fix BOM cascade gaps first.");
             }
         } else {
-            // Headless — try IDE fallback
-            System.out.print("  Proceed with feature-start? (yes/no): ");
-            System.out.flush();
-            try {
-                java.io.BufferedReader reader = new java.io.BufferedReader(
-                        new java.io.InputStreamReader(System.in));
-                String response = reader.readLine();
-                if (response == null || !response.trim().toLowerCase().startsWith("y")) {
-                    throw new MojoExecutionException(
-                            "Feature-start aborted. Fix BOM cascade gaps first.");
-                }
-            } catch (java.io.IOException e) {
-                getLog().warn("  Non-interactive mode — proceeding with warnings.");
-            }
+            getLog().warn("  Non-interactive mode — proceeding with warnings.");
+            getLog().warn("  Use ws:verify to review BOM cascade gaps.");
         }
     }
 
