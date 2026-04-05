@@ -61,9 +61,19 @@ public class GraphWorkspaceMojo extends AbstractWorkspaceMojo {
                     i + 1, name, comp.type()));
 
             if (!comp.dependsOn().isEmpty()) {
-                for (Dependency dep : comp.dependsOn()) {
-                    getLog().info(String.format("        └─ %s (%s)",
-                            dep.component(), dep.relationship()));
+                for (int j = 0; j < comp.dependsOn().size(); j++) {
+                    Dependency dep = comp.dependsOn().get(j);
+                    boolean last = (j == comp.dependsOn().size() - 1);
+                    String connector = last ? "└─" : "├─";
+                    getLog().info(String.format("        %s %s (%s)",
+                            connector, dep.component(), dep.relationship()));
+                    // Show transitive dependencies
+                    Component depComp = graph.manifest().components()
+                            .get(dep.component());
+                    if (depComp != null && !depComp.dependsOn().isEmpty()) {
+                        String prefix = last ? "           " : "        │  ";
+                        printTransitiveDeps(graph, depComp, prefix, name);
+                    }
                 }
             }
         }
@@ -71,6 +81,35 @@ public class GraphWorkspaceMojo extends AbstractWorkspaceMojo {
         getLog().info("");
         getLog().info("  " + sorted.size() + " components in dependency order.");
         getLog().info("");
+    }
+
+    /**
+     * Recursively print transitive dependencies with tree indentation.
+     *
+     * @param graph   the workspace graph
+     * @param comp    the component whose dependencies to print
+     * @param prefix  indentation prefix for this level
+     * @param root    the root component name (to prevent cycles)
+     */
+    private void printTransitiveDeps(WorkspaceGraph graph, Component comp,
+                                      String prefix, String root) {
+        for (int i = 0; i < comp.dependsOn().size(); i++) {
+            Dependency dep = comp.dependsOn().get(i);
+            // Prevent infinite recursion if there's a cycle
+            if (dep.component().equals(root)) continue;
+
+            boolean last = (i == comp.dependsOn().size() - 1);
+            String connector = last ? "└─" : "├─";
+            getLog().info(String.format("%s%s %s (%s)",
+                    prefix, connector, dep.component(), dep.relationship()));
+
+            Component depComp = graph.manifest().components()
+                    .get(dep.component());
+            if (depComp != null && !depComp.dependsOn().isEmpty()) {
+                String childPrefix = prefix + (last ? "   " : "│  ");
+                printTransitiveDeps(graph, depComp, childPrefix, root);
+            }
+        }
     }
 
     private void printDot(WorkspaceGraph graph) {

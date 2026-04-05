@@ -21,11 +21,11 @@ import java.util.Optional;
 import java.util.Properties;
 
 /**
- * Verify workspace manifest consistency and VCS bridge state.
+ * Verify workspace manifest consistency and subproject git state.
  *
  * <p>Checks that all dependency references resolve, no cycles exist,
  * all group members are valid, and all component types are defined.
- * Also reports VCS bridge state, Syncthing health, and environment
+ * Also reports subproject git state, Syncthing health, and environment
  * presence.
  *
  * <pre>{@code mvn ike:verify}</pre>
@@ -79,7 +79,7 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
         }
     }
 
-    // ── VCS bridge verification (workspace mode) ─────────────────
+    // ── Subproject git state (workspace mode) ─────────────────────
 
     private void verifyWorkspaceVcs() throws MojoExecutionException {
         WorkspaceGraph graph = loadGraph();
@@ -105,7 +105,7 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
             getLog().info("  " + name);
 
             if (!VcsState.isIkeManaged(dir.toPath())) {
-                getLog().info("    VCS bridge: not IKE-managed");
+                getLog().info("    Git state: freshly added (no workspace operations yet)");
                 continue;
             }
 
@@ -113,7 +113,7 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
         }
     }
 
-    // ── VCS bridge verification (bare mode) ──────────────────────
+    // ── Subproject git state (bare mode) ──────────────────────────
 
     private void verifyBareVcs() throws MojoExecutionException {
         File dir = new File(System.getProperty("user.dir"));
@@ -122,7 +122,7 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
         getLog().info("  Machine:     " + hostname());
 
         if (!VcsState.isIkeManaged(dir.toPath())) {
-            getLog().info("  VCS bridge:  not an IKE-managed repo");
+            getLog().info("  Git state:   freshly added (no workspace operations yet)");
             return;
         }
 

@@ -68,6 +68,28 @@ public class WsRemoveMojo extends AbstractWorkspaceMojo {
         Path wsDir = manifestPath.getParent();
         Path pomPath = wsDir.resolve("pom.xml");
 
+        // Remove is main-only — workspace composition changes belong on main,
+        // not on feature branches. Add is allowed on any branch (discovery
+        // during development), but removal is a structural decision.
+        File compDir = wsDir.resolve(component).toFile();
+        if (new File(compDir, ".git").exists()) {
+            String currentBranch = gitBranch(compDir);
+            if (!currentBranch.equals("main")) {
+                throw new MojoExecutionException(
+                        "Cannot remove a component from a feature branch ('"
+                        + currentBranch + "'). Switch to 'main' first. "
+                        + "Workspace composition changes belong on main.");
+            }
+
+            // Verify clean working tree — no uncommitted changes
+            String status = gitStatus(compDir);
+            if (!status.isEmpty()) {
+                throw new MojoExecutionException(
+                        "Cannot remove '" + component + "' — working tree has "
+                        + "uncommitted changes. Commit or stash first.");
+            }
+        }
+
         // Load graph and validate component exists
         WorkspaceGraph graph = loadGraph();
 

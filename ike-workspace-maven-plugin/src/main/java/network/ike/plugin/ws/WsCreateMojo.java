@@ -54,7 +54,12 @@ public class WsCreateMojo extends AbstractMojo {
     /**
      * Short description of the workspace purpose.
      */
-    @Parameter(property = "description", defaultValue = "IKE workspace")
+    /**
+     * Short description of the workspace purpose. Defaults to the
+     * workspace name, which is also used as the Maven POM {@code <name>}
+     * element (shown in Maven build output).
+     */
+    @Parameter(property = "description")
     private String description;
 
     /**
@@ -92,6 +97,11 @@ public class WsCreateMojo extends AbstractMojo {
     public void execute() throws MojoExecutionException {
         if (name == null || name.isBlank()) {
             name = promptParam("name", "Workspace name");
+        }
+
+        // Default description to the workspace name
+        if (description == null || description.isBlank()) {
+            description = name;
         }
 
         Path wsDir = Path.of(System.getProperty("user.dir")).resolve(name);

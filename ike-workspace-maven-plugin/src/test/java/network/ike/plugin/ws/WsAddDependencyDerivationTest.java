@@ -59,42 +59,44 @@ class WsAddDependencyDerivationTest {
     }
 
     @Test
-    void forward_derivation_finds_dependency_by_groupId() throws Exception {
-        // Register lib-a first (no dependencies expected)
+    void forward_derivation_finds_dependency_by_artifact() throws Exception {
+        // Register lib-a (publishes com.example.lib:lib-a)
         createComponentDir("lib-a", "com.example.lib", null, null);
         addToManifest("lib-a", "com.example.lib");
 
-        // Create lib-b which depends on com.example.lib
+        // Create lib-b which depends on com.example.lib:lib-a
         createComponentDir("lib-b", "com.example.app", "com.example.lib", "lib-a");
 
         String derivedDeps = invokeDeriveForward(
-                tempDir.resolve("workspace.yaml"), tempDir.resolve("lib-b"));
+                tempDir, tempDir.resolve("workspace.yaml"),
+                tempDir.resolve("lib-b"), "lib-b");
 
         assertThat(derivedDeps).isEqualTo("lib-a");
     }
 
     @Test
     void forward_derivation_returns_null_when_no_match() throws Exception {
-        // Register lib-a with groupId com.example.lib
+        // Register lib-a (publishes com.example.lib:lib-a)
         createComponentDir("lib-a", "com.example.lib", null, null);
         addToManifest("lib-a", "com.example.lib");
 
-        // Create lib-b with a dependency on com.unrelated — no match
+        // Create lib-b with a dependency on com.unrelated:something — no match
         createComponentDir("lib-b", "com.example.app", "com.unrelated", "something");
 
         String derivedDeps = invokeDeriveForward(
-                tempDir.resolve("workspace.yaml"), tempDir.resolve("lib-b"));
+                tempDir, tempDir.resolve("workspace.yaml"),
+                tempDir.resolve("lib-b"), "lib-b");
 
         assertThat(derivedDeps).isNull();
     }
 
     @Test
-    void forward_derivation_matches_parent_groupId() throws Exception {
-        // Register parent-pom component
+    void forward_derivation_matches_parent_artifact() throws Exception {
+        // Register parent-pom (publishes com.example.parent:parent-pom)
         createComponentDir("parent-pom", "com.example.parent", null, null);
         addToManifest("parent-pom", "com.example.parent");
 
-        // Create child whose <parent> references com.example.parent
+        // Create child whose <parent> references com.example.parent:parent-pom
         Path childDir = tempDir.resolve("child-lib");
         Files.createDirectories(childDir);
         writePom(childDir.resolve("pom.xml"), """
@@ -111,9 +113,29 @@ class WsAddDependencyDerivationTest {
                 """);
 
         String derivedDeps = invokeDeriveForward(
-                tempDir.resolve("workspace.yaml"), childDir);
+                tempDir, tempDir.resolve("workspace.yaml"),
+                childDir, "child-lib");
 
         assertThat(derivedDeps).isEqualTo("parent-pom");
+    }
+
+    @Test
+    void forward_derivation_skips_self_with_shared_groupId() throws Exception {
+        // Two components share groupId com.example.shared
+        createComponentDir("comp-a", "com.example.shared", null, null);
+        addToManifest("comp-a", "com.example.shared");
+
+        // comp-b has same groupId but depends on itself (via its own artifacts)
+        // — should NOT create a self-dependency
+        createComponentDir("comp-b", "com.example.shared", "com.example.shared", "comp-b");
+        addToManifest("comp-b", "com.example.shared");
+
+        String derivedDeps = invokeDeriveForward(
+                tempDir, tempDir.resolve("workspace.yaml"),
+                tempDir.resolve("comp-b"), "comp-b");
+
+        // Should not include comp-b itself; comp-a publishes comp-a not comp-b
+        assertThat(derivedDeps).isNull();
     }
 
     @Test
@@ -271,12 +293,14 @@ class WsAddDependencyDerivationTest {
     /**
      * Invoke the private deriveDependencies method reflectively.
      */
-    private String invokeDeriveForward(Path manifestPath, Path componentDir)
+    private String invokeDeriveForward(Path wsDir, Path manifestPath,
+                                        Path componentDir, String componentName)
             throws Exception {
         WsAddMojo mojo = new WsAddMojo();
         var method = WsAddMojo.class.getDeclaredMethod(
-                "deriveDependencies", Path.class, Path.class);
+                "deriveDependencies", Path.class, Path.class, Path.class, String.class);
         method.setAccessible(true);
-        return (String) method.invoke(mojo, manifestPath, componentDir);
+        return (String) method.invoke(mojo, wsDir, manifestPath,
+                componentDir, componentName);
     }
 }

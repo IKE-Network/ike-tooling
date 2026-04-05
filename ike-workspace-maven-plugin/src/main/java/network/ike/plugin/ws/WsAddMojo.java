@@ -5,6 +5,7 @@ import network.ike.workspace.Component;
 import network.ike.workspace.Dependency;
 import network.ike.workspace.Manifest;
 import network.ike.workspace.ManifestReader;
+import network.ike.workspace.PublishedArtifactSet;
 
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -18,6 +19,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -149,7 +151,8 @@ public class WsAddMojo extends AbstractMojo {
             // Derive dependencies by matching POM groupIds against
             // already-registered workspace components
             try {
-                derivedDeps = deriveDependencies(manifestPath, componentDir);
+                derivedDeps = deriveDependencies(wsDir, manifestPath,
+                        componentDir, component);
             } catch (IOException e) {
                 getLog().warn("  Could not derive dependencies from POM: "
                         + e.getMessage());
@@ -196,10 +199,10 @@ public class WsAddMojo extends AbstractMojo {
 
         // Backward resolution: check if any existing components
         // depend on the newly added component's groupId
-        if (groupId != null && !groupId.isBlank()) {
+        if (Files.exists(componentDir.resolve("pom.xml"))) {
             try {
                 int backfilled = backfillDependencies(
-                        wsDir, manifestPath, component, groupId);
+                        wsDir, manifestPath, component, componentDir);
                 if (backfilled > 0) {
                     getLog().info("  ✓ Updated " + backfilled
                             + " existing component(s) with dependency on "
@@ -208,6 +211,26 @@ public class WsAddMojo extends AbstractMojo {
             } catch (IOException e) {
                 getLog().warn("  Could not backfill dependencies: "
                         + e.getMessage());
+            }
+        }
+
+        // Version alignment: update dependency versions in the newly
+        // added component (and any backfilled components) to match
+        // workspace SNAPSHOT versions. Changes are left uncommitted
+        // so the developer can review and fold them into a feature branch.
+        if (Files.exists(componentDir.resolve("pom.xml"))) {
+            try {
+                Manifest updatedManifest = ManifestReader.read(manifestPath);
+                int aligned = alignVersions(wsDir, componentDir, component,
+                        updatedManifest);
+                if (aligned > 0) {
+                    getLog().info("");
+                    getLog().info("  ⚠ " + aligned + " file(s) modified for version "
+                            + "alignment (uncommitted)");
+                    getLog().info("    Review with 'git diff' in " + component);
+                }
+            } catch (IOException e) {
+                getLog().warn("  Could not align versions: " + e.getMessage());
             }
         }
 
@@ -324,21 +347,47 @@ public class WsAddMojo extends AbstractMojo {
      * @param componentDir the cloned component directory
      * @return comma-separated component names, or null if none found
      */
-    private String deriveDependencies(Path manifestPath, Path componentDir)
+    /**
+     * Derive dependencies by scanning the new component's POMs for
+     * referenced {@code groupId:artifactId} pairs and matching them
+     * against the published artifact sets of already-registered
+     * workspace components.
+     *
+     * <p>This is artifact-level matching, not groupId-level — it
+     * correctly handles components that share a groupId (e.g.,
+     * tinkar-core and tinkar-composer both use {@code dev.ikm.tinkar}).
+     */
+    private String deriveDependencies(Path wsDir, Path manifestPath,
+                                       Path componentDir, String componentName)
             throws IOException {
-        Path pomFile = componentDir.resolve("pom.xml");
-        if (!Files.exists(pomFile)) return null;
-
-        Set<String> referencedGroupIds = extractReferencedGroupIds(pomFile);
-        if (referencedGroupIds.isEmpty()) return null;
+        // Collect all groupId:artifactId pairs referenced by this component
+        Set<String> referencedArtifacts = extractReferencedArtifacts(
+                componentDir.resolve("pom.xml"));
+        if (referencedArtifacts.isEmpty()) return null;
 
         Manifest manifest = ManifestReader.read(manifestPath);
 
         List<String> matched = new ArrayList<>();
-        for (Component existing : manifest.components().values()) {
-            if (existing.groupId() != null
-                    && referencedGroupIds.contains(existing.groupId())) {
-                matched.add(existing.name());
+        for (Map.Entry<String, Component> entry : manifest.components().entrySet()) {
+            String existingName = entry.getKey();
+
+            // Never depend on yourself
+            if (existingName.equals(componentName)) continue;
+
+            Path existingDir = wsDir.resolve(existingName);
+            if (!Files.exists(existingDir.resolve("pom.xml"))) continue;
+
+            // Build the published artifact set for the existing component
+            Set<PublishedArtifactSet.Artifact> published =
+                    PublishedArtifactSet.scan(existingDir);
+
+            // Check if any referenced artifact is published by this component
+            for (PublishedArtifactSet.Artifact artifact : published) {
+                String key = artifact.groupId() + ":" + artifact.artifactId();
+                if (referencedArtifacts.contains(key)) {
+                    matched.add(existingName);
+                    break;
+                }
             }
         }
 
@@ -353,9 +402,27 @@ public class WsAddMojo extends AbstractMojo {
      *
      * @return the number of existing components updated
      */
+    /**
+     * Backward resolution: for each existing cloned component, check
+     * whether its POMs reference any artifact published by the newly
+     * added component. Uses artifact-level matching via
+     * {@link PublishedArtifactSet} to avoid false positives from
+     * shared groupIds.
+     */
     private int backfillDependencies(Path wsDir, Path manifestPath,
-                                     String newComponent, String newGroupId)
+                                     String newComponent, Path newComponentDir)
             throws IOException {
+        // Build the published artifact set for the new component
+        Set<PublishedArtifactSet.Artifact> newPublished =
+                PublishedArtifactSet.scan(newComponentDir);
+        if (newPublished.isEmpty()) return 0;
+
+        // Build a lookup set of "groupId:artifactId" strings
+        Set<String> newArtifactKeys = new LinkedHashSet<>();
+        for (PublishedArtifactSet.Artifact a : newPublished) {
+            newArtifactKeys.add(a.groupId() + ":" + a.artifactId());
+        }
+
         String yaml = Files.readString(manifestPath, StandardCharsets.UTF_8);
         Manifest manifest = ManifestReader.read(manifestPath);
         int updated = 0;
@@ -374,15 +441,17 @@ public class WsAddMojo extends AbstractMojo {
                 continue;
             }
 
-            // Check if this existing component's POM references
-            // the new component's groupId
+            // Check if this existing component references any artifact
+            // published by the new component
             Path existingPom = wsDir.resolve(existingName).resolve("pom.xml");
             if (!Files.exists(existingPom)) continue;
 
-            Set<String> referencedGroupIds = extractReferencedGroupIds(existingPom);
-            if (!referencedGroupIds.contains(newGroupId)) continue;
+            Set<String> referenced = extractReferencedArtifacts(existingPom);
+            boolean dependsOnNew = referenced.stream()
+                    .anyMatch(newArtifactKeys::contains);
 
-            // Add the dependency edge to workspace.yaml
+            if (!dependsOnNew) continue;
+
             yaml = addDependencyEdge(yaml, existingName, newComponent);
             updated++;
             getLog().info("  → " + existingName + " depends on " + newComponent);
@@ -432,43 +501,54 @@ public class WsAddMojo extends AbstractMojo {
     }
 
     /**
-     * Extract all groupIds referenced as build dependencies across
-     * the entire component (root POM + all submodules/subprojects).
+     * Extract all {@code groupId:artifactId} pairs referenced as
+     * build dependencies across the entire component (root POM +
+     * all submodules/subprojects).
      *
      * <p>Scans {@code <parent>} and {@code <dependencies>} blocks,
      * but excludes {@code <dependencyManagement>} (which contains
      * BOM imports and version constraints, not build dependencies).
+     *
+     * @return set of "groupId:artifactId" strings
      */
-    private Set<String> extractReferencedGroupIds(Path pomFile) throws IOException {
-        Set<String> groupIds = new LinkedHashSet<>();
-        scanPomForGroupIds(pomFile, groupIds);
-        return groupIds;
+    private Set<String> extractReferencedArtifacts(Path pomFile) throws IOException {
+        Set<String> artifacts = new LinkedHashSet<>();
+        scanPomForArtifacts(pomFile, artifacts);
+        return artifacts;
     }
 
     /**
-     * Recursively scan a POM and its submodules for referenced groupIds.
+     * Recursively scan a POM and its submodules for referenced
+     * groupId:artifactId pairs.
      */
-    private void scanPomForGroupIds(Path pomFile, Set<String> groupIds)
+    private void scanPomForArtifacts(Path pomFile, Set<String> artifacts)
             throws IOException {
         if (!Files.exists(pomFile)) return;
 
         String content = Files.readString(pomFile, StandardCharsets.UTF_8);
 
-        // Extract parent groupId
+        // Extract parent groupId:artifactId
         Matcher parentBlock = PARENT_BLOCK.matcher(content);
         if (parentBlock.find()) {
-            Matcher gm = GROUP_ID_PATTERN.matcher(parentBlock.group());
-            if (gm.find()) groupIds.add(gm.group(1).trim());
+            String block = parentBlock.group();
+            String gid = extractFirst(GROUP_ID_PATTERN, block);
+            String aid = extractFirst(ARTIFACT_ID_PATTERN, block);
+            if (gid != null && aid != null) {
+                artifacts.add(gid + ":" + aid);
+            }
         }
 
-        // Strip <dependencyManagement> before scanning <dependency> blocks —
-        // BOM imports are version constraints, not build dependencies
+        // Strip <dependencyManagement> before scanning <dependency> blocks
         String stripped = DEP_MGMT_BLOCK.matcher(content).replaceAll("");
 
         Matcher depBlock = DEPENDENCY_BLOCK.matcher(stripped);
         while (depBlock.find()) {
-            Matcher gm = GROUP_ID_PATTERN.matcher(depBlock.group());
-            if (gm.find()) groupIds.add(gm.group(1).trim());
+            String block = depBlock.group();
+            String gid = extractFirst(GROUP_ID_PATTERN, block);
+            String aid = extractFirst(ARTIFACT_ID_PATTERN, block);
+            if (gid != null && aid != null) {
+                artifacts.add(gid + ":" + aid);
+            }
         }
 
         // Recurse into subprojects (POM 4.1.0) and modules (POM 4.0.0)
@@ -477,15 +557,151 @@ public class WsAddMojo extends AbstractMojo {
         Matcher subMatcher = SUBPROJECT_PATTERN.matcher(content);
         while (subMatcher.find()) {
             Path subPom = pomDir.resolve(subMatcher.group(1).trim()).resolve("pom.xml");
-            scanPomForGroupIds(subPom, groupIds);
+            scanPomForArtifacts(subPom, artifacts);
         }
 
         Matcher modMatcher = MODULE_PATTERN.matcher(content);
         while (modMatcher.find()) {
             Path modPom = pomDir.resolve(modMatcher.group(1).trim()).resolve("pom.xml");
-            scanPomForGroupIds(modPom, groupIds);
+            scanPomForArtifacts(modPom, artifacts);
         }
     }
+
+    private static String extractFirst(Pattern pattern, String text) {
+        Matcher m = pattern.matcher(text);
+        return m.find() ? m.group(1).trim() : null;
+    }
+
+    // ── Version alignment ───────────────────────────────────────
+
+    /**
+     * Align dependency versions in the newly added component's POMs
+     * to match workspace SNAPSHOT versions. For each workspace component
+     * that this component depends on, find explicit version declarations
+     * and update them.
+     *
+     * @return the number of POM files modified
+     */
+    private int alignVersions(Path wsDir, Path componentDir,
+                               String componentName, Manifest manifest)
+            throws IOException {
+        // Build a map: groupId:artifactId → workspace version
+        // for all workspace components (except the one being added)
+        Map<String, String> artifactVersions = new LinkedHashMap<>();
+        for (Map.Entry<String, Component> entry : manifest.components().entrySet()) {
+            if (entry.getKey().equals(componentName)) continue;
+            Component comp = entry.getValue();
+            if (comp.version() == null) continue;
+
+            Path compDir = wsDir.resolve(entry.getKey());
+            if (!Files.exists(compDir.resolve("pom.xml"))) continue;
+
+            Set<PublishedArtifactSet.Artifact> published =
+                    PublishedArtifactSet.scan(compDir);
+            for (PublishedArtifactSet.Artifact artifact : published) {
+                artifactVersions.put(
+                        artifact.groupId() + ":" + artifact.artifactId(),
+                        comp.version());
+            }
+        }
+
+        if (artifactVersions.isEmpty()) return 0;
+
+        // Walk all POM files in the new component and update versions
+        int filesModified = 0;
+        List<Path> pomFiles = findAllPomFiles(componentDir);
+
+        for (Path pomFile : pomFiles) {
+            String original = Files.readString(pomFile, StandardCharsets.UTF_8);
+            String updated = alignDependencyVersions(original, artifactVersions);
+
+            if (!updated.equals(original)) {
+                Files.writeString(pomFile, updated, StandardCharsets.UTF_8);
+                filesModified++;
+                // Log each change
+                Path relative = componentDir.getParent().relativize(pomFile);
+                getLog().info("  Version alignment: " + relative);
+            }
+        }
+
+        return filesModified;
+    }
+
+    /**
+     * In a POM content string, find {@code <dependency>} blocks that
+     * reference a known workspace artifact and update their
+     * {@code <version>} to the workspace version. Skips dependencies
+     * inside {@code <dependencyManagement>}.
+     */
+    static String alignDependencyVersions(String pom,
+                                            Map<String, String> artifactVersions) {
+        // Strip dependencyManagement to avoid modifying BOM imports
+        // We'll process only dependencies outside of dependencyManagement
+        StringBuilder result = new StringBuilder();
+        Matcher dmMatcher = DEP_MGMT_BLOCK.matcher(pom);
+        int lastEnd = 0;
+
+        while (dmMatcher.find()) {
+            // Process the segment before this dependencyManagement block
+            String segment = pom.substring(lastEnd, dmMatcher.start());
+            result.append(alignDepsInSegment(segment, artifactVersions));
+            // Append the dependencyManagement block unchanged
+            result.append(dmMatcher.group());
+            lastEnd = dmMatcher.end();
+        }
+        // Process remaining content after last dependencyManagement
+        result.append(alignDepsInSegment(pom.substring(lastEnd), artifactVersions));
+
+        return result.toString();
+    }
+
+    private static String alignDepsInSegment(String segment,
+                                              Map<String, String> artifactVersions) {
+        Matcher depMatcher = DEPENDENCY_BLOCK.matcher(segment);
+        StringBuilder sb = new StringBuilder();
+        int lastEnd = 0;
+
+        while (depMatcher.find()) {
+            sb.append(segment, lastEnd, depMatcher.start());
+
+            String depBlock = depMatcher.group();
+            String gid = extractFirst(GROUP_ID_PATTERN, depBlock);
+            String aid = extractFirst(ARTIFACT_ID_PATTERN, depBlock);
+            String key = gid + ":" + aid;
+
+            String targetVersion = artifactVersions.get(key);
+            if (targetVersion != null) {
+                // Update the version in this dependency block
+                String currentVersion = extractFirst(VERSION_PATTERN, depBlock);
+                if (currentVersion != null && !currentVersion.equals(targetVersion)) {
+                    depBlock = depBlock.replaceFirst(
+                            "<version>" + Pattern.quote(currentVersion) + "</version>",
+                            "<version>" + targetVersion + "</version>");
+                }
+            }
+
+            sb.append(depBlock);
+            lastEnd = depMatcher.end();
+        }
+
+        sb.append(segment.substring(lastEnd));
+        return sb.toString();
+    }
+
+    /**
+     * Find all pom.xml files in a component directory (root + submodules).
+     */
+    private List<Path> findAllPomFiles(Path componentDir) throws IOException {
+        try (var stream = Files.walk(componentDir)) {
+            return stream
+                    .filter(p -> p.getFileName().toString().equals("pom.xml"))
+                    .filter(p -> !p.toString().contains("/target/"))
+                    .toList();
+        }
+    }
+
+    private static final Pattern VERSION_PATTERN =
+            Pattern.compile("<version>([^<]+)</version>");
 
     /**
      * Derive the Maven groupId from the component's root POM.
@@ -520,6 +736,8 @@ public class WsAddMojo extends AbstractMojo {
             Pattern.compile("(?s)<parent>.*?</parent>");
     private static final Pattern GROUP_ID_PATTERN =
             Pattern.compile("<groupId>([^<]+)</groupId>");
+    private static final Pattern ARTIFACT_ID_PATTERN =
+            Pattern.compile("<artifactId>([^<]+)</artifactId>");
     private static final Pattern DEPENDENCY_BLOCK =
             Pattern.compile("(?s)<dependency>.*?</dependency>");
     private static final Pattern DEP_MGMT_BLOCK =
