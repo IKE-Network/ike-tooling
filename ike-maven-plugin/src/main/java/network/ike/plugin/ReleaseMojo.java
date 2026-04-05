@@ -311,16 +311,18 @@ public class ReleaseMojo extends AbstractMojo {
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "verify", "-B", "-T", "1");
 
-                // 2a. Generate full release history into src/site/asciidoc/
-                //     Covers all milestones (not just the current release),
-                //     so the site always has complete release notes.
+                // 2a. Generate full release history as XHTML into
+                //     target/generated-site/xhtml/ so maven-site-plugin
+                //     includes it via generatedSiteDirectory. Written as
+                //     an XHTML fragment (not full page) so the site skin
+                //     wraps it with navigation and styling.
                 try {
-                    Path siteAdocDir = gitRoot.toPath()
-                            .resolve("src").resolve("site").resolve("asciidoc");
-                    Path adocFile = ReleaseNotesSupport.generateFullHistory(
-                            issueRepo, siteAdocDir, getLog());
-                    if (adocFile != null) {
-                        getLog().info("Generated release history: " + adocFile);
+                    Path generatedXhtml = gitRoot.toPath()
+                            .resolve("target").resolve("generated-site").resolve("xhtml");
+                    Path xhtmlFile = ReleaseNotesSupport.generateFullHistoryXhtml(
+                            issueRepo, generatedXhtml, getLog());
+                    if (xhtmlFile != null) {
+                        getLog().info("Generated release history: " + xhtmlFile);
                     }
                 } catch (MojoExecutionException e) {
                     getLog().warn("Could not generate site release notes: "

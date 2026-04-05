@@ -466,6 +466,100 @@ public final class ReleaseNotesSupport {
     }
 
     /**
+     * Generate a full release history as an XHTML fragment suitable for
+     * inclusion in the Maven site via {@code generatedSiteDirectory}.
+     * The fragment is wrapped in a root {@code <div>} with an
+     * {@code <h1>} title, matching the format that
+     * {@code maven-site-plugin} expects from generated content.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param outputDir directory to write release-notes.xhtml into
+     * @param log       Maven logger
+     * @return the written file path, or null on failure
+     */
+    public static Path generateFullHistoryXhtml(String repo, Path outputDir,
+                                                 Log log)
+            throws MojoExecutionException {
+        try {
+            String url = API_BASE + "/repos/" + repo
+                    + "/milestones?state=all&per_page=100&direction=desc";
+            List<Map<String, Object>> milestones = apiGetList(url);
+
+            StringBuilder html = new StringBuilder();
+            html.append("<div class=\"ike-release-notes\">\n");
+            html.append("<h1>Release Notes</h1>\n");
+
+            boolean hasContent = false;
+
+            for (Map<String, Object> ms : milestones) {
+                String title = (String) ms.get("title");
+                int number = ((Number) ms.get("number")).intValue();
+                int closedCount = ((Number) ms.get("closed_issues")).intValue();
+
+                if (closedCount == 0) continue;
+
+                List<Issue> closed = fetchClosedIssues(repo, number);
+                if (closed.isEmpty()) continue;
+
+                hasContent = true;
+                html.append("<h2>").append(escapeHtml(title)).append("</h2>\n");
+
+                List<Issue> fixes = new ArrayList<>();
+                List<Issue> enhancements = new ArrayList<>();
+                List<Issue> internal = new ArrayList<>();
+
+                for (Issue issue : closed) {
+                    if (issue.labels.contains("bug")) fixes.add(issue);
+                    else if (issue.labels.contains("enhancement")) enhancements.add(issue);
+                    else internal.add(issue);
+                }
+
+                appendHtmlSection(html, "Fixes", fixes, repo);
+                appendHtmlSection(html, "Enhancements", enhancements, repo);
+                appendHtmlSection(html, "Internal", internal, repo);
+            }
+
+            if (!hasContent) {
+                html.append("<p>No release milestones found. See the ");
+                html.append("<a href=\"https://github.com/").append(repo);
+                html.append("/milestones\">issue tracker</a> for details.</p>\n");
+            }
+
+            html.append("</div>\n");
+
+            Files.createDirectories(outputDir);
+            Path outFile = outputDir.resolve("release-notes.xhtml");
+            Files.writeString(outFile, html.toString(), StandardCharsets.UTF_8);
+            return outFile;
+        } catch (IOException | InterruptedException e) {
+            if (log != null) {
+                log.warn("Release history XHTML generation failed: "
+                        + e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    private static void appendHtmlSection(StringBuilder html, String heading,
+                                           List<Issue> issues, String repo) {
+        if (issues.isEmpty()) return;
+
+        html.append("<h3>").append(heading).append("</h3>\n<ul>\n");
+        for (Issue issue : issues) {
+            html.append("<li>").append(escapeHtml(issue.title()))
+                    .append(" (<a href=\"https://github.com/").append(repo)
+                    .append("/issues/").append(issue.number())
+                    .append("\">#").append(issue.number())
+                    .append("</a>)</li>\n");
+        }
+        html.append("</ul>\n");
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /**
      * Generate release notes as AsciiDoc and write to a file, suitable
      * for inclusion in the Maven site build. Returns the path, or null
      * if the milestone is not found.
