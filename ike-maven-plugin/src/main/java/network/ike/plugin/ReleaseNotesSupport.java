@@ -385,6 +385,87 @@ public final class ReleaseNotesSupport {
     }
 
     /**
+     * Generate a full release history page as AsciiDoc, covering all
+     * closed milestones and any closed issues without a milestone.
+     * Each milestone becomes a section with categorized issues.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param outputDir directory to write release-notes.adoc into
+     * @param log       Maven logger
+     * @return the written file path, or null on failure
+     */
+    public static Path generateFullHistory(String repo, Path outputDir, Log log)
+            throws MojoExecutionException {
+        try {
+            String url = API_BASE + "/repos/" + repo
+                    + "/milestones?state=all&per_page=100&direction=desc&sort=completeness";
+            List<Map<String, Object>> milestones = apiGetList(url);
+
+            StringBuilder adoc = new StringBuilder();
+            adoc.append("= Release Notes\n\n");
+
+            boolean hasContent = false;
+
+            // Process each milestone (newest first)
+            for (Map<String, Object> ms : milestones) {
+                String title = (String) ms.get("title");
+                int number = ((Number) ms.get("number")).intValue();
+                String state = (String) ms.get("state");
+                int closedCount = ((Number) ms.get("closed_issues")).intValue();
+
+                if (closedCount == 0) continue;
+
+                List<Issue> closed = fetchClosedIssues(repo, number);
+                if (closed.isEmpty()) continue;
+
+                hasContent = true;
+                String stateMarker = "open".equals(state) ? " _(in progress)_" : "";
+                adoc.append("== ").append(title).append(stateMarker).append("\n\n");
+
+                List<Issue> fixes = new ArrayList<>();
+                List<Issue> enhancements = new ArrayList<>();
+                List<Issue> internal = new ArrayList<>();
+
+                for (Issue issue : closed) {
+                    if (issue.labels.contains("bug")) {
+                        fixes.add(issue);
+                    } else if (issue.labels.contains("enhancement")) {
+                        enhancements.add(issue);
+                    } else {
+                        internal.add(issue);
+                    }
+                }
+
+                Comparator<Issue> byNumber = Comparator.comparingInt(i -> i.number);
+                fixes.sort(byNumber);
+                enhancements.sort(byNumber);
+                internal.sort(byNumber);
+
+                appendAsciidocSection(adoc, "Fixes", fixes, repo);
+                appendAsciidocSection(adoc, "Enhancements", enhancements, repo);
+                appendAsciidocSection(adoc, "Internal", internal, repo);
+            }
+
+            if (!hasContent) {
+                adoc.append("No release milestones found. See the\n");
+                adoc.append("https://github.com/").append(repo)
+                        .append("/issues[issue tracker] for details.\n");
+            }
+
+            Files.createDirectories(outputDir);
+            Path outFile = outputDir.resolve("release-notes.adoc");
+            Files.writeString(outFile, adoc.toString(), StandardCharsets.UTF_8);
+            return outFile;
+        } catch (IOException | InterruptedException e) {
+            if (log != null) {
+                log.warn("Full release history generation failed: "
+                        + e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    /**
      * Generate release notes as AsciiDoc and write to a file, suitable
      * for inclusion in the Maven site build. Returns the path, or null
      * if the milestone is not found.

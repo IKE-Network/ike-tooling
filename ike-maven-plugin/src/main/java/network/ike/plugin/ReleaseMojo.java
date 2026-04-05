@@ -311,16 +311,16 @@ public class ReleaseMojo extends AbstractMojo {
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "verify", "-B", "-T", "1");
 
-                // 2a. Generate AsciiDoc release notes into src/site/asciidoc/
-                //     so the site build includes them. Non-fatal if it fails.
+                // 2a. Generate full release history into src/site/asciidoc/
+                //     Covers all milestones (not just the current release),
+                //     so the site always has complete release notes.
                 try {
-                    String milestoneName = projectId + " v" + releaseVersion;
                     Path siteAdocDir = gitRoot.toPath()
                             .resolve("src").resolve("site").resolve("asciidoc");
-                    Path adocFile = ReleaseNotesSupport.generateAsciidocToFile(
-                            issueRepo, milestoneName, siteAdocDir, getLog());
+                    Path adocFile = ReleaseNotesSupport.generateFullHistory(
+                            issueRepo, siteAdocDir, getLog());
                     if (adocFile != null) {
-                        getLog().info("Generated release notes: " + adocFile);
+                        getLog().info("Generated release history: " + adocFile);
                     }
                 } catch (MojoExecutionException e) {
                     getLog().warn("Could not generate site release notes: "
