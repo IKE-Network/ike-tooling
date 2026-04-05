@@ -1,0 +1,454 @@
+package network.ike.plugin;
+
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.logging.Log;
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Generates release notes from a GitHub milestone's closed issues.
+ *
+ * <p>Queries the GitHub REST API, categorizes issues by label into
+ * Fixes, Enhancements, and Internal sections, and produces markdown.
+ * JSON responses are parsed via SnakeYAML (JSON is valid YAML).
+ *
+ * <p>Used by both {@code ws:release-notes} (standalone) and
+ * {@code ike:release} (integrated into the release workflow).
+ */
+public final class ReleaseNotesSupport {
+
+    private ReleaseNotesSupport() {}
+
+    private static final String API_BASE = "https://api.github.com";
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
+
+    /**
+     * A closed issue from a GitHub milestone.
+     *
+     * @param number issue number
+     * @param title  issue title
+     * @param labels label names
+     */
+    public record Issue(int number, String title, List<String> labels) {}
+
+    /**
+     * Generate release notes markdown for a named milestone.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title (e.g., "ike-tooling v57")
+     * @param log       Maven logger (may be null for non-Maven callers)
+     * @return formatted markdown, or null if the milestone is not found
+     */
+    public static String generate(String repo, String milestone, Log log)
+            throws MojoExecutionException {
+        try {
+            int milestoneNumber = findMilestone(repo, milestone);
+            if (milestoneNumber < 0) return null;
+
+            List<Issue> issues = fetchClosedIssues(repo, milestoneNumber);
+            return formatNotes(milestone, issues);
+        } catch (IOException | InterruptedException e) {
+            if (log != null) {
+                log.warn("Release notes generation failed: " + e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Try to generate release notes, writing to a temp file suitable
+     * for {@code gh release create --notes-file}. Returns the path,
+     * or null if notes could not be generated.
+     */
+    public static Path generateToFile(String repo, String milestone, Log log)
+            throws MojoExecutionException {
+        String notes = generate(repo, milestone, log);
+        if (notes == null) return null;
+
+        try {
+            Path tempFile = Files.createTempFile("release-notes-", ".md");
+            Files.writeString(tempFile, notes, StandardCharsets.UTF_8);
+            return tempFile;
+        } catch (IOException e) {
+            if (log != null) {
+                log.warn("Could not write release notes to temp file: "
+                        + e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    // ── GitHub API ──────────────────────────────────────────────────
+
+    /**
+     * Close a GitHub milestone by title. Warns if the milestone has
+     * open issues remaining.
+     *
+     * @return true if closed, false if not found
+     */
+    public static boolean closeMilestone(String repo, String milestone, Log log)
+            throws MojoExecutionException {
+        try {
+            int number = findMilestone(repo, milestone);
+            if (number < 0) return false;
+
+            // Check for remaining open issues
+            List<Issue> open = fetchOpenIssues(repo, number);
+            if (!open.isEmpty() && log != null) {
+                log.warn("Milestone \"" + milestone + "\" has "
+                        + open.size() + " open issue(s) remaining:");
+                for (Issue issue : open) {
+                    log.warn("  #" + issue.number() + " " + issue.title());
+                }
+            }
+
+            apiPatch(API_BASE + "/repos/" + repo + "/milestones/" + number,
+                    "{\"state\":\"closed\"}");
+
+            if (log != null) {
+                log.info("Closed milestone: " + milestone);
+            }
+            return true;
+        } catch (IOException | InterruptedException e) {
+            if (log != null) {
+                log.warn("Could not close milestone: " + e.getMessage());
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Fetch all issues (open and closed) for a milestone, returning
+     * them categorized for a checkpoint testing context snapshot.
+     *
+     * @return snapshot with closed (ready to test) and open (in progress) issues,
+     *         or null if milestone not found
+     */
+    public static TestingContext snapshotMilestone(String repo, String milestone,
+                                                   Log log)
+            throws MojoExecutionException {
+        try {
+            int number = findMilestone(repo, milestone);
+            if (number < 0) return null;
+
+            List<Issue> closed = fetchClosedIssues(repo, number);
+            List<Issue> open = fetchOpenIssues(repo, number);
+
+            return new TestingContext(milestone, closed, open);
+        } catch (IOException | InterruptedException e) {
+            if (log != null) {
+                log.warn("Could not snapshot milestone: " + e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    /**
+     * A snapshot of milestone state for checkpoint testing context.
+     *
+     * @param milestone  the milestone title
+     * @param readyToTest closed issues — completed work available in this build
+     * @param inProgress  open issues — work actively changing
+     */
+    public record TestingContext(String milestone,
+                                 List<Issue> readyToTest,
+                                 List<Issue> inProgress) {
+
+        /** Format as markdown for inclusion in checkpoint output. */
+        public String toMarkdown() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("## Testing Context: ").append(milestone).append("\n\n");
+
+            if (!readyToTest.isEmpty()) {
+                sb.append("### Ready to Test\n\n");
+                for (Issue issue : readyToTest) {
+                    sb.append("- ").append(issue.title())
+                            .append(" (#").append(issue.number()).append(")\n");
+                }
+                sb.append("\n");
+            }
+
+            if (!inProgress.isEmpty()) {
+                sb.append("### In Progress\n\n");
+                for (Issue issue : inProgress) {
+                    sb.append("- ").append(issue.title())
+                            .append(" (#").append(issue.number()).append(")\n");
+                }
+                sb.append("\n");
+            }
+
+            if (readyToTest.isEmpty() && inProgress.isEmpty()) {
+                sb.append("No issues in milestone.\n");
+            }
+
+            return sb.toString();
+        }
+
+        /** Format as YAML for embedding in checkpoint YAML files. */
+        public String toYaml(String indent) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(indent).append("testing-context:\n");
+            sb.append(indent).append("  milestone: \"").append(milestone).append("\"\n");
+
+            if (!readyToTest.isEmpty()) {
+                sb.append(indent).append("  ready-to-test:\n");
+                for (Issue issue : readyToTest) {
+                    sb.append(indent).append("    - number: ").append(issue.number()).append("\n");
+                    sb.append(indent).append("      title: \"").append(escapeYaml(issue.title())).append("\"\n");
+                }
+            }
+
+            if (!inProgress.isEmpty()) {
+                sb.append(indent).append("  in-progress:\n");
+                for (Issue issue : inProgress) {
+                    sb.append(indent).append("    - number: ").append(issue.number()).append("\n");
+                    sb.append(indent).append("      title: \"").append(escapeYaml(issue.title())).append("\"\n");
+                }
+            }
+
+            return sb.toString();
+        }
+
+        private static String escapeYaml(String s) {
+            return s.replace("\"", "\\\"");
+        }
+    }
+
+    static int findMilestone(String repo, String title)
+            throws IOException, InterruptedException, MojoExecutionException {
+        String url = API_BASE + "/repos/" + repo
+                + "/milestones?state=all&per_page=100";
+        List<Map<String, Object>> milestones = apiGetList(url);
+
+        for (Map<String, Object> ms : milestones) {
+            if (title.equals(ms.get("title"))) {
+                return ((Number) ms.get("number")).intValue();
+            }
+        }
+
+        return -1; // Not found — non-fatal
+    }
+
+    static List<Issue> fetchClosedIssues(String repo, int milestoneNumber)
+            throws IOException, InterruptedException, MojoExecutionException {
+        List<Issue> all = new ArrayList<>();
+        int page = 1;
+
+        while (true) {
+            String url = API_BASE + "/repos/" + repo
+                    + "/issues?milestone=" + milestoneNumber
+                    + "&state=closed&per_page=100&page=" + page;
+            List<Map<String, Object>> batch = apiGetList(url);
+
+            if (batch.isEmpty()) break;
+
+            for (Map<String, Object> item : batch) {
+                if (item.containsKey("pull_request")) continue;
+
+                int number = ((Number) item.get("number")).intValue();
+                String itemTitle = (String) item.get("title");
+
+                List<String> labels = new ArrayList<>();
+                Object labelsObj = item.get("labels");
+                if (labelsObj instanceof List<?> labelList) {
+                    for (Object labelObj : labelList) {
+                        if (labelObj instanceof Map<?, ?> labelMap) {
+                            Object name = labelMap.get("name");
+                            if (name instanceof String s) {
+                                labels.add(s);
+                            }
+                        }
+                    }
+                }
+
+                all.add(new Issue(number, itemTitle, labels));
+            }
+
+            page++;
+        }
+
+        return all;
+    }
+
+    static List<Issue> fetchOpenIssues(String repo, int milestoneNumber)
+            throws IOException, InterruptedException, MojoExecutionException {
+        List<Issue> all = new ArrayList<>();
+        int page = 1;
+
+        while (true) {
+            String url = API_BASE + "/repos/" + repo
+                    + "/issues?milestone=" + milestoneNumber
+                    + "&state=open&per_page=100&page=" + page;
+            List<Map<String, Object>> batch = apiGetList(url);
+
+            if (batch.isEmpty()) break;
+
+            for (Map<String, Object> item : batch) {
+                if (item.containsKey("pull_request")) continue;
+
+                int number = ((Number) item.get("number")).intValue();
+                String itemTitle = (String) item.get("title");
+
+                List<String> labels = new ArrayList<>();
+                Object labelsObj = item.get("labels");
+                if (labelsObj instanceof List<?> labelList) {
+                    for (Object labelObj : labelList) {
+                        if (labelObj instanceof Map<?, ?> labelMap) {
+                            Object name = labelMap.get("name");
+                            if (name instanceof String s) {
+                                labels.add(s);
+                            }
+                        }
+                    }
+                }
+
+                all.add(new Issue(number, itemTitle, labels));
+            }
+
+            page++;
+        }
+
+        return all;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> apiGetList(String url)
+            throws IOException, InterruptedException, MojoExecutionException {
+        String body = apiGet(url);
+        Yaml yaml = new Yaml();
+        Object parsed = yaml.load(body);
+
+        if (parsed instanceof List<?> list) {
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    result.add((Map<String, Object>) map);
+                }
+            }
+            return result;
+        }
+
+        return List.of();
+    }
+
+    private static String apiGet(String url) throws IOException,
+            InterruptedException, MojoExecutionException {
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(TIMEOUT)
+                .build();
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(TIMEOUT)
+                .header("Accept", "application/vnd.github+json")
+                .GET();
+
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token != null && !token.isBlank()) {
+            builder.header("Authorization", "Bearer " + token);
+        }
+
+        HttpResponse<String> response = client.send(builder.build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            throw new MojoExecutionException(
+                    "GitHub API returned " + response.statusCode()
+                            + " for " + url + ": " + response.body());
+        }
+
+        return response.body();
+    }
+
+    private static void apiPatch(String url, String body)
+            throws IOException, InterruptedException, MojoExecutionException {
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(TIMEOUT)
+                .build();
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(TIMEOUT)
+                .header("Accept", "application/vnd.github+json")
+                .header("Content-Type", "application/json")
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(body));
+
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token != null && !token.isBlank()) {
+            builder.header("Authorization", "Bearer " + token);
+        }
+
+        HttpResponse<String> response = client.send(builder.build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            throw new MojoExecutionException(
+                    "GitHub API PATCH returned " + response.statusCode()
+                            + " for " + url + ": " + response.body());
+        }
+    }
+
+    // ── Formatting ──────────────────────────────────────────────────
+
+    public static String formatNotes(String milestoneName, List<Issue> issues) {
+        List<Issue> fixes = new ArrayList<>();
+        List<Issue> enhancements = new ArrayList<>();
+        List<Issue> internal = new ArrayList<>();
+
+        for (Issue issue : issues) {
+            if (issue.labels.contains("bug")) {
+                fixes.add(issue);
+            } else if (issue.labels.contains("enhancement")) {
+                enhancements.add(issue);
+            } else {
+                internal.add(issue);
+            }
+        }
+
+        Comparator<Issue> noteworthy = Comparator
+                .<Issue, Boolean>comparing(i -> !i.labels.contains("release-notes"))
+                .thenComparingInt(i -> i.number);
+
+        fixes.sort(noteworthy);
+        enhancements.sort(noteworthy);
+        internal.sort(noteworthy);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("## ").append(milestoneName).append("\n\n");
+
+        appendSection(sb, "Fixes", fixes);
+        appendSection(sb, "Enhancements", enhancements);
+        appendSection(sb, "Internal", internal);
+
+        if (issues.isEmpty()) {
+            sb.append("No closed issues in this milestone.\n");
+        }
+
+        return sb.toString();
+    }
+
+    private static void appendSection(StringBuilder sb, String heading,
+                                       List<Issue> issues) {
+        if (issues.isEmpty()) return;
+
+        sb.append("### ").append(heading).append("\n\n");
+        for (Issue issue : issues) {
+            sb.append("- ").append(issue.title)
+                    .append(" (#").append(issue.number).append(")\n");
+        }
+        sb.append("\n");
+    }
+}

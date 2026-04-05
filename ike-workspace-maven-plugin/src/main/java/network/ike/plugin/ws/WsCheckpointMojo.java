@@ -1,5 +1,6 @@
 package network.ike.plugin.ws;
 
+import network.ike.plugin.ReleaseNotesSupport;
 import network.ike.plugin.ReleaseSupport;
 
 import network.ike.workspace.Component;
@@ -85,6 +86,23 @@ public class WsCheckpointMojo extends AbstractWorkspaceMojo {
      */
     @Parameter(property = "dryRun", defaultValue = "false")
     boolean dryRun;
+
+    /**
+     * GitHub repository for issue tracking, used to snapshot active
+     * issues into the checkpoint's testing context.
+     */
+    @Parameter(property = "issueRepo", defaultValue = "IKE-Network/ike-issues")
+    String issueRepo;
+
+    /**
+     * Milestone name to snapshot for testing context. If omitted,
+     * looks for an open milestone matching the workspace's primary
+     * component (first component in manifest) in the form
+     * {@code <artifactId> v<version>} where version is the current
+     * SNAPSHOT stripped of the suffix.
+     */
+    @Parameter(property = "milestone")
+    String milestone;
 
     /** Creates this goal instance. */
     public WsCheckpointMojo() {}
@@ -186,6 +204,12 @@ public class WsCheckpointMojo extends AbstractWorkspaceMojo {
                 name, timestamp, author,
                 graph.manifest().schemaVersion(),
                 snapshots, absentComponents);
+
+        // ── Append testing context from milestone ─────────────────────
+        String testingContextYaml = snapshotTestingContext(graph);
+        if (testingContextYaml != null) {
+            yamlContent = yamlContent + "\n" + testingContextYaml;
+        }
 
         if (dryRun) {
             getLog().info("");
@@ -362,6 +386,48 @@ public class WsCheckpointMojo extends AbstractWorkspaceMojo {
         } catch (MojoExecutionException e) {
             return System.getProperty("user.name", "unknown");
         }
+    }
+
+    /**
+     * Query the issue tracker for the current milestone and return
+     * a YAML-formatted testing context, or null if no milestone found.
+     */
+    private String snapshotTestingContext(WorkspaceGraph graph)
+            throws MojoExecutionException {
+        if (issueRepo == null || issueRepo.isBlank()) return null;
+
+        String milestoneName = milestone;
+
+        // Auto-derive milestone name from first component if not specified
+        if (milestoneName == null || milestoneName.isBlank()) {
+            var components = graph.manifest().components();
+            if (!components.isEmpty()) {
+                var first = components.entrySet().iterator().next();
+                String compName = first.getKey();
+                String version = first.getValue().version();
+                if (version != null) {
+                    String releaseVersion = version.replace("-SNAPSHOT", "");
+                    milestoneName = compName + " v" + releaseVersion;
+                }
+            }
+        }
+
+        if (milestoneName == null || milestoneName.isBlank()) return null;
+
+        getLog().info("  Querying milestone: " + milestoneName);
+        var context = ReleaseNotesSupport.snapshotMilestone(
+                issueRepo, milestoneName, getLog());
+
+        if (context == null) {
+            getLog().info("  No milestone found — skipping testing context");
+            return null;
+        }
+
+        getLog().info("  Testing context: "
+                + context.readyToTest().size() + " ready, "
+                + context.inProgress().size() + " in progress");
+
+        return context.toYaml("  ");
     }
 
     /**

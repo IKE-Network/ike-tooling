@@ -342,6 +342,11 @@ class ReleaseIntegrationTest {
                 """;
         Files.writeString(dir.resolve("pom.xml"), pom, StandardCharsets.UTF_8);
 
+        // Create a no-op mvnw so ReleaseSupport.resolveMavenWrapper() finds it
+        Path mvnw = dir.resolve("mvnw");
+        Files.writeString(mvnw, "#!/bin/sh\nexit 0\n", StandardCharsets.UTF_8);
+        mvnw.toFile().setExecutable(true);
+
         exec(dir, "git", "init", "-b", "main");
         exec(dir, "git", "config", "user.email", "test@example.com");
         exec(dir, "git", "config", "user.name", "Test");

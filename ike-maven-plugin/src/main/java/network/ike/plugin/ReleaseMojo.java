@@ -6,6 +6,7 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -64,6 +65,16 @@ public class ReleaseMojo extends AbstractMojo {
     @Parameter(property = "deploySite", defaultValue = "true")
     boolean deploySite;
 
+    /**
+     * GitHub repository for issue tracking, used to look up a milestone
+     * named {@code <artifactId> v<version>} for release notes generation.
+     * If the milestone exists, its closed issues are formatted as the
+     * GitHub Release body. Falls back to {@code --generate-notes} if
+     * no milestone is found.
+     */
+    @Parameter(property = "issueRepo", defaultValue = "IKE-Network/ike-issues")
+    String issueRepo;
+
     /** Override working directory for tests. If null, uses current directory. */
     File baseDir;
 
@@ -74,10 +85,6 @@ public class ReleaseMojo extends AbstractMojo {
     public void execute() throws MojoExecutionException {
         File startDir = baseDir != null ? baseDir : new File(".");
         File gitRoot = ReleaseSupport.gitRoot(startDir);
-
-        // VCS bridge catch-up moved to ws:sync — run before ike:release
-        // if using the Syncthing-based VCS bridge across machines.
-        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
         File rootPom = new File(gitRoot, "pom.xml");
 
         // Default releaseVersion from current POM version
@@ -128,10 +135,7 @@ public class ReleaseMojo extends AbstractMojo {
 
         String projectId = ReleaseSupport.readPomArtifactId(rootPom);
 
-        // Build environment audit
-        logAudit(gitRoot, mvnw, currentBranch, releaseBranch, oldVersion, projectId);
-
-        // Validate clean worktree
+        // Validate clean worktree (cheap check — before wrapper resolution)
         ReleaseSupport.requireCleanWorktree(gitRoot);
 
         // Derive timestamp from the current HEAD commit, not wall-clock time.
@@ -166,6 +170,12 @@ public class ReleaseMojo extends AbstractMojo {
         }
 
         // ── Release ───────────────────────────────────────────────────
+
+        // Resolve Maven wrapper (requires mvnw or mvn on PATH — skip for dry-run)
+        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
+
+        // Build environment audit (needs mvnw for --version)
+        logAudit(gitRoot, mvnw, currentBranch, releaseBranch, oldVersion, projectId);
 
         // Create release branch
         ReleaseSupport.exec(gitRoot, getLog(),
@@ -344,19 +354,9 @@ public class ReleaseMojo extends AbstractMojo {
             getLog().info("No 'origin' remote — skipping push");
         }
 
-        // Create GitHub Release
+        // Create GitHub Release with milestone-based release notes
         if (hasOrigin) {
-            try {
-                ReleaseSupport.exec(gitRoot, getLog(),
-                        "gh", "release", "create", "v" + releaseVersion,
-                        "--title", releaseVersion,
-                        "--generate-notes", "--verify-tag");
-            } catch (MojoExecutionException e) {
-                getLog().warn("GitHub Release creation failed (gh CLI may not be installed): " +
-                        e.getMessage());
-                getLog().warn("Run manually: gh release create v" + releaseVersion +
-                        " --title " + releaseVersion + " --generate-notes");
-            }
+            createGitHubRelease(gitRoot, projectId, releaseVersion);
         } else {
             getLog().info("No 'origin' remote — skipping GitHub Release");
         }
@@ -451,5 +451,52 @@ public class ReleaseMojo extends AbstractMojo {
         getLog().info("  OS:             " + System.getProperty("os.name") + " " +
                 System.getProperty("os.arch"));
         getLog().info("");
+    }
+
+    /**
+     * Create a GitHub Release with milestone-based release notes.
+     *
+     * <p>Looks for a milestone named {@code <projectId> v<version>}
+     * in the configured issue repository. If found, generates formatted
+     * release notes from its closed issues. Falls back to GitHub's
+     * auto-generated commit-based notes if no milestone exists.
+     */
+    private void createGitHubRelease(File gitRoot, String projectId,
+                                      String version)
+            throws MojoExecutionException {
+        String milestoneName = projectId + " v" + version;
+
+        // Try milestone-based notes first
+        Path notesFile = ReleaseNotesSupport.generateToFile(
+                issueRepo, milestoneName, getLog());
+
+        try {
+            if (notesFile != null) {
+                getLog().info("Release notes generated from milestone: "
+                        + milestoneName);
+                ReleaseSupport.exec(gitRoot, getLog(),
+                        "gh", "release", "create", "v" + version,
+                        "--title", version,
+                        "--notes-file", notesFile.toString(),
+                        "--verify-tag");
+            } else {
+                getLog().info("No milestone \"" + milestoneName
+                        + "\" found — using auto-generated notes");
+                ReleaseSupport.exec(gitRoot, getLog(),
+                        "gh", "release", "create", "v" + version,
+                        "--title", version,
+                        "--generate-notes", "--verify-tag");
+            }
+        } catch (MojoExecutionException e) {
+            getLog().warn("GitHub Release creation failed "
+                    + "(gh CLI may not be installed): " + e.getMessage());
+            getLog().warn("Run manually: gh release create v" + version
+                    + " --title " + version + " --generate-notes");
+        }
+
+        // Close the milestone now that the release has shipped
+        if (notesFile != null) {
+            ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, getLog());
+        }
     }
 }
