@@ -1,6 +1,5 @@
 package network.ike.plugin.ws;
 
-import network.ike.plugin.IkeHelpMojo;
 import network.ike.plugin.ReleaseSupport;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -334,15 +333,6 @@ class WorkspaceMojoIntegrationTest {
         mojo.dryRun = true;
 
         // Should complete without exception — reports "No components need releasing"
-        assertThatCode(mojo::execute).doesNotThrowAnyException();
-    }
-
-    // ── IkeHelpMojo ─────────────────────────────────────────────────
-
-    @Test
-    void help_execute_printsGoals() {
-        IkeHelpMojo mojo = new IkeHelpMojo();
-
         assertThatCode(mojo::execute).doesNotThrowAnyException();
     }
 
