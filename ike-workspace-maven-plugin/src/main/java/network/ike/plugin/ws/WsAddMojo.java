@@ -4,6 +4,7 @@ import network.ike.plugin.ReleaseSupport;
 import network.ike.workspace.Component;
 import network.ike.workspace.Dependency;
 import network.ike.workspace.Manifest;
+import network.ike.workspace.ManifestException;
 import network.ike.workspace.ManifestReader;
 import network.ike.workspace.PublishedArtifactSet;
 
@@ -12,14 +13,18 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+
+import javax.xml.parsers.DocumentBuilder;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -128,6 +133,16 @@ public class WsAddMojo extends AbstractMojo {
             component = deriveComponentName(repo);
         }
 
+        // Check if already registered — if so, re-derive and update
+        // rather than appending a duplicate (idempotent behavior)
+        boolean alreadyRegistered = false;
+        try {
+            Manifest existing = ManifestReader.read(manifestPath);
+            alreadyRegistered = existing.components().containsKey(component);
+        } catch (ManifestException e) {
+            // Manifest may be empty/malformed on first add — continue
+        }
+
         if (description == null || description.isBlank()) {
             description = component + " component.";
         }
@@ -178,17 +193,26 @@ public class WsAddMojo extends AbstractMojo {
         } else {
             getLog().info("  Depends:   (none)");
         }
+        if (alreadyRegistered) {
+            getLog().info("  (already registered — re-validating dependencies)");
+        }
         if (cloned) {
             getLog().info("  ✓ Cloned " + component);
         }
         getLog().info("");
 
         try {
-            // Update workspace.yaml
-            appendComponentToManifest(manifestPath, derivedDeps);
-            getLog().info("  ✓ workspace.yaml updated");
+            if (alreadyRegistered) {
+                // Update existing entry's depends-on in workspace.yaml
+                updateComponentDependencies(manifestPath, component, derivedDeps);
+                getLog().info("  ✓ workspace.yaml updated (dependencies re-derived)");
+            } else {
+                // Append new component to workspace.yaml
+                appendComponentToManifest(manifestPath, derivedDeps);
+                getLog().info("  ✓ workspace.yaml updated");
+            }
 
-            // Update pom.xml
+            // Profile is idempotent — addProfileToPom already checks for existence
             addProfileToPom(pomPath);
             getLog().info("  ✓ pom.xml updated (profile: with-" + component + ")");
 
@@ -289,6 +313,47 @@ public class WsAddMojo extends AbstractMojo {
         Files.writeString(manifestPath, yaml, StandardCharsets.UTF_8);
     }
 
+    /**
+     * Update the depends-on section for an existing component in
+     * workspace.yaml. Replaces the current depends-on block with
+     * the newly derived dependencies.
+     */
+    void updateComponentDependencies(Path manifestPath, String componentName,
+                                      String derivedDeps) throws IOException {
+        String yaml = Files.readString(manifestPath, StandardCharsets.UTF_8);
+
+        // Build the new depends-on block
+        StringBuilder newDeps = new StringBuilder();
+        if (derivedDeps != null && !derivedDeps.isBlank()) {
+            newDeps.append("    depends-on:\n");
+            for (String dep : derivedDeps.split(",")) {
+                dep = dep.trim();
+                if (!dep.isEmpty()) {
+                    newDeps.append("      - component: ").append(dep).append("\n");
+                    newDeps.append("        relationship: build\n");
+                }
+            }
+        } else {
+            newDeps.append("    depends-on: []\n");
+        }
+
+        // Replace the existing depends-on block for this component.
+        // Match: "    depends-on: []\n" or "    depends-on:\n      - ...\n"
+        // within this component's section.
+        String escaped = Pattern.quote(componentName);
+        Pattern depsPattern = Pattern.compile(
+                "(" + escaped + ":[\\s\\S]*?)(    depends-on:.*(?:\\n      .*)*\\n)",
+                Pattern.MULTILINE);
+        Matcher m = depsPattern.matcher(yaml);
+        if (m.find()) {
+            yaml = yaml.substring(0, m.start(2))
+                    + newDeps
+                    + yaml.substring(m.end(2));
+        }
+
+        Files.writeString(manifestPath, yaml, StandardCharsets.UTF_8);
+    }
+
     // ── POM generation ───────────────────────────────────────────
 
     void addProfileToPom(Path pomPath) throws IOException {
@@ -327,13 +392,18 @@ public class WsAddMojo extends AbstractMojo {
     // ── Clone ────────────────────────────────────────────────────
 
     private void cloneComponent(Path wsDir) throws MojoExecutionException {
-        String[] cmd;
+        List<String> cmd = new ArrayList<>();
+        cmd.add("git");
+        cmd.add("clone");
+        cmd.add("--depth");
+        cmd.add("1");
         if (branch != null && !branch.isBlank()) {
-            cmd = new String[]{"git", "clone", "-b", branch, repo, component};
-        } else {
-            cmd = new String[]{"git", "clone", repo, component};
+            cmd.add("-b");
+            cmd.add(branch);
         }
-        ReleaseSupport.exec(wsDir.toFile(), getLog(), cmd);
+        cmd.add(repo);
+        cmd.add(component);
+        ReleaseSupport.exec(wsDir.toFile(), getLog(), cmd.toArray(new String[0]));
     }
 
     // ── POM-based dependency derivation ────────────────────────
@@ -505,6 +575,10 @@ public class WsAddMojo extends AbstractMojo {
      * build dependencies across the entire component (root POM +
      * all submodules/subprojects).
      *
+     * <p>Uses DOM parsing to correctly read XML structure and
+     * resolves Maven property references ({@code ${property.name}})
+     * from the POM's {@code <properties>} section.
+     *
      * <p>Scans {@code <parent>} and {@code <dependencies>} blocks,
      * but excludes {@code <dependencyManagement>} (which contains
      * BOM imports and version constraints, not build dependencies).
@@ -519,57 +593,167 @@ public class WsAddMojo extends AbstractMojo {
 
     /**
      * Recursively scan a POM and its submodules for referenced
-     * groupId:artifactId pairs.
+     * groupId:artifactId pairs using DOM parsing with property
+     * resolution.
      */
     private void scanPomForArtifacts(Path pomFile, Set<String> artifacts)
             throws IOException {
         if (!Files.exists(pomFile)) return;
 
-        String content = Files.readString(pomFile, StandardCharsets.UTF_8);
+        Document doc;
+        try {
+            DocumentBuilder db = DBF.newDocumentBuilder();
+            doc = db.parse(pomFile.toFile());
+        } catch (Exception e) {
+            // If we can't parse, skip this POM
+            return;
+        }
+
+        Element project = doc.getDocumentElement();
+
+        // Read <properties> for ${...} resolution
+        Map<String, String> properties = readProperties(project);
 
         // Extract parent groupId:artifactId
-        Matcher parentBlock = PARENT_BLOCK.matcher(content);
-        if (parentBlock.find()) {
-            String block = parentBlock.group();
-            String gid = extractFirst(GROUP_ID_PATTERN, block);
-            String aid = extractFirst(ARTIFACT_ID_PATTERN, block);
+        Element parentEl = firstChild(project, "parent");
+        if (parentEl != null) {
+            String gid = resolve(childText(parentEl, "groupId"), properties);
+            String aid = resolve(childText(parentEl, "artifactId"), properties);
             if (gid != null && aid != null) {
                 artifacts.add(gid + ":" + aid);
             }
         }
 
-        // Strip <dependencyManagement> before scanning <dependency> blocks
-        String stripped = DEP_MGMT_BLOCK.matcher(content).replaceAll("");
-
-        Matcher depBlock = DEPENDENCY_BLOCK.matcher(stripped);
-        while (depBlock.find()) {
-            String block = depBlock.group();
-            String gid = extractFirst(GROUP_ID_PATTERN, block);
-            String aid = extractFirst(ARTIFACT_ID_PATTERN, block);
-            if (gid != null && aid != null) {
-                artifacts.add(gid + ":" + aid);
+        // Extract dependency groupId:artifactId — skip dependencyManagement
+        Element depsEl = firstChild(project, "dependencies");
+        if (depsEl != null) {
+            for (Element dep : children(depsEl, "dependency")) {
+                String gid = resolve(childText(dep, "groupId"), properties);
+                String aid = resolve(childText(dep, "artifactId"), properties);
+                if (gid != null && aid != null) {
+                    artifacts.add(gid + ":" + aid);
+                }
             }
         }
 
-        // Recurse into subprojects (POM 4.1.0) and modules (POM 4.0.0)
+        // Recurse into subprojects (Maven 4.1.0) and modules (Maven 4.0.0)
         Path pomDir = pomFile.getParent();
 
-        Matcher subMatcher = SUBPROJECT_PATTERN.matcher(content);
-        while (subMatcher.find()) {
-            Path subPom = pomDir.resolve(subMatcher.group(1).trim()).resolve("pom.xml");
-            scanPomForArtifacts(subPom, artifacts);
+        Element subprojects = firstChild(project, "subprojects");
+        if (subprojects != null) {
+            for (Element sub : children(subprojects, "subproject")) {
+                String name = sub.getTextContent().trim();
+                scanPomForArtifacts(pomDir.resolve(name).resolve("pom.xml"), artifacts);
+            }
         }
 
-        Matcher modMatcher = MODULE_PATTERN.matcher(content);
-        while (modMatcher.find()) {
-            Path modPom = pomDir.resolve(modMatcher.group(1).trim()).resolve("pom.xml");
-            scanPomForArtifacts(modPom, artifacts);
+        Element modules = firstChild(project, "modules");
+        if (modules != null) {
+            for (Element mod : children(modules, "module")) {
+                String name = mod.getTextContent().trim();
+                scanPomForArtifacts(pomDir.resolve(name).resolve("pom.xml"), artifacts);
+            }
         }
     }
 
+    // ── DOM helpers ─────────────────────────────────────────────
+
+    /**
+     * Extract the first match of a regex pattern's first group.
+     * Used by the version alignment code which operates on raw POM text.
+     */
     private static String extractFirst(Pattern pattern, String text) {
         Matcher m = pattern.matcher(text);
         return m.find() ? m.group(1).trim() : null;
+    }
+
+    private static final javax.xml.parsers.DocumentBuilderFactory DBF;
+    static {
+        DBF = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        try {
+            DBF.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            DBF.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            DBF.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        } catch (javax.xml.parsers.ParserConfigurationException e) {
+            // Non-fatal
+        }
+    }
+
+    /**
+     * Read {@code <properties>} from a POM's project element into
+     * a map for {@code ${...}} resolution.
+     */
+    private static Map<String, String> readProperties(Element project) {
+        Map<String, String> props = new LinkedHashMap<>();
+        Element propsEl = firstChild(project, "properties");
+        if (propsEl != null) {
+            org.w3c.dom.NodeList children = propsEl.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                org.w3c.dom.Node node = children.item(i);
+                if (node.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                    String value = node.getTextContent().trim();
+                    if (!value.isEmpty()) {
+                        props.put(node.getNodeName(), value);
+                    }
+                }
+            }
+        }
+        return props;
+    }
+
+    /**
+     * Resolve {@code ${property.name}} references in a string using
+     * the given property map. Returns the input unchanged if no
+     * property reference is present or if the property is not found.
+     */
+    private static String resolve(String value, Map<String, String> properties) {
+        if (value == null || !value.contains("${")) return value;
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            value = value.replace("${" + entry.getKey() + "}", entry.getValue());
+        }
+        // If still contains unresolved references, return as-is
+        return value;
+    }
+
+    /**
+     * Get the text content of a direct child element, or null.
+     */
+    private static String childText(Element parent, String tagName) {
+        Element child = firstChild(parent, tagName);
+        if (child == null) return null;
+        String text = child.getTextContent().trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    /**
+     * Get the first direct child element with the given tag name.
+     */
+    private static Element firstChild(Element parent, String tagName) {
+        org.w3c.dom.NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            org.w3c.dom.Node node = children.item(i);
+            if (node.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE
+                    && tagName.equals(node.getNodeName())) {
+                return (Element) node;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get all direct child elements with the given tag name.
+     */
+    private static List<Element> children(Element parent, String tagName) {
+        List<Element> result = new ArrayList<>();
+        org.w3c.dom.NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            org.w3c.dom.Node node = children.item(i);
+            if (node.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE
+                    && tagName.equals(node.getNodeName())) {
+                result.add((Element) node);
+            }
+        }
+        return result;
     }
 
     // ── Version alignment ───────────────────────────────────────

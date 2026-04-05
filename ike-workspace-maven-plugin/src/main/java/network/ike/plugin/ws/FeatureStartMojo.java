@@ -160,6 +160,11 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
             }
 
             getLog().info("  \u2192 " + name + " \u2014 creating " + branchName);
+
+            // Auto-unshallow if this is a shallow clone — feature
+            // branches need full history for merge-base operations
+            ensureFullClone(dir, name);
+
             ReleaseSupport.exec(dir, getLog(),
                     "git", "checkout", "-b", branchName);
 
@@ -260,6 +265,9 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
             getLog().info("");
             return;
         }
+
+        // Auto-unshallow if needed
+        ensureFullClone(dir, dir.getName());
 
         // Create branch
         ReleaseSupport.exec(dir, getLog(),
@@ -454,6 +462,27 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
                 getLog().warn("    Could not cascade version properties in "
                         + name + ": " + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Check if a component is a shallow clone and fetch full history
+     * if needed. Feature branches require full history for merge-base
+     * operations during feature-finish.
+     */
+    private void ensureFullClone(File dir, String name)
+            throws MojoExecutionException {
+        try {
+            String isShallow = ReleaseSupport.execCapture(dir,
+                    "git", "rev-parse", "--is-shallow-repository");
+            if ("true".equals(isShallow.trim())) {
+                getLog().info("    Fetching full history (shallow clone detected)...");
+                ReleaseSupport.exec(dir, getLog(),
+                        "git", "fetch", "--unshallow");
+            }
+        } catch (MojoExecutionException e) {
+            getLog().warn("    Could not check/unshallow " + name
+                    + ": " + e.getMessage());
         }
     }
 }
