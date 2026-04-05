@@ -83,7 +83,7 @@ public class StignoreWorkspaceMojo extends AbstractWorkspaceMojo {
         File root = workspaceRoot();
 
         getLog().info("");
-        getLog().info("IKE Workspace — Generate .stignore");
+        getLog().info(header("Generate .stignore"));
         getLog().info("══════════════════════════════════════════════════════════════");
 
         // Build the workspace-level .stignore

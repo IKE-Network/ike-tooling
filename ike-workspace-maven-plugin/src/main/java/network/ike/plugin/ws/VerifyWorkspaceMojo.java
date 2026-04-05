@@ -39,7 +39,7 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
     @Override
     public void execute() throws MojoExecutionException {
         getLog().info("");
-        getLog().info("IKE Environment Verification");
+        getLog().info(header("Verification"));
         getLog().info("══════════════════════════════════════════════════════════════");
 
         if (isWorkspaceMode()) {

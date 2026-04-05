@@ -37,7 +37,7 @@ public class CascadeWorkspaceMojo extends AbstractWorkspaceMojo {
         WorkspaceGraph graph = loadGraph();
 
         getLog().info("");
-        getLog().info("IKE Workspace — Cascade from: " + component);
+        getLog().info(header("Cascade from: " + component));
         getLog().info("══════════════════════════════════════════════════════════════");
 
         List<String> affected = graph.cascade(component);

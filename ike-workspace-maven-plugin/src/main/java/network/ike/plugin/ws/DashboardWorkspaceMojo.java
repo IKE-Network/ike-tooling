@@ -33,7 +33,7 @@ public class DashboardWorkspaceMojo extends AbstractWorkspaceMojo {
         File root = workspaceRoot();
 
         getLog().info("");
-        getLog().info("IKE Workspace — Dashboard");
+        getLog().info(header("Dashboard"));
         getLog().info("══════════════════════════════════════════════════════════════");
 
         // ── Section 1: Manifest health ──────────────────────────────

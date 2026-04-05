@@ -47,7 +47,7 @@ public class GraphWorkspaceMojo extends AbstractWorkspaceMojo {
 
     private void printText(WorkspaceGraph graph) {
         getLog().info("");
-        getLog().info("IKE Workspace — Dependency Graph");
+        getLog().info(header("Dependency Graph"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("");
 

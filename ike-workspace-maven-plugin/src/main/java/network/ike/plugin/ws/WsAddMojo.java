@@ -105,6 +105,14 @@ public class WsAddMojo extends AbstractMojo {
     private String groupId;
 
     /**
+     * Maven version for the component. If omitted, derived from
+     * the component's root POM. Written to workspace.yaml so that
+     * {@code ws:feature-start} can branch-qualify it.
+     */
+    @Parameter(property = "version")
+    private String version;
+
+    /**
      * Skip cloning — register the component in workspace.yaml without
      * cloning. Dependencies cannot be derived without a POM to scan,
      * so they will be empty. Use {@code ws:init} to clone later.
@@ -163,6 +171,16 @@ public class WsAddMojo extends AbstractMojo {
                 groupId = deriveGroupId(componentDir);
             }
 
+            // Derive version from POM if not explicitly specified
+            if (version == null || version.isBlank()) {
+                try {
+                    version = ReleaseSupport.readPomVersion(
+                            componentDir.resolve("pom.xml").toFile());
+                } catch (MojoExecutionException e) {
+                    // Non-fatal — version will be null in manifest
+                }
+            }
+
             // Derive dependencies by matching POM groupIds against
             // already-registered workspace components
             try {
@@ -177,13 +195,17 @@ public class WsAddMojo extends AbstractMojo {
         }
 
         getLog().info("");
-        getLog().info("IKE Workspace — Add Component");
+        String wsName = readWorkspaceName(wsDir);
+        getLog().info(wsName + " — Add Component");
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Component: " + component);
         getLog().info("  Repo:      " + repo);
         getLog().info("  Type:      " + type);
         if (branch != null) {
             getLog().info("  Branch:    " + branch);
+        }
+        if (version != null && !version.isBlank()) {
+            getLog().info("  Version:   " + version);
         }
         if (groupId != null && !groupId.isBlank()) {
             getLog().info("  GroupId:   " + groupId);
@@ -281,6 +303,9 @@ public class WsAddMojo extends AbstractMojo {
         entry.append("    repo: ").append(repo).append("\n");
         if (branch != null && !branch.isBlank()) {
             entry.append("    branch: ").append(branch).append("\n");
+        }
+        if (version != null && !version.isBlank()) {
+            entry.append("    version: \"").append(version).append("\"\n");
         }
         if (groupId != null && !groupId.isBlank()) {
             entry.append("    groupId: ").append(groupId).append("\n");
@@ -974,6 +999,14 @@ public class WsAddMojo extends AbstractMojo {
             return m.replaceFirst("$1" + Matcher.quoteReplacement(updated) + "]");
         }
         return yaml;
+    }
+
+    private String readWorkspaceName(Path wsDir) {
+        try {
+            return ReleaseSupport.readPomArtifactId(wsDir.resolve("pom.xml").toFile());
+        } catch (MojoExecutionException e) {
+            return "Workspace";
+        }
     }
 
     private Path findWorkspaceRoot() throws MojoExecutionException {

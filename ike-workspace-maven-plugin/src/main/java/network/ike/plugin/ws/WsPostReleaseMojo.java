@@ -153,7 +153,7 @@ public class WsPostReleaseMojo extends AbstractWorkspaceMojo {
                     "post-release: bump to " + nextVersion);
 
             // Push if remote exists (safe — ignores failure)
-            VcsOperations.pushSafe(dir, getLog(), "origin",
+            VcsOperations.pushIfRemoteExists(dir, getLog(), "origin",
                     gitBranch(dir));
 
             versionUpdates.put(name, nextVersion);
@@ -179,7 +179,7 @@ public class WsPostReleaseMojo extends AbstractWorkspaceMojo {
                 ReleaseSupport.exec(wsRoot, getLog(), "git", "add", "workspace.yaml");
                 VcsOperations.commitStaged(wsRoot, getLog(),
                         "post-release: bump workspace versions to " + nextVersion);
-                VcsOperations.pushSafe(wsRoot, getLog(), "origin",
+                VcsOperations.pushIfRemoteExists(wsRoot, getLog(), "origin",
                         gitBranch(wsRoot));
             }
         }

@@ -213,6 +213,29 @@ public class VcsOperations {
     }
 
     /**
+     * Push to remote if it exists. If no remote is configured, logs
+     * a helpful message instead of failing with a cryptic git error.
+     *
+     * @param dir    the repository root directory
+     * @param log    Maven logger
+     * @param remote the remote name (e.g., "origin")
+     * @param branch the branch to push
+     */
+    public static void pushIfRemoteExists(File dir, Log log,
+                                            String remote, String branch) {
+        try {
+            if (!network.ike.plugin.ReleaseSupport.hasRemote(dir, remote)) {
+                log.info("  No remote '" + remote + "' configured for "
+                        + dir.getName() + " — changes remain local.");
+                return;
+            }
+            push(dir, log, remote, branch);
+        } catch (MojoExecutionException e) {
+            log.warn("  Push failed (non-fatal): " + e.getMessage());
+        }
+    }
+
+    /**
      * Push to remote with upstream tracking.
      * Sets {@code IKE_VCS_CONTEXT} to bypass the pre-push hook.
      *

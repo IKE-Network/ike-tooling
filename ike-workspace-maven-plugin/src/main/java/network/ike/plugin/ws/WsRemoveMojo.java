@@ -108,7 +108,7 @@ public class WsRemoveMojo extends AbstractWorkspaceMojo {
         }
 
         getLog().info("");
-        getLog().info("IKE Workspace — Remove Component");
+        getLog().info(header("Remove Component"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Component: " + component);
         if (!dependents.isEmpty()) {

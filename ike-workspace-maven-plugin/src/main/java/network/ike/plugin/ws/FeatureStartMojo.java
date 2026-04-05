@@ -107,7 +107,7 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
         List<String> sorted = graph.topologicalSort(new LinkedHashSet<>(targets));
 
         getLog().info("");
-        getLog().info("IKE Workspace — Feature Start");
+        getLog().info(header("Feature Start"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Feature: " + feature);
         getLog().info("  Branch:  " + branchName);
@@ -146,11 +146,25 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
                         name + " has uncommitted changes. Commit or stash before starting a feature.");
             }
 
+            // Resolve effective version: workspace.yaml first, POM fallback
+            String effectiveVersion = component.version();
+            if (effectiveVersion == null || effectiveVersion.isEmpty()) {
+                File pom = new File(dir, "pom.xml");
+                if (pom.exists()) {
+                    try {
+                        effectiveVersion = ReleaseSupport.readPomVersion(pom);
+                    } catch (MojoExecutionException e) {
+                        getLog().debug("Could not read POM version for "
+                                + name + ": " + e.getMessage());
+                    }
+                }
+            }
+
             if (dryRun) {
                 String versionInfo = "";
-                if (!skipVersion && component.version() != null) {
+                if (!skipVersion && effectiveVersion != null) {
                     String newVersion = VersionSupport.branchQualifiedVersion(
-                            component.version(), branchName);
+                            effectiveVersion, branchName);
                     versionInfo = " \u2192 " + newVersion;
                 }
                 getLog().info("  [dry-run] " + name + " \u2014 would create "
@@ -168,14 +182,14 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
             ReleaseSupport.exec(dir, getLog(),
                     "git", "checkout", "-b", branchName);
 
-            if (!skipVersion && component.version() != null
-                    && !component.version().isEmpty()) {
+            if (!skipVersion && effectiveVersion != null
+                    && !effectiveVersion.isEmpty()) {
                 String newVersion = VersionSupport.branchQualifiedVersion(
-                        component.version(), branchName);
-                getLog().info("    version: " + component.version()
+                        effectiveVersion, branchName);
+                getLog().info("    version: " + effectiveVersion
                         + " \u2192 " + newVersion);
 
-                setPomVersion(dir, component.version(), newVersion);
+                setPomVersion(dir, effectiveVersion, newVersion);
                 ReleaseSupport.exec(dir, getLog(),
                         "git", "add", "pom.xml");
                 ReleaseSupport.exec(dir, getLog(),
@@ -338,9 +352,17 @@ public class FeatureStartMojo extends AbstractWorkspaceMojo {
             VcsOperations.commit(wsRoot, getLog(),
                     "workspace: update branches for " + branchName);
 
-            // Push ws feature branch
-            VcsOperations.pushWithUpstream(wsRoot, getLog(), "origin", branchName);
-            VcsOperations.writeVcsState(wsRoot, VcsState.ACTION_FEATURE_START);
+            // Push ws feature branch (non-fatal if no remote)
+            if (ReleaseSupport.hasRemote(wsRoot, "origin")) {
+                VcsOperations.pushWithUpstream(wsRoot, getLog(), "origin", branchName);
+                VcsOperations.writeVcsState(wsRoot, VcsState.ACTION_FEATURE_START);
+            } else {
+                getLog().info("");
+                getLog().info("  Workspace has no remote origin — changes remain local.");
+                getLog().info("  To share this workspace with a team:");
+                getLog().info("    gh repo create <org>/" + wsRoot.getName()
+                        + " --private --source=. --push");
+            }
 
         } catch (IOException e) {
             getLog().warn("  Could not update workspace.yaml: " + e.getMessage());

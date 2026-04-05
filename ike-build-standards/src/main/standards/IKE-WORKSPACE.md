@@ -705,3 +705,12 @@ If a goal reports "component not found" for a name you expect to exist:
 - Workspace manifest (`workspace.yaml`) is the inter-repository dependency graph.
 - The aggregator POM and the manifest are complementary: POM drives `mvn`,
   YAML drives `ws:` workspace goals.
+- **Workspace goals are idempotent.** Running the same operation twice
+  produces the same result without side effects. `ws:add` on an
+  already-registered component re-derives dependencies and updates the
+  manifest. `ws:init` on an already-cloned component is a no-op.
+  `ws:feature-start` when a component is already on the target branch
+  skips it. This supports recovery from partial failures — re-running
+  a goal after a failure resumes from where it left off. This design
+  principle aligns with the broader IKE knowledge architecture where
+  change sets and change set imports are idempotent.

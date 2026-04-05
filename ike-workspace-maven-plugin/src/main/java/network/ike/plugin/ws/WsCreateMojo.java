@@ -116,7 +116,7 @@ public class WsCreateMojo extends AbstractMojo {
         }
 
         getLog().info("");
-        getLog().info("IKE Workspace — Create");
+        getLog().info(name + " — Create");
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Name:      " + name);
         getLog().info("  Directory: " + wsDir);

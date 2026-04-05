@@ -127,7 +127,7 @@ public class WsCheckpointMojo extends AbstractWorkspaceMojo {
         String author = resolveAuthor(root);
 
         getLog().info("");
-        getLog().info("IKE Workspace — Checkpoint");
+        getLog().info(header("Checkpoint"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Name:   " + name);
         getLog().info("  Time:   " + timestamp);

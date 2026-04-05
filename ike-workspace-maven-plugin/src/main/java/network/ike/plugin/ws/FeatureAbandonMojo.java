@@ -126,7 +126,7 @@ public class FeatureAbandonMojo extends AbstractWorkspaceMojo {
         Collections.reverse(reversed);
 
         getLog().info("");
-        getLog().info("IKE Workspace — Feature Abandon");
+        getLog().info(header("Feature Abandon"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Feature:  " + feature);
         getLog().info("  Branch:   " + branchName + " → " + targetBranch);
@@ -340,7 +340,7 @@ public class FeatureAbandonMojo extends AbstractWorkspaceMojo {
                         "workspace: revert branches after abandon " + branchName);
             }
 
-            VcsOperations.pushSafe(wsRoot, getLog(), "origin", targetBranch);
+            VcsOperations.pushIfRemoteExists(wsRoot, getLog(), "origin", targetBranch);
 
         } catch (IOException e) {
             getLog().warn("  Could not update workspace.yaml: " + e.getMessage());

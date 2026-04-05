@@ -95,7 +95,7 @@ public class FeatureFinishMergeMojo extends AbstractWorkspaceMojo {
         Collections.reverse(reversed);
 
         getLog().info("");
-        getLog().info("IKE Workspace — Feature Finish (merge)");
+        getLog().info(header("Feature Finish (merge)"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Feature:  " + feature);
         getLog().info("  Branch:   " + branchName + " → " + targetBranch);
@@ -138,7 +138,7 @@ public class FeatureFinishMergeMojo extends AbstractWorkspaceMojo {
             VcsOperations.catchUp(dir, getLog());
             VcsOperations.checkout(dir, getLog(), targetBranch);
             VcsOperations.mergeNoFf(dir, getLog(), branchName, message);
-            VcsOperations.pushSafe(dir, getLog(), "origin", targetBranch);
+            VcsOperations.pushIfRemoteExists(dir, getLog(), "origin", targetBranch);
 
             if (!keepBranch) {
                 FeatureFinishSupport.deleteBranch(dir, getLog(), branchName);
@@ -186,7 +186,7 @@ public class FeatureFinishMergeMojo extends AbstractWorkspaceMojo {
 
         VcsOperations.checkout(dir, getLog(), targetBranch);
         VcsOperations.mergeNoFf(dir, getLog(), branchName, message);
-        VcsOperations.pushSafe(dir, getLog(), "origin", targetBranch);
+        VcsOperations.pushIfRemoteExists(dir, getLog(), "origin", targetBranch);
 
         if (!keepBranch) {
             FeatureFinishSupport.deleteBranch(dir, getLog(), branchName);

@@ -52,7 +52,7 @@ public class PullWorkspaceMojo extends AbstractWorkspaceMojo {
         List<String> sorted = graph.topologicalSort(new LinkedHashSet<>(targets));
 
         getLog().info("");
-        getLog().info("IKE Workspace — Pull");
+        getLog().info(header("Pull"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("");
 

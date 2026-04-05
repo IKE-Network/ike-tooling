@@ -193,4 +193,28 @@ abstract class AbstractWorkspaceMojo extends AbstractMojo {
                 propertyName + " is required. Specify -D" + propertyName
                         + "=<value> or run interactively.");
     }
+
+    /**
+     * Read the workspace name from the root POM's artifactId.
+     * Falls back to "Workspace" if the POM cannot be read.
+     */
+    protected String workspaceName() {
+        try {
+            File rootPom = new File(workspaceRoot(), "pom.xml");
+            if (rootPom.exists()) {
+                return ReleaseSupport.readPomArtifactId(rootPom);
+            }
+        } catch (MojoExecutionException e) {
+            // Fall through
+        }
+        return "Workspace";
+    }
+
+    /**
+     * Format a goal header line using the workspace name.
+     * Example: "komet-ws — Status"
+     */
+    protected String header(String goalName) {
+        return workspaceName() + " — " + goalName;
+    }
 }

@@ -39,7 +39,7 @@ public class StatusWorkspaceMojo extends AbstractWorkspaceMojo {
         File root = workspaceRoot();
 
         getLog().info("");
-        getLog().info("IKE Workspace — Status");
+        getLog().info(header("Status"));
         getLog().info("══════════════════════════════════════════════════════════════");
 
         Set<String> targets;

@@ -64,7 +64,7 @@ public class WsUpgradeMojo extends AbstractWorkspaceMojo {
         if (pluginVersion == null) pluginVersion = "49";
 
         getLog().info("");
-        getLog().info("IKE Workspace — Upgrade");
+        getLog().info(header("Upgrade"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Workspace: " + root.getName());
         getLog().info("  Plugin:    " + pluginVersion);

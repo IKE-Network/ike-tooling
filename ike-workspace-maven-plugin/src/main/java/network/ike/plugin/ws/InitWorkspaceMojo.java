@@ -69,7 +69,7 @@ public class InitWorkspaceMojo extends AbstractWorkspaceMojo {
         List<String> sorted = graph.topologicalSort(new LinkedHashSet<>(targets));
 
         getLog().info("");
-        getLog().info("IKE Workspace — Init");
+        getLog().info(header("Init"));
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Target: " + (group != null ? group : "all")
                 + " (" + sorted.size() + " components)");
