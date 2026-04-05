@@ -115,8 +115,7 @@ public final class ReleaseNotesSupport {
                 }
             }
 
-            apiPatch(API_BASE + "/repos/" + repo + "/milestones/" + number,
-                    "{\"state\":\"closed\"}");
+            closeMilestoneViaGh(repo, number);
 
             if (log != null) {
                 log.info("Closed milestone: " + milestone);
@@ -373,35 +372,102 @@ public final class ReleaseNotesSupport {
         return response.body();
     }
 
-    private static void apiPatch(String url, String body)
-            throws IOException, InterruptedException, MojoExecutionException {
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(TIMEOUT)
-                .build();
+    /**
+     * Close a GitHub milestone by number using the {@code gh} CLI,
+     * which handles authentication via its own keyring. This avoids
+     * requiring {@code GITHUB_TOKEN} for write operations.
+     */
+    private static void closeMilestoneViaGh(String repo, int milestoneNumber)
+            throws MojoExecutionException {
+        ReleaseSupport.execCapture(new java.io.File("."),
+                "gh", "api", "repos/" + repo + "/milestones/" + milestoneNumber,
+                "-X", "PATCH", "-f", "state=closed");
+    }
 
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(TIMEOUT)
-                .header("Accept", "application/vnd.github+json")
-                .header("Content-Type", "application/json")
-                .method("PATCH", HttpRequest.BodyPublishers.ofString(body));
+    /**
+     * Generate release notes as AsciiDoc and write to a file, suitable
+     * for inclusion in the Maven site build. Returns the path, or null
+     * if the milestone is not found.
+     */
+    public static Path generateAsciidocToFile(String repo, String milestone,
+                                               Path outputDir, Log log)
+            throws MojoExecutionException {
+        try {
+            int milestoneNumber = findMilestone(repo, milestone);
+            if (milestoneNumber < 0) return null;
 
-        String token = System.getenv("GITHUB_TOKEN");
-        if (token != null && !token.isBlank()) {
-            builder.header("Authorization", "Bearer " + token);
-        }
+            List<Issue> issues = fetchClosedIssues(repo, milestoneNumber);
+            String adoc = formatAsciidoc(milestone, issues, repo);
 
-        HttpResponse<String> response = client.send(builder.build(),
-                HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() != 200) {
-            throw new MojoExecutionException(
-                    "GitHub API PATCH returned " + response.statusCode()
-                            + " for " + url + ": " + response.body());
+            Files.createDirectories(outputDir);
+            Path outFile = outputDir.resolve("release-notes.adoc");
+            Files.writeString(outFile, adoc, StandardCharsets.UTF_8);
+            return outFile;
+        } catch (IOException | InterruptedException e) {
+            if (log != null) {
+                log.warn("AsciiDoc release notes generation failed: "
+                        + e.getMessage());
+            }
+            return null;
         }
     }
 
-    // ── Formatting ──────────────────────────────────────────────────
+    /**
+     * Format release notes as AsciiDoc for site integration.
+     */
+    public static String formatAsciidoc(String milestoneName, List<Issue> issues,
+                                         String repo) {
+        List<Issue> fixes = new ArrayList<>();
+        List<Issue> enhancements = new ArrayList<>();
+        List<Issue> internal = new ArrayList<>();
+
+        for (Issue issue : issues) {
+            if (issue.labels.contains("bug")) {
+                fixes.add(issue);
+            } else if (issue.labels.contains("enhancement")) {
+                enhancements.add(issue);
+            } else {
+                internal.add(issue);
+            }
+        }
+
+        Comparator<Issue> noteworthy = Comparator
+                .<Issue, Boolean>comparing(i -> !i.labels.contains("release-notes"))
+                .thenComparingInt(i -> i.number);
+
+        fixes.sort(noteworthy);
+        enhancements.sort(noteworthy);
+        internal.sort(noteworthy);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("= Release Notes: ").append(milestoneName).append("\n\n");
+
+        appendAsciidocSection(sb, "Fixes", fixes, repo);
+        appendAsciidocSection(sb, "Enhancements", enhancements, repo);
+        appendAsciidocSection(sb, "Internal", internal, repo);
+
+        if (issues.isEmpty()) {
+            sb.append("No closed issues in this milestone.\n");
+        }
+
+        return sb.toString();
+    }
+
+    private static void appendAsciidocSection(StringBuilder sb, String heading,
+                                               List<Issue> issues, String repo) {
+        if (issues.isEmpty()) return;
+
+        sb.append("== ").append(heading).append("\n\n");
+        for (Issue issue : issues) {
+            sb.append("* ").append(issue.title())
+                    .append(" (https://github.com/").append(repo)
+                    .append("/issues/").append(issue.number())
+                    .append("[#").append(issue.number()).append("])\n");
+        }
+        sb.append("\n");
+    }
+
+    // ── Formatting (Markdown) ───────────────────────────────────────
 
     public static String formatNotes(String milestoneName, List<Issue> issues) {
         List<Issue> fixes = new ArrayList<>();

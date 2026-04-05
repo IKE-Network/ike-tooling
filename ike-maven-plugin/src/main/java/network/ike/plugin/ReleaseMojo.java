@@ -311,8 +311,24 @@ public class ReleaseMojo extends AbstractMojo {
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "verify", "-B", "-T", "1");
 
-                // 2. Build site (generates JaCoCo HTML from jacoco.exec).
-                //    -T 1: maven-site-plugin is not @ThreadSafe.
+                // 2a. Generate AsciiDoc release notes into src/site/asciidoc/
+                //     so the site build includes them. Non-fatal if it fails.
+                try {
+                    String milestoneName = projectId + " v" + releaseVersion;
+                    Path siteAdocDir = gitRoot.toPath()
+                            .resolve("src").resolve("site").resolve("asciidoc");
+                    Path adocFile = ReleaseNotesSupport.generateAsciidocToFile(
+                            issueRepo, milestoneName, siteAdocDir, getLog());
+                    if (adocFile != null) {
+                        getLog().info("Generated release notes: " + adocFile);
+                    }
+                } catch (MojoExecutionException e) {
+                    getLog().warn("Could not generate site release notes: "
+                            + e.getMessage());
+                }
+
+                // 2b. Build site (generates JaCoCo HTML from jacoco.exec).
+                //     -T 1: maven-site-plugin is not @ThreadSafe.
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "site", "-B", "-T", "1");
 
@@ -494,9 +510,17 @@ public class ReleaseMojo extends AbstractMojo {
                     + " --title " + version + " --generate-notes");
         }
 
-        // Close the milestone now that the release has shipped
+        // Close the milestone now that the release has shipped.
+        // Non-fatal — the release is already done at this point.
         if (notesFile != null) {
-            ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, getLog());
+            try {
+                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, getLog());
+            } catch (MojoExecutionException e) {
+                getLog().warn("Could not close milestone (release succeeded): "
+                        + e.getMessage());
+                getLog().warn("Close manually: gh api repos/" + issueRepo
+                        + "/milestones/1 -X PATCH -f state=closed");
+            }
         }
     }
 }

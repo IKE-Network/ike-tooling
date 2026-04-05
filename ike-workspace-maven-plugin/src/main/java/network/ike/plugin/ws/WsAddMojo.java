@@ -432,26 +432,59 @@ public class WsAddMojo extends AbstractMojo {
     }
 
     /**
-     * Extract all groupIds referenced in a POM's parent and dependency
-     * blocks.
+     * Extract all groupIds referenced as build dependencies across
+     * the entire component (root POM + all submodules/subprojects).
+     *
+     * <p>Scans {@code <parent>} and {@code <dependencies>} blocks,
+     * but excludes {@code <dependencyManagement>} (which contains
+     * BOM imports and version constraints, not build dependencies).
      */
     private Set<String> extractReferencedGroupIds(Path pomFile) throws IOException {
-        String content = Files.readString(pomFile, StandardCharsets.UTF_8);
         Set<String> groupIds = new LinkedHashSet<>();
+        scanPomForGroupIds(pomFile, groupIds);
+        return groupIds;
+    }
 
+    /**
+     * Recursively scan a POM and its submodules for referenced groupIds.
+     */
+    private void scanPomForGroupIds(Path pomFile, Set<String> groupIds)
+            throws IOException {
+        if (!Files.exists(pomFile)) return;
+
+        String content = Files.readString(pomFile, StandardCharsets.UTF_8);
+
+        // Extract parent groupId
         Matcher parentBlock = PARENT_BLOCK.matcher(content);
         if (parentBlock.find()) {
             Matcher gm = GROUP_ID_PATTERN.matcher(parentBlock.group());
             if (gm.find()) groupIds.add(gm.group(1).trim());
         }
 
-        Matcher depBlock = DEPENDENCY_BLOCK.matcher(content);
+        // Strip <dependencyManagement> before scanning <dependency> blocks —
+        // BOM imports are version constraints, not build dependencies
+        String stripped = DEP_MGMT_BLOCK.matcher(content).replaceAll("");
+
+        Matcher depBlock = DEPENDENCY_BLOCK.matcher(stripped);
         while (depBlock.find()) {
             Matcher gm = GROUP_ID_PATTERN.matcher(depBlock.group());
             if (gm.find()) groupIds.add(gm.group(1).trim());
         }
 
-        return groupIds;
+        // Recurse into subprojects (POM 4.1.0) and modules (POM 4.0.0)
+        Path pomDir = pomFile.getParent();
+
+        Matcher subMatcher = SUBPROJECT_PATTERN.matcher(content);
+        while (subMatcher.find()) {
+            Path subPom = pomDir.resolve(subMatcher.group(1).trim()).resolve("pom.xml");
+            scanPomForGroupIds(subPom, groupIds);
+        }
+
+        Matcher modMatcher = MODULE_PATTERN.matcher(content);
+        while (modMatcher.find()) {
+            Path modPom = pomDir.resolve(modMatcher.group(1).trim()).resolve("pom.xml");
+            scanPomForGroupIds(modPom, groupIds);
+        }
     }
 
     /**
@@ -489,6 +522,12 @@ public class WsAddMojo extends AbstractMojo {
             Pattern.compile("<groupId>([^<]+)</groupId>");
     private static final Pattern DEPENDENCY_BLOCK =
             Pattern.compile("(?s)<dependency>.*?</dependency>");
+    private static final Pattern DEP_MGMT_BLOCK =
+            Pattern.compile("(?s)<dependencyManagement>.*?</dependencyManagement>");
+    private static final Pattern SUBPROJECT_PATTERN =
+            Pattern.compile("<subproject>([^<]+)</subproject>");
+    private static final Pattern MODULE_PATTERN =
+            Pattern.compile("<module>([^<]+)</module>");
 
     // ── Helpers ──────────────────────────────────────────────────
 

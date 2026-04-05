@@ -96,6 +96,15 @@ public class WsCreateMojo extends AbstractMojo {
 
         Path wsDir = Path.of(System.getProperty("user.dir")).resolve(name);
 
+        // Fail if workspace files already exist (prevent silent overwrite)
+        if (Files.exists(wsDir.resolve("pom.xml"))
+                || Files.exists(wsDir.resolve("workspace.yaml"))) {
+            throw new MojoExecutionException(
+                    "Workspace already exists at " + wsDir
+                    + " (pom.xml or workspace.yaml found). "
+                    + "Remove the directory first or choose a different name.");
+        }
+
         getLog().info("");
         getLog().info("IKE Workspace — Create");
         getLog().info("══════════════════════════════════════════════════════════════");
