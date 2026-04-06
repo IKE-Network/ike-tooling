@@ -1,7 +1,12 @@
 package network.ike.plugin.ws;
 
+import network.ike.plugin.ReleaseSupport;
 import network.ike.workspace.BomAnalysis;
 import network.ike.workspace.Component;
+import network.ike.workspace.DependencyConvergenceAnalysis;
+import network.ike.workspace.DependencyConvergenceAnalysis.Divergence;
+import network.ike.workspace.DependencyTreeParser;
+import network.ike.workspace.DependencyTreeParser.ResolvedDependency;
 import network.ike.workspace.PublishedArtifactSet;
 import network.ike.workspace.WorkspaceGraph;
 
@@ -12,8 +17,10 @@ import network.ike.plugin.ws.vcs.VcsOperations;
 import network.ike.plugin.ws.vcs.VcsState;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -39,6 +46,21 @@ import java.util.Properties;
 @Mojo(name = "verify", requiresProject = false, threadSafe = true)
 public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
 
+    /**
+     * Run transitive dependency convergence analysis across all
+     * workspace components. Slow — requires {@code mvn dependency:tree}
+     * per component.
+     */
+    @Parameter(property = "checkConvergence", defaultValue = "false")
+    boolean checkConvergence;
+
+    /**
+     * Output file for the convergence markdown report. Defaults to
+     * {@code target/convergence-report.md} in the workspace root.
+     */
+    @Parameter(property = "convergenceReport")
+    String convergenceReport;
+
     /** Creates this goal instance. */
     public VerifyWorkspaceMojo() {}
 
@@ -51,6 +73,9 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
         if (isWorkspaceMode()) {
             verifyWorkspaceManifest();
             verifyBomCascade();
+            if (checkConvergence) {
+                verifyDependencyConvergence();
+            }
             verifyWorkspaceVcs();
         } else {
             verifyBareVcs();
@@ -134,6 +159,125 @@ public class VerifyWorkspaceMojo extends AbstractWorkspaceMojo {
         } catch (java.io.IOException e) {
             getLog().warn("  BOM cascade check failed: " + e.getMessage());
         }
+    }
+
+    // ── Dependency convergence check ───────────────────────────────
+
+    private void verifyDependencyConvergence() throws MojoExecutionException {
+        WorkspaceGraph graph = loadGraph();
+        File root = workspaceRoot();
+
+        getLog().info("");
+        getLog().info("  Dependency convergence (this may take a while)...");
+        getLog().info("");
+
+        // Resolve Maven wrapper or mvn for running dependency:tree
+        File mvnExecutable = resolveMvn(root);
+
+        // Collect dependency trees per component in topological order
+        List<String> order = graph.topologicalSort();
+        Map<String, List<ResolvedDependency>> componentTrees =
+                new LinkedHashMap<>();
+
+        for (String name : order) {
+            File compDir = new File(root, name);
+            File pomFile = new File(compDir, "pom.xml");
+            if (!pomFile.exists()) {
+                getLog().debug("Skipping " + name + " (not cloned)");
+                continue;
+            }
+
+            getLog().info("    Resolving " + name + "...");
+            try {
+                String treeOutput = ReleaseSupport.execCapture(compDir,
+                        mvnExecutable.getAbsolutePath(),
+                        "dependency:tree", "-DoutputType=text",
+                        "-B", "-q");
+                List<ResolvedDependency> deps =
+                        DependencyTreeParser.parse(treeOutput);
+                if (!deps.isEmpty()) {
+                    componentTrees.put(name, deps);
+                }
+            } catch (MojoExecutionException e) {
+                getLog().warn("    ⚠ " + name + ": dependency:tree failed — "
+                        + e.getMessage());
+            }
+        }
+
+        if (componentTrees.size() < 2) {
+            getLog().info("    Fewer than 2 components resolved — skipping analysis");
+            return;
+        }
+
+        // Analyze
+        List<Divergence> divergences =
+                DependencyConvergenceAnalysis.analyze(componentTrees);
+
+        // Terminal output
+        if (divergences.isEmpty()) {
+            getLog().info("");
+            getLog().info("  Convergence: all shared dependencies converge across "
+                    + componentTrees.size() + " components  ✓");
+        } else {
+            getLog().info("");
+            getLog().warn("  Convergence: " + divergences.size()
+                    + " artifact(s) diverge across "
+                    + componentTrees.size() + " components");
+            getLog().warn("");
+
+            for (Divergence d : divergences) {
+                getLog().warn("    " + d.coordinate());
+                for (var vEntry : d.versionToComponents().entrySet()) {
+                    getLog().warn("      " + vEntry.getKey() + " ← "
+                            + String.join(", ", vEntry.getValue()));
+                }
+            }
+        }
+
+        // Markdown report (always write if convergence was checked)
+        String wsName = workspaceName();
+        String markdown = divergences.isEmpty()
+                ? "# Dependency Convergence — " + wsName + "\n\n"
+                + "All shared dependencies converge across "
+                + componentTrees.size() + " components. ✓\n"
+                : DependencyConvergenceAnalysis.formatMarkdownReport(
+                divergences, wsName);
+
+        Path reportPath = resolveReportPath(root);
+        try {
+            Files.createDirectories(reportPath.getParent());
+            Files.writeString(reportPath, markdown, StandardCharsets.UTF_8);
+            getLog().info("");
+            getLog().info("  Report: " + reportPath);
+        } catch (IOException e) {
+            getLog().warn("  Could not write convergence report: "
+                    + e.getMessage());
+        }
+    }
+
+    private File resolveMvn(File root) throws MojoExecutionException {
+        // Prefer mvnw in workspace root
+        File mvnw = new File(root, "mvnw");
+        if (mvnw.exists() && mvnw.canExecute()) {
+            return mvnw;
+        }
+
+        // Fall back to mvn on PATH
+        try {
+            ReleaseSupport.execCapture(root, "mvn", "--version");
+            return new File("mvn");
+        } catch (MojoExecutionException e) {
+            throw new MojoExecutionException(
+                    "Cannot find mvnw or mvn. Place mvnw in the workspace "
+                            + "root or ensure mvn is on PATH.");
+        }
+    }
+
+    private Path resolveReportPath(File root) {
+        if (convergenceReport != null && !convergenceReport.isBlank()) {
+            return Path.of(convergenceReport);
+        }
+        return root.toPath().resolve("target").resolve("convergence-report.md");
     }
 
     // ── Subproject git state (workspace mode) ─────────────────────
