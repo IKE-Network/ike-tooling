@@ -167,14 +167,18 @@ public class ReleaseMojo extends AbstractMojo {
             getLog().info("[DRY RUN] Would bump to next version: " + nextVersion);
             getLog().info("[DRY RUN] --- all local work above, external below ---");
             if (deploySite) {
-                getLog().info("[DRY RUN] Would deploy site to: " +
-                        "scpexe://proxy/srv/ike-site/" + projectId + "/release");
-            }
-            if (publishSite && deploySite) {
-                getLog().info("[DRY RUN] Would publish site to GitHub Pages (gh-pages branch)");
+                getLog().info("[DRY RUN] Would generate site (must succeed)");
             }
             getLog().info("[DRY RUN] Would deploy to Nexus from tag v" +
-                    releaseVersion + " (last — irreversible)");
+                    releaseVersion + " (critical)");
+            if (deploySite) {
+                getLog().info("[DRY RUN] Would deploy site to: " +
+                        "scpexe://proxy/srv/ike-site/" + projectId + "/release"
+                        + " (best-effort)");
+            }
+            if (publishSite && deploySite) {
+                getLog().info("[DRY RUN] Would publish site to GitHub Pages (best-effort)");
+            }
             getLog().info("[DRY RUN] Would push tag and main to origin");
             getLog().info("[DRY RUN] Would create GitHub Release");
             return;
@@ -284,11 +288,12 @@ public class ReleaseMojo extends AbstractMojo {
         // external action below fails, all local git state is consistent
         // and the deploy can be retried manually.
         //
-        // Order matters — most reversible actions first, irreversible last:
-        //   1. Site deploy (overwritable — safe to retry)
-        //   2. Nexus deploy (irreversible — release repos reject overwrites)
-        //   3. Push tag + main (additive — safe to retry)
-        //   4. GitHub Release (additive — safe to retry)
+        // Order: generate site, deploy artifacts, then best-effort site deploy:
+        //   1. Generate site (must succeed — part of a valid release)
+        //   2. Nexus deploy (critical — the actual release artifact)
+        //   3. Site deploy + publish (best-effort — warn on failure)
+        //   4. Push tag + main (additive — safe to retry)
+        //   5. GitHub Release (additive — safe to retry)
 
         getLog().info("");
         getLog().info("Local work complete. Starting external deploys...");
@@ -299,34 +304,26 @@ public class ReleaseMojo extends AbstractMojo {
         // Deploy from the tagged release commit
         ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "checkout", "v" + releaseVersion);
+
+        // Site URL info needed for both generation and deploy phases
+        String releaseDisk = null;
+        String stagingUrl = null;
         try {
-            // Site deploy first (overwritable — can always re-deploy).
-            // Must rebuild site here because the tag checkout wiped target/.
-            // The local-phase site:stage was a pre-flight check only.
-            //
-            // Stage-and-swap: deploy to .staging dir, then atomic rename.
-            // This avoids a window where the live site is missing and
-            // eliminates stale files from previous releases.
+            // ── Site generation (must succeed before Nexus deploy) ────
+            // A release without a valid site is incomplete. The tag
+            // checkout wiped target/, so everything is rebuilt here.
             if (deploySite) {
-                String releaseDisk = ReleaseSupport.siteDiskPath(
+                releaseDisk = ReleaseSupport.siteDiskPath(
                         projectId, "release", null);
                 String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);
                 String releaseUrl = "scpexe://proxy" + releaseDisk;
-                String stagingUrl = ReleaseSupport.siteStagingUrl(releaseUrl);
+                stagingUrl = ReleaseSupport.siteStagingUrl(releaseUrl);
 
-                getLog().info("Deploying site to staging...");
-                ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
-                // 1. Run verify so JaCoCo coverage data is generated.
-                //    The tag checkout wiped target/, so jacoco.exec must
-                //    be recreated for the coverage report.
+                // 1. Verify (generates JaCoCo coverage data)
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "verify", "-B", "-T", "1");
 
-                // 2a. Generate full release history as XHTML into
-                //     target/generated-site/xhtml/ so maven-site-plugin
-                //     includes it via generatedSiteDirectory. Written as
-                //     an XHTML fragment (not full page) so the site skin
-                //     wraps it with navigation and styling.
+                // 2. Generate release history XHTML for site inclusion
                 try {
                     Path generatedXhtml = gitRoot.toPath()
                             .resolve("target").resolve("generated-site").resolve("xhtml");
@@ -340,45 +337,39 @@ public class ReleaseMojo extends AbstractMojo {
                             + e.getMessage());
                 }
 
-                // 2b. Build site (generates JaCoCo HTML from jacoco.exec).
-                //     -T 1: maven-site-plugin is not @ThreadSafe.
+                // 3. Build site (generates JaCoCo HTML from jacoco.exec)
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "site", "-B", "-T", "1");
 
-                // 3. Inject breadcrumbs and theme into JaCoCo HTML.
-                //    Must run AFTER site (which generates fresh HTML)
-                //    but BEFORE site:stage (which packages for deploy).
+                // 4. Inject breadcrumbs into JaCoCo reports
                 getLog().info("Injecting breadcrumbs into JaCoCo reports...");
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "ike:inject-breadcrumb",
                         "-B", "-T", "1");
 
-                // 4. Stage and deploy the site (with injected breadcrumbs).
+                // 5. Stage site (packages for deploy)
                 ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(), "site:stage",
-                        "site:deploy", "-B", "-T", "1",
-                        "-Dsite.deploy.url=" + stagingUrl);
-                ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
+                        mvnw.getAbsolutePath(), "site:stage", "-B", "-T", "1");
             }
 
-            // Publish to GitHub Pages (overwritable — safe to retry).
-            // Uses the staged site already in target/staging/ from the
-            // site:stage step above.
-            if (publishSite && deploySite) {
-                getLog().info("Publishing site to GitHub Pages...");
-                ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(), "ike:publish-site", "-B",
-                        "-DpublishMessage=site: publish " + projectId
-                                + " " + releaseVersion);
-            }
-
-            // Nexus deploy LAST — irreversible, only after everything
-            // else has succeeded. Install first so reactor siblings
-            // with BOM imports can resolve classified artifacts.
+            // ── Nexus deploy (critical — the actual release) ─────────
             getLog().info("Deploying to Nexus...");
             ReleaseSupport.exec(gitRoot, getLog(),
                     mvnw.getAbsolutePath(), "clean", "deploy", "-B", "-T", "1",
                     "-P", "release,signArtifacts");
+
+            // ── Site deploy + publish (best-effort after Nexus) ──────
+            // Failures warn with retry instructions rather than failing
+            // the release — the artifacts are already published.
+            if (deploySite) {
+                try {
+                    deploySiteAndPublish(gitRoot, mvnw, projectId,
+                            releaseVersion, releaseDisk, stagingUrl);
+                } catch (MojoExecutionException e) {
+                    logSiteDeployRetryInstructions(projectId, releaseVersion,
+                            e.getMessage());
+                }
+            }
         } finally {
             // Always return to main, even if deploy fails
             ReleaseSupport.exec(gitRoot, getLog(), "git", "checkout", "main");
@@ -495,6 +486,55 @@ public class ReleaseMojo extends AbstractMojo {
         getLog().info("  OS:             " + System.getProperty("os.name") + " " +
                 System.getProperty("os.arch"));
         getLog().info("");
+    }
+
+    /**
+     * Deploy the staged site and publish to GitHub Pages.
+     *
+     * <p>Called only after site generation and Nexus deploy have both
+     * succeeded. Failures here are caught by the caller and reported
+     * as warnings with retry instructions.
+     */
+    private void deploySiteAndPublish(File gitRoot, File mvnw,
+                                       String projectId, String version,
+                                       String releaseDisk, String stagingUrl)
+            throws MojoExecutionException {
+        String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);
+
+        getLog().info("Deploying site to staging...");
+        ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
+        ReleaseSupport.exec(gitRoot, getLog(),
+                mvnw.getAbsolutePath(), "site:deploy", "-B", "-T", "1",
+                "-Dsite.deploy.url=" + stagingUrl);
+        ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
+
+        if (publishSite) {
+            getLog().info("Publishing site to GitHub Pages...");
+            ReleaseSupport.exec(gitRoot, getLog(),
+                    mvnw.getAbsolutePath(), "ike:publish-site", "-B",
+                    "-DpublishMessage=site: publish " + projectId
+                            + " " + version);
+        }
+    }
+
+    /**
+     * Log retry instructions when site deploy/publish fails after a
+     * successful Nexus deploy. Keeps the release from failing.
+     */
+    private void logSiteDeployRetryInstructions(String projectId,
+                                                 String version,
+                                                 String errorMessage) {
+        getLog().warn("");
+        getLog().warn("Site deploy/publish failed: " + errorMessage);
+        getLog().warn("Nexus deploy succeeded — artifacts are published.");
+        getLog().warn("To retry site deploy manually:");
+        getLog().warn("  git checkout v" + version);
+        getLog().warn("  mvn site:deploy -B -T 1");
+        getLog().warn("  mvn ike:publish-site -B"
+                + " -DpublishMessage=\"site: publish " + projectId
+                + " " + version + "\"");
+        getLog().warn("  git checkout main");
+        getLog().warn("");
     }
 
     /**
