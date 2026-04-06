@@ -25,12 +25,16 @@ import java.io.File;
  * deploys (SCP alone only copies, never deletes) and avoids a
  * window where the site is missing.
  *
+ * <p>By default this goal runs as a <strong>dry-run preview</strong>.
+ * Use {@code ike:deploy-site-apply} to execute, or pass
+ * {@code -DdryRun=false} explicitly.
+ *
  * <p>Usage:
  * <pre>
- * mvn ike:deploy-site -DsiteType=snapshot
- * mvn ike:deploy-site -DsiteType=snapshot -Dbranch=feature/kec-march-25
- * mvn ike:deploy-site -DsiteType=checkpoint -DsiteVersion=7-checkpoint.20260228.1
- * mvn ike:deploy-site -DsiteType=release
+ * mvn ike:deploy-site -DsiteType=snapshot            (preview)
+ * mvn ike:deploy-site-apply -DsiteType=snapshot       (execute)
+ * mvn ike:deploy-site-apply -DsiteType=release
+ * mvn ike:deploy-site-apply -DsiteType=checkpoint -DsiteVersion=7-checkpoint.20260228.1
  * </pre>
  */
 @Mojo(name = "deploy-site", requiresProject = false, aggregator = true, threadSafe = true)
@@ -38,8 +42,8 @@ public class DeploySiteMojo extends AbstractMojo {
 
     private static final String SITE_URL_BASE = "scpexe://proxy/srv/ike-site/";
 
-    @Parameter(property = "siteType", required = true)
-    private String siteType;
+    @Parameter(property = "siteType")
+    String siteType;
 
     /**
      * Explicit site version for checkpoint deploys.
@@ -57,8 +61,8 @@ public class DeploySiteMojo extends AbstractMojo {
     private String branch;
 
     /** Show plan without executing. */
-    @Parameter(property = "dryRun", defaultValue = "false")
-    private boolean dryRun;
+    @Parameter(property = "dryRun", defaultValue = "true")
+    boolean dryRun;
 
     /** Skip the {@code mvn clean verify} step. */
     @Parameter(property = "skipBuild", defaultValue = "false")
@@ -77,6 +81,9 @@ public class DeploySiteMojo extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException {
+        siteType = MojoParamSupport.requireParam(siteType, "siteType",
+                "Site type (release, snapshot, or checkpoint)");
+
         File gitRoot = ReleaseSupport.gitRoot(new File("."));
         File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
         File rootPom = new File(gitRoot, "pom.xml");

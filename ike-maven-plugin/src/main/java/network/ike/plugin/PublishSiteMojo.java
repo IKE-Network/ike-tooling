@@ -27,16 +27,20 @@ import java.nio.file.attribute.BasicFileAttributes;
  * keeping the internal release process as the source of truth and
  * GitHub Pages as a public publication channel.
  *
+ * <p>By default this goal runs as a <strong>dry-run preview</strong>.
+ * Use {@code ike:publish-site-apply} to execute, or pass
+ * {@code -DdryRun=false} explicitly.
+ *
  * <p>Usage:
  * <pre>
- * # After site is already built:
+ * # Preview what would happen:
  * mvn ike:publish-site
  *
- * # Build site first, then publish:
- * mvn site site:stage ike:publish-site
+ * # Actually publish:
+ * mvn ike:publish-site-apply
  *
- * # Dry run:
- * mvn ike:publish-site -DdryRun=true
+ * # Build site first, then publish:
+ * mvn site site:stage ike:publish-site-apply
  * </pre>
  */
 @Mojo(name = "publish-site", requiresProject = false, aggregator = true, threadSafe = true)
@@ -59,8 +63,8 @@ public class PublishSiteMojo extends AbstractMojo {
     private String publishMessage;
 
     /** Show plan without executing. */
-    @Parameter(property = "dryRun", defaultValue = "false")
-    private boolean dryRun;
+    @Parameter(property = "dryRun", defaultValue = "true")
+    boolean dryRun;
 
     /** Creates this goal instance. */
     public PublishSiteMojo() {}

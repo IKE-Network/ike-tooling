@@ -40,8 +40,13 @@ import java.util.List;
  *   <li>Create GitHub Release</li>
  * </ol>
  *
- * <p>Usage: {@code mvn ike:release} (auto-derives version from POM),
- * or override with {@code mvn ike:release -DreleaseVersion=2}
+ * <p>By default this goal runs as a <strong>dry-run preview</strong>.
+ * Use {@code ike:release-apply} to execute the release, or pass
+ * {@code -DdryRun=false} explicitly.
+ *
+ * <p>Usage: {@code mvn ike:release} (preview),
+ * {@code mvn ike:release-apply} (execute),
+ * or override version with {@code mvn ike:release-apply -DreleaseVersion=2}
  *
  */
 @Mojo(name = "release", requiresProject = false, aggregator = true, threadSafe = true)
@@ -53,7 +58,7 @@ public class ReleaseMojo extends AbstractMojo {
     @Parameter(property = "nextVersion")
     String nextVersion;
 
-    @Parameter(property = "dryRun", defaultValue = "false")
+    @Parameter(property = "dryRun", defaultValue = "true")
     boolean dryRun;
 
     @Parameter(property = "skipVerify", defaultValue = "false")
@@ -344,7 +349,7 @@ public class ReleaseMojo extends AbstractMojo {
                 // 4. Inject breadcrumbs into JaCoCo reports
                 getLog().info("Injecting breadcrumbs into JaCoCo reports...");
                 ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(), "ike:inject-breadcrumb",
+                        mvnw.getAbsolutePath(), "network.ike.tooling:ike-maven-plugin:inject-breadcrumb",
                         "-B", "-T", "1");
 
                 // 5. Stage site (packages for deploy)
@@ -511,7 +516,7 @@ public class ReleaseMojo extends AbstractMojo {
         if (publishSite) {
             getLog().info("Publishing site to GitHub Pages...");
             ReleaseSupport.exec(gitRoot, getLog(),
-                    mvnw.getAbsolutePath(), "ike:publish-site", "-B",
+                    mvnw.getAbsolutePath(), "network.ike.tooling:ike-maven-plugin:publish-site", "-B",
                     "-DpublishMessage=site: publish " + projectId
                             + " " + version);
         }
