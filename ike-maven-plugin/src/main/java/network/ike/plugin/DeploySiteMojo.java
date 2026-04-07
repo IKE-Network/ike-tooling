@@ -82,7 +82,7 @@ public class DeploySiteMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException {
         siteType = MojoParamSupport.requireParam(siteType, "siteType",
-                "Site type (release, snapshot, or checkpoint)");
+                "Site type (release, snapshot, or checkpoint)", getLog());
 
         File gitRoot = ReleaseSupport.gitRoot(new File("."));
         File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());

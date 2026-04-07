@@ -555,9 +555,8 @@ public class ReleaseMojo extends AbstractMojo {
                         "  Continue with %d warning(s)? (yes/no): ",
                         warnings.size());
             } else {
-                System.out.print("  Continue with " + warnings.size()
-                        + " warning(s)? (yes/no): ");
-                System.out.flush();
+                getLog().info("\u001B[33m  Continue with " + warnings.size()
+                        + " warning(s)? (yes/no): \u001B[0m");
                 try {
                     answer = new java.io.BufferedReader(
                             new java.io.InputStreamReader(System.in)).readLine();

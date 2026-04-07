@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.logging.Log;
 
 /**
  * Static utility for interactive parameter resolution in mojos
@@ -24,11 +25,13 @@ final class MojoParamSupport {
      * @param currentValue  the value from the {@code @Parameter} field (may be null)
      * @param propertyName  the {@code -D} property name (for the error message)
      * @param promptLabel   human-readable label shown in the prompt
+     * @param log           Maven logger — prompt goes through the logger so
+     *                      IntelliJ renders it without a {@code [stdout]} prefix
      * @return the resolved value — either the original or user-supplied
      * @throws MojoExecutionException if no value can be obtained
      */
     static String requireParam(String currentValue, String propertyName,
-                               String promptLabel)
+                               String promptLabel, Log log)
             throws MojoExecutionException {
         if (currentValue != null && !currentValue.isBlank()) {
             return currentValue.trim();
@@ -46,8 +49,8 @@ final class MojoParamSupport {
             // with stdin/stdout wired to the Run console panel. System.console()
             // is null (not a real terminal), but System.in is connected and
             // interactive — the same mechanism the Plexus Prompter uses.
-            System.out.print(promptLabel + ": ");
-            System.out.flush();
+            // ANSI yellow so the prompt stands out from green input text.
+            log.info("\u001B[33m" + promptLabel + ": \u001B[0m");
             try {
                 java.io.BufferedReader reader = new java.io.BufferedReader(
                         new java.io.InputStreamReader(System.in));
