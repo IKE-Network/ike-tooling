@@ -541,8 +541,35 @@ public class ReleaseMojo extends AbstractMojo {
 
         if (!warnings.isEmpty()) {
             getLog().info("");
-            getLog().info("  " + warnings.size() + " warning(s) — release will "
-                    + "proceed but some post-deploy steps may fail.");
+            for (String w : warnings) {
+                getLog().warn("  ⚠ " + w);
+            }
+            getLog().info("");
+
+            // Prompt for confirmation — uses the same console/System.in
+            // strategy as MojoParamSupport.
+            String answer = null;
+            java.io.Console console = System.console();
+            if (console != null) {
+                answer = console.readLine(
+                        "  Continue with %d warning(s)? (yes/no): ",
+                        warnings.size());
+            } else {
+                System.out.print("  Continue with " + warnings.size()
+                        + " warning(s)? (yes/no): ");
+                System.out.flush();
+                try {
+                    answer = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(System.in)).readLine();
+                } catch (java.io.IOException e) {
+                    // Fall through — treat as "no"
+                }
+            }
+
+            if (answer == null || !answer.trim().equalsIgnoreCase("yes")) {
+                throw new MojoExecutionException(
+                        "Release aborted. Resolve warnings and retry.");
+            }
         }
         getLog().info("");
     }
