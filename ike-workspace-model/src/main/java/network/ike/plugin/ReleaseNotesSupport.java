@@ -343,8 +343,27 @@ public final class ReleaseNotesSupport {
         return List.of();
     }
 
+    /**
+     * Fetch a GitHub API endpoint. Tries {@code gh api} first
+     * (authenticated via the gh CLI's keyring, 5,000 req/hr), then
+     * falls back to {@code HttpClient} with an optional
+     * {@code GITHUB_TOKEN} environment variable (60 req/hr
+     * unauthenticated).
+     */
     private static String apiGet(String url) throws IOException,
             InterruptedException, MojoExecutionException {
+        // Extract the API path from the full URL for gh api
+        String apiPath = url.replace(API_BASE + "/", "");
+
+        // Try gh api first — authenticated, higher rate limit
+        try {
+            return ReleaseSupport.execCapture(new java.io.File("."),
+                    "gh", "api", apiPath);
+        } catch (MojoExecutionException e) {
+            // gh not available or failed — fall through to HttpClient
+        }
+
+        // Fallback: HttpClient with optional GITHUB_TOKEN
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(TIMEOUT)
                 .build();
