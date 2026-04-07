@@ -151,6 +151,15 @@ public class ReleaseMojo extends AbstractMojo {
         // Validate clean worktree (cheap check — before wrapper resolution)
         ReleaseSupport.requireCleanWorktree(gitRoot);
 
+        // ── Preflight: verify external connectivity before any work ──
+        // Every external action is checked upfront so failures happen
+        // in seconds, not after a 10-minute build. Each check is
+        // non-destructive and idempotent.
+        boolean hasOrigin = ReleaseSupport.hasRemote(gitRoot, "origin");
+        if (!dryRun) {
+            preflightChecks(gitRoot, hasOrigin, projectId);
+        }
+
         // Derive timestamp from the current HEAD commit, not wall-clock time.
         // This ensures two independent builds from the same tag produce the
         // same project.build.outputTimestamp value — which is the reproducibility
@@ -304,8 +313,6 @@ public class ReleaseMojo extends AbstractMojo {
         getLog().info("Local work complete. Starting external deploys...");
         getLog().info("");
 
-        boolean hasOrigin = ReleaseSupport.hasRemote(gitRoot, "origin");
-
         // Deploy from the tagged release commit
         ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "checkout", "v" + releaseVersion);
@@ -456,6 +463,88 @@ public class ReleaseMojo extends AbstractMojo {
                     .withZone(ZoneOffset.UTC)
                     .format(Instant.now());
         }
+    }
+
+    /**
+     * Verify all external dependencies before starting the release.
+     *
+     * <p>Each check is non-destructive and fast. Failures here happen
+     * in seconds instead of after a 10-minute build cycle.
+     *
+     * <p>Checks:
+     * <ol>
+     *   <li>Git push — can we authenticate to the remote?</li>
+     *   <li>SSH proxy — can we reach the site deploy server?</li>
+     *   <li>gh CLI — is it installed and authenticated?</li>
+     *   <li>Maven wrapper — is it present and executable?</li>
+     * </ol>
+     */
+    private void preflightChecks(File gitRoot, boolean hasOrigin,
+                                  String projectId)
+            throws MojoExecutionException {
+        getLog().info("");
+        getLog().info("PREFLIGHT CHECKS");
+        List<String> warnings = new java.util.ArrayList<>();
+
+        // 1. Git push auth — dry-run push (sends nothing, tests auth)
+        if (hasOrigin) {
+            try {
+                ReleaseSupport.execCapture(gitRoot,
+                        "git", "push", "--dry-run", "origin", "main");
+                getLog().info("  Git push:    authenticated  ✓");
+            } catch (MojoExecutionException e) {
+                throw new MojoExecutionException(
+                        "Cannot push to origin. Fix authentication before "
+                                + "releasing.\n  Error: " + e.getMessage());
+            }
+        } else {
+            getLog().info("  Git push:    no origin remote (local-only release)");
+        }
+
+        // 2. SSH proxy — can we reach the site deploy server?
+        if (deploySite) {
+            try {
+                ReleaseSupport.execCapture(gitRoot,
+                        "ssh", "-o", "ConnectTimeout=5",
+                        "-o", "BatchMode=yes",
+                        "proxy", "echo", "ok");
+                getLog().info("  SSH proxy:   reachable  ✓");
+            } catch (MojoExecutionException e) {
+                warnings.add("SSH proxy unreachable — site deploy will be "
+                        + "skipped. Error: " + e.getMessage());
+                getLog().warn("  SSH proxy:   unreachable (site deploy will fail)");
+            }
+        }
+
+        // 3. gh CLI — installed and authenticated?
+        if (hasOrigin) {
+            try {
+                ReleaseSupport.execCapture(gitRoot, "gh", "auth", "status");
+                getLog().info("  gh CLI:      authenticated  ✓");
+            } catch (MojoExecutionException e) {
+                warnings.add("gh CLI not available or not authenticated — "
+                        + "GitHub Release will be skipped. "
+                        + "Run: gh auth login");
+                getLog().warn("  gh CLI:      not available (GitHub Release "
+                        + "will be skipped)");
+            }
+        }
+
+        // 4. Maven wrapper
+        try {
+            ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
+            getLog().info("  Maven:       wrapper found  ✓");
+        } catch (MojoExecutionException e) {
+            throw new MojoExecutionException(
+                    "Maven wrapper (mvnw) not found. Run: mvn wrapper:wrapper");
+        }
+
+        if (!warnings.isEmpty()) {
+            getLog().info("");
+            getLog().info("  " + warnings.size() + " warning(s) — release will "
+                    + "proceed but some post-deploy steps may fail.");
+        }
+        getLog().info("");
     }
 
     private void logAudit(File gitRoot, File mvnw, String branch,
