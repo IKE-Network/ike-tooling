@@ -358,9 +358,12 @@ public class ReleaseMojo extends AbstractMojo {
             }
 
             // ── Nexus deploy (critical — the actual release) ─────────
+            // No 'clean' here — the verify + site phases above already
+            // built everything, and clean would wipe target/staging/
+            // which site:deploy needs in the next step.
             getLog().info("Deploying to Nexus...");
             ReleaseSupport.exec(gitRoot, getLog(),
-                    mvnw.getAbsolutePath(), "clean", "deploy", "-B", "-T", "1",
+                    mvnw.getAbsolutePath(), "deploy", "-B", "-T", "1",
                     "-P", "release,signArtifacts");
 
             // ── Site deploy + publish (best-effort after Nexus) ──────
