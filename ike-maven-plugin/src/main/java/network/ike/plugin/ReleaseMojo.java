@@ -293,10 +293,10 @@ public class ReleaseMojo extends AbstractMojo {
         // external action below fails, all local git state is consistent
         // and the deploy can be retried manually.
         //
-        // Order: generate site, deploy artifacts, then best-effort site deploy:
-        //   1. Generate site (must succeed — part of a valid release)
-        //   2. Nexus deploy (critical — the actual release artifact)
-        //   3. Site deploy + publish (best-effort — warn on failure)
+        // Order: generate site, deploy site, then Nexus (clean build):
+        //   1. Generate site (verify → site → stage — catches errors early)
+        //   2. Site deploy + publish (best-effort, while target/staging/ exists)
+        //   3. Nexus deploy (clean deploy — fresh build for artifact integrity)
         //   4. Push tag + main (additive — safe to retry)
         //   5. GitHub Release (additive — safe to retry)
 
@@ -355,21 +355,9 @@ public class ReleaseMojo extends AbstractMojo {
                 // 5. Stage site (packages for deploy)
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "site:stage", "-B", "-T", "1");
-            }
 
-            // ── Nexus deploy (critical — the actual release) ─────────
-            // No 'clean' here — the verify + site phases above already
-            // built everything, and clean would wipe target/staging/
-            // which site:deploy needs in the next step.
-            getLog().info("Deploying to Nexus...");
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    mvnw.getAbsolutePath(), "deploy", "-B", "-T", "1",
-                    "-P", "release,signArtifacts");
-
-            // ── Site deploy + publish (best-effort after Nexus) ──────
-            // Failures warn with retry instructions rather than failing
-            // the release — the artifacts are already published.
-            if (deploySite) {
+                // 6. Deploy site + publish (while target/staging/ exists)
+                // Best-effort — failures warn but don't block Nexus deploy.
                 try {
                     deploySiteAndPublish(gitRoot, mvnw, projectId,
                             releaseVersion, releaseDisk, stagingUrl);
@@ -378,6 +366,14 @@ public class ReleaseMojo extends AbstractMojo {
                             e.getMessage());
                 }
             }
+
+            // ── Nexus deploy (critical — the actual release) ─────────
+            // clean deploy: fresh build ensures artifact integrity.
+            // Site was already deployed above (before clean wipes staging).
+            getLog().info("Deploying to Nexus...");
+            ReleaseSupport.exec(gitRoot, getLog(),
+                    mvnw.getAbsolutePath(), "clean", "deploy", "-B", "-T", "1",
+                    "-P", "release,signArtifacts");
         } finally {
             // Always return to main, even if deploy fails
             ReleaseSupport.exec(gitRoot, getLog(), "git", "checkout", "main");
