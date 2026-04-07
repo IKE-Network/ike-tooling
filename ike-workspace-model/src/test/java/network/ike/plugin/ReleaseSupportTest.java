@@ -514,10 +514,10 @@ class ReleaseSupportTest {
     }
 
     @Test
-    void routeSubprocessLine_plainText_routesToInfo() {
+    void routeSubprocessLine_plainText_routesToDebug() {
         var log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "Just a plain line");
-        assertThat(log.infos).containsExactly("Just a plain line");
+        assertThat(log.debugs).containsExactly("Just a plain line");
     }
 
     @Test

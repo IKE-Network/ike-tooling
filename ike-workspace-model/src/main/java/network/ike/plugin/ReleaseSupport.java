@@ -45,7 +45,7 @@ public class ReleaseSupport {
      */
     public static void exec(File workDir, Log log, String... command)
             throws MojoExecutionException {
-        log.info("» " + String.join(" ", command));
+        log.debug("» " + String.join(" ", command));
         try {
             Process proc = new ProcessBuilder(command)
                     .directory(workDir)
@@ -108,7 +108,7 @@ public class ReleaseSupport {
             // JVM-style errors
             log.error(prefix + line.substring(7));
         } else {
-            log.info(prefix + line);
+            log.debug(prefix + line);
         }
     }
 
@@ -673,7 +673,7 @@ public class ReleaseSupport {
                                     String... sshPrefix)
             throws MojoExecutionException {
         validateRemotePath(remotePath);
-        log.info("Cleaning remote site: " + remotePath);
+        log.debug("Cleaning remote site: " + remotePath);
         String[] cmd = new String[sshPrefix.length + 3];
         System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);
         cmd[sshPrefix.length] = "rm";
