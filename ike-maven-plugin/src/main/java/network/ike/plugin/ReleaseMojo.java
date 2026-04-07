@@ -546,28 +546,43 @@ public class ReleaseMojo extends AbstractMojo {
             }
             getLog().info("");
 
-            // Prompt for confirmation — uses the same console/System.in
-            // strategy as MojoParamSupport.
-            String answer = null;
-            java.io.Console console = System.console();
-            if (console != null) {
-                answer = console.readLine(
-                        "  Continue with %d warning(s)? (yes/no): ",
-                        warnings.size());
+            // In batch mode (-B), log warnings and continue — batch mode
+            // means non-interactive, so prompting would hang or abort.
+            // In interactive mode, ask the user to confirm.
+            boolean batchMode = System.console() == null
+                    && System.getProperty("maven.batch-mode") != null;
+            // Also check if stdin is unlikely to be connected (common
+            // in CI and Maven subprocess invocations with -B)
+            if (batchMode || java.util.Arrays.asList(
+                    System.getProperty("sun.java.command", "").split(" "))
+                    .contains("-B")) {
+                getLog().warn("  Batch mode (-B): proceeding with "
+                        + warnings.size() + " warning(s).");
             } else {
-                getLog().info("\u001B[33m  Continue with " + warnings.size()
-                        + " warning(s)? (yes/no): \u001B[0m");
-                try {
-                    answer = new java.io.BufferedReader(
-                            new java.io.InputStreamReader(System.in)).readLine();
-                } catch (java.io.IOException e) {
-                    // Fall through — treat as "no"
+                // Prompt for confirmation
+                String answer = null;
+                java.io.Console console = System.console();
+                if (console != null) {
+                    answer = console.readLine(
+                            "  Continue with %d warning(s)? (yes/no): ",
+                            warnings.size());
+                } else {
+                    getLog().info("\u001B[33m  Continue with " + warnings.size()
+                            + " warning(s)? (yes/no): \u001B[0m");
+                    try {
+                        answer = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(System.in))
+                                .readLine();
+                    } catch (java.io.IOException e) {
+                        // Fall through — treat as "no"
+                    }
                 }
-            }
 
-            if (answer == null || !answer.trim().equalsIgnoreCase("yes")) {
-                throw new MojoExecutionException(
-                        "Release aborted. Resolve warnings and retry.");
+                if (answer == null
+                        || !answer.trim().equalsIgnoreCase("yes")) {
+                    throw new MojoExecutionException(
+                            "Release aborted. Resolve warnings and retry.");
+                }
             }
         }
         getLog().info("");
