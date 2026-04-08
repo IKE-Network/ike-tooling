@@ -1,0 +1,841 @@
+package network.ike.plugin;
+
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.logging.Log;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+/**
+ * Shared utilities for release mojos.
+ *
+ * <p>All subprocess invocations use {@link ProcessBuilder} — no
+ * library dependencies beyond the JDK and maven-plugin-api.
+ */
+public class ReleaseSupport {
+
+    private static final Pattern VERSION_PATTERN =
+            Pattern.compile("<version>([^<]+)</version>");
+
+    private ReleaseSupport() {}
+
+    /**
+     * Run a command, inherit IO so output streams to the Maven console.
+     * Throws on non-zero exit code.
+     *
+     * @param workDir working directory for the subprocess
+     * @param log     Maven logger for output routing
+     * @param command the command and arguments to execute
+     * @throws MojoExecutionException if the command exits non-zero or cannot be started
+     */
+    public static void exec(File workDir, Log log, String... command)
+            throws MojoExecutionException {
+        log.info("» " + String.join(" ", command));
+        try {
+            Process proc = new ProcessBuilder(command)
+                    .directory(workDir)
+                    .redirectErrorStream(true)
+                    .start();
+            // Route subprocess output through Maven's logger, stripping
+            // Maven log prefixes to avoid redundant [INFO] [stdout] [INFO].
+            // Maps subprocess [WARNING]/[ERROR] to the correct parent level.
+            try (var reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(proc.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    routeSubprocessLine(log, line);
+                }
+            }
+            int exit = proc.waitFor();
+            if (exit != 0) {
+                throw new MojoExecutionException(
+                        "Command failed (exit " + exit + "): " +
+                                String.join(" ", command));
+            }
+        } catch (IOException | InterruptedException e) {
+            throw new MojoExecutionException(
+                    "Failed to execute: " + String.join(" ", command), e);
+        }
+    }
+
+    /**
+     * Route a subprocess output line through Maven's logger at the
+     * correct level. Strips Maven log prefixes ([INFO], [WARNING],
+     * [ERROR]) from the line to avoid redundant nesting.
+     *
+     * @param log  Maven logger
+     * @param line raw subprocess output line
+     */
+    public static void routeSubprocessLine(Log log, String line) {
+        routeSubprocessLine(log, line, "");
+    }
+
+    /**
+     * Route a subprocess output line through Maven's logger with a prefix.
+     *
+     * @param log    Maven logger
+     * @param line   raw subprocess output line
+     * @param prefix string prepended to each routed line
+     */
+    public static void routeSubprocessLine(Log log, String line, String prefix) {
+        if (line.startsWith("[ERROR] ")) {
+            log.error(prefix + line.substring(8));
+        } else if (line.startsWith("[WARNING] ")) {
+            log.warn(prefix + line.substring(10));
+        } else if (line.startsWith("[INFO] ")) {
+            log.info(prefix + line.substring(7));
+        } else if (line.startsWith("[DEBUG] ")) {
+            log.debug(prefix + line.substring(8));
+        } else if (line.startsWith("WARNING: ")) {
+            // JVM-style warnings (e.g., sun.misc.Unsafe deprecation)
+            log.warn(prefix + line.substring(9));
+        } else if (line.startsWith("ERROR: ")) {
+            // JVM-style errors
+            log.error(prefix + line.substring(7));
+        } else {
+            log.info(prefix + line);
+        }
+    }
+
+    /**
+     * A command paired with a display label for parallel execution.
+     *
+     * @param label   human-readable name shown in log output
+     * @param command the command and arguments to execute
+     */
+    public record LabeledTask(String label, String[] command) {}
+
+    /**
+     * Run multiple commands concurrently, prefixing each line of output
+     * with the task's label (e.g., {@code [nexus] ...}).
+     *
+     * <p>Spawns virtual threads to read stdout/stderr from each process.
+     * All processes run to completion even if one fails — the exception
+     * reports which task(s) failed.
+     *
+     * @param workDir working directory for each subprocess
+     * @param log     Maven logger for output routing
+     * @param tasks   the labeled tasks to run concurrently
+     * @throws MojoExecutionException if any task fails or execution is interrupted
+     */
+    public static void execParallel(File workDir, Log log, LabeledTask... tasks)
+            throws MojoExecutionException {
+        for (LabeledTask task : tasks) {
+            log.info("» [" + task.label() + "] " + String.join(" ", task.command()));
+        }
+
+        List<String> failures = new CopyOnWriteArrayList<>();
+        List<Thread> threads = new ArrayList<>();
+
+        for (LabeledTask task : tasks) {
+            Thread thread = Thread.ofVirtual()
+                    .name("exec-" + task.label())
+                    .start(() -> {
+                        try {
+                            Process process = new ProcessBuilder(task.command())
+                                    .directory(workDir)
+                                    .redirectErrorStream(true)
+                                    .start();
+
+                            try (BufferedReader reader = new BufferedReader(
+                                    new InputStreamReader(process.getInputStream(),
+                                            StandardCharsets.UTF_8))) {
+                                String line;
+                                while ((line = reader.readLine()) != null) {
+                                    String prefix = "[" + task.label() + "] ";
+                                    synchronized (log) {
+                                        routeSubprocessLine(log, line, prefix);
+                                    }
+                                }
+                            }
+
+                            int exit = process.waitFor();
+                            if (exit != 0) {
+                                failures.add(task.label() + " (exit " + exit + ")");
+                            }
+                        } catch (IOException | InterruptedException e) {
+                            failures.add(task.label() + " (" + e.getMessage() + ")");
+                        }
+                    });
+            threads.add(thread);
+        }
+
+        try {
+            for (Thread thread : threads) {
+                thread.join();
+            }
+        } catch (InterruptedException e) {
+            throw new MojoExecutionException("Parallel execution interrupted", e);
+        }
+
+        if (!failures.isEmpty()) {
+            throw new MojoExecutionException(
+                    "Parallel tasks failed: " + String.join(", ", failures));
+        }
+    }
+
+    /**
+     * Run a command and capture stdout as a trimmed String.
+     * Throws on non-zero exit code.
+     *
+     * @param workDir working directory for the subprocess
+     * @param command the command and arguments to execute
+     * @return trimmed stdout output
+     * @throws MojoExecutionException if the command exits non-zero or cannot be started
+     */
+    public static String execCapture(File workDir, String... command)
+            throws MojoExecutionException {
+        try {
+            Process process = new ProcessBuilder(command)
+                    .directory(workDir)
+                    .redirectErrorStream(false)
+                    .start();
+            String output;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(),
+                            StandardCharsets.UTF_8))) {
+                output = reader.lines().collect(Collectors.joining("\n")).trim();
+            }
+            int exit = process.waitFor();
+            if (exit != 0) {
+                throw new MojoExecutionException(
+                        "Command failed (exit " + exit + "): " +
+                                String.join(" ", command));
+            }
+            return output;
+        } catch (IOException | InterruptedException e) {
+            throw new MojoExecutionException(
+                    "Failed to execute: " + String.join(" ", command), e);
+        }
+    }
+
+    /**
+     * Read the project's own {@code <version>} from a POM file,
+     * skipping any {@code <version>} inside the {@code <parent>} block.
+     *
+     * @param pomFile the POM file to read
+     * @return the version string
+     * @throws MojoExecutionException if the file cannot be read or has no version
+     */
+    public static String readPomVersion(File pomFile) throws MojoExecutionException {
+        try {
+            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
+
+            // Strip the <parent>...</parent> block so we don't match
+            // the parent version instead of the project version.
+            String stripped = content.replaceFirst(
+                    "(?s)<parent>.*?</parent>", "");
+            Matcher matcher = VERSION_PATTERN.matcher(stripped);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+            throw new MojoExecutionException(
+                    "Could not extract <version> from " + pomFile);
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to read " + pomFile, e);
+        }
+    }
+
+    /**
+     * Stamp {@code <project.build.outputTimestamp>} in the root POM to
+     * {@code newTimestamp}, enabling reproducible builds for the release.
+     *
+     * <p>The property must already exist in the POM (inherited from
+     * ike-parent). If it is absent this method is a no-op with a warning.
+     *
+     * @param pomFile      the root POM to update
+     * @param newTimestamp ISO-8601 UTC timestamp, e.g. {@code 2026-03-30T12:00:00Z}
+     * @param log          Maven log (used for warnings only)
+     * @throws MojoExecutionException if the file cannot be read or written
+     */
+    public static void stampOutputTimestamp(File pomFile, String newTimestamp, Log log)
+            throws MojoExecutionException {
+        try {
+            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
+            java.util.regex.Pattern pat = java.util.regex.Pattern.compile(
+                    "(<project\\.build\\.outputTimestamp>)[^<]*(</project\\.build\\.outputTimestamp>)");
+            java.util.regex.Matcher m = pat.matcher(content);
+            if (!m.find()) {
+                log.warn("project.build.outputTimestamp not found in " + pomFile
+                        + " — reproducible build stamp skipped");
+                return;
+            }
+            String updated = m.replaceFirst("$1" + newTimestamp + "$2");
+            Files.writeString(pomFile.toPath(), updated, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new MojoExecutionException(
+                    "Failed to stamp outputTimestamp in " + pomFile, e);
+        }
+    }
+
+    /**
+     * Replace the project's own {@code <version>old</version>} with
+     * {@code <version>new</version>}, skipping any version inside
+     * the {@code <parent>} block.
+     *
+     * @param pomFile    the POM file to update
+     * @param oldVersion the current version string to replace
+     * @param newVersion the new version string
+     * @throws MojoExecutionException if the version is not found or the file cannot be updated
+     */
+    public static void setPomVersion(File pomFile, String oldVersion, String newVersion)
+            throws MojoExecutionException {
+        try {
+            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
+            String oldTag = "<version>" + oldVersion + "</version>";
+            String newTag = "<version>" + newVersion + "</version>";
+
+            // Find the end of the <parent> block (if any) so we skip it
+            int searchStart = 0;
+            Matcher parentEnd = Pattern.compile("</parent>").matcher(content);
+            if (parentEnd.find()) {
+                searchStart = parentEnd.end();
+            }
+
+            int idx = content.indexOf(oldTag, searchStart);
+            if (idx < 0) {
+                throw new MojoExecutionException(
+                        "POM does not contain " + oldTag +
+                                " (outside <parent> block)");
+            }
+            String updated = content.substring(0, idx) + newTag +
+                    content.substring(idx + oldTag.length());
+            Files.writeString(pomFile.toPath(), updated, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to update " + pomFile, e);
+        }
+    }
+
+    /**
+     * Resolve the Maven executable. Prefers the Maven wrapper
+     * ({@code mvnw}) at the git root; falls back to {@code mvn}
+     * from the system PATH (resolved via {@code which}).
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @return the resolved Maven executable
+     * @throws MojoExecutionException if neither wrapper nor system Maven is found
+     */
+    public static File resolveMavenWrapper(File gitRoot, Log log) throws MojoExecutionException {
+        String name = System.getProperty("os.name", "")
+                .toLowerCase().contains("win") ? "mvnw.cmd" : "mvnw";
+        File wrapper = new File(gitRoot, name);
+        if (wrapper.exists()) {
+            return wrapper;
+        }
+        // Fall back to system mvn — resolve via PATH
+        String systemName = name.replace("mvnw", "mvn");
+        try {
+            String path = execCapture(gitRoot, "which", systemName);
+            log.info("No Maven wrapper found; using system '" + path + "'");
+            return new File(path);
+        } catch (MojoExecutionException _) {
+            throw new MojoExecutionException(
+                    "Neither Maven wrapper (" + wrapper.getAbsolutePath() +
+                            ") nor system '" + systemName + "' found on PATH.");
+        }
+    }
+
+    /**
+     * Get the git repository root directory.
+     *
+     * @param startDir any directory inside the repository
+     * @return the repository root directory
+     * @throws MojoExecutionException if git rev-parse fails
+     */
+    public static File gitRoot(File startDir) throws MojoExecutionException {
+        String root = execCapture(startDir,
+                "git", "rev-parse", "--show-toplevel");
+        return new File(root);
+    }
+
+    /**
+     * Assert that the git working tree is clean (no staged or unstaged changes).
+     *
+     * @param workDir any directory inside the repository
+     * @throws MojoExecutionException if the working tree has uncommitted changes
+     */
+    public static void requireCleanWorktree(File workDir) throws MojoExecutionException {
+        try {
+            execCapture(workDir, "git", "diff", "--quiet");
+        } catch (MojoExecutionException _) {
+            throw new MojoExecutionException(
+                    "Working tree has unstaged changes. Commit or stash before proceeding.");
+        }
+        try {
+            execCapture(workDir, "git", "diff", "--cached", "--quiet");
+        } catch (MojoExecutionException _) {
+            throw new MojoExecutionException(
+                    "Working tree has staged changes. Commit or stash before proceeding.");
+        }
+    }
+
+    /**
+     * Get the current git branch name.
+     *
+     * @param workDir any directory inside the repository
+     * @return the current branch name
+     * @throws MojoExecutionException if git rev-parse fails
+     */
+    public static String currentBranch(File workDir) throws MojoExecutionException {
+        return execCapture(workDir, "git", "rev-parse", "--abbrev-ref", "HEAD");
+    }
+
+    /**
+     * Check whether a named git remote exists.
+     *
+     * @param workDir    any directory inside the repository
+     * @param remoteName the remote name to check (e.g., "origin")
+     * @return {@code true} if the remote exists
+     */
+    public static boolean hasRemote(File workDir, String remoteName) {
+        try {
+            String remotes = execCapture(workDir, "git", "remote");
+            return remotes.lines().anyMatch(line -> line.trim().equals(remoteName));
+        } catch (MojoExecutionException _) {
+            return false;
+        }
+    }
+
+    /**
+     * Derive the release version from a SNAPSHOT version.
+     * {@code "2-SNAPSHOT"} becomes {@code "2"};
+     * {@code "1.1.0-SNAPSHOT"} becomes {@code "1.1.0"}.
+     *
+     * @param snapshotVersion the SNAPSHOT version string
+     * @return the release version without the -SNAPSHOT suffix
+     */
+    public static String deriveReleaseVersion(String snapshotVersion) {
+        return snapshotVersion.replace("-SNAPSHOT", "");
+    }
+
+    /**
+     * Derive the next SNAPSHOT version by incrementing the last numeric
+     * segment. {@code "2"} becomes {@code "3-SNAPSHOT"};
+     * {@code "1.1.0"} becomes {@code "1.1.1-SNAPSHOT"}.
+     *
+     * @param releaseVersion the release version to increment
+     * @return the next SNAPSHOT version
+     */
+    public static String deriveNextSnapshot(String releaseVersion) {
+        String base = releaseVersion.replace("-SNAPSHOT", "");
+        int lastDot = base.lastIndexOf('.');
+        if (lastDot >= 0) {
+            String prefix = base.substring(0, lastDot + 1);
+            String last = base.substring(lastDot + 1);
+            return prefix + (Integer.parseInt(last) + 1) + "-SNAPSHOT";
+        }
+        // Simple integer version (e.g., "2" -> "3-SNAPSHOT")
+        return (Integer.parseInt(base) + 1) + "-SNAPSHOT";
+    }
+
+    /**
+     * Update a named Maven property in POM content.
+     * Replaces {@code <propertyName>oldValue</propertyName>} with
+     * {@code <propertyName>newVersion</propertyName>}.
+     *
+     * @param pomContent   the POM file content as a string
+     * @param propertyName the Maven property name (e.g., "ike-bom.version")
+     * @param newVersion   the new version value
+     * @return the updated POM content (unchanged if property not found)
+     */
+    public static String updateVersionProperty(String pomContent,
+                                         String propertyName,
+                                         String newVersion) {
+        String propPattern = "<" + java.util.regex.Pattern.quote(propertyName)
+                + ">[^<]+</" + java.util.regex.Pattern.quote(propertyName) + ">";
+        return pomContent.replaceAll(propPattern,
+                "<" + propertyName + ">" + newVersion + "</" + propertyName + ">");
+    }
+
+    private static final String PROJECT_VERSION_EXPR = "${project.version}";
+    private static final String BACKUP_SUFFIX = ".ike-backup";
+
+    /**
+     * Find all {@code pom.xml} files under the git root, excluding
+     * {@code target/} directories and the {@code .mvn/} directory.
+     *
+     * @param gitRoot the git repository root directory
+     * @return list of discovered POM files
+     * @throws MojoExecutionException if the file tree cannot be walked
+     */
+    public static List<File> findPomFiles(File gitRoot) throws MojoExecutionException {
+        try (Stream<Path> walk = Files.walk(gitRoot.toPath())) {
+            return walk
+                    .filter(p -> p.getFileName().toString().equals("pom.xml"))
+                    .filter(p -> {
+                        String rel = gitRoot.toPath().relativize(p).toString();
+                        return !rel.contains("target" + File.separator)
+                                && !rel.startsWith(".mvn" + File.separator);
+                    })
+                    .map(Path::toFile)
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to scan for POM files", e);
+        }
+    }
+
+    /**
+     * Replace all occurrences of {@code ${project.version}} with a
+     * literal version string in every POM file under the git root.
+     * Before replacing, each affected file is saved as
+     * {@code pom.xml.ike-backup} so it can be restored later.
+     *
+     * @param gitRoot the git repository root directory
+     * @param version the literal version to substitute
+     * @param log     Maven logger
+     * @return the list of POM files that were modified
+     * @throws MojoExecutionException if a file cannot be read or written
+     */
+    public static List<File> replaceProjectVersionRefs(File gitRoot, String version,
+                                                 Log log)
+            throws MojoExecutionException {
+        List<File> pomFiles = findPomFiles(gitRoot);
+        List<File> modified = new ArrayList<>();
+
+        for (File pom : pomFiles) {
+            try {
+                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);
+                if (!content.contains(PROJECT_VERSION_EXPR)) {
+                    continue;
+                }
+                // Save backup before modifying
+                Path backup = pom.toPath().resolveSibling(pom.getName() + BACKUP_SUFFIX);
+                Files.copy(pom.toPath(), backup, StandardCopyOption.REPLACE_EXISTING);
+
+                // Replace all occurrences
+                String updated = content.replace(PROJECT_VERSION_EXPR, version);
+                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);
+
+                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();
+                log.info("  Resolved ${project.version} -> " + version +
+                        " in " + rel);
+                modified.add(pom);
+            } catch (IOException e) {
+                throw new MojoExecutionException(
+                        "Failed to process " + pom, e);
+            }
+        }
+        return modified;
+    }
+
+    /**
+     * Restore all POM files from their {@code .ike-backup} copies and
+     * delete the backup files. This reverses
+     * {@link #replaceProjectVersionRefs}.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @return the list of POM files that were restored
+     * @throws MojoExecutionException if a backup cannot be restored
+     */
+    public static List<File> restoreBackups(File gitRoot, Log log)
+            throws MojoExecutionException {
+        List<File> pomFiles = findPomFiles(gitRoot);
+        List<File> restored = new ArrayList<>();
+
+        for (File pom : pomFiles) {
+            Path backup = pom.toPath().resolveSibling(pom.getName() + BACKUP_SUFFIX);
+            if (!Files.exists(backup)) {
+                continue;
+            }
+            try {
+                Files.copy(backup, pom.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                Files.delete(backup);
+
+                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();
+                log.info("  Restored ${project.version} in " + rel);
+                restored.add(pom);
+            } catch (IOException e) {
+                throw new MojoExecutionException(
+                        "Failed to restore backup for " + pom, e);
+            }
+        }
+        return restored;
+    }
+
+    /**
+     * Stage a list of files with {@code git add}.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @param files   the files to stage
+     * @throws MojoExecutionException if the git add command fails
+     */
+    public static void gitAddFiles(File gitRoot, Log log, List<File> files)
+            throws MojoExecutionException {
+        if (files.isEmpty()) return;
+        List<String> command = new ArrayList<>();
+        command.add("git");
+        command.add("add");
+        for (File f : files) {
+            command.add(gitRoot.toPath().relativize(f.toPath()).toString());
+        }
+        exec(gitRoot, log, command.toArray(new String[0]));
+    }
+
+    private static final DateTimeFormatter CHECKPOINT_DATE_FMT =
+            DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * Derive a checkpoint version from the current POM version.
+     *
+     * <p>Format: {@code {base}-checkpoint.{yyyyMMdd}.{shortSha}} where
+     * {@code base} is the POM version minus {@code -SNAPSHOT}, and
+     * {@code shortSha} is the abbreviated SHA of the current HEAD commit.
+     *
+     * <p>This scheme is fully deterministic — the same commit on any
+     * machine always produces the same version string. No tag-sequence
+     * coordination across machines is required.
+     *
+     * @param pomVersion current POM version (may include -SNAPSHOT)
+     * @param gitRoot    git repository root (for HEAD SHA lookup)
+     * @return the checkpoint version string
+     * @throws MojoExecutionException if the HEAD SHA cannot be resolved
+     */
+    public static String deriveCheckpointVersion(String pomVersion, File gitRoot)
+            throws MojoExecutionException {
+        String base = pomVersion.replace("-SNAPSHOT", "");
+        String date = LocalDate.now().format(CHECKPOINT_DATE_FMT);
+        String shortSha = execCapture(gitRoot, "git", "rev-parse", "--short", "HEAD");
+        return base + "-checkpoint." + date + "." + shortSha;
+    }
+
+    /**
+     * Check whether a git tag exists (locally).
+     *
+     * @param gitRoot the git repository root directory
+     * @param tagName the tag name to check
+     * @return {@code true} if the tag exists locally
+     */
+    public static boolean tagExists(File gitRoot, String tagName) {
+        try {
+            execCapture(gitRoot, "git", "rev-parse", "--verify", "refs/tags/" + tagName);
+            return true;
+        } catch (MojoExecutionException _) {
+            return false;
+        }
+    }
+
+    /** Base path on the site server. */
+    public static final String SITE_DISK_BASE = "/srv/ike-site/";
+
+    /** SSH host alias used by wagon-ssh-external. */
+    public static final String SITE_SSH_HOST = "proxy";
+
+    /**
+     * Remove a directory tree on the site server via SSH.
+     *
+     * <p>Used to clean up snapshot sites after release or feature-finish.
+     *
+     * <p>Safety: validates the path starts with {@link #SITE_DISK_BASE}
+     * and contains at least two path components after the base to
+     * prevent accidental deletion of the entire site root.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath absolute path on the server (e.g.,
+     *                   {@code /srv/ike-site/ike-pipeline/snapshot/main})
+     * @throws MojoExecutionException if the path is unsafe or SSH fails
+     */
+    public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath)
+            throws MojoExecutionException {
+        cleanRemoteSiteDir(workDir, log, remotePath, "ssh", SITE_SSH_HOST);
+    }
+
+    /**
+     * Overload accepting an explicit SSH command prefix — package-private
+     * for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath absolute path on the server to remove
+     * @param sshPrefix  the SSH command tokens (e.g., "ssh", "-i", "key",
+     *                   "-p", "2222", "user@localhost")
+     * @throws MojoExecutionException if the path is unsafe or SSH fails
+     */
+    public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath,
+                                    String... sshPrefix)
+            throws MojoExecutionException {
+        validateRemotePath(remotePath);
+        log.info("Cleaning remote site: " + remotePath);
+        String[] cmd = new String[sshPrefix.length + 3];
+        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);
+        cmd[sshPrefix.length] = "rm";
+        cmd[sshPrefix.length + 1] = "-rf";
+        cmd[sshPrefix.length + 2] = remotePath;
+        exec(workDir, log, cmd);
+    }
+
+    /**
+     * Atomically swap a newly deployed site into place on the server.
+     *
+     * <p>The deployment flow is:
+     * <ol>
+     *   <li>SCP deploys to a staging path ({@code <target>.staging})</li>
+     *   <li>This method renames the old directory to {@code <target>.old}</li>
+     *   <li>Renames the staging directory to the final target</li>
+     *   <li>Removes the old directory</li>
+     * </ol>
+     *
+     * <p>This avoids a window where the site is missing (rm + deploy)
+     * and ensures the site always serves either the old or new version.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath final target path on the server
+     * @throws MojoExecutionException if SSH commands fail
+     */
+    public static void swapRemoteSiteDir(File workDir, Log log, String remotePath)
+            throws MojoExecutionException {
+        swapRemoteSiteDir(workDir, log, remotePath, "ssh", SITE_SSH_HOST);
+    }
+
+    /**
+     * Overload accepting an explicit SSH command prefix — package-private
+     * for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath final target path on the server
+     * @param sshPrefix  the SSH command tokens (e.g., "ssh", "-i", "key",
+     *                   "-p", "2222", "user@localhost")
+     * @throws MojoExecutionException if the path is unsafe or SSH fails
+     */
+    public static void swapRemoteSiteDir(File workDir, Log log, String remotePath,
+                                   String... sshPrefix)
+            throws MojoExecutionException {
+        validateRemotePath(remotePath);
+        String staging = remotePath + ".staging";
+        String old = remotePath + ".old";
+
+        log.info("Swapping site: " + staging + " → " + remotePath);
+        String[] cmd = new String[sshPrefix.length + 1];
+        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);
+        cmd[sshPrefix.length] = "rm -rf " + old
+                + " && (mv " + remotePath + " " + old + " 2>/dev/null || true)"
+                + " && mv " + staging + " " + remotePath
+                + " && rm -rf " + old;
+        exec(workDir, log, cmd);
+    }
+
+    /**
+     * Return the staging path for a site deploy (final path + ".staging").
+     *
+     * @param diskPath the final on-disk site path
+     * @return {@code diskPath} with {@code .staging} appended
+     */
+    public static String siteStagingPath(String diskPath) {
+        return diskPath + ".staging";
+    }
+
+    /**
+     * Return the scpexe URL for the staging directory.
+     *
+     * @param targetUrl the final site URL
+     * @return {@code targetUrl} with {@code .staging} appended
+     */
+    public static String siteStagingUrl(String targetUrl) {
+        return targetUrl + ".staging";
+    }
+
+    /**
+     * Validate that a remote path is safe for deletion operations.
+     *
+     * <p>Ensures the path starts with {@link #SITE_DISK_BASE} and has
+     * sufficient depth to prevent accidental deletion of the site root.
+     *
+     * @param remotePath absolute path on the server
+     * @throws MojoExecutionException if the path is unsafe
+     */
+    public static void validateRemotePath(String remotePath)
+            throws MojoExecutionException {
+        if (!remotePath.startsWith(SITE_DISK_BASE)) {
+            throw new MojoExecutionException(
+                    "Refusing to delete — path does not start with "
+                            + SITE_DISK_BASE + ": " + remotePath);
+        }
+        String relative = remotePath.substring(SITE_DISK_BASE.length());
+        long depth = relative.chars().filter(c -> c == '/').count();
+        if (relative.isBlank() || depth < 1) {
+            throw new MojoExecutionException(
+                    "Refusing to delete — path too shallow (need project/type): "
+                            + remotePath);
+        }
+    }
+
+    /**
+     * Resolve the on-disk site path for a given project, type, and
+     * optional subdirectory.
+     *
+     * @param projectId  Maven artifact ID (e.g., "ike-pipeline")
+     * @param siteType   "release", "snapshot", or "checkpoint"
+     * @param subPath    optional subdirectory (branch name, version);
+     *                   null or blank to omit
+     * @return absolute path on the server
+     */
+    public static String siteDiskPath(String projectId, String siteType,
+                               String subPath) {
+        String path = SITE_DISK_BASE + projectId + "/" + siteType;
+        if (subPath != null && !subPath.isBlank()) {
+            path += "/" + subPath;
+        }
+        return path;
+    }
+
+    /**
+     * Convert a git branch name to a safe site path segment.
+     * Replaces {@code /} with {@code /} (keeps hierarchy for
+     * {@code feature/name} structure).
+     *
+     * @param branch git branch name
+     * @return sanitized path segment safe for use in URLs and file paths
+     */
+    public static String branchToSitePath(String branch) {
+        // Keep forward slashes for directory structure (feature/name → feature/name)
+        // but sanitize anything dangerous
+        return branch.replaceAll("[^a-zA-Z0-9/_.-]", "-");
+    }
+
+    private static final Pattern ARTIFACT_ID_PATTERN =
+            Pattern.compile("<artifactId>([^<]+)</artifactId>");
+
+    /**
+     * Read the project's own {@code <artifactId>} from a POM file,
+     * skipping any {@code <artifactId>} inside the {@code <parent>} block.
+     *
+     * @param pomFile the POM file to read
+     * @return the artifact ID string
+     * @throws MojoExecutionException if the file cannot be read or has no artifact ID
+     */
+    public static String readPomArtifactId(File pomFile) throws MojoExecutionException {
+        try {
+            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
+            String stripped = content.replaceFirst(
+                    "(?s)<parent>.*?</parent>", "");
+            Matcher matcher = ARTIFACT_ID_PATTERN.matcher(stripped);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+            throw new MojoExecutionException(
+                    "Could not extract <artifactId> from " + pomFile);
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to read " + pomFile, e);
+        }
+    }
+}

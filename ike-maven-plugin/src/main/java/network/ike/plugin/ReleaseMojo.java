@@ -98,6 +98,13 @@ public class ReleaseMojo extends AbstractMojo {
     public void execute() throws MojoExecutionException {
         File startDir = baseDir != null ? baseDir : new File(".");
         File gitRoot = ReleaseSupport.gitRoot(startDir);
+<<<<<<< Updated upstream
+
+        // VCS bridge catch-up moved to ws:sync — run before ike:release
+        // if using the Syncthing-based VCS bridge across machines.
+        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
+=======
+>>>>>>> Stashed changes
         File rootPom = new File(gitRoot, "pom.xml");
 
         // Default releaseVersion from current POM version

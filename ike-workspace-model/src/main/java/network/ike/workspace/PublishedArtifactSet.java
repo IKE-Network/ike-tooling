@@ -1,32 +1,28 @@
 package network.ike.workspace;
 
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-import org.xml.sax.SAXException;
-
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Scans a Maven component root to determine the complete set of
  * published artifacts (groupId:artifactId pairs).
  *
- * <p>Given a component root directory, recursively walks the POM
- * hierarchy (root POM plus all subprojects/modules) and collects
- * every groupId:artifactId pair that the component publishes.
+ * <p>This is the "published artifact set" from the handoff design:
+ * given a component root directory, recursively walk the POM hierarchy
+ * (root POM plus all subprojects/modules) and collect every
+ * groupId:artifactId pair that the component publishes.
  *
- * <p>POM parsing uses {@code javax.xml} DOM (built into the JDK).
- * Only direct children of {@code <project>} are examined for
- * coordinates, so dependency groupIds cannot be confused with the
- * project's own groupId.
+ * <p>POM parsing uses simple regex matching (consistent with the
+ * {@code ReleaseSupport} pattern) rather than a full XML parser.
+ * The {@code <parent>} block is stripped before extracting the
+ * project's own groupId and artifactId; if no groupId is declared
+ * outside the parent block, the parent's groupId is inherited.
  */
 public final class PublishedArtifactSet {
 
@@ -40,18 +36,18 @@ public final class PublishedArtifactSet {
      */
     public record Artifact(String groupId, String artifactId) {}
 
-    private static final DocumentBuilderFactory DBF;
-    static {
-        DBF = DocumentBuilderFactory.newInstance();
-        // Disable DTD/external entity loading for safety and speed
-        try {
-            DBF.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            DBF.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            DBF.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-        } catch (ParserConfigurationException e) {
-            // Non-fatal — factory will still work
-        }
-    }
+    private static final Pattern VERSION_PATTERN =
+            Pattern.compile("<version>([^<]+)</version>");
+    private static final Pattern GROUP_ID_PATTERN =
+            Pattern.compile("<groupId>([^<]+)</groupId>");
+    private static final Pattern ARTIFACT_ID_PATTERN =
+            Pattern.compile("<artifactId>([^<]+)</artifactId>");
+    private static final Pattern SUBPROJECTS_PATTERN =
+            Pattern.compile("<subproject>([^<]+)</subproject>");
+    private static final Pattern MODULES_PATTERN =
+            Pattern.compile("<module>([^<]+)</module>");
+    private static final Pattern PARENT_BLOCK =
+            Pattern.compile("(?s)<parent>.*?</parent>");
 
     /**
      * Scan a component root and return the complete set of published
@@ -63,7 +59,7 @@ public final class PublishedArtifactSet {
      *
      * @param componentRoot the root directory of the Maven component
      * @return the set of all published artifacts
-     * @throws IOException if a POM file cannot be read or parsed
+     * @throws IOException if a POM file cannot be read
      */
     public static Set<Artifact> scan(Path componentRoot) throws IOException {
         Set<Artifact> artifacts = new LinkedHashSet<>();
@@ -73,7 +69,7 @@ public final class PublishedArtifactSet {
             return artifacts;
         }
 
-        scanPom(rootPom, null, artifacts);
+        scanPom(componentRoot, rootPom, null, artifacts);
         return artifacts;
     }
 
@@ -91,37 +87,41 @@ public final class PublishedArtifactSet {
     }
 
     /**
-     * Parse a single POM via DOM, add its artifact to the set, then
-     * recurse into any declared subprojects or modules.
+     * Parse a single POM, add its artifact to the set, then recurse
+     * into any declared subprojects or modules.
      *
+     * @param componentRoot  the component root (for resolving relative paths)
      * @param pomPath        the POM file to parse
      * @param inheritGroupId the parent groupId to inherit if not declared
      * @param artifacts      accumulator for discovered artifacts
      */
-    private static void scanPom(Path pomPath, String inheritGroupId,
+    private static void scanPom(Path componentRoot, Path pomPath,
+                                String inheritGroupId,
                                 Set<Artifact> artifacts) throws IOException {
-        Document doc;
-        try {
-            DocumentBuilder db = DBF.newDocumentBuilder();
-            doc = db.parse(pomPath.toFile());
-        } catch (ParserConfigurationException | SAXException e) {
-            throw new IOException("Cannot parse " + pomPath + ": " + e.getMessage(), e);
-        }
+        String content = Files.readString(pomPath, StandardCharsets.UTF_8);
 
-        Element project = doc.getDocumentElement();
-
-        // Extract parent groupId for inheritance
+        // Extract groupId from parent block (for inheritance)
         String parentGroupId = null;
-        Element parentEl = firstChildElement(project, "parent");
-        if (parentEl != null) {
-            parentGroupId = childText(parentEl, "groupId");
+        Matcher parentMatcher = PARENT_BLOCK.matcher(content);
+        if (parentMatcher.find()) {
+            String parentBlock = parentMatcher.group();
+            Matcher gm = GROUP_ID_PATTERN.matcher(parentBlock);
+            if (gm.find()) {
+                parentGroupId = gm.group(1).trim();
+            }
         }
 
-        // Project's own groupId — direct child of <project>, not
-        // from <parent> or <dependencies> or any nested block.
-        String groupId = childText(project, "groupId");
+        // Strip parent block to find project's own coordinates
+        String stripped = PARENT_BLOCK.matcher(content).replaceFirst("");
 
-        // Inherit: own → parent block → caller
+        // Extract project groupId (outside parent block)
+        String groupId = null;
+        Matcher gidMatcher = GROUP_ID_PATTERN.matcher(stripped);
+        if (gidMatcher.find()) {
+            groupId = gidMatcher.group(1).trim();
+        }
+
+        // Inherit groupId: prefer own, then parent block, then caller
         if (groupId == null) {
             groupId = parentGroupId;
         }
@@ -129,85 +129,41 @@ public final class PublishedArtifactSet {
             groupId = inheritGroupId;
         }
 
-        String artifactId = childText(project, "artifactId");
+        // Extract artifactId (outside parent block)
+        String artifactId = null;
+        Matcher aidMatcher = ARTIFACT_ID_PATTERN.matcher(stripped);
+        if (aidMatcher.find()) {
+            artifactId = aidMatcher.group(1).trim();
+        }
 
         if (groupId != null && artifactId != null) {
             artifacts.add(new Artifact(groupId, artifactId));
         }
 
+        // The groupId to pass down for inheritance
         String effectiveGroupId = groupId;
+
+        // Find subprojects (POM 4.1.0) or modules (POM 4.0.0)
         Path pomDir = pomPath.getParent();
 
-        // Recurse into <subprojects>/<subproject> (Maven 4.1.0)
-        Element subprojects = firstChildElement(project, "subprojects");
-        if (subprojects != null) {
-            for (Element sub : childElements(subprojects, "subproject")) {
-                String name = sub.getTextContent().trim();
-                Path subPom = pomDir.resolve(name).resolve("pom.xml");
-                if (Files.exists(subPom)) {
-                    scanPom(subPom, effectiveGroupId, artifacts);
-                }
+        // Scan <subproject> entries first (newer model)
+        Matcher subMatcher = SUBPROJECTS_PATTERN.matcher(content);
+        while (subMatcher.find()) {
+            String subproject = subMatcher.group(1).trim();
+            Path subPom = pomDir.resolve(subproject).resolve("pom.xml");
+            if (Files.exists(subPom)) {
+                scanPom(componentRoot, subPom, effectiveGroupId, artifacts);
             }
         }
 
-        // Recurse into <modules>/<module> (Maven 4.0.0)
-        Element modules = firstChildElement(project, "modules");
-        if (modules != null) {
-            for (Element mod : childElements(modules, "module")) {
-                String name = mod.getTextContent().trim();
-                Path modPom = pomDir.resolve(name).resolve("pom.xml");
-                if (Files.exists(modPom)) {
-                    scanPom(modPom, effectiveGroupId, artifacts);
-                }
+        // Scan <module> entries (classic model)
+        Matcher modMatcher = MODULES_PATTERN.matcher(content);
+        while (modMatcher.find()) {
+            String module = modMatcher.group(1).trim();
+            Path modPom = pomDir.resolve(module).resolve("pom.xml");
+            if (Files.exists(modPom)) {
+                scanPom(componentRoot, modPom, effectiveGroupId, artifacts);
             }
         }
-    }
-
-    // ── DOM helpers ─────────────────────────────────────────────────
-
-    /**
-     * Get the text content of a direct child element, or null if
-     * the child does not exist. Only examines direct children —
-     * not descendants — so {@code childText(project, "groupId")}
-     * returns the project's own groupId, never a dependency's.
-     */
-    private static String childText(Element parent, String tagName) {
-        Element child = firstChildElement(parent, tagName);
-        if (child == null) return null;
-        String text = child.getTextContent().trim();
-        return text.isEmpty() ? null : text;
-    }
-
-    /**
-     * Get the first direct child element with the given tag name,
-     * or null if none exists.
-     */
-    private static Element firstChildElement(Element parent, String tagName) {
-        NodeList children = parent.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node node = children.item(i);
-            if (node.getNodeType() == Node.ELEMENT_NODE
-                    && tagName.equals(node.getNodeName())) {
-                return (Element) node;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Get all direct child elements with the given tag name.
-     */
-    private static Iterable<Element> childElements(Element parent,
-                                                    String tagName) {
-        java.util.List<Element> result = new java.util.ArrayList<>();
-        NodeList children = parent.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node node = children.item(i);
-            if (node.getNodeType() == Node.ELEMENT_NODE
-                    && tagName.equals(node.getNodeName())) {
-                result.add((Element) node);
-            }
-        }
-        return result;
     }
 }
