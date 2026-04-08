@@ -44,6 +44,7 @@ Within the same lifecycle phase, Maven runs plugins in POM declaration order. Wh
 ## Prohibited Patterns
 
 - `maven-antrun-plugin` — use `exec-maven-plugin` with an external bash script instead
+- `build-helper-maven-plugin` for multi-execution property chaining — write a proper Maven goal in `ike-maven-plugin` instead. Chaining many timestamp-property and regex-property executions creates fragile, hard-to-test XML that grows with each platform or format variant. A single Mojo with unit tests replaces hundreds of lines of XML.
 - Inline shell commands in POM `<configuration>` blocks — extract to a named script
 - `exec-maven-plugin` for file operations that have dedicated plugins (copying, moving, filtering)
 - Manual file copying instead of resource filtering
