@@ -74,6 +74,66 @@ public final class ManifestWriter {
     }
 
     /**
+     * Update the sha field for one or more components. If the sha field
+     * does not exist in the component block, it is inserted after the
+     * branch field.
+     *
+     * @param manifestPath path to workspace.yaml
+     * @param shaUpdates   map of component name to SHA value
+     * @throws IOException if the file cannot be read or written
+     */
+    public static void updateShas(Path manifestPath, Map<String, String> shaUpdates)
+            throws IOException {
+        String content = Files.readString(manifestPath, StandardCharsets.UTF_8);
+
+        for (Map.Entry<String, String> entry : shaUpdates.entrySet()) {
+            String componentName = entry.getKey();
+            String sha = entry.getValue();
+            content = addOrUpdateComponentField(content, componentName,
+                    "sha", "\"" + sha + "\"", "branch");
+        }
+
+        Files.writeString(manifestPath, content, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Update a field in a component block, or insert it after a reference
+     * field if it doesn't exist yet.
+     *
+     * @param yaml          full YAML content
+     * @param componentName the component key
+     * @param field         the field name to update or insert
+     * @param newValue      the new value (pre-quoted if needed)
+     * @param afterField    insert after this field if the target field is absent
+     * @return updated YAML content
+     */
+    public static String addOrUpdateComponentField(String yaml, String componentName,
+                                                    String field, String newValue,
+                                                    String afterField) {
+        // Try update first
+        String updated = updateComponentField(yaml, componentName, field, newValue);
+        if (!updated.equals(yaml)) {
+            return updated; // field existed and was updated
+        }
+
+        // Field doesn't exist — insert after afterField
+        String escapedName = Pattern.quote(componentName);
+        String escapedAfter = Pattern.quote(afterField);
+
+        Pattern insertPattern = Pattern.compile(
+            "(^  " + escapedName + ":\\s*$.*?^    " + escapedAfter + ":\\s*\\S+.*?)$",
+            Pattern.MULTILINE | Pattern.DOTALL
+        );
+
+        Matcher m = insertPattern.matcher(yaml);
+        if (m.find()) {
+            String insertion = m.group(0) + "\n    " + field + ": " + newValue;
+            return yaml.substring(0, m.start()) + insertion + yaml.substring(m.end());
+        }
+        return yaml;
+    }
+
+    /**
      * Update a field in the defaults section of the YAML text.
      *
      * @param yaml     full YAML content

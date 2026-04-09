@@ -19,6 +19,10 @@ import java.util.List;
  * @param parent       component name of the Maven parent POM, or null if the
  *                     parent is not a workspace component. Used by ws:verify
  *                     and ws:align to enforce parent version alignment.
+ * @param sha          git commit SHA to check out. When present, {@code ws:init}
+ *                     checks out this exact commit instead of branch HEAD.
+ *                     Written by {@code ws:checkpoint-apply}. Null means use
+ *                     branch HEAD.
  */
 public record Component(
         String name,
@@ -31,5 +35,6 @@ public record Component(
         List<Dependency> dependsOn,
         String notes,
         String mavenVersion,
-        String parent
+        String parent,
+        String sha
 ) {}
