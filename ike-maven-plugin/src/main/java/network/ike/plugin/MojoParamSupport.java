@@ -49,8 +49,10 @@ final class MojoParamSupport {
             // with stdin/stdout wired to the Run console panel. System.console()
             // is null (not a real terminal), but System.in is connected and
             // interactive — the same mechanism the Plexus Prompter uses.
-            // ANSI yellow so the prompt stands out from green input text.
-            log.info("\u001B[33m" + promptLabel + ": \u001B[0m");
+            // Use System.out.print (not log.info) so the cursor stays on the
+            // prompt line — log.info adds a newline, forcing input onto a new line.
+            System.out.print("\u001B[33m" + promptLabel + ": \u001B[0m");
+            System.out.flush();
             try {
                 java.io.BufferedReader reader = new java.io.BufferedReader(
                         new java.io.InputStreamReader(System.in));

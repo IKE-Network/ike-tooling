@@ -1,0 +1,399 @@
+package network.ike.plugin;
+
+import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugins.annotations.LifecyclePhase;
+import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.project.MavenProject;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Locale;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
+
+/**
+ * Sign native libraries ({@code .dylib}, {@code .jnilib}) inside a
+ * jlink runtime image so the resulting installer passes Apple notarization.
+ *
+ * <p>Apple requires every executable binary in a notarized bundle to be
+ * signed with a Developer ID certificate and include a secure timestamp.
+ * JARs containing native libraries (JNA, RocksDB, etc.) ship with
+ * unsigned or ad-hoc-signed binaries that Apple rejects.
+ *
+ * <p>This goal walks the runtime image directory, finds native libraries
+ * both loose and inside JARs, and signs each one with {@code codesign}.
+ * For JARs, the native entries are extracted, signed, and repacked.
+ *
+ * <p>Bind this goal after jlink image assembly and dependency staging
+ * but before jpackage creates the installer:
+ * <pre>{@code
+ * <execution>
+ *     <id>codesign-natives</id>
+ *     <phase>package[5]</phase>
+ *     <goals><goal>codesign-natives</goal></goals>
+ *     <configuration>
+ *         <runtimeImageDir>${project.build.directory}/jreleaser-jlink/assemble/komet-standard/jlink/...</runtimeImageDir>
+ *         <signingIdentity>Developer ID Application: Your Name (TEAMID)</signingIdentity>
+ *     </configuration>
+ * </execution>
+ * }</pre>
+ *
+ * <p>On non-macOS platforms the goal skips silently.
+ *
+ * @see <a href="https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution">
+ *      Apple: Notarizing macOS Software Before Distribution</a>
+ */
+@Mojo(name = "codesign-natives",
+      defaultPhase = LifecyclePhase.PACKAGE,
+      requiresProject = true,
+      threadSafe = true)
+public class CodesignNativesMojo extends AbstractMojo {
+
+    /** Creates this goal instance. */
+    public CodesignNativesMojo() {}
+
+    /** The current Maven project. */
+    @Parameter(defaultValue = "${project}", readonly = true, required = true)
+    private MavenProject project;
+
+    /**
+     * Root directory of the jlink runtime image to scan.
+     * All {@code .jar}, {@code .dylib}, and {@code .jnilib} files
+     * under this tree are inspected.
+     */
+    @Parameter(property = "codesign.runtimeImageDir", required = true)
+    private File runtimeImageDir;
+
+    /**
+     * The {@code codesign} signing identity. Typically a
+     * "Developer ID Application" certificate name including the team ID,
+     * e.g., {@code "Developer ID Application: Jane Doe (ABCDE12345)"}.
+     */
+    @Parameter(property = "codesign.identity", required = true)
+    private String signingIdentity;
+
+    /**
+     * Skip native codesigning entirely.
+     */
+    @Parameter(property = "codesign.skip", defaultValue = "false")
+    private boolean skip;
+
+    @Override
+    public void execute() throws MojoExecutionException {
+        if (skip) {
+            getLog().info("Native codesigning skipped (codesign.skip=true)");
+            return;
+        }
+
+        if (!ReleaseSupport.isMacOS()) {
+            getLog().info("Native codesigning skipped \u2014 not running on macOS");
+            return;
+        }
+
+        if (runtimeImageDir == null || !runtimeImageDir.isDirectory()) {
+            getLog().warn("Runtime image directory does not exist: " + runtimeImageDir
+                    + " \u2014 skipping native codesigning");
+            return;
+        }
+
+        if (signingIdentity == null || signingIdentity.isBlank()) {
+            throw new MojoExecutionException(
+                    "codesign.identity is required. Specify "
+                            + "-Dcodesign.identity=\"Developer ID Application: ...\"");
+        }
+
+        getLog().info("");
+        getLog().info("Native Library Codesigning");
+        getLog().info("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+        getLog().info("  Runtime image:   " + runtimeImageDir);
+        getLog().info("  Identity:        " + signingIdentity);
+
+        // Phase 1: Discover native files and JARs containing natives
+        List<Path> looseNatives = new ArrayList<>();
+        List<Path> jarsWithNatives = new ArrayList<>();
+        scanTree(runtimeImageDir.toPath(), looseNatives, jarsWithNatives);
+
+        getLog().info("  Loose natives:   " + looseNatives.size());
+        getLog().info("  JARs to repack:  " + jarsWithNatives.size());
+
+        int signedCount = 0;
+
+        // Phase 2: Sign loose native files directly
+        for (Path nativeFile : looseNatives) {
+            codesign(nativeFile);
+            signedCount++;
+        }
+
+        // Phase 3: Extract, sign, and repack JARs with embedded natives
+        for (Path jarPath : jarsWithNatives) {
+            signedCount += processJar(jarPath);
+        }
+
+        getLog().info("");
+        getLog().info("Codesigning complete \u2014 " + signedCount + " native(s) signed");
+        getLog().info("");
+    }
+
+    /**
+     * Walk the directory tree, collecting loose native files and JARs
+     * that contain native entries.
+     */
+    private void scanTree(Path root, List<Path> looseNatives,
+                          List<Path> jarsWithNatives)
+            throws MojoExecutionException {
+        try {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                    if (isNativeFile(name)) {
+                        looseNatives.add(file);
+                    } else if (name.endsWith(".jar")) {
+                        try {
+                            if (jarContainsNatives(file)) {
+                                jarsWithNatives.add(file);
+                            }
+                        } catch (IOException e) {
+                            getLog().warn("Could not inspect JAR: " + file + " \u2014 " + e.getMessage());
+                        }
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            throw new MojoExecutionException(
+                    "Failed to scan runtime image: " + root, e);
+        }
+    }
+
+    /**
+     * Check if a JAR contains any native library entries.
+     */
+    static boolean jarContainsNatives(Path jarPath) throws IOException {
+        try (ZipFile zip = new ZipFile(jarPath.toFile())) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                String name = entries.nextElement().getName().toLowerCase(Locale.ROOT);
+                if (isNativeFile(name)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Extract native entries from a JAR, sign them, and repack the JAR.
+     *
+     * @return the number of native files signed in this JAR
+     */
+    private int processJar(Path jarPath) throws MojoExecutionException {
+        String jarName = jarPath.getFileName().toString();
+        getLog().info("Processing JAR: " + jarName);
+
+        Path tempDir;
+        try {
+            tempDir = Files.createTempDirectory("codesign-jar-");
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to create temp directory", e);
+        }
+
+        try {
+            // Step 1: Extract native entries and record their info
+            List<String> nativeEntries = new ArrayList<>();
+            try (ZipFile zip = new ZipFile(jarPath.toFile())) {
+                Enumeration<? extends ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    if (entry.isDirectory()) continue;
+                    if (!isNativeFile(entry.getName().toLowerCase(Locale.ROOT))) continue;
+
+                    nativeEntries.add(entry.getName());
+                    Path extractTarget = tempDir.resolve(entry.getName());
+                    Files.createDirectories(extractTarget.getParent());
+                    try (InputStream in = zip.getInputStream(entry)) {
+                        Files.copy(in, extractTarget, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            } catch (IOException e) {
+                throw new MojoExecutionException(
+                        "Failed to extract natives from " + jarPath, e);
+            }
+
+            if (nativeEntries.isEmpty()) {
+                return 0;
+            }
+
+            // Step 2: Sign each extracted native
+            for (String entryName : nativeEntries) {
+                Path extracted = tempDir.resolve(entryName);
+                codesign(extracted);
+            }
+
+            // Step 3: Repack the JAR with signed natives replacing originals
+            Path repackedJar = tempDir.resolve("repacked.jar");
+            repackJar(jarPath, repackedJar, tempDir, nativeEntries);
+
+            // Step 4: Atomically replace the original JAR
+            try {
+                Files.move(repackedJar, jarPath,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException e) {
+                // ATOMIC_MOVE may not be supported across filesystems
+                try {
+                    Files.move(repackedJar, jarPath,
+                            StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e2) {
+                    throw new MojoExecutionException(
+                            "Failed to replace JAR: " + jarPath, e2);
+                }
+            }
+
+            getLog().info("  Signed " + nativeEntries.size()
+                    + " native(s) in " + jarName);
+            return nativeEntries.size();
+
+        } finally {
+            // Clean up temp directory
+            deleteRecursively(tempDir);
+        }
+    }
+
+    /**
+     * Repack a JAR, substituting signed native entries from the temp directory.
+     * Preserves entry order, compression method, and extra fields.
+     */
+    private void repackJar(Path originalJar, Path outputJar,
+                           Path signedDir, List<String> nativeEntries)
+            throws MojoExecutionException {
+        try (ZipFile original = new ZipFile(originalJar.toFile());
+             OutputStream fos = Files.newOutputStream(outputJar);
+             ZipOutputStream zos = new ZipOutputStream(fos)) {
+
+            Enumeration<? extends ZipEntry> entries = original.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry oldEntry = entries.nextElement();
+                ZipEntry newEntry = new ZipEntry(oldEntry.getName());
+
+                // Preserve compression method
+                newEntry.setMethod(oldEntry.getMethod());
+                if (oldEntry.getMethod() == ZipEntry.STORED) {
+                    // STORED entries need explicit size and CRC
+                    if (nativeEntries.contains(oldEntry.getName())) {
+                        // Will be set from the signed file
+                        Path signedFile = signedDir.resolve(oldEntry.getName());
+                        long size = Files.size(signedFile);
+                        newEntry.setSize(size);
+                        newEntry.setCompressedSize(size);
+                        newEntry.setCrc(computeCrc(signedFile));
+                    } else {
+                        newEntry.setSize(oldEntry.getSize());
+                        newEntry.setCompressedSize(oldEntry.getCompressedSize());
+                        newEntry.setCrc(oldEntry.getCrc());
+                    }
+                }
+                if (oldEntry.getExtra() != null) {
+                    newEntry.setExtra(oldEntry.getExtra());
+                }
+                if (oldEntry.getComment() != null) {
+                    newEntry.setComment(oldEntry.getComment());
+                }
+                newEntry.setTime(oldEntry.getTime());
+
+                zos.putNextEntry(newEntry);
+
+                if (!oldEntry.isDirectory()) {
+                    if (nativeEntries.contains(oldEntry.getName())) {
+                        // Substitute with signed version
+                        Path signedFile = signedDir.resolve(oldEntry.getName());
+                        Files.copy(signedFile, zos);
+                    } else {
+                        // Copy original bytes
+                        try (InputStream in = original.getInputStream(oldEntry)) {
+                            in.transferTo(zos);
+                        }
+                    }
+                }
+
+                zos.closeEntry();
+            }
+
+        } catch (IOException e) {
+            throw new MojoExecutionException(
+                    "Failed to repack JAR: " + originalJar, e);
+        }
+    }
+
+    /**
+     * Sign a single native file with {@code codesign}.
+     */
+    private void codesign(Path file) throws MojoExecutionException {
+        ReleaseSupport.exec(file.getParent().toFile(), getLog(),
+                "codesign", "--force", "--timestamp",
+                "--options", "runtime",
+                "--sign", signingIdentity,
+                file.toString());
+    }
+
+    /**
+     * Check if a filename represents a native library.
+     */
+    static boolean isNativeFile(String name) {
+        return name.endsWith(".dylib") || name.endsWith(".jnilib");
+    }
+
+    /**
+     * Compute CRC-32 for a file (needed for STORED zip entries).
+     */
+    private static long computeCrc(Path file) throws IOException {
+        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                crc.update(buf, 0, n);
+            }
+        }
+        return crc.getValue();
+    }
+
+    /**
+     * Recursively delete a directory tree.
+     */
+    private static void deleteRecursively(Path dir) {
+        try {
+            Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                        throws IOException {
+                    Files.delete(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path d, IOException exc)
+                        throws IOException {
+                    Files.delete(d);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException _) {
+            // Best-effort cleanup
+        }
+    }
+}

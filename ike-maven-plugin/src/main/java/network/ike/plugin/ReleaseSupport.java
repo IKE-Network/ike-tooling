@@ -35,6 +35,16 @@ public class ReleaseSupport {
     private ReleaseSupport() {}
 
     /**
+     * Check if the current platform is macOS.
+     *
+     * @return {@code true} if running on macOS or Darwin
+     */
+    public static boolean isMacOS() {
+        String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        return osName.contains("mac") || osName.contains("darwin");
+    }
+
+    /**
      * Run a command, inherit IO so output streams to the Maven console.
      * Throws on non-zero exit code.
      *
@@ -45,7 +55,7 @@ public class ReleaseSupport {
      */
     public static void exec(File workDir, Log log, String... command)
             throws MojoExecutionException {
-        log.info("» " + String.join(" ", command));
+        log.debug("» " + String.join(" ", command));
         try {
             Process proc = new ProcessBuilder(command)
                     .directory(workDir)
@@ -218,6 +228,51 @@ public class ReleaseSupport {
                                 String.join(" ", command));
             }
             return output;
+        } catch (IOException | InterruptedException e) {
+            throw new MojoExecutionException(
+                    "Failed to execute: " + String.join(" ", command), e);
+        }
+    }
+
+    /**
+     * Run a command, streaming output through Maven's logger AND
+     * capturing the full output as a String. Throws on non-zero exit.
+     *
+     * <p>This is a hybrid of {@link #exec} (which logs but doesn't capture)
+     * and {@link #execCapture} (which captures but doesn't log). Useful
+     * for long-running commands where the user needs to see progress
+     * but the caller also needs to parse the output.
+     *
+     * @param workDir working directory for the subprocess
+     * @param log     Maven logger for real-time output
+     * @param command the command and arguments to execute
+     * @return the complete stdout+stderr output as a trimmed string
+     * @throws MojoExecutionException if the command exits non-zero or cannot be started
+     */
+    public static String execCaptureAndLog(File workDir, Log log, String... command)
+            throws MojoExecutionException {
+        log.debug("» " + String.join(" ", command));
+        try {
+            Process proc = new ProcessBuilder(command)
+                    .directory(workDir)
+                    .redirectErrorStream(true)
+                    .start();
+            StringBuilder captured = new StringBuilder();
+            try (var reader = new BufferedReader(
+                    new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    routeSubprocessLine(log, line);
+                    captured.append(line).append('\n');
+                }
+            }
+            int exit = proc.waitFor();
+            if (exit != 0) {
+                throw new MojoExecutionException(
+                        "Command failed (exit " + exit + "): " +
+                                String.join(" ", command));
+            }
+            return captured.toString().trim();
         } catch (IOException | InterruptedException e) {
             throw new MojoExecutionException(
                     "Failed to execute: " + String.join(" ", command), e);

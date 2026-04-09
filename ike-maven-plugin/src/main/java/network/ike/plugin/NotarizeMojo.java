@@ -151,22 +151,60 @@ public class NotarizeMojo extends AbstractMojo {
         String fileName = artifact.getFileName().toString();
         File workDir = artifact.getParent().toFile();
 
-        // Step 1: Submit to Apple notary service
+        // Step 1: Submit to Apple notary service (capture output to check status)
         getLog().info("Submitting for notarization: " + fileName);
-        ReleaseSupport.exec(workDir, getLog(),
+        String output = ReleaseSupport.execCaptureAndLog(workDir, getLog(),
                 "xcrun", "notarytool", "submit",
                 artifact.toString(),
                 "--keychain-profile", keychainProfile,
                 "--timeout", timeoutMinutes + "m",
                 "--wait");
 
-        // Step 2: Staple the notarization ticket
+        // Step 2: Parse notarization result — notarytool returns exit 0
+        // even when the submission is rejected ("Invalid")
+        String status = null;
+        String submissionId = null;
+        for (String line : output.lines().toList()) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("status:")) {
+                status = trimmed.substring("status:".length()).trim();
+            } else if (trimmed.startsWith("id:")) {
+                submissionId = trimmed.substring("id:".length()).trim();
+            }
+        }
+
+        if (status == null || !status.equalsIgnoreCase("Accepted")) {
+            getLog().error("Notarization REJECTED for " + fileName
+                    + " — status: " + (status != null ? status : "unknown"));
+
+            // Fetch and display the rejection log from Apple
+            if (submissionId != null) {
+                getLog().error("Fetching rejection details (id: " + submissionId + ")...");
+                try {
+                    ReleaseSupport.exec(workDir, getLog(),
+                            "xcrun", "notarytool", "log",
+                            submissionId,
+                            "--keychain-profile", keychainProfile);
+                } catch (MojoExecutionException e) {
+                    getLog().warn("Could not fetch notarization log: " + e.getMessage());
+                }
+            }
+
+            throw new MojoExecutionException(
+                    "Notarization failed for " + fileName
+                            + " — status: " + (status != null ? status : "unknown")
+                            + (submissionId != null ? " (id: " + submissionId + ")" : ""));
+        }
+
+        getLog().info("Notarization accepted — stapling ticket");
+
+        // Step 3: Staple the notarization ticket
         getLog().info("Stapling ticket: " + fileName);
         ReleaseSupport.exec(workDir, getLog(),
                 "xcrun", "stapler", "staple",
                 artifact.toString());
 
-        // Step 3: Verify with Gatekeeper
+        // Step 4: Verify with Gatekeeper
         getLog().info("Verifying: " + fileName);
         String assessType = fileName.endsWith(".pkg") ? "install" : "open";
         ReleaseSupport.exec(workDir, getLog(),
@@ -214,7 +252,6 @@ public class NotarizeMojo extends AbstractMojo {
      * @return true if running on macOS
      */
     static boolean isMacOS() {
-        String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        return osName.contains("mac") || osName.contains("darwin");
+        return ReleaseSupport.isMacOS();
     }
 }
