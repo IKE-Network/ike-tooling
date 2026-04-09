@@ -31,7 +31,7 @@ import java.util.Locale;
  * <p>On non-macOS platforms, the goal skips silently — no profile
  * activation or conditional configuration required.
  *
- * <h3>Prerequisites</h3>
+ * <p><b>Prerequisites:</b>
  * <ul>
  *   <li>A "Developer ID Installer" certificate in the login keychain</li>
  *   <li>A notarytool keychain profile configured via:
@@ -41,7 +41,7 @@ import java.util.Locale;
  *     --password "app-specific-password"</pre></li>
  * </ul>
  *
- * <h3>Usage</h3>
+ * <p><b>Usage:</b>
  * <pre>
  * mvn ike:notarize
  * </pre>

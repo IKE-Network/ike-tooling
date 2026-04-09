@@ -17,6 +17,9 @@ import org.apache.maven.plugins.annotations.Mojo;
 @Mojo(name = "release-apply", requiresProject = false, aggregator = true, threadSafe = true)
 public class ReleaseApplyMojo extends ReleaseMojo {
 
+    /** Creates this goal instance. */
+    public ReleaseApplyMojo() {}
+
     @Override
     public void execute() throws MojoExecutionException {
         dryRun = false;

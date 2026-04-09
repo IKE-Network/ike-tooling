@@ -17,6 +17,9 @@ import org.apache.maven.plugins.annotations.Mojo;
 @Mojo(name = "deploy-site-apply", requiresProject = false, aggregator = true, threadSafe = true)
 public class DeploySiteApplyMojo extends DeploySiteMojo {
 
+    /** Creates this goal instance. */
+    public DeploySiteApplyMojo() {}
+
     @Override
     public void execute() throws MojoExecutionException {
         dryRun = false;
