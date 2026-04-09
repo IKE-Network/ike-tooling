@@ -115,9 +115,9 @@ public class CodesignNativesMojo extends AbstractMojo {
         }
 
         if (signingIdentity == null || signingIdentity.isBlank()) {
-            throw new MojoExecutionException(
-                    "codesign.identity is required. Specify "
-                            + "-Dcodesign.identity=\"Developer ID Application: ...\"");
+            getLog().info("Native codesigning skipped \u2014 no signing identity provided");
+            getLog().info("  To sign, pass -Dcodesign.identity=\"Developer ID Application: ...\"");
+            return;
         }
 
         getLog().info("");
