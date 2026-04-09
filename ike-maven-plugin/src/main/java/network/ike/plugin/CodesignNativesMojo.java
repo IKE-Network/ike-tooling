@@ -75,15 +75,19 @@ public class CodesignNativesMojo extends AbstractMojo {
      * All {@code .jar}, {@code .dylib}, and {@code .jnilib} files
      * under this tree are inspected.
      */
-    @Parameter(property = "codesign.runtimeImageDir", required = true)
+    @Parameter(property = "codesign.runtimeImageDir")
     private File runtimeImageDir;
 
     /**
      * The {@code codesign} signing identity. Typically a
      * "Developer ID Application" certificate name including the team ID,
      * e.g., {@code "Developer ID Application: Jane Doe (ABCDE12345)"}.
+     *
+     * <p>Required on macOS; ignored on other platforms.
+     * Not marked {@code required=true} so the goal can skip gracefully
+     * on non-macOS without Maven failing parameter validation first.
      */
-    @Parameter(property = "codesign.identity", required = true)
+    @Parameter(property = "codesign.identity")
     private String signingIdentity;
 
     /**
