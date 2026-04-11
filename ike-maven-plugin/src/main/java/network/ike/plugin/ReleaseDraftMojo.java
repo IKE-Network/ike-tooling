@@ -490,7 +490,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
         if (hasOrigin) {
             try {
                 ReleaseSupport.execCapture(gitRoot,
-                        "git", "push", "--draft", "origin", "main");
+                        "git", "push", "--dry-run", "origin", "main");
                 getLog().info("  Git push:    authenticated  ✓");
             } catch (MojoExecutionException e) {
                 throw new MojoExecutionException(
