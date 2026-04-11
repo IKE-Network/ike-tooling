@@ -25,20 +25,20 @@ import java.io.File;
  * deploys (SCP alone only copies, never deletes) and avoids a
  * window where the site is missing.
  *
- * <p>By default this goal runs as a <strong>dry-run preview</strong>.
- * Use {@code ike:deploy-site-apply} to execute, or pass
- * {@code -DdryRun=false} explicitly.
+ * <p>By default this goal runs as a <strong>draft preview</strong>.
+ * Use {@code ike:deploy-site-publish} to execute, or pass
+ * {@code -Dpublish=true} explicitly.
  *
  * <p>Usage:
  * <pre>
  * mvn ike:deploy-site -DsiteType=snapshot            (preview)
- * mvn ike:deploy-site-apply -DsiteType=snapshot       (execute)
- * mvn ike:deploy-site-apply -DsiteType=release
- * mvn ike:deploy-site-apply -DsiteType=checkpoint -DsiteVersion=7-checkpoint.20260228.1
+ * mvn ike:deploy-site-publish -DsiteType=snapshot       (execute)
+ * mvn ike:deploy-site-publish -DsiteType=release
+ * mvn ike:deploy-site-publish -DsiteType=checkpoint -DsiteVersion=7-checkpoint.20260228.1
  * </pre>
  */
-@Mojo(name = "deploy-site", requiresProject = false, aggregator = true, threadSafe = true)
-public class DeploySiteMojo extends AbstractMojo {
+@Mojo(name = "deploy-site-draft", requiresProject = false, aggregator = true, threadSafe = true)
+public class DeploySiteDraftMojo extends AbstractMojo {
 
     private static final String SITE_URL_BASE = "scpexe://proxy/srv/ike-site/";
 
@@ -61,8 +61,8 @@ public class DeploySiteMojo extends AbstractMojo {
     private String branch;
 
     /** Show plan without executing. */
-    @Parameter(property = "dryRun", defaultValue = "true")
-    boolean dryRun;
+    @Parameter(property = "publish", defaultValue = "false")
+    boolean publish;
 
     /** Skip the {@code mvn clean verify} step. */
     @Parameter(property = "skipBuild", defaultValue = "false")
@@ -77,7 +77,7 @@ public class DeploySiteMojo extends AbstractMojo {
     private boolean skipSwap;
 
     /** Creates this goal instance. */
-    public DeploySiteMojo() {}
+    public DeploySiteDraftMojo() {}
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -141,7 +141,7 @@ public class DeploySiteMojo extends AbstractMojo {
         getLog().info("  Disk path:   " + diskPath);
         getLog().info("  Skip build:  " + skipBuild);
         getLog().info("  Skip swap:   " + skipSwap);
-        getLog().info("  Dry run:     " + dryRun);
+        getLog().info("  Publish:        "+ publish);
         getLog().info("");
 
         // Determine deploy URL — either staging dir or direct
@@ -149,16 +149,16 @@ public class DeploySiteMojo extends AbstractMojo {
                 : ReleaseSupport.siteStagingUrl(targetUrl);
         String stagingDisk = ReleaseSupport.siteStagingPath(diskPath);
 
-        if (dryRun) {
+        if (!publish) {
             if (!skipBuild) {
-                getLog().info("[DRY RUN] Would run: mvnw clean verify -B");
+                getLog().info("[DRAFT] Would run: mvnw clean verify -B");
             }
             if (!skipSwap) {
-                getLog().info("[DRY RUN] Would clean staging dir: " + stagingDisk);
-                getLog().info("[DRY RUN] Would deploy site to staging: " + deployUrl);
-                getLog().info("[DRY RUN] Would swap: " + stagingDisk + " → " + diskPath);
+                getLog().info("[DRAFT] Would clean staging dir: " + stagingDisk);
+                getLog().info("[DRAFT] Would deploy site to staging: " + deployUrl);
+                getLog().info("[DRAFT] Would swap: " + stagingDisk + " → " + diskPath);
             } else {
-                getLog().info("[DRY RUN] Would deploy site to: " + targetUrl);
+                getLog().info("[DRAFT] Would deploy site to: " + targetUrl);
             }
             return;
         }

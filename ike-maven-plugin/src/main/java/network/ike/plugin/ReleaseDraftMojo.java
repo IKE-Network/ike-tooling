@@ -40,17 +40,17 @@ import java.util.List;
  *   <li>Create GitHub Release</li>
  * </ol>
  *
- * <p>By default this goal runs as a <strong>dry-run preview</strong>.
- * Use {@code ike:release-apply} to execute the release, or pass
- * {@code -DdryRun=false} explicitly.
+ * <p>By default this goal runs as a <strong>draft preview</strong>.
+ * Use {@code ike:release-publish} to execute the release, or pass
+ * {@code -Dpublish=true} explicitly.
  *
  * <p>Usage: {@code mvn ike:release} (preview),
- * {@code mvn ike:release-apply} (execute),
- * or override version with {@code mvn ike:release-apply -DreleaseVersion=2}
+ * {@code mvn ike:release-publish} (execute),
+ * or override version with {@code mvn ike:release-publish -DreleaseVersion=2}
  *
  */
-@Mojo(name = "release", requiresProject = false, aggregator = true, threadSafe = true)
-public class ReleaseMojo extends AbstractMojo {
+@Mojo(name = "release-draft", requiresProject = false, aggregator = true, threadSafe = true)
+public class ReleaseDraftMojo extends AbstractMojo {
 
     @Parameter(property = "releaseVersion")
     String releaseVersion;
@@ -58,8 +58,8 @@ public class ReleaseMojo extends AbstractMojo {
     @Parameter(property = "nextVersion")
     String nextVersion;
 
-    @Parameter(property = "dryRun", defaultValue = "true")
-    boolean dryRun;
+    @Parameter(property = "publish", defaultValue = "false")
+    boolean publish;
 
     @Parameter(property = "skipVerify", defaultValue = "false")
     boolean skipVerify;
@@ -92,7 +92,7 @@ public class ReleaseMojo extends AbstractMojo {
     File baseDir;
 
     /** Creates this goal instance. */
-    public ReleaseMojo() {}
+    public ReleaseDraftMojo() {}
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -156,7 +156,7 @@ public class ReleaseMojo extends AbstractMojo {
         // in seconds, not after a 10-minute build. Each check is
         // non-destructive and idempotent.
         boolean hasOrigin = ReleaseSupport.hasRemote(gitRoot, "origin");
-        if (!dryRun) {
+        if (publish) {
             preflightChecks(gitRoot, hasOrigin, projectId);
         }
 
@@ -166,41 +166,41 @@ public class ReleaseMojo extends AbstractMojo {
         // guarantee. Wall-clock time would defeat the purpose.
         String releaseTimestamp = resolveCommitTimestamp(gitRoot);
 
-        if (dryRun) {
-            getLog().info("[DRY RUN] Would create branch: " + releaseBranch);
-            getLog().info("[DRY RUN] Would set version: " + oldVersion +
+        if (!publish) {
+            getLog().info("[DRAFT] Would create branch: " + releaseBranch);
+            getLog().info("[DRAFT] Would set version: " + oldVersion +
                     " -> " + releaseVersion);
-            getLog().info("[DRY RUN] Would stamp project.build.outputTimestamp: "
+            getLog().info("[DRAFT] Would stamp project.build.outputTimestamp: "
                     + releaseTimestamp);
-            getLog().info("[DRY RUN] Would resolve ${project.version} -> " +
+            getLog().info("[DRAFT] Would resolve ${project.version} -> " +
                     releaseVersion + " in all POMs");
-            getLog().info("[DRY RUN] Would run: mvnw clean verify -B");
-            getLog().info("[DRY RUN] Would commit, tag v" + releaseVersion);
-            getLog().info("[DRY RUN] Would restore ${project.version} references");
-            getLog().info("[DRY RUN] Would merge " + releaseBranch + " to main");
-            getLog().info("[DRY RUN] Would bump to next version: " + nextVersion);
-            getLog().info("[DRY RUN] --- all local work above, external below ---");
+            getLog().info("[DRAFT] Would run: mvnw clean verify -B");
+            getLog().info("[DRAFT] Would commit, tag v" + releaseVersion);
+            getLog().info("[DRAFT] Would restore ${project.version} references");
+            getLog().info("[DRAFT] Would merge " + releaseBranch + " to main");
+            getLog().info("[DRAFT] Would bump to next version: " + nextVersion);
+            getLog().info("[DRAFT] --- all local work above, external below ---");
             if (deploySite) {
-                getLog().info("[DRY RUN] Would generate site (must succeed)");
+                getLog().info("[DRAFT] Would generate site (must succeed)");
             }
-            getLog().info("[DRY RUN] Would deploy to Nexus from tag v" +
+            getLog().info("[DRAFT] Would deploy to Nexus from tag v" +
                     releaseVersion + " (critical)");
             if (deploySite) {
-                getLog().info("[DRY RUN] Would deploy site to: " +
+                getLog().info("[DRAFT] Would deploy site to: " +
                         "scpexe://proxy/srv/ike-site/" + projectId + "/release"
                         + " (best-effort)");
             }
             if (publishSite && deploySite) {
-                getLog().info("[DRY RUN] Would publish site to GitHub Pages (best-effort)");
+                getLog().info("[DRAFT] Would publish site to GitHub Pages (best-effort)");
             }
-            getLog().info("[DRY RUN] Would push tag and main to origin");
-            getLog().info("[DRY RUN] Would create GitHub Release");
+            getLog().info("[DRAFT] Would push tag and main to origin");
+            getLog().info("[DRAFT] Would create GitHub Release");
             return;
         }
 
         // ── Release ───────────────────────────────────────────────────
 
-        // Resolve Maven wrapper (requires mvnw or mvn on PATH — skip for dry-run)
+        // Resolve Maven wrapper (requires mvnw or mvn on PATH — skip for draft)
         File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
 
         // Build environment audit (needs mvnw for --version)
@@ -486,11 +486,11 @@ public class ReleaseMojo extends AbstractMojo {
         getLog().info("PREFLIGHT CHECKS");
         List<String> warnings = new java.util.ArrayList<>();
 
-        // 1. Git push auth — dry-run push (sends nothing, tests auth)
+        // 1. Git push auth — draft push (sends nothing, tests auth)
         if (hasOrigin) {
             try {
                 ReleaseSupport.execCapture(gitRoot,
-                        "git", "push", "--dry-run", "origin", "main");
+                        "git", "push", "--draft", "origin", "main");
                 getLog().info("  Git push:    authenticated  ✓");
             } catch (MojoExecutionException e) {
                 throw new MojoExecutionException(
@@ -567,8 +567,9 @@ public class ReleaseMojo extends AbstractMojo {
                             "  Continue with %d warning(s)? (yes/no): ",
                             warnings.size());
                 } else {
-                    getLog().info("\u001B[33m  Continue with " + warnings.size()
+                    System.out.print("\u001B[33m  Continue with " + warnings.size()
                             + " warning(s)? (yes/no): \u001B[0m");
+                    System.out.flush();
                     try {
                         answer = new java.io.BufferedReader(
                                 new java.io.InputStreamReader(System.in))
@@ -608,7 +609,7 @@ public class ReleaseMojo extends AbstractMojo {
         getLog().info("  Deploy site:    " + deploySite);
         getLog().info("  Publish site:   " + publishSite);
         getLog().info("  Skip verify:    " + skipVerify);
-        getLog().info("  Dry run:        " + dryRun);
+        getLog().info("  Publish:           "+ publish);
         getLog().info("");
         getLog().info("BUILD ENVIRONMENT");
         getLog().info("  Date:           " + Instant.now());

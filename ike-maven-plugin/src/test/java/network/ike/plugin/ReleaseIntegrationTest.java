@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Integration tests for {@link ReleaseMojo} using real temp git repos.
+ * Integration tests for {@link ReleaseDraftMojo} using real temp git repos.
  *
  * <p>Each test creates a release-ready project in a temporary directory,
  * configures the Mojo fields directly (package-private access), and
@@ -36,9 +36,9 @@ class ReleaseIntegrationTest {
         String headBefore = execCapture(tempDir, "git", "rev-parse", "HEAD");
         String tagsBefore = execCapture(tempDir, "git", "tag", "-l");
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
-        mojo.dryRun = true;
+        mojo.publish = false;
         mojo.skipVerify = true;
         mojo.deploySite = false;
 
@@ -63,7 +63,7 @@ class ReleaseIntegrationTest {
         createReleaseProject(tempDir);
         exec(tempDir, "git", "checkout", "-b", "develop");
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.deploySite = false;
         mojo.skipVerify = true;
@@ -78,7 +78,7 @@ class ReleaseIntegrationTest {
         createReleaseProject(tempDir);
         exec(tempDir, "git", "checkout", "-b", "develop");
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.allowBranch = "develop";
         mojo.skipVerify = true;
@@ -100,7 +100,7 @@ class ReleaseIntegrationTest {
     void release_localPhase_createsTagAndBumps() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
         mojo.deploySite = false;
@@ -135,7 +135,7 @@ class ReleaseIntegrationTest {
     void release_snapshotReleaseVersion_throws() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.releaseVersion = "1.0.0-SNAPSHOT";
         mojo.skipVerify = true;
@@ -152,7 +152,7 @@ class ReleaseIntegrationTest {
     void release_nextVersionNotSnapshot_throws() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.releaseVersion = "1.0.0";
         mojo.nextVersion = "1.0.1";  // missing -SNAPSHOT
@@ -172,7 +172,7 @@ class ReleaseIntegrationTest {
         // Create the release branch beforehand
         exec(tempDir, "git", "branch", "release/1.0.0");
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.releaseVersion = "1.0.0";
         mojo.skipVerify = true;
@@ -189,15 +189,15 @@ class ReleaseIntegrationTest {
     void release_noExplicitVersion_derivesFromPom() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
-        mojo.dryRun = true;
+        mojo.publish = false;
         mojo.skipVerify = true;
         mojo.deploySite = false;
 
         mojo.execute();
 
-        // After dry run, releaseVersion should be derived from
+        // After draft, releaseVersion should be derived from
         // 1.0.0-SNAPSHOT -> 1.0.0
         assertThat(mojo.releaseVersion).isEqualTo("1.0.0");
         assertThat(mojo.nextVersion).isEqualTo("1.0.1-SNAPSHOT");
@@ -207,9 +207,9 @@ class ReleaseIntegrationTest {
     void release_explicitReleaseVersion_used() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
-        mojo.dryRun = true;
+        mojo.publish = false;
         mojo.releaseVersion = "42";
         mojo.skipVerify = true;
         mojo.deploySite = false;
@@ -230,7 +230,7 @@ class ReleaseIntegrationTest {
         Files.writeString(tempDir.resolve("README.txt"), "modified content",
                 StandardCharsets.UTF_8);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
         mojo.deploySite = false;
@@ -247,7 +247,7 @@ class ReleaseIntegrationTest {
         // Create a project with a sub-module that uses ${project.version}
         createReleaseProjectWithSubModule(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
         mojo.deploySite = false;
@@ -272,17 +272,17 @@ class ReleaseIntegrationTest {
     void release_dryRun_deploySiteTrue_logsSiteUrl() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
-        mojo.dryRun = true;
+        mojo.publish = false;
         mojo.skipVerify = true;
         mojo.deploySite = true;
 
         // Should complete without error and cover the deploySite=true
-        // branch inside the dry-run path (L145-147)
+        // branch inside the draft path (L145-147)
         mojo.execute();
 
-        // Verify the version was derived correctly (same as other dry-run tests)
+        // Verify the version was derived correctly (same as other draft tests)
         assertThat(mojo.releaseVersion).isEqualTo("1.0.0");
     }
 
@@ -292,9 +292,9 @@ class ReleaseIntegrationTest {
     void release_dryRun_blankReleaseVersion_derives() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
-        mojo.dryRun = true;
+        mojo.publish = false;
         mojo.skipVerify = true;
         mojo.deploySite = false;
         mojo.releaseVersion = "   ";  // blank — should be treated as unset
@@ -308,9 +308,9 @@ class ReleaseIntegrationTest {
     void release_dryRun_blankNextVersion_derives() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseMojo mojo = new ReleaseMojo();
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         mojo.baseDir = tempDir.toFile();
-        mojo.dryRun = true;
+        mojo.publish = false;
         mojo.skipVerify = true;
         mojo.deploySite = false;
         mojo.releaseVersion = "1.0.0";

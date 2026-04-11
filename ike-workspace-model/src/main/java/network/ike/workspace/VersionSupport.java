@@ -63,14 +63,21 @@ public final class VersionSupport {
      * @return e.g. "feature-shield-terminology"
      */
     public static String safeBranchName(String branch) {
-        return branch.replace('/', '-');
+        String stripped = branch;
+        for (String prefix : new String[]{"feature/", "hotfix/", "bugfix/", "release/"}) {
+            if (stripped.startsWith(prefix)) {
+                stripped = stripped.substring(prefix.length());
+                break;
+            }
+        }
+        return stripped.replace('/', '-');
     }
 
     /**
      * Derive a branch-qualified SNAPSHOT version.
      *
      * <p>Given base version {@code "1.2.0-SNAPSHOT"} and branch
-     * {@code "feature/my-work"}, returns {@code "1.2.0-feature-my-work-SNAPSHOT"}.
+     * {@code "feature/my-work"}, returns {@code "1.2.0-my-work-SNAPSHOT"}.
      *
      * <p>If the branch is "main", returns the base version unchanged.
      *

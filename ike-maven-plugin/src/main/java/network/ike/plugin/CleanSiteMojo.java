@@ -46,8 +46,8 @@ public class CleanSiteMojo extends AbstractMojo {
     private String siteVersion;
 
     /** Show plan without executing. */
-    @Parameter(property = "dryRun", defaultValue = "false")
-    private boolean dryRun;
+    @Parameter(property = "publish", defaultValue = "true")
+    private boolean publish;
 
     /** Creates this goal instance. */
     public CleanSiteMojo() {}
@@ -99,8 +99,8 @@ public class CleanSiteMojo extends AbstractMojo {
         getLog().info("  Disk path: " + diskPath);
         getLog().info("");
 
-        if (dryRun) {
-            getLog().info("[DRY RUN] Would remove: " + diskPath);
+        if (!publish) {
+            getLog().info("[DRAFT] Would remove: " + diskPath);
             return;
         }
 

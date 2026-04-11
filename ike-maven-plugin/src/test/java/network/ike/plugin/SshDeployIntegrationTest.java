@@ -310,7 +310,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
 
     @Test
     void toPublicSiteUrl_convertsScpToHttp() {
-        String result = DeploySiteMojo.toPublicSiteUrl(
+        String result = DeploySiteDraftMojo.toPublicSiteUrl(
                 "scpexe://proxy/srv/ike-site/ike-pipeline/release");
         assertThat(result).isEqualTo("http://ike.komet.sh/ike-pipeline/release");
     }
@@ -408,7 +408,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
             System.setProperty("user.dir", origDir);
         }
 
-        // Directory should still exist (dry run)
+        // Directory should still exist (draft)
         assertThat(sshExecRaw("test -d " + expectedPath)).isZero();
     }
 
@@ -455,7 +455,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         }
     }
 
-    // ── DeploySiteMojo tests ────────────────────────────────────────
+    // ── DeploySiteDraftMojo tests ────────────────────────────────────────
 
     @Test
     void deploySiteMojo_dryRunLogsPlan(@TempDir Path workDir) throws Exception {
@@ -463,7 +463,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        DeploySiteMojo mojo = new DeploySiteMojo();
+        DeploySiteDraftMojo mojo = new DeploySiteDraftMojo();
         setField(mojo, "siteType", "release");
         setField(mojo, "dryRun", true);
         setField(mojo, "skipBuild", true);
@@ -471,7 +471,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         String origDir = System.getProperty("user.dir");
         try {
             System.setProperty("user.dir", gitDir.getAbsolutePath());
-            // Should complete without error (dry run)
+            // Should complete without error (draft)
             mojo.execute();
         } finally {
             System.setProperty("user.dir", origDir);
@@ -485,7 +485,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        DeploySiteMojo mojo = new DeploySiteMojo();
+        DeploySiteDraftMojo mojo = new DeploySiteDraftMojo();
         setField(mojo, "siteType", "bogus");
         setField(mojo, "dryRun", true);
 
@@ -506,7 +506,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        DeploySiteMojo mojo = new DeploySiteMojo();
+        DeploySiteDraftMojo mojo = new DeploySiteDraftMojo();
         setField(mojo, "siteType", "snapshot");
         setField(mojo, "branch", "feature/kec-test");
         setField(mojo, "dryRun", true);
@@ -527,7 +527,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        DeploySiteMojo mojo = new DeploySiteMojo();
+        DeploySiteDraftMojo mojo = new DeploySiteDraftMojo();
         setField(mojo, "siteType", "checkpoint");
         setField(mojo, "siteVersion", "7-checkpoint.20260301.1");
         setField(mojo, "dryRun", true);

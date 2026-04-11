@@ -20,6 +20,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 
 /**
  * Shared utilities for release mojos.
@@ -33,6 +36,16 @@ public class ReleaseSupport {
             Pattern.compile("<version>([^<]+)</version>");
 
     private ReleaseSupport() {}
+
+    /**
+     * Check if the current platform is macOS.
+     *
+     * @return {@code true} if running on macOS or Darwin
+     */
+    public static boolean isMacOS() {
+        String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        return osName.contains("mac") || osName.contains("darwin");
+    }
 
     /**
      * Run a command, inherit IO so output streams to the Maven console.
@@ -136,7 +149,7 @@ public class ReleaseSupport {
     public static void execParallel(File workDir, Log log, LabeledTask... tasks)
             throws MojoExecutionException {
         for (LabeledTask task : tasks) {
-            log.info("» [" + task.label() + "] " + String.join(" ", task.command()));
+            log.debug("» [" + task.label() + "] " + String.join(" ", task.command()));
         }
 
         List<String> failures = new CopyOnWriteArrayList<>();
@@ -218,6 +231,46 @@ public class ReleaseSupport {
                                 String.join(" ", command));
             }
             return output;
+        } catch (IOException | InterruptedException e) {
+            throw new MojoExecutionException(
+                    "Failed to execute: " + String.join(" ", command), e);
+        }
+    }
+
+    /**
+     * Run a command, streaming output through Maven's logger AND
+     * capturing the full output as a String. Throws on non-zero exit.
+     *
+     * @param workDir working directory for the subprocess
+     * @param log     Maven logger for real-time output
+     * @param command the command and arguments to execute
+     * @return the complete stdout+stderr output as a trimmed string
+     * @throws MojoExecutionException if the command exits non-zero
+     */
+    public static String execCaptureAndLog(File workDir, Log log, String... command)
+            throws MojoExecutionException {
+        log.debug("» " + String.join(" ", command));
+        try {
+            Process proc = new ProcessBuilder(command)
+                    .directory(workDir)
+                    .redirectErrorStream(true)
+                    .start();
+            StringBuilder captured = new StringBuilder();
+            try (var reader = new BufferedReader(
+                    new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    routeSubprocessLine(log, line);
+                    captured.append(line).append('\n');
+                }
+            }
+            int exit = proc.waitFor();
+            if (exit != 0) {
+                throw new MojoExecutionException(
+                        "Command failed (exit " + exit + "): " +
+                                String.join(" ", command));
+            }
+            return captured.toString().trim();
         } catch (IOException | InterruptedException e) {
             throw new MojoExecutionException(
                     "Failed to execute: " + String.join(" ", command), e);
@@ -834,6 +887,82 @@ public class ReleaseSupport {
             }
             throw new MojoExecutionException(
                     "Could not extract <artifactId> from " + pomFile);
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to read " + pomFile, e);
+        }
+    }
+
+    /**
+     * Recursively delete a directory and all its contents.
+     */
+    public static void deleteDirectory(Path dir) {
+        try {
+            Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file,
+                        BasicFileAttributes attrs) throws IOException {
+                    Files.delete(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path d,
+                        IOException exc) throws IOException {
+                    Files.delete(d);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            // Best-effort — log but don't fail
+        }
+    }
+
+    /**
+     * Recursively copy a directory tree.
+     */
+    public static void copyDirectory(Path source, Path target) throws IOException {
+        try (Stream<Path> stream = Files.walk(source)) {
+            stream.forEach(src -> {
+                try {
+                    Path dest = target.resolve(source.relativize(src));
+                    if (Files.isDirectory(src)) {
+                        Files.createDirectories(dest);
+                    } else {
+                        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        }
+    }
+
+    /**
+     * Read the {@code <name>} element from a POM file.
+     *
+     * @return the name, or null if not present
+     */
+    public static String readPomName(File pomFile) throws MojoExecutionException {
+        return readPomElement(pomFile, "name");
+    }
+
+    /**
+     * Read the {@code <description>} element from a POM file.
+     *
+     * @return the description, or null if not present
+     */
+    public static String readPomDescription(File pomFile) throws MojoExecutionException {
+        return readPomElement(pomFile, "description");
+    }
+
+    private static String readPomElement(File pomFile, String element)
+            throws MojoExecutionException {
+        try {
+            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
+            Pattern pattern = Pattern.compile(
+                    "<" + element + ">([^<]+)</" + element + ">");
+            Matcher matcher = pattern.matcher(content);
+            return matcher.find() ? matcher.group(1).trim() : null;
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to read " + pomFile, e);
         }
