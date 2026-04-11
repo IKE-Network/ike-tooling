@@ -96,6 +96,16 @@ public class CodesignNativesMojo extends AbstractMojo {
     @Parameter(property = "codesign.skip", defaultValue = "false")
     private boolean skip;
 
+    /**
+     * Keychain password for unlocking the signing keychain before codesign.
+     * Read from {@code CODESIGN_KEYCHAIN_PASSWORD} environment variable
+     * if not set via Maven property. When provided, the login keychain
+     * is unlocked automatically — no interactive prompt.
+     */
+    @Parameter(property = "codesign.keychainPassword",
+               defaultValue = "${env.CODESIGN_KEYCHAIN_PASSWORD}")
+    private String keychainPassword;
+
     @Override
     public void execute() throws MojoExecutionException {
         if (skip) {
@@ -119,6 +129,8 @@ public class CodesignNativesMojo extends AbstractMojo {
             getLog().info("  To sign, pass -Dcodesign.identity=\"Developer ID Application: ...\"");
             return;
         }
+
+        unlockKeychainIfNeeded();
 
         getLog().info("");
         getLog().info("Native Library Codesigning");
@@ -341,6 +353,30 @@ public class CodesignNativesMojo extends AbstractMojo {
             throw new MojoExecutionException(
                     "Failed to repack JAR: " + originalJar, e);
         }
+    }
+
+    /**
+     * Unlock the login keychain if a password is available.
+     * This prevents interactive prompts during codesign on dev machines
+     * and is required for CI where no GUI is available.
+     */
+    private void unlockKeychainIfNeeded() throws MojoExecutionException {
+        if (keychainPassword == null || keychainPassword.isBlank()) {
+            return;
+        }
+        getLog().info("  Unlocking keychain for codesign...");
+        ReleaseSupport.exec(new java.io.File("."), getLog(),
+                "security", "unlock-keychain",
+                "-p", keychainPassword,
+                System.getProperty("user.home")
+                        + "/Library/Keychains/login.keychain-db");
+        // Also set the partition list so codesign can access the key
+        ReleaseSupport.exec(new java.io.File("."), getLog(),
+                "security", "set-key-partition-list",
+                "-S", "apple-tool:,apple:,codesign:",
+                "-s", "-k", keychainPassword,
+                System.getProperty("user.home")
+                        + "/Library/Keychains/login.keychain-db");
     }
 
     /**

@@ -96,6 +96,15 @@ public class CodesignPkgMojo extends AbstractMojo {
     @Parameter(property = "codesign.pkg.skip", defaultValue = "false")
     private boolean skip;
 
+    /**
+     * Keychain password for unlocking the signing keychain before codesign.
+     * Read from {@code CODESIGN_KEYCHAIN_PASSWORD} environment variable
+     * if not set via Maven property.
+     */
+    @Parameter(property = "codesign.keychainPassword",
+               defaultValue = "${env.CODESIGN_KEYCHAIN_PASSWORD}")
+    private String keychainPassword;
+
     @Override
     public void execute() throws MojoExecutionException {
         if (skip) {
@@ -125,6 +134,8 @@ public class CodesignPkgMojo extends AbstractMojo {
             return;
         }
 
+        unlockKeychainIfNeeded();
+
         List<Path> pkgFiles = findPkgFiles();
         if (pkgFiles.isEmpty()) {
             getLog().warn("No .pkg files found in " + pkgDir);
@@ -146,6 +157,27 @@ public class CodesignPkgMojo extends AbstractMojo {
         getLog().info("");
         getLog().info("Package codesigning complete");
         getLog().info("");
+    }
+
+    /**
+     * Unlock the login keychain if a password is available.
+     */
+    private void unlockKeychainIfNeeded() throws MojoExecutionException {
+        if (keychainPassword == null || keychainPassword.isBlank()) {
+            return;
+        }
+        getLog().info("  Unlocking keychain for codesign...");
+        ReleaseSupport.exec(new java.io.File("."), getLog(),
+                "security", "unlock-keychain",
+                "-p", keychainPassword,
+                System.getProperty("user.home")
+                        + "/Library/Keychains/login.keychain-db");
+        ReleaseSupport.exec(new java.io.File("."), getLog(),
+                "security", "set-key-partition-list",
+                "-S", "apple-tool:,apple:,codesign:",
+                "-s", "-k", keychainPassword,
+                System.getProperty("user.home")
+                        + "/Library/Keychains/login.keychain-db");
     }
 
     /**
