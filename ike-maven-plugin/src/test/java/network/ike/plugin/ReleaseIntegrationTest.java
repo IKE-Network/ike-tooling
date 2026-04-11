@@ -104,6 +104,7 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
         mojo.deploySite = false;
+        mojo.publish = true;
 
         // The local phase should complete: branch, version, tag, merge, bump.
         // The external phase will fail (no remote, no Nexus). Catch and

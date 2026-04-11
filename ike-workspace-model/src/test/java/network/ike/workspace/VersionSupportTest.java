@@ -55,9 +55,9 @@ class VersionSupportTest {
     // ── safeBranchName ──────────────────────────────────────────────
 
     @Test
-    void safeBranchNameReplacesSlash() {
+    void safeBranchNameStripsFeaturePrefix() {
         assertThat(VersionSupport.safeBranchName("feature/shield-terminology"))
-                .isEqualTo("feature-shield-terminology");
+                .isEqualTo("shield-terminology");
     }
 
     @Test
@@ -72,7 +72,7 @@ class VersionSupportTest {
     void branchQualifiedVersionForFeature() {
         assertThat(VersionSupport.branchQualifiedVersion(
                 "1.2.0-SNAPSHOT", "feature/my-work"))
-                .isEqualTo("1.2.0-feature-my-work-SNAPSHOT");
+                .isEqualTo("1.2.0-my-work-SNAPSHOT");
     }
 
     @Test
@@ -92,7 +92,7 @@ class VersionSupportTest {
     void branchQualifiedStripsExistingQualifier() {
         assertThat(VersionSupport.branchQualifiedVersion(
                 "1.2.0-old-feature-SNAPSHOT", "feature/new-work"))
-                .isEqualTo("1.2.0-feature-new-work-SNAPSHOT");
+                .isEqualTo("1.2.0-new-work-SNAPSHOT");
     }
 
     // ── extractNumericBase ──────────────────────────────────────────
