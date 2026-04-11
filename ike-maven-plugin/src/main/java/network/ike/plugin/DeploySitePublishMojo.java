@@ -12,7 +12,7 @@ import org.apache.maven.plugins.annotations.Mojo;
  *
  * <p>Usage: {@code mvn ike:deploy-site-publish -DsiteType=release}
  *
- * @see DeploySiteMojo
+ * @see DeploySiteDraftMojo
  */
 @Mojo(name = "deploy-site-publish", requiresProject = false, aggregator = true, threadSafe = true)
 public class DeploySitePublishMojo extends DeploySiteDraftMojo {

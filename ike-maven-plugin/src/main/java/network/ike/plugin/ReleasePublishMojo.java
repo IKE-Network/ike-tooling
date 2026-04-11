@@ -12,7 +12,7 @@ import org.apache.maven.plugins.annotations.Mojo;
  *
  * <p>Usage: {@code mvn ike:release-publish}
  *
- * @see ReleaseMojo
+ * @see ReleaseDraftMojo
  */
 @Mojo(name = "release-publish", requiresProject = false, aggregator = true, threadSafe = true)
 public class ReleasePublishMojo extends ReleaseDraftMojo {
