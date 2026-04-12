@@ -51,6 +51,102 @@ When adding new AsciiDoc extensions:
 - Postprocessors and TreeProcessors → per-execution registration in POM
 - Test with both HTML and PDF backends — Prawn's JRuby bridge has quirks
 
+## Compiler Visibility — The Primary Design Discipline
+
+Before writing any code, ask: **"Is this visible to the Java compiler,
+and will the compiler help me evolve it safely?"**
+
+Java 25 with preview features gives us the richest type system Java has
+ever had. Use it. The compiler is a collaborator — code that hides
+structure from the compiler has opted out of Java's primary safety
+mechanism.
+
+### Enums Over Strings
+
+Every fixed vocabulary must be an enum. String literals used as typed
+values bypass exhaustiveness checking, `Find Usages`, and refactoring
+safety.
+
+```java
+// WRONG — compiler can't help when vocabularies change
+case "release" -> deployRelease();
+case "snapshot" -> deploySnapshot();
+
+// RIGHT — exhaustive switch, compiler enforces all cases handled
+case SiteType.RELEASE -> deployRelease();
+case SiteType.SNAPSHOT -> deploySnapshot();
+// Compiler error if CHECKPOINT is added without handling it
+```
+
+### Pattern Matching in Switch (Java 25 Preview)
+
+Use pattern matching for type-safe decomposition of sealed hierarchies,
+records, and polymorphic data. Prefer `switch` expressions over
+`if`/`instanceof` chains.
+
+```java
+// WRONG — linear instanceof chain, no exhaustiveness
+if (result instanceof Success s) { ... }
+else if (result instanceof Failure f) { ... }
+
+// RIGHT — exhaustive switch expression with pattern matching
+return switch (result) {
+    case Success(var value) -> process(value);
+    case Failure(var error) -> recover(error);
+};
+```
+
+### Records for Data Carriers
+
+Use records for all immutable data carriers. Records participate in
+pattern matching and provide compiler-generated `equals`, `hashCode`,
+and `toString`.
+
+```java
+// WRONG — stringly-typed tuple
+new String[] { componentName, version, "merged" }
+
+// RIGHT — typed record, usable in pattern matching
+record MergeResult(String component, String version, Status status) {}
+```
+
+### Sealed Hierarchies for Closed Type Sets
+
+When a type has a fixed set of variants, seal it. The compiler
+enforces exhaustive handling in switch expressions.
+
+```java
+sealed interface BuildResult permits Success, Failure, Skipped {}
+record Success(Path artifact) implements BuildResult {}
+record Failure(String reason) implements BuildResult {}
+record Skipped(String reason) implements BuildResult {}
+```
+
+### Methods Over Subprocess Invocations
+
+When one component depends on another's behavior, express that
+dependency as a method call — not as a string-based subprocess
+invocation. Each Maven goal should be a thin wrapper around a
+callable support class.
+
+```java
+// WRONG — runtime string, compiler can't verify goal exists
+ReleaseSupport.exec(dir, log, mvnw, "ike:inject-breadcrumb", "-B");
+
+// RIGHT — compile-time reference, refactoring-safe
+InjectBreadcrumbSupport.inject(siteDir, log);
+```
+
+### When Strings Are Acceptable
+
+- External protocol values (HTTP headers, JSON keys, YAML field names)
+- User-facing display text (log messages, prompts)
+- File paths and URLs (inherently string-based)
+- External CLI arguments we don't control (git subcommands, gh flags)
+
+Even then, prefer constants or enums when the same value appears in
+more than one location.
+
 ## Logging
 
 - SLF4J API for all production code (`org.slf4j:slf4j-api`, scope `provided`).
