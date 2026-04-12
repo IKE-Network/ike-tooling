@@ -168,6 +168,35 @@ depends-on:
 Relationship types matter for cascade analysis: `build` dependencies require
 rebuild; `content` dependencies may require only review.
 
+### Version Cascade Mechanisms
+
+When `ws:feature-start` creates a feature branch, it cascades
+branch-qualified SNAPSHOT versions to downstream components via three
+complementary mechanisms:
+
+1. **version-property** (workspace.yaml `depends-on` declaration):
+   Explicit `version-property: <prop-name>` in workspace.yaml tells
+   `feature-start` which POM property to update. This is the most
+   precise and recommended for cross-component version tracking.
+
+2. **cascadeBomProperties** (naming convention):
+   Scans POM `<properties>` blocks for entries matching
+   `<{component-name}.version>`. When a workspace component publishes
+   artifacts, any downstream POM that tracks the upstream version via
+   this naming convention gets automatically updated. No workspace.yaml
+   declaration needed — the convention is enough.
+
+3. **cascadeBomImports** (workspace-internal BOM imports):
+   Scans `<dependencyManagement>` for `<type>pom</type>` /
+   `<scope>import</scope>` entries published by workspace components.
+   Updates the BOM import version to the branch-qualified SNAPSHOT.
+
+**Cascade gap detection:** `ws:feature-start` reports cascade gaps when
+a dependency edge has *none* of the above mechanisms. This means the
+downstream component may resolve stale versions from external BOMs
+instead of the feature branch versions. The gap detection accounts for
+all three mechanisms — convention-based properties suppress false positives.
+
 ## Goal Reference
 
 ### Workspace Goals
