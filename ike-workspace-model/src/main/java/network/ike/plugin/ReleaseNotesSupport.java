@@ -166,7 +166,11 @@ public final class ReleaseNotesSupport {
                                  List<Issue> readyToTest,
                                  List<Issue> inProgress) {
 
-        /** Format as markdown for inclusion in checkpoint output. */
+        /**
+         * Format as markdown for inclusion in checkpoint output.
+         *
+         * @return markdown-formatted testing context
+         */
         public String toMarkdown() {
             StringBuilder sb = new StringBuilder();
             sb.append("## Testing Context: ").append(milestone).append("\n\n");
@@ -196,7 +200,12 @@ public final class ReleaseNotesSupport {
             return sb.toString();
         }
 
-        /** Format as YAML for embedding in checkpoint YAML files. */
+        /**
+         * Format as YAML for embedding in checkpoint YAML files.
+         *
+         * @param indent whitespace prefix for each line
+         * @return YAML-formatted testing context
+         */
         public String toYaml(String indent) {
             StringBuilder sb = new StringBuilder();
             sb.append(indent).append("testing-context:\n");
@@ -608,6 +617,11 @@ public final class ReleaseNotesSupport {
 
     /**
      * Format release notes as AsciiDoc for site integration.
+     *
+     * @param milestoneName the milestone title
+     * @param issues        closed issues from the milestone
+     * @param repo          GitHub repository (e.g., "IKE-Network/ike-issues")
+     * @return AsciiDoc-formatted release notes
      */
     public static String formatAsciidoc(String milestoneName, List<Issue> issues,
                                          String repo) {
@@ -663,6 +677,13 @@ public final class ReleaseNotesSupport {
 
     // ── Formatting (Markdown) ───────────────────────────────────────
 
+    /**
+     * Format release notes as Markdown for GitHub Release bodies.
+     *
+     * @param milestoneName the milestone title
+     * @param issues        closed issues from the milestone
+     * @return Markdown-formatted release notes
+     */
     public static String formatNotes(String milestoneName, List<Issue> issues) {
         List<Issue> fixes = new ArrayList<>();
         List<Issue> enhancements = new ArrayList<>();

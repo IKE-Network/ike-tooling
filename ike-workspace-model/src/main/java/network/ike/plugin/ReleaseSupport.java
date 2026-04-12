@@ -894,6 +894,9 @@ public class ReleaseSupport {
 
     /**
      * Recursively delete a directory and all its contents.
+     * Best-effort — failures are silently ignored.
+     *
+     * @param dir the directory to delete
      */
     public static void deleteDirectory(Path dir) {
         try {
@@ -919,6 +922,10 @@ public class ReleaseSupport {
 
     /**
      * Recursively copy a directory tree.
+     *
+     * @param source the source directory to copy from
+     * @param target the target directory to copy to
+     * @throws IOException if a file cannot be copied
      */
     public static void copyDirectory(Path source, Path target) throws IOException {
         try (Stream<Path> stream = Files.walk(source)) {
@@ -940,7 +947,9 @@ public class ReleaseSupport {
     /**
      * Read the {@code <name>} element from a POM file.
      *
+     * @param pomFile the POM file to read
      * @return the name, or null if not present
+     * @throws MojoExecutionException if the file cannot be read
      */
     public static String readPomName(File pomFile) throws MojoExecutionException {
         return readPomElement(pomFile, "name");
@@ -949,7 +958,9 @@ public class ReleaseSupport {
     /**
      * Read the {@code <description>} element from a POM file.
      *
+     * @param pomFile the POM file to read
      * @return the description, or null if not present
+     * @throws MojoExecutionException if the file cannot be read
      */
     public static String readPomDescription(File pomFile) throws MojoExecutionException {
         return readPomElement(pomFile, "description");
