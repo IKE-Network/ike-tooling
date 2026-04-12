@@ -39,12 +39,20 @@ public final class DependencyConvergenceAnalysis {
             String groupId, String artifactId,
             Map<String, List<String>> versionToComponents) {
 
-        /** The artifact coordinate as {@code groupId:artifactId}. */
+        /**
+         * The artifact coordinate as {@code groupId:artifactId}.
+         *
+         * @return the coordinate string
+         */
         public String coordinate() {
             return groupId + ":" + artifactId;
         }
 
-        /** Number of distinct versions found. */
+        /**
+         * Number of distinct versions found.
+         *
+         * @return the version count
+         */
         public int versionCount() {
             return versionToComponents.size();
         }

@@ -51,6 +51,7 @@ public final class ReleaseNotesSupport {
      * @param milestone milestone title (e.g., "ike-tooling v57")
      * @param log       Maven logger (may be null for non-Maven callers)
      * @return formatted markdown, or null if the milestone is not found
+     * @throws MojoExecutionException if the GitHub API call fails
      */
     public static String generate(String repo, String milestone, Log log)
             throws MojoExecutionException {
@@ -72,6 +73,12 @@ public final class ReleaseNotesSupport {
      * Try to generate release notes, writing to a temp file suitable
      * for {@code gh release create --notes-file}. Returns the path,
      * or null if notes could not be generated.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param log       Maven logger (may be null)
+     * @return path to the temp file, or null on failure
+     * @throws MojoExecutionException if the GitHub API call fails
      */
     public static Path generateToFile(String repo, String milestone, Log log)
             throws MojoExecutionException {
@@ -97,7 +104,11 @@ public final class ReleaseNotesSupport {
      * Close a GitHub milestone by title. Warns if the milestone has
      * open issues remaining.
      *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param log       Maven logger
      * @return true if closed, false if not found
+     * @throws MojoExecutionException if the GitHub API call fails
      */
     public static boolean closeMilestone(String repo, String milestone, Log log)
             throws MojoExecutionException {
@@ -133,8 +144,12 @@ public final class ReleaseNotesSupport {
      * Fetch all issues (open and closed) for a milestone, returning
      * them categorized for a checkpoint testing context snapshot.
      *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param log       Maven logger
      * @return snapshot with closed (ready to test) and open (in progress) issues,
      *         or null if milestone not found
+     * @throws MojoExecutionException if the GitHub API call fails
      */
     public static TestingContext snapshotMilestone(String repo, String milestone,
                                                    Log log)
@@ -421,6 +436,7 @@ public final class ReleaseNotesSupport {
      * @param outputDir directory to write release-notes.adoc into
      * @param log       Maven logger
      * @return the written file path, or null on failure
+     * @throws MojoExecutionException if the GitHub API call fails
      */
     public static Path generateFullHistory(String repo, Path outputDir, Log log)
             throws MojoExecutionException {
@@ -504,6 +520,7 @@ public final class ReleaseNotesSupport {
      * @param outputDir directory to write release-notes.xhtml into
      * @param log       Maven logger
      * @return the written file path, or null on failure
+     * @throws MojoExecutionException if the GitHub API call fails
      */
     public static Path generateFullHistoryXhtml(String repo, Path outputDir,
                                                  Log log)
@@ -591,6 +608,13 @@ public final class ReleaseNotesSupport {
      * Generate release notes as AsciiDoc and write to a file, suitable
      * for inclusion in the Maven site build. Returns the path, or null
      * if the milestone is not found.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param outputDir directory to write the AsciiDoc file into
+     * @param log       Maven logger
+     * @return path to the written file, or null on failure
+     * @throws MojoExecutionException if the GitHub API call fails
      */
     public static Path generateAsciidocToFile(String repo, String milestone,
                                                Path outputDir, Log log)

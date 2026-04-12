@@ -70,7 +70,11 @@ public final class BomAnalysis {
                                 boolean hasWorkspaceBom,
                                 List<BomImport> externalBomPins) {
 
-        /** True if feature-start can cascade versions for this edge. */
+        /**
+         * True if feature-start can cascade versions for this edge.
+         *
+         * @return true if a version-property or workspace BOM exists
+         */
         public boolean canCascade() {
             return hasVersionProperty || hasWorkspaceBom;
         }
@@ -94,6 +98,7 @@ public final class BomAnalysis {
      * @param workspaceArtifacts map of workspace component name to
      *        its published artifact set
      * @return list of BOM imports in declaration order
+     * @throws IOException if the POM cannot be read or parsed
      */
     public static List<BomImport> extractBomImports(
             Path pomFile,
@@ -163,6 +168,7 @@ public final class BomAnalysis {
      * @param manifest      the workspace manifest
      * @param workspaceArtifacts published artifacts per component
      * @return list of cascade issues (empty if all edges can cascade)
+     * @throws IOException if a component POM cannot be read
      */
     public static List<CascadeIssue> analyzeCascadeIssues(
             Path wsDir, Manifest manifest,
@@ -228,6 +234,7 @@ public final class BomAnalysis {
      * @param artifactId BOM artifactId to match
      * @param newVersion the new version to set
      * @return true if the file was modified
+     * @throws IOException if the POM cannot be read or written
      */
     public static boolean updateBomImportVersion(Path pomFile,
                                                   String groupId,
