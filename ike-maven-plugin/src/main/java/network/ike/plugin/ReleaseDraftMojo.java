@@ -207,9 +207,6 @@ public class ReleaseDraftMojo extends AbstractMojo {
                         "scpexe://proxy/srv/ike-site/" + projectId + "/release"
                         + " (best-effort)");
             }
-            if (publishSite && deploySite) {
-                getLog().info("[DRAFT] Would publish site to GitHub Pages (best-effort)");
-            }
             getLog().info("[DRAFT] Would push tag and main to origin");
             getLog().info("[DRAFT] Would create GitHub Release");
             return;
@@ -667,13 +664,8 @@ public class ReleaseDraftMojo extends AbstractMojo {
                 "-Dsite.deploy.url=" + stagingUrl);
         ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
 
-        if (publishSite) {
-            getLog().info("Publishing site to GitHub Pages...");
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    mvnw.getAbsolutePath(), "network.ike.tooling:ike-maven-plugin:publish-site", "-B",
-                    "-DpublishMessage=site: publish " + projectId
-                            + " " + version);
-        }
+        // GitHub Pages publishing is now handled by deploy-site-publish
+        // (the former publish-site goal was merged into deploy-site in v83)
     }
 
     /**
@@ -689,9 +681,6 @@ public class ReleaseDraftMojo extends AbstractMojo {
         getLog().warn("To retry site deploy manually:");
         getLog().warn("  git checkout v" + version);
         getLog().warn("  mvn site:deploy -B -T 1");
-        getLog().warn("  mvn ike:publish-site -B"
-                + " -DpublishMessage=\"site: publish " + projectId
-                + " " + version + "\"");
         getLog().warn("  git checkout main");
         getLog().warn("");
     }
