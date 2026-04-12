@@ -94,6 +94,8 @@ public class RegisterSiteDraftMojo extends AbstractMojo {
         // Collect reactor module names
         List<String> modules = resolveModules(gitRoot);
 
+        boolean draft = !publish;
+
         getLog().info("");
         getLog().info("REGISTER PROJECT ON IKE NETWORK");
         getLog().info("  Project:     " + artifactId);
@@ -107,7 +109,7 @@ public class RegisterSiteDraftMojo extends AbstractMojo {
         getLog().info("  Publish:       "+ publish);
         getLog().info("");
 
-        if (!publish) {
+        if (draft) {
             getLog().info("[DRAFT] Would register " + artifactId + " " + version
                     + " on " + orgRepo);
             return;

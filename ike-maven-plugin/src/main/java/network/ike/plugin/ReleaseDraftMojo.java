@@ -147,6 +147,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
         }
 
         String projectId = ReleaseSupport.readPomArtifactId(rootPom);
+        boolean draft = !publish;
 
         // Validate clean worktree (cheap check — before wrapper resolution)
         ReleaseSupport.requireCleanWorktree(gitRoot);
@@ -166,7 +167,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
         // guarantee. Wall-clock time would defeat the purpose.
         String releaseTimestamp = resolveCommitTimestamp(gitRoot);
 
-        if (!publish) {
+        if (draft) {
             getLog().info("[DRAFT] Would create branch: " + releaseBranch);
             getLog().info("[DRAFT] Would set version: " + oldVersion +
                     " -> " + releaseVersion);

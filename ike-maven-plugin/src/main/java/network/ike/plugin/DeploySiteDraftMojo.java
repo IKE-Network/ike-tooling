@@ -127,6 +127,8 @@ public class DeploySiteDraftMojo extends AbstractMojo {
                             "'. Must be one of: release, snapshot, checkpoint");
         }
 
+        boolean draft = !publish;
+
         getLog().info("");
         getLog().info("SITE DEPLOYMENT");
         getLog().info("  Project:     " + projectId);
@@ -149,7 +151,7 @@ public class DeploySiteDraftMojo extends AbstractMojo {
                 : ReleaseSupport.siteStagingUrl(targetUrl);
         String stagingDisk = ReleaseSupport.siteStagingPath(diskPath);
 
-        if (!publish) {
+        if (draft) {
             if (!skipBuild) {
                 getLog().info("[DRAFT] Would run: mvnw clean verify -B");
             }

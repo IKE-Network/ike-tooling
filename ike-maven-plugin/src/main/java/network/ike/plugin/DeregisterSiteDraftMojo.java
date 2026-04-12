@@ -62,6 +62,8 @@ public class DeregisterSiteDraftMojo extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException {
+        boolean draft = !publish;
+
         getLog().info("");
         getLog().info("DEREGISTER PROJECT FROM IKE NETWORK");
         getLog().info("  Project ID:  " + projectId);
@@ -70,7 +72,7 @@ public class DeregisterSiteDraftMojo extends AbstractMojo {
         getLog().info("  Publish:       "+ publish);
         getLog().info("");
 
-        if (!publish) {
+        if (draft) {
             getLog().info("[DRAFT] Would deregister " + projectId
                     + " from " + orgRepo);
             return;
