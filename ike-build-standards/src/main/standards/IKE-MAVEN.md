@@ -381,3 +381,66 @@ delegate to `git` via `ReleaseSupport.exec()` or to `WorkspaceGraph`
 unit-tested because testing them would require mocking
 `ProcessBuilder` — exactly the circular validation this standard
 prohibits.
+
+## Code Modification Rules
+
+### Java Source
+
+Java source refactoring (rename class, rename field, rename method,
+change type, move class, change method signature) MUST use one of:
+
+1. OpenRewrite recipe via `./mvnw rewrite:run` (preferred)
+2. IntelliJ refactoring suggested to the developer
+3. JavaParser programmatic transformation
+
+sed, str_replace, and all text-level manipulation of .java files
+is PROHIBITED. These tools cannot distinguish:
+- Variable references from string literals
+- Javadoc @see/@link type references from prose
+- Code identifiers from CLI flags in string constants
+- Maven @Parameter annotations from Java field defaults
+
+### POM Files
+
+POM modifications MUST use:
+
+1. OpenRewrite Maven recipes (preferred)
+2. `./mvnw versions:set` for version changes
+3. Maven's own model writer APIs
+
+Direct XML text manipulation of pom.xml is PROHIBITED.
+
+### module-info.java
+
+Exception: OpenRewrite does not yet parse module-info.java.
+Targeted manual editing of module descriptors is permitted.
+Document the gap in commit messages.
+
+### Permitted Text-Level Editing
+
+sed, str_replace, and similar tools are PERMITTED only for:
+- Plain text files (.md, .adoc, .txt)
+- Simple configuration files (.env, .properties without structure)
+- One-line surgical fixes where context is unambiguous and verified
+  by immediate compilation
+
+### Pre-Flight Check
+
+Before any rename or refactoring operation:
+1. Run `./mvnw rewrite:dryRun` with the appropriate recipe
+2. Review the generated diff in target/rewrite/rewrite.patch
+3. Confirm no unintended changes
+4. Run `./mvnw rewrite:run` to apply
+5. Build and test: `./mvnw clean verify`
+
+### Common OpenRewrite Recipes
+
+| Operation | Recipe |
+|-----------|--------|
+| Rename class | `org.openrewrite.java.ChangeType` |
+| Rename field/variable | `org.openrewrite.java.RenameVariable` |
+| Rename method | `org.openrewrite.java.ChangeMethodName` |
+| Add Maven dependency | `org.openrewrite.maven.AddDependency` |
+| Upgrade dependency version | `org.openrewrite.maven.UpgradeDependencyVersion` |
+| Order imports | `org.openrewrite.java.OrderImports` |
+| Order POM elements | `org.openrewrite.maven.OrderPomElements` |
