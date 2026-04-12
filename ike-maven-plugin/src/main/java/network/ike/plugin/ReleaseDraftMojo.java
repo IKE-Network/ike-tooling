@@ -124,26 +124,42 @@ public class ReleaseDraftMojo extends AbstractMojo {
                     "Next version must end with -SNAPSHOT (got '" + nextVersion + "').");
         }
 
-        // Validate branch
+        // Validate branch and detect resume scenario (#111)
         String currentBranch = ReleaseSupport.currentBranch(gitRoot);
-        String expectedBranch = allowBranch != null ? allowBranch : "main";
-        if (!currentBranch.equals(expectedBranch)) {
-            throw new MojoExecutionException(
-                    "Must be on '" + expectedBranch + "' branch (currently on '" +
-                            currentBranch + "'). Use -DallowBranch=" +
-                            currentBranch + " to override.");
-        }
-
-        // Check release branch doesn't already exist
         String releaseBranch = "release/" + releaseVersion;
-        try {
-            ReleaseSupport.execCapture(gitRoot,
-                    "git", "rev-parse", "--verify", releaseBranch);
-            throw new MojoExecutionException(
-                    "Branch '" + releaseBranch + "' already exists locally.");
-        } catch (MojoExecutionException e) {
-            if (e.getMessage().startsWith("Branch '")) throw e;
-            // Expected — branch does not exist
+        boolean resuming = false;
+
+        if (currentBranch.equals(releaseBranch)) {
+            // Already on the release branch — resume from a failed attempt
+            getLog().info("Resuming release from existing " + releaseBranch + " branch");
+            resuming = true;
+        } else {
+            String expectedBranch = allowBranch != null ? allowBranch : "main";
+            if (!currentBranch.equals(expectedBranch)) {
+                throw new MojoExecutionException(
+                        "Must be on '" + expectedBranch + "' branch (currently on '" +
+                                currentBranch + "'). Use -DallowBranch=" +
+                                currentBranch + " to override.");
+            }
+
+            // Check release branch doesn't already exist
+            boolean releaseBranchExists = false;
+            try {
+                ReleaseSupport.execCapture(gitRoot,
+                        "git", "rev-parse", "--verify", releaseBranch);
+                releaseBranchExists = true;
+            } catch (MojoExecutionException e) {
+                // Expected — branch does not exist
+            }
+            if (releaseBranchExists) {
+                throw new MojoExecutionException(
+                        "Branch '" + releaseBranch + "' already exists locally. "
+                        + "Switch to it to resume, or delete it to start fresh:\n"
+                        + "  Resume: git checkout " + releaseBranch
+                        + " && mvn ike:release-publish\n"
+                        + "  Fresh:  git branch -D " + releaseBranch
+                        + " && mvn ike:release-publish");
+            }
         }
 
         String projectId = ReleaseSupport.readPomArtifactId(rootPom);
@@ -207,23 +223,30 @@ public class ReleaseDraftMojo extends AbstractMojo {
         // Build environment audit (needs mvnw for --version)
         logAudit(gitRoot, mvnw, currentBranch, releaseBranch, oldVersion, projectId);
 
-        // Create release branch
-        ReleaseSupport.exec(gitRoot, getLog(),
-                "git", "checkout", "-b", releaseBranch);
+        List<File> resolvedPoms;
+        if (resuming) {
+            // Skip branch creation and version setting — already done
+            getLog().info("Skipping version set (already " + releaseVersion + ")");
+            resolvedPoms = List.of(); // backups handle restore later
+        } else {
+            // Create release branch
+            ReleaseSupport.exec(gitRoot, getLog(),
+                    "git", "checkout", "-b", releaseBranch);
 
-        // Set version
-        getLog().info("Setting version: " + oldVersion + " -> " + releaseVersion);
-        ReleaseSupport.setPomVersion(rootPom, oldVersion, releaseVersion);
+            // Set version
+            getLog().info("Setting version: " + oldVersion + " -> " + releaseVersion);
+            ReleaseSupport.setPomVersion(rootPom, oldVersion, releaseVersion);
 
-        // Stamp reproducible build timestamp
-        getLog().info("Stamping project.build.outputTimestamp: " + releaseTimestamp);
-        ReleaseSupport.stampOutputTimestamp(rootPom, releaseTimestamp, getLog());
+            // Stamp reproducible build timestamp
+            getLog().info("Stamping project.build.outputTimestamp: " + releaseTimestamp);
+            ReleaseSupport.stampOutputTimestamp(rootPom, releaseTimestamp, getLog());
 
-        // WORKAROUND: Maven 4 consumer POM doesn't resolve ${project.version}
-        // in <build><plugins>, <pluginManagement>, or <dependencyManagement>.
-        getLog().info("Resolving ${project.version} references:");
-        List<File> resolvedPoms =
-                ReleaseSupport.replaceProjectVersionRefs(gitRoot, releaseVersion, getLog());
+            // WORKAROUND: Maven 4 consumer POM doesn't resolve ${project.version}
+            // in <build><plugins>, <pluginManagement>, or <dependencyManagement>.
+            getLog().info("Resolving ${project.version} references:");
+            resolvedPoms =
+                    ReleaseSupport.replaceProjectVersionRefs(gitRoot, releaseVersion, getLog());
+        }
 
         // Build and install (not just verify) — reactor siblings with
         // BOM imports need installed artifacts to resolve classified
