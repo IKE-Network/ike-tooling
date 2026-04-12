@@ -8,10 +8,22 @@ their inter-repository dependencies, groups, and component types.
 
 Workspace operations are implemented as Maven plugin goals in
 `ike-workspace-maven-plugin`, invokable via the `ws:` prefix (requires
-`network.ike` in `~/.m2/settings.xml` `<pluginGroups>`).
+`network.ike.pipeline` in `~/.m2/settings.xml` `<pluginGroups>`).
 
 Single-repo goals (release, setup, asciidoc, etc.) remain in
-`ike-maven-plugin` with the `ike:` prefix.
+`ike-maven-plugin` with the `ike:` prefix (requires
+`network.ike.tooling` in `<pluginGroups>`).
+
+### POM Changes — Use Tooling, Not Manual Edits
+
+Never use `sed`, `awk`, or regex-based POM manipulation. Use:
+
+- **`ws:align-publish`** for parent version bumps and inter-component
+  dependency version alignment
+- **OpenRewrite** for structural migrations:
+  `mvn rewrite:run -Drewrite.activeRecipes=network.ike.MigrateGroupIds`
+- **`PomRewriter`** (programmatic API in ike-workspace-maven-plugin) for
+  AST-aware version updates that preserve formatting
 
 ## Prerequisites
 
