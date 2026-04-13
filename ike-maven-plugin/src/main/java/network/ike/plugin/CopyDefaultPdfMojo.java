@@ -66,22 +66,35 @@ public class CopyDefaultPdfMojo extends AbstractMojo {
             return;
         }
 
-        Path source = outputDirectory.toPath()
-                .resolve("pdf-" + defaultRenderer)
-                .resolve(documentName + ".pdf");
+        Path sourceDir = outputDirectory.toPath()
+                .resolve("pdf-" + defaultRenderer);
         Path destDir = outputDirectory.toPath().resolve("pdf");
-        Path dest = destDir.resolve(documentName + ".pdf");
 
-        if (!Files.isRegularFile(source)) {
-            getLog().warn("copy-default-pdf: source not found, skipping — " + source);
+        if (!Files.isDirectory(sourceDir)) {
+            getLog().warn("copy-default-pdf: source directory not found, skipping — "
+                    + sourceDir);
             return;
         }
 
         try {
-            Files.createDirectories(destDir);
-            Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
-            getLog().info("copy-default-pdf: " + source.getFileName()
-                    + " → pdf/ (from " + defaultRenderer + ")");
+            // Copy all PDFs from the renderer directory (supports multi-document builds)
+            boolean copied = false;
+            try (var stream = Files.list(sourceDir)) {
+                for (Path source : stream
+                        .filter(p -> p.toString().endsWith(".pdf"))
+                        .toList()) {
+                    Files.createDirectories(destDir);
+                    Path dest = destDir.resolve(source.getFileName());
+                    Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING);
+                    getLog().info("copy-default-pdf: " + source.getFileName()
+                            + " → pdf/ (from " + defaultRenderer + ")");
+                    copied = true;
+                }
+            }
+
+            if (!copied) {
+                getLog().warn("copy-default-pdf: no PDFs found in " + sourceDir);
+            }
         } catch (IOException e) {
             throw new MojoExecutionException(
                     "Failed to copy default PDF", e);
