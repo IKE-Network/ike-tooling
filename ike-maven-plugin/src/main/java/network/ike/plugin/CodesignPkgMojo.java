@@ -167,12 +167,12 @@ public class CodesignPkgMojo extends AbstractMojo {
             return;
         }
         getLog().info("  Unlocking keychain for codesign...");
-        ReleaseSupport.exec(new java.io.File("."), getLog(),
+        ReleaseSupport.exec(new java.io.File("."), Maven4LogAdapter.wrap(getLog()),
                 "security", "unlock-keychain",
                 "-p", keychainPassword,
                 System.getProperty("user.home")
                         + "/Library/Keychains/login.keychain-db");
-        ReleaseSupport.exec(new java.io.File("."), getLog(),
+        ReleaseSupport.exec(new java.io.File("."), Maven4LogAdapter.wrap(getLog()),
                 "security", "set-key-partition-list",
                 "-S", "apple-tool:,apple:,codesign:",
                 "-s", "-k", keychainPassword,
@@ -199,7 +199,7 @@ public class CodesignPkgMojo extends AbstractMojo {
             workDir = Files.createTempDirectory("codesign-pkg-work-");
             expandedDir = workDir.resolve("expanded");
             getLog().info("  Expanding .pkg...");
-            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),
+            ReleaseSupport.exec(pkg.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
                     "pkgutil", "--expand", pkg.toString(), expandedDir.toString());
 
             // Step 2: Find the inner component .pkg directory
@@ -252,13 +252,13 @@ public class CodesignPkgMojo extends AbstractMojo {
             // Step 8: Regenerate BOM
             Path bom = componentPkg.resolve("Bom");
             getLog().info("  Regenerating BOM...");
-            ReleaseSupport.exec(payloadDir.toFile(), getLog(),
+            ReleaseSupport.exec(payloadDir.toFile(), Maven4LogAdapter.wrap(getLog()),
                     "mkbom", payloadDir.toString(), bom.toString());
 
             // Step 9: Flatten back to .pkg
             Path flattenedPkg = pkg.getParent().resolve(pkgName + ".tmp");
             getLog().info("  Flattening .pkg...");
-            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),
+            ReleaseSupport.exec(pkg.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
                     "pkgutil", "--flatten", expandedDir.toString(),
                     flattenedPkg.toString());
 
@@ -266,7 +266,7 @@ public class CodesignPkgMojo extends AbstractMojo {
             String installerIdentity = deriveInstallerIdentity(signingIdentity);
             Path signedPkg = pkg.getParent().resolve(pkgName + ".signed");
             getLog().info("  Signing .pkg with: " + installerIdentity);
-            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),
+            ReleaseSupport.exec(pkg.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
                     "productsign",
                     "--sign", installerIdentity,
                     "--timestamp",
@@ -349,7 +349,7 @@ public class CodesignPkgMojo extends AbstractMojo {
             throws MojoExecutionException {
         // gunzip -dc Payload | cpio -id
         // We use a shell pipeline for this
-        ReleaseSupport.exec(targetDir.toFile(), getLog(),
+        ReleaseSupport.exec(targetDir.toFile(), Maven4LogAdapter.wrap(getLog()),
                 "sh", "-c",
                 "gunzip -dc " + shellQuote(payload.toString())
                         + " | cpio -id 2>/dev/null");
@@ -361,7 +361,7 @@ public class CodesignPkgMojo extends AbstractMojo {
     private void repackPayload(Path sourceDir, Path payloadFile)
             throws MojoExecutionException {
         // find . -print | cpio -o --format odc | gzip -c > Payload
-        ReleaseSupport.exec(sourceDir.toFile(), getLog(),
+        ReleaseSupport.exec(sourceDir.toFile(), Maven4LogAdapter.wrap(getLog()),
                 "sh", "-c",
                 "find . -print | cpio -o --format odc 2>/dev/null"
                         + " | gzip -c > " + shellQuote(payloadFile.toString()));
@@ -372,7 +372,7 @@ public class CodesignPkgMojo extends AbstractMojo {
      */
     private void codesignWithEntitlements(Path target)
             throws MojoExecutionException {
-        ReleaseSupport.exec(target.getParent().toFile(), getLog(),
+        ReleaseSupport.exec(target.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
                 "codesign", "--force", "--timestamp",
                 "--options", "runtime",
                 "--entitlements", entitlementsFile.getAbsolutePath(),

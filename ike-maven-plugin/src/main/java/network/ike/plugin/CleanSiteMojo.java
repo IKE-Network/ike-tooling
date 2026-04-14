@@ -106,7 +106,7 @@ public class CleanSiteMojo extends AbstractMojo {
             return;
         }
 
-        ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), diskPath);
+        ReleaseSupport.cleanRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), diskPath);
         getLog().info("Cleaned: " + diskPath);
     }
 }

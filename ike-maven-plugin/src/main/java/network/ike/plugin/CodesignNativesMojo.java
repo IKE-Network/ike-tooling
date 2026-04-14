@@ -365,13 +365,13 @@ public class CodesignNativesMojo extends AbstractMojo {
             return;
         }
         getLog().info("  Unlocking keychain for codesign...");
-        ReleaseSupport.exec(new java.io.File("."), getLog(),
+        ReleaseSupport.exec(new java.io.File("."), Maven4LogAdapter.wrap(getLog()),
                 "security", "unlock-keychain",
                 "-p", keychainPassword,
                 System.getProperty("user.home")
                         + "/Library/Keychains/login.keychain-db");
         // Also set the partition list so codesign can access the key
-        ReleaseSupport.exec(new java.io.File("."), getLog(),
+        ReleaseSupport.exec(new java.io.File("."), Maven4LogAdapter.wrap(getLog()),
                 "security", "set-key-partition-list",
                 "-S", "apple-tool:,apple:,codesign:",
                 "-s", "-k", keychainPassword,
@@ -383,7 +383,7 @@ public class CodesignNativesMojo extends AbstractMojo {
      * Sign a single native file with {@code codesign}.
      */
     private void codesign(Path file) throws MojoExecutionException {
-        ReleaseSupport.exec(file.getParent().toFile(), getLog(),
+        ReleaseSupport.exec(file.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
                 "codesign", "--force", "--timestamp",
                 "--options", "runtime",
                 "--sign", signingIdentity,

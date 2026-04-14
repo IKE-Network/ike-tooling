@@ -115,7 +115,7 @@ public class RegisterSiteDraftMojo extends AbstractMojo {
             return;
         }
 
-        OrgSiteSupport.registerProject(gitRoot, getLog(), orgRepo, orgBranch,
+        OrgSiteSupport.registerProject(gitRoot, Maven4LogAdapter.wrap(getLog()), orgRepo, orgBranch,
                 artifactId, projectName, projectDescription, version,
                 projectSiteUrl, githubUrl, modules);
 

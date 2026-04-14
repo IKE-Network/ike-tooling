@@ -153,7 +153,7 @@ public class NotarizeMojo extends AbstractMojo {
 
         // Step 1: Submit to Apple notary service (capture output to check status)
         getLog().info("Submitting for notarization: " + fileName);
-        String output = ReleaseSupport.execCaptureAndLog(workDir, getLog(),
+        String output = ReleaseSupport.execCaptureAndLog(workDir, Maven4LogAdapter.wrap(getLog()),
                 "xcrun", "notarytool", "submit",
                 artifact.toString(),
                 "--keychain-profile", keychainProfile,
@@ -181,11 +181,11 @@ public class NotarizeMojo extends AbstractMojo {
             if (submissionId != null) {
                 getLog().error("Fetching rejection details (id: " + submissionId + ")...");
                 try {
-                    ReleaseSupport.exec(workDir, getLog(),
+                    ReleaseSupport.exec(workDir, Maven4LogAdapter.wrap(getLog()),
                             "xcrun", "notarytool", "log",
                             submissionId,
                             "--keychain-profile", keychainProfile);
-                } catch (MojoExecutionException e) {
+                } catch (Exception e) {
                     getLog().warn("Could not fetch notarization log: " + e.getMessage());
                 }
             }
@@ -200,14 +200,14 @@ public class NotarizeMojo extends AbstractMojo {
 
         // Step 3: Staple the notarization ticket
         getLog().info("Stapling ticket: " + fileName);
-        ReleaseSupport.exec(workDir, getLog(),
+        ReleaseSupport.exec(workDir, Maven4LogAdapter.wrap(getLog()),
                 "xcrun", "stapler", "staple",
                 artifact.toString());
 
         // Step 4: Verify with Gatekeeper
         getLog().info("Verifying: " + fileName);
         String assessType = fileName.endsWith(".pkg") ? "install" : "open";
-        ReleaseSupport.exec(workDir, getLog(),
+        ReleaseSupport.exec(workDir, Maven4LogAdapter.wrap(getLog()),
                 "spctl", "--assess",
                 "--type", assessType,
                 "--verbose=4",

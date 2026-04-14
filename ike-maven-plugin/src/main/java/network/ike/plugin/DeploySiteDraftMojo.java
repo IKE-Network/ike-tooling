@@ -85,7 +85,7 @@ public class DeploySiteDraftMojo extends AbstractMojo {
                 "Site type (release, snapshot, or checkpoint)", getLog());
 
         File gitRoot = ReleaseSupport.gitRoot(new File("."));
-        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
+        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, Maven4LogAdapter.wrap(getLog()));
         File rootPom = new File(gitRoot, "pom.xml");
 
         String projectId = ReleaseSupport.readPomArtifactId(rootPom);
@@ -167,23 +167,23 @@ public class DeploySiteDraftMojo extends AbstractMojo {
 
         // Build first (unless skipped)
         if (!skipBuild) {
-            ReleaseSupport.exec(gitRoot, getLog(),
+            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
                     mvnw.getAbsolutePath(), "clean", "verify", "-B");
         }
 
         if (!skipSwap) {
             // Clean any leftover staging directory
-            ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
+            ReleaseSupport.cleanRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), stagingDisk);
         }
 
         // Generate, stage, and deploy site (to staging dir or direct)
-        ReleaseSupport.exec(gitRoot, getLog(),
+        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
                 mvnw.getAbsolutePath(), "site", "site:stage", "site:deploy", "-B",
                 "-Dsite.deploy.url=" + deployUrl);
 
         if (!skipSwap) {
             // Atomic swap: staging → live
-            ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), diskPath);
+            ReleaseSupport.swapRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), diskPath);
         }
 
         String publicUrl = toPublicSiteUrl(targetUrl);

@@ -78,7 +78,7 @@ public class DeregisterSiteDraftMojo extends AbstractMojo {
             return;
         }
 
-        OrgSiteSupport.deregisterProject(getLog(), orgRepo, orgBranch, projectId);
+        OrgSiteSupport.deregisterProject(Maven4LogAdapter.wrap(getLog()), orgRepo, orgBranch, projectId);
 
         getLog().info("");
         getLog().info("Deregistered " + projectId + " from ike.network");

@@ -1,7 +1,8 @@
 package network.ike.plugin;
 
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.logging.Log;
 import org.asciidoctor.Asciidoctor;
 import org.asciidoctor.Attributes;
 import org.asciidoctor.Options;
@@ -495,7 +496,7 @@ public final class OrgSiteSupport {
         try {
             String path = ReleaseSupport.execCapture(repoRoot, "which", "mvn");
             return new File(path.trim());
-        } catch (MojoExecutionException e) {
+        } catch (Exception e) {
             throw new MojoExecutionException(
                     "No Maven wrapper or system 'mvn' found", e);
         }

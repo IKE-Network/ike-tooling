@@ -1,8 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.logging.Log;
-import org.apache.maven.plugin.logging.SystemStreamLog;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.Log;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -68,13 +69,13 @@ class ReleaseSupportTest {
     // ── validateRemotePath ───────────────────────────────────────────
 
     @Test
-    void validateRemotePath_validPath_noException() throws MojoExecutionException {
+    void validateRemotePath_validPath_noException() throws MojoException {
         // Should not throw — path has base + project + type
         ReleaseSupport.validateRemotePath("/srv/ike-site/ike-pipeline/snapshot");
     }
 
     @Test
-    void validateRemotePath_deepPath_noException() throws MojoExecutionException {
+    void validateRemotePath_deepPath_noException() throws MojoException {
         ReleaseSupport.validateRemotePath("/srv/ike-site/ike-pipeline/snapshot/main");
     }
 
@@ -82,7 +83,7 @@ class ReleaseSupportTest {
     void validateRemotePath_wrongBase_throws() {
         assertThatThrownBy(() ->
                 ReleaseSupport.validateRemotePath("/tmp/evil/path"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("does not start with");
     }
 
@@ -90,7 +91,7 @@ class ReleaseSupportTest {
     void validateRemotePath_tooShallow_throws() {
         assertThatThrownBy(() ->
                 ReleaseSupport.validateRemotePath("/srv/ike-site/"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("too shallow");
     }
 
@@ -98,7 +99,7 @@ class ReleaseSupportTest {
     void validateRemotePath_justBase_throws() {
         assertThatThrownBy(() ->
                 ReleaseSupport.validateRemotePath("/srv/ike-site/"))
-                .isInstanceOf(MojoExecutionException.class);
+                .isInstanceOf(MojoException.class);
     }
 
     // ── siteDiskPath ─────────────────────────────────────────────────
@@ -207,7 +208,7 @@ class ReleaseSupportTest {
                 """);
 
         assertThatThrownBy(() -> ReleaseSupport.readPomVersion(pom))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("Could not extract <version>");
     }
 
@@ -268,7 +269,7 @@ class ReleaseSupportTest {
                 """);
 
         assertThatThrownBy(() -> ReleaseSupport.readPomArtifactId(pom))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("Could not extract <artifactId>");
     }
 
@@ -326,18 +327,18 @@ class ReleaseSupportTest {
 
         assertThatThrownBy(() ->
                 ReleaseSupport.setPomVersion(pom, "999.0.0", "999.0.1"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("does not contain");
     }
 
     // ── validateRemotePath (additional edge cases) ──────────────────
 
     @Test
-    void validateRemotePath_projectOnly_noSlash_valid() throws MojoExecutionException {
+    void validateRemotePath_projectOnly_noSlash_valid() throws MojoException {
         // "ike-pipeline" has no slash but is not blank — depth=0 which is < 1
         assertThatThrownBy(() ->
                 ReleaseSupport.validateRemotePath("/srv/ike-site/ike-pipeline"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("too shallow");
     }
 
@@ -403,7 +404,7 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new org.apache.maven.plugin.logging.SystemStreamLog();
+        var log = new TestLog();
         var modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "2.0.0", log);
 
@@ -418,7 +419,7 @@ class ReleaseSupportTest {
     void replaceProjectVersionRefs_createsBackup(@TempDir Path tmpDir) throws Exception {
         writePom(tmpDir, "<project><version>${project.version}</version></project>");
 
-        var log = new org.apache.maven.plugin.logging.SystemStreamLog();
+        var log = new TestLog();
         ReleaseSupport.replaceProjectVersionRefs(tmpDir.toFile(), "3.0", log);
 
         Path backup = tmpDir.resolve("pom.xml.ike-backup");
@@ -432,7 +433,7 @@ class ReleaseSupportTest {
             throws Exception {
         writePom(tmpDir, "<project><version>1.0.0</version></project>");
 
-        var log = new org.apache.maven.plugin.logging.SystemStreamLog();
+        var log = new TestLog();
         var modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "2.0.0", log);
 
@@ -444,7 +445,7 @@ class ReleaseSupportTest {
         String original = "<project><version>${project.version}</version></project>";
         writePom(tmpDir, original);
 
-        var log = new org.apache.maven.plugin.logging.SystemStreamLog();
+        var log = new TestLog();
         ReleaseSupport.replaceProjectVersionRefs(tmpDir.toFile(), "3.0", log);
 
         // Now restore
@@ -463,7 +464,7 @@ class ReleaseSupportTest {
     void restoreBackups_noBackups_emptyResult(@TempDir Path tmpDir) throws Exception {
         writePom(tmpDir, "<project/>");
 
-        var log = new org.apache.maven.plugin.logging.SystemStreamLog();
+        var log = new TestLog();
         var restored = ReleaseSupport.restoreBackups(tmpDir.toFile(), log);
 
         assertThat(restored).isEmpty();
@@ -531,7 +532,7 @@ class ReleaseSupportTest {
 
     @Test
     void exec_successfulCommand_noException(@TempDir Path tmpDir) {
-        var log = new SystemStreamLog();
+        var log = new TestLog();
         assertThatCode(() ->
                 ReleaseSupport.exec(tmpDir.toFile(), log, "echo", "hello"))
                 .doesNotThrowAnyException();
@@ -539,10 +540,10 @@ class ReleaseSupportTest {
 
     @Test
     void exec_failingCommand_throwsWithExitCode(@TempDir Path tmpDir) {
-        var log = new SystemStreamLog();
+        var log = new TestLog();
         assertThatThrownBy(() ->
                 ReleaseSupport.exec(tmpDir.toFile(), log, "false"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("exit 1");
     }
 
@@ -557,7 +558,7 @@ class ReleaseSupportTest {
     void execCapture_failingCommand_throws(@TempDir Path tmpDir) {
         assertThatThrownBy(() ->
                 ReleaseSupport.execCapture(tmpDir.toFile(), "false"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("exit 1");
     }
 
@@ -565,7 +566,7 @@ class ReleaseSupportTest {
 
     @Test
     void execParallel_twoSuccessfulTasks(@TempDir Path tmpDir) {
-        var log = new SystemStreamLog();
+        var log = new TestLog();
         assertThatCode(() -> ReleaseSupport.execParallel(
                 tmpDir.toFile(), log,
                 new ReleaseSupport.LabeledTask("a", new String[]{"echo", "alpha"}),
@@ -575,25 +576,25 @@ class ReleaseSupportTest {
 
     @Test
     void execParallel_oneFailingTask_throwsWithLabel(@TempDir Path tmpDir) {
-        var log = new SystemStreamLog();
+        var log = new TestLog();
         assertThatThrownBy(() -> ReleaseSupport.execParallel(
                 tmpDir.toFile(), log,
                 new ReleaseSupport.LabeledTask("good", new String[]{"echo", "ok"}),
                 new ReleaseSupport.LabeledTask("bad", new String[]{"false"})
         ))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("bad");
     }
 
     @Test
     void execParallel_bothFailing_reportsAll(@TempDir Path tmpDir) {
-        var log = new SystemStreamLog();
+        var log = new TestLog();
         assertThatThrownBy(() -> ReleaseSupport.execParallel(
                 tmpDir.toFile(), log,
                 new ReleaseSupport.LabeledTask("task1", new String[]{"false"}),
                 new ReleaseSupport.LabeledTask("task2", new String[]{"false"})
         ))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("task1")
                 .hasMessageContaining("task2");
     }
@@ -603,7 +604,7 @@ class ReleaseSupportTest {
     @Test
     void gitAddFiles_emptyList_noOp(@TempDir Path tmpDir) throws Exception {
         initGitRepo(tmpDir);
-        var log = new SystemStreamLog();
+        var log = new TestLog();
 
         // Should not throw — empty list is a no-op
         assertThatCode(() ->
@@ -614,7 +615,7 @@ class ReleaseSupportTest {
     @Test
     void gitAddFiles_stagesFiles(@TempDir Path tmpDir) throws Exception {
         initGitRepo(tmpDir);
-        var log = new SystemStreamLog();
+        var log = new TestLog();
 
         // Create a new file
         Path newFile = tmpDir.resolve("new.txt");
@@ -675,7 +676,7 @@ class ReleaseSupportTest {
 
         assertThatThrownBy(() ->
                 ReleaseSupport.requireCleanWorktree(tmpDir.toFile()))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("unstaged");
     }
 
@@ -688,7 +689,7 @@ class ReleaseSupportTest {
 
         assertThatThrownBy(() ->
                 ReleaseSupport.requireCleanWorktree(tmpDir.toFile()))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("staged");
     }
 
@@ -792,7 +793,7 @@ class ReleaseSupportTest {
         mvnw.toFile().setExecutable(true);
 
         File result = ReleaseSupport.resolveMavenWrapper(
-                tmpDir.toFile(), new SystemStreamLog());
+                tmpDir.toFile(), new TestLog());
         assertThat(result.getAbsolutePath()).isEqualTo(mvnw.toAbsolutePath().toString());
     }
 
@@ -813,7 +814,7 @@ class ReleaseSupportTest {
 
         // After stripping <parent>, no <version> remains → should throw
         assertThatThrownBy(() -> ReleaseSupport.readPomVersion(pom))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("Could not extract <version>");
     }
 
@@ -827,7 +828,7 @@ class ReleaseSupportTest {
                 """);
 
         assertThatThrownBy(() -> ReleaseSupport.readPomVersion(pom))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("Could not extract <version>");
     }
 
@@ -973,7 +974,7 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new org.apache.maven.plugin.logging.SystemStreamLog();
+        var log = new TestLog();
         var modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "2.0.0", log);
 
@@ -1012,7 +1013,7 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new org.apache.maven.plugin.logging.SystemStreamLog();
+        var log = new TestLog();
         var modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "3.0.0", log);
 
@@ -1033,7 +1034,7 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new org.apache.maven.plugin.logging.SystemStreamLog();
+        var log = new TestLog();
         var modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "4.0.0", log);
 
@@ -1103,17 +1104,53 @@ class ReleaseSupportTest {
         @Override public void debug(CharSequence content) { debugs.add(content.toString()); }
         @Override public void debug(CharSequence content, Throwable error) { debugs.add(content.toString()); }
         @Override public void debug(Throwable error) { debugs.add(error.getMessage()); }
+        @Override public void debug(Supplier<String> content) { debugs.add(content.get()); }
+        @Override public void debug(Supplier<String> content, Throwable error) { debugs.add(content.get()); }
         @Override public boolean isInfoEnabled() { return true; }
         @Override public void info(CharSequence content) { infos.add(content.toString()); }
         @Override public void info(CharSequence content, Throwable error) { infos.add(content.toString()); }
         @Override public void info(Throwable error) { infos.add(error.getMessage()); }
+        @Override public void info(Supplier<String> content) { infos.add(content.get()); }
+        @Override public void info(Supplier<String> content, Throwable error) { infos.add(content.get()); }
         @Override public boolean isWarnEnabled() { return true; }
         @Override public void warn(CharSequence content) { warnings.add(content.toString()); }
         @Override public void warn(CharSequence content, Throwable error) { warnings.add(content.toString()); }
         @Override public void warn(Throwable error) { warnings.add(error.getMessage()); }
+        @Override public void warn(Supplier<String> content) { warnings.add(content.get()); }
+        @Override public void warn(Supplier<String> content, Throwable error) { warnings.add(content.get()); }
         @Override public boolean isErrorEnabled() { return true; }
         @Override public void error(CharSequence content) { errors.add(content.toString()); }
         @Override public void error(CharSequence content, Throwable error) { errors.add(content.toString()); }
         @Override public void error(Throwable error) { errors.add(error.getMessage()); }
+        @Override public void error(Supplier<String> content) { errors.add(content.get()); }
+        @Override public void error(Supplier<String> content, Throwable error) { errors.add(content.get()); }
+    }
+
+    /** Simple Log that prints to System.out/err, replacing Maven 3's SystemStreamLog. */
+    private static class TestLog implements Log {
+        @Override public boolean isDebugEnabled() { return false; }
+        @Override public void debug(CharSequence c) {}
+        @Override public void debug(CharSequence c, Throwable e) {}
+        @Override public void debug(Throwable e) {}
+        @Override public void debug(Supplier<String> c) {}
+        @Override public void debug(Supplier<String> c, Throwable e) {}
+        @Override public boolean isInfoEnabled() { return true; }
+        @Override public void info(CharSequence c) { System.out.println("[INFO] " + c); }
+        @Override public void info(CharSequence c, Throwable e) { System.out.println("[INFO] " + c); }
+        @Override public void info(Throwable e) { System.out.println("[INFO] " + e); }
+        @Override public void info(Supplier<String> c) { System.out.println("[INFO] " + c.get()); }
+        @Override public void info(Supplier<String> c, Throwable e) { System.out.println("[INFO] " + c.get()); }
+        @Override public boolean isWarnEnabled() { return true; }
+        @Override public void warn(CharSequence c) { System.err.println("[WARN] " + c); }
+        @Override public void warn(CharSequence c, Throwable e) { System.err.println("[WARN] " + c); }
+        @Override public void warn(Throwable e) { System.err.println("[WARN] " + e); }
+        @Override public void warn(Supplier<String> c) { System.err.println("[WARN] " + c.get()); }
+        @Override public void warn(Supplier<String> c, Throwable e) { System.err.println("[WARN] " + c.get()); }
+        @Override public boolean isErrorEnabled() { return true; }
+        @Override public void error(CharSequence c) { System.err.println("[ERROR] " + c); }
+        @Override public void error(CharSequence c, Throwable e) { System.err.println("[ERROR] " + c); }
+        @Override public void error(Throwable e) { System.err.println("[ERROR] " + e); }
+        @Override public void error(Supplier<String> c) { System.err.println("[ERROR] " + c.get()); }
+        @Override public void error(Supplier<String> c, Throwable e) { System.err.println("[ERROR] " + c.get()); }
     }
 }
