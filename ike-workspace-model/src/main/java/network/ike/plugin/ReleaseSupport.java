@@ -1,7 +1,7 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.Log;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -54,10 +54,10 @@ public class ReleaseSupport {
      * @param workDir working directory for the subprocess
      * @param log     Maven logger for output routing
      * @param command the command and arguments to execute
-     * @throws MojoExecutionException if the command exits non-zero or cannot be started
+     * @throws MojoException if the command exits non-zero or cannot be started
      */
     public static void exec(File workDir, Log log, String... command)
-            throws MojoExecutionException {
+            throws MojoException {
         log.debug("» " + String.join(" ", command));
         try {
             Process proc = new ProcessBuilder(command)
@@ -76,12 +76,12 @@ public class ReleaseSupport {
             }
             int exit = proc.waitFor();
             if (exit != 0) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Command failed (exit " + exit + "): " +
                                 String.join(" ", command));
             }
         } catch (IOException | InterruptedException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to execute: " + String.join(" ", command), e);
         }
     }
@@ -144,10 +144,10 @@ public class ReleaseSupport {
      * @param workDir working directory for each subprocess
      * @param log     Maven logger for output routing
      * @param tasks   the labeled tasks to run concurrently
-     * @throws MojoExecutionException if any task fails or execution is interrupted
+     * @throws MojoException if any task fails or execution is interrupted
      */
     public static void execParallel(File workDir, Log log, LabeledTask... tasks)
-            throws MojoExecutionException {
+            throws MojoException {
         for (LabeledTask task : tasks) {
             log.debug("» [" + task.label() + "] " + String.join(" ", task.command()));
         }
@@ -193,11 +193,11 @@ public class ReleaseSupport {
                 thread.join();
             }
         } catch (InterruptedException e) {
-            throw new MojoExecutionException("Parallel execution interrupted", e);
+            throw new MojoException("Parallel execution interrupted", e);
         }
 
         if (!failures.isEmpty()) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Parallel tasks failed: " + String.join(", ", failures));
         }
     }
@@ -209,10 +209,10 @@ public class ReleaseSupport {
      * @param workDir working directory for the subprocess
      * @param command the command and arguments to execute
      * @return trimmed stdout output
-     * @throws MojoExecutionException if the command exits non-zero or cannot be started
+     * @throws MojoException if the command exits non-zero or cannot be started
      */
     public static String execCapture(File workDir, String... command)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             Process process = new ProcessBuilder(command)
                     .directory(workDir)
@@ -226,13 +226,13 @@ public class ReleaseSupport {
             }
             int exit = process.waitFor();
             if (exit != 0) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Command failed (exit " + exit + "): " +
                                 String.join(" ", command));
             }
             return output;
         } catch (IOException | InterruptedException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to execute: " + String.join(" ", command), e);
         }
     }
@@ -245,10 +245,10 @@ public class ReleaseSupport {
      * @param log     Maven logger for real-time output
      * @param command the command and arguments to execute
      * @return the complete stdout+stderr output as a trimmed string
-     * @throws MojoExecutionException if the command exits non-zero
+     * @throws MojoException if the command exits non-zero
      */
     public static String execCaptureAndLog(File workDir, Log log, String... command)
-            throws MojoExecutionException {
+            throws MojoException {
         log.debug("» " + String.join(" ", command));
         try {
             Process proc = new ProcessBuilder(command)
@@ -266,13 +266,13 @@ public class ReleaseSupport {
             }
             int exit = proc.waitFor();
             if (exit != 0) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Command failed (exit " + exit + "): " +
                                 String.join(" ", command));
             }
             return captured.toString().trim();
         } catch (IOException | InterruptedException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to execute: " + String.join(" ", command), e);
         }
     }
@@ -283,9 +283,9 @@ public class ReleaseSupport {
      *
      * @param pomFile the POM file to read
      * @return the version string
-     * @throws MojoExecutionException if the file cannot be read or has no version
+     * @throws MojoException if the file cannot be read or has no version
      */
-    public static String readPomVersion(File pomFile) throws MojoExecutionException {
+    public static String readPomVersion(File pomFile) throws MojoException {
         try {
             String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
 
@@ -297,10 +297,10 @@ public class ReleaseSupport {
             if (matcher.find()) {
                 return matcher.group(1);
             }
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not extract <version> from " + pomFile);
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to read " + pomFile, e);
+            throw new MojoException("Failed to read " + pomFile, e);
         }
     }
 
@@ -314,10 +314,10 @@ public class ReleaseSupport {
      * @param pomFile      the root POM to update
      * @param newTimestamp ISO-8601 UTC timestamp, e.g. {@code 2026-03-30T12:00:00Z}
      * @param log          Maven log (used for warnings only)
-     * @throws MojoExecutionException if the file cannot be read or written
+     * @throws MojoException if the file cannot be read or written
      */
     public static void stampOutputTimestamp(File pomFile, String newTimestamp, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
             java.util.regex.Pattern pat = java.util.regex.Pattern.compile(
@@ -331,7 +331,7 @@ public class ReleaseSupport {
             String updated = m.replaceFirst("$1" + newTimestamp + "$2");
             Files.writeString(pomFile.toPath(), updated, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to stamp outputTimestamp in " + pomFile, e);
         }
     }
@@ -344,10 +344,10 @@ public class ReleaseSupport {
      * @param pomFile    the POM file to update
      * @param oldVersion the current version string to replace
      * @param newVersion the new version string
-     * @throws MojoExecutionException if the version is not found or the file cannot be updated
+     * @throws MojoException if the version is not found or the file cannot be updated
      */
     public static void setPomVersion(File pomFile, String oldVersion, String newVersion)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
             String oldTag = "<version>" + oldVersion + "</version>";
@@ -362,7 +362,7 @@ public class ReleaseSupport {
 
             int idx = content.indexOf(oldTag, searchStart);
             if (idx < 0) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "POM does not contain " + oldTag +
                                 " (outside <parent> block)");
             }
@@ -370,7 +370,7 @@ public class ReleaseSupport {
                     content.substring(idx + oldTag.length());
             Files.writeString(pomFile.toPath(), updated, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to update " + pomFile, e);
+            throw new MojoException("Failed to update " + pomFile, e);
         }
     }
 
@@ -382,9 +382,9 @@ public class ReleaseSupport {
      * @param gitRoot the git repository root directory
      * @param log     Maven logger
      * @return the resolved Maven executable
-     * @throws MojoExecutionException if neither wrapper nor system Maven is found
+     * @throws MojoException if neither wrapper nor system Maven is found
      */
-    public static File resolveMavenWrapper(File gitRoot, Log log) throws MojoExecutionException {
+    public static File resolveMavenWrapper(File gitRoot, Log log) throws MojoException {
         String name = System.getProperty("os.name", "")
                 .toLowerCase().contains("win") ? "mvnw.cmd" : "mvnw";
         File wrapper = new File(gitRoot, name);
@@ -397,8 +397,8 @@ public class ReleaseSupport {
             String path = execCapture(gitRoot, "which", systemName);
             log.info("No Maven wrapper found; using system '" + path + "'");
             return new File(path);
-        } catch (MojoExecutionException _) {
-            throw new MojoExecutionException(
+        } catch (MojoException _) {
+            throw new MojoException(
                     "Neither Maven wrapper (" + wrapper.getAbsolutePath() +
                             ") nor system '" + systemName + "' found on PATH.");
         }
@@ -409,9 +409,9 @@ public class ReleaseSupport {
      *
      * @param startDir any directory inside the repository
      * @return the repository root directory
-     * @throws MojoExecutionException if git rev-parse fails
+     * @throws MojoException if git rev-parse fails
      */
-    public static File gitRoot(File startDir) throws MojoExecutionException {
+    public static File gitRoot(File startDir) throws MojoException {
         String root = execCapture(startDir,
                 "git", "rev-parse", "--show-toplevel");
         return new File(root);
@@ -421,19 +421,19 @@ public class ReleaseSupport {
      * Assert that the git working tree is clean (no staged or unstaged changes).
      *
      * @param workDir any directory inside the repository
-     * @throws MojoExecutionException if the working tree has uncommitted changes
+     * @throws MojoException if the working tree has uncommitted changes
      */
-    public static void requireCleanWorktree(File workDir) throws MojoExecutionException {
+    public static void requireCleanWorktree(File workDir) throws MojoException {
         try {
             execCapture(workDir, "git", "diff", "--quiet");
-        } catch (MojoExecutionException _) {
-            throw new MojoExecutionException(
+        } catch (MojoException _) {
+            throw new MojoException(
                     "Working tree has unstaged changes. Commit or stash before proceeding.");
         }
         try {
             execCapture(workDir, "git", "diff", "--cached", "--quiet");
-        } catch (MojoExecutionException _) {
-            throw new MojoExecutionException(
+        } catch (MojoException _) {
+            throw new MojoException(
                     "Working tree has staged changes. Commit or stash before proceeding.");
         }
     }
@@ -443,9 +443,9 @@ public class ReleaseSupport {
      *
      * @param workDir any directory inside the repository
      * @return the current branch name
-     * @throws MojoExecutionException if git rev-parse fails
+     * @throws MojoException if git rev-parse fails
      */
-    public static String currentBranch(File workDir) throws MojoExecutionException {
+    public static String currentBranch(File workDir) throws MojoException {
         return execCapture(workDir, "git", "rev-parse", "--abbrev-ref", "HEAD");
     }
 
@@ -460,7 +460,7 @@ public class ReleaseSupport {
         try {
             String remotes = execCapture(workDir, "git", "remote");
             return remotes.lines().anyMatch(line -> line.trim().equals(remoteName));
-        } catch (MojoExecutionException _) {
+        } catch (MojoException _) {
             return false;
         }
     }
@@ -525,9 +525,9 @@ public class ReleaseSupport {
      *
      * @param gitRoot the git repository root directory
      * @return list of discovered POM files
-     * @throws MojoExecutionException if the file tree cannot be walked
+     * @throws MojoException if the file tree cannot be walked
      */
-    public static List<File> findPomFiles(File gitRoot) throws MojoExecutionException {
+    public static List<File> findPomFiles(File gitRoot) throws MojoException {
         try (Stream<Path> walk = Files.walk(gitRoot.toPath())) {
             return walk
                     .filter(p -> p.getFileName().toString().equals("pom.xml"))
@@ -539,7 +539,7 @@ public class ReleaseSupport {
                     .map(Path::toFile)
                     .collect(Collectors.toList());
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to scan for POM files", e);
+            throw new MojoException("Failed to scan for POM files", e);
         }
     }
 
@@ -553,11 +553,11 @@ public class ReleaseSupport {
      * @param version the literal version to substitute
      * @param log     Maven logger
      * @return the list of POM files that were modified
-     * @throws MojoExecutionException if a file cannot be read or written
+     * @throws MojoException if a file cannot be read or written
      */
     public static List<File> replaceProjectVersionRefs(File gitRoot, String version,
                                                  Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         List<File> pomFiles = findPomFiles(gitRoot);
         List<File> modified = new ArrayList<>();
 
@@ -580,7 +580,7 @@ public class ReleaseSupport {
                         " in " + rel);
                 modified.add(pom);
             } catch (IOException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Failed to process " + pom, e);
             }
         }
@@ -595,10 +595,10 @@ public class ReleaseSupport {
      * @param gitRoot the git repository root directory
      * @param log     Maven logger
      * @return the list of POM files that were restored
-     * @throws MojoExecutionException if a backup cannot be restored
+     * @throws MojoException if a backup cannot be restored
      */
     public static List<File> restoreBackups(File gitRoot, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         List<File> pomFiles = findPomFiles(gitRoot);
         List<File> restored = new ArrayList<>();
 
@@ -615,7 +615,7 @@ public class ReleaseSupport {
                 log.info("  Restored ${project.version} in " + rel);
                 restored.add(pom);
             } catch (IOException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Failed to restore backup for " + pom, e);
             }
         }
@@ -628,10 +628,10 @@ public class ReleaseSupport {
      * @param gitRoot the git repository root directory
      * @param log     Maven logger
      * @param files   the files to stage
-     * @throws MojoExecutionException if the git add command fails
+     * @throws MojoException if the git add command fails
      */
     public static void gitAddFiles(File gitRoot, Log log, List<File> files)
-            throws MojoExecutionException {
+            throws MojoException {
         if (files.isEmpty()) return;
         List<String> command = new ArrayList<>();
         command.add("git");
@@ -659,10 +659,10 @@ public class ReleaseSupport {
      * @param pomVersion current POM version (may include -SNAPSHOT)
      * @param gitRoot    git repository root (for HEAD SHA lookup)
      * @return the checkpoint version string
-     * @throws MojoExecutionException if the HEAD SHA cannot be resolved
+     * @throws MojoException if the HEAD SHA cannot be resolved
      */
     public static String deriveCheckpointVersion(String pomVersion, File gitRoot)
-            throws MojoExecutionException {
+            throws MojoException {
         String base = pomVersion.replace("-SNAPSHOT", "");
         String date = LocalDate.now().format(CHECKPOINT_DATE_FMT);
         String shortSha = execCapture(gitRoot, "git", "rev-parse", "--short", "HEAD");
@@ -680,7 +680,7 @@ public class ReleaseSupport {
         try {
             execCapture(gitRoot, "git", "rev-parse", "--verify", "refs/tags/" + tagName);
             return true;
-        } catch (MojoExecutionException _) {
+        } catch (MojoException _) {
             return false;
         }
     }
@@ -704,10 +704,10 @@ public class ReleaseSupport {
      * @param log        Maven log
      * @param remotePath absolute path on the server (e.g.,
      *                   {@code /srv/ike-site/ike-pipeline/snapshot/main})
-     * @throws MojoExecutionException if the path is unsafe or SSH fails
+     * @throws MojoException if the path is unsafe or SSH fails
      */
     public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath)
-            throws MojoExecutionException {
+            throws MojoException {
         cleanRemoteSiteDir(workDir, log, remotePath, "ssh", SITE_SSH_HOST);
     }
 
@@ -720,11 +720,11 @@ public class ReleaseSupport {
      * @param remotePath absolute path on the server to remove
      * @param sshPrefix  the SSH command tokens (e.g., "ssh", "-i", "key",
      *                   "-p", "2222", "user@localhost")
-     * @throws MojoExecutionException if the path is unsafe or SSH fails
+     * @throws MojoException if the path is unsafe or SSH fails
      */
     public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath,
                                     String... sshPrefix)
-            throws MojoExecutionException {
+            throws MojoException {
         validateRemotePath(remotePath);
         log.debug("Cleaning remote site: " + remotePath);
         String[] cmd = new String[sshPrefix.length + 3];
@@ -752,10 +752,10 @@ public class ReleaseSupport {
      * @param workDir    local directory for process execution
      * @param log        Maven log
      * @param remotePath final target path on the server
-     * @throws MojoExecutionException if SSH commands fail
+     * @throws MojoException if SSH commands fail
      */
     public static void swapRemoteSiteDir(File workDir, Log log, String remotePath)
-            throws MojoExecutionException {
+            throws MojoException {
         swapRemoteSiteDir(workDir, log, remotePath, "ssh", SITE_SSH_HOST);
     }
 
@@ -768,11 +768,11 @@ public class ReleaseSupport {
      * @param remotePath final target path on the server
      * @param sshPrefix  the SSH command tokens (e.g., "ssh", "-i", "key",
      *                   "-p", "2222", "user@localhost")
-     * @throws MojoExecutionException if the path is unsafe or SSH fails
+     * @throws MojoException if the path is unsafe or SSH fails
      */
     public static void swapRemoteSiteDir(File workDir, Log log, String remotePath,
                                    String... sshPrefix)
-            throws MojoExecutionException {
+            throws MojoException {
         validateRemotePath(remotePath);
         String staging = remotePath + ".staging";
         String old = remotePath + ".old";
@@ -814,19 +814,19 @@ public class ReleaseSupport {
      * sufficient depth to prevent accidental deletion of the site root.
      *
      * @param remotePath absolute path on the server
-     * @throws MojoExecutionException if the path is unsafe
+     * @throws MojoException if the path is unsafe
      */
     public static void validateRemotePath(String remotePath)
-            throws MojoExecutionException {
+            throws MojoException {
         if (!remotePath.startsWith(SITE_DISK_BASE)) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Refusing to delete — path does not start with "
                             + SITE_DISK_BASE + ": " + remotePath);
         }
         String relative = remotePath.substring(SITE_DISK_BASE.length());
         long depth = relative.chars().filter(c -> c == '/').count();
         if (relative.isBlank() || depth < 1) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Refusing to delete — path too shallow (need project/type): "
                             + remotePath);
         }
@@ -874,9 +874,9 @@ public class ReleaseSupport {
      *
      * @param pomFile the POM file to read
      * @return the artifact ID string
-     * @throws MojoExecutionException if the file cannot be read or has no artifact ID
+     * @throws MojoException if the file cannot be read or has no artifact ID
      */
-    public static String readPomArtifactId(File pomFile) throws MojoExecutionException {
+    public static String readPomArtifactId(File pomFile) throws MojoException {
         try {
             String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
             String stripped = content.replaceFirst(
@@ -885,10 +885,10 @@ public class ReleaseSupport {
             if (matcher.find()) {
                 return matcher.group(1);
             }
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not extract <artifactId> from " + pomFile);
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to read " + pomFile, e);
+            throw new MojoException("Failed to read " + pomFile, e);
         }
     }
 
@@ -949,9 +949,9 @@ public class ReleaseSupport {
      *
      * @param pomFile the POM file to read
      * @return the name, or null if not present
-     * @throws MojoExecutionException if the file cannot be read
+     * @throws MojoException if the file cannot be read
      */
-    public static String readPomName(File pomFile) throws MojoExecutionException {
+    public static String readPomName(File pomFile) throws MojoException {
         return readPomElement(pomFile, "name");
     }
 
@@ -960,14 +960,14 @@ public class ReleaseSupport {
      *
      * @param pomFile the POM file to read
      * @return the description, or null if not present
-     * @throws MojoExecutionException if the file cannot be read
+     * @throws MojoException if the file cannot be read
      */
-    public static String readPomDescription(File pomFile) throws MojoExecutionException {
+    public static String readPomDescription(File pomFile) throws MojoException {
         return readPomElement(pomFile, "description");
     }
 
     private static String readPomElement(File pomFile, String element)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
             Pattern pattern = Pattern.compile(
@@ -975,7 +975,7 @@ public class ReleaseSupport {
             Matcher matcher = pattern.matcher(content);
             return matcher.find() ? matcher.group(1).trim() : null;
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to read " + pomFile, e);
+            throw new MojoException("Failed to read " + pomFile, e);
         }
     }
 }

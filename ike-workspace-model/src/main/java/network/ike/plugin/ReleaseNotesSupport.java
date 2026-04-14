@@ -1,7 +1,7 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.Log;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
@@ -51,10 +51,10 @@ public final class ReleaseNotesSupport {
      * @param milestone milestone title (e.g., "ike-tooling v57")
      * @param log       Maven logger (may be null for non-Maven callers)
      * @return formatted markdown, or null if the milestone is not found
-     * @throws MojoExecutionException if the GitHub API call fails
+     * @throws MojoException if the GitHub API call fails
      */
     public static String generate(String repo, String milestone, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             int milestoneNumber = findMilestone(repo, milestone);
             if (milestoneNumber < 0) return null;
@@ -78,10 +78,10 @@ public final class ReleaseNotesSupport {
      * @param milestone milestone title
      * @param log       Maven logger (may be null)
      * @return path to the temp file, or null on failure
-     * @throws MojoExecutionException if the GitHub API call fails
+     * @throws MojoException if the GitHub API call fails
      */
     public static Path generateToFile(String repo, String milestone, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         String notes = generate(repo, milestone, log);
         if (notes == null) return null;
 
@@ -108,10 +108,10 @@ public final class ReleaseNotesSupport {
      * @param milestone milestone title
      * @param log       Maven logger
      * @return true if closed, false if not found
-     * @throws MojoExecutionException if the GitHub API call fails
+     * @throws MojoException if the GitHub API call fails
      */
     public static boolean closeMilestone(String repo, String milestone, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             int number = findMilestone(repo, milestone);
             if (number < 0) return false;
@@ -149,11 +149,11 @@ public final class ReleaseNotesSupport {
      * @param log       Maven logger
      * @return snapshot with closed (ready to test) and open (in progress) issues,
      *         or null if milestone not found
-     * @throws MojoExecutionException if the GitHub API call fails
+     * @throws MojoException if the GitHub API call fails
      */
     public static TestingContext snapshotMilestone(String repo, String milestone,
                                                    Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             int number = findMilestone(repo, milestone);
             if (number < 0) return null;
@@ -251,7 +251,7 @@ public final class ReleaseNotesSupport {
     }
 
     static int findMilestone(String repo, String title)
-            throws IOException, InterruptedException, MojoExecutionException {
+            throws IOException, InterruptedException, MojoException {
         String url = API_BASE + "/repos/" + repo
                 + "/milestones?state=all&per_page=100";
         List<Map<String, Object>> milestones = apiGetList(url);
@@ -266,7 +266,7 @@ public final class ReleaseNotesSupport {
     }
 
     static List<Issue> fetchClosedIssues(String repo, int milestoneNumber)
-            throws IOException, InterruptedException, MojoExecutionException {
+            throws IOException, InterruptedException, MojoException {
         List<Issue> all = new ArrayList<>();
         int page = 1;
 
@@ -307,7 +307,7 @@ public final class ReleaseNotesSupport {
     }
 
     static List<Issue> fetchOpenIssues(String repo, int milestoneNumber)
-            throws IOException, InterruptedException, MojoExecutionException {
+            throws IOException, InterruptedException, MojoException {
         List<Issue> all = new ArrayList<>();
         int page = 1;
 
@@ -349,7 +349,7 @@ public final class ReleaseNotesSupport {
 
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> apiGetList(String url)
-            throws IOException, InterruptedException, MojoExecutionException {
+            throws IOException, InterruptedException, MojoException {
         String body = apiGet(url);
         Yaml yaml = new Yaml();
         Object parsed = yaml.load(body);
@@ -375,7 +375,7 @@ public final class ReleaseNotesSupport {
      * unauthenticated).
      */
     private static String apiGet(String url) throws IOException,
-            InterruptedException, MojoExecutionException {
+            InterruptedException, MojoException {
         // Extract the API path from the full URL for gh api
         String apiPath = url.replace(API_BASE + "/", "");
 
@@ -383,7 +383,7 @@ public final class ReleaseNotesSupport {
         try {
             return ReleaseSupport.execCapture(new java.io.File("."),
                     "gh", "api", apiPath);
-        } catch (MojoExecutionException e) {
+        } catch (MojoException e) {
             // gh not available or failed — fall through to HttpClient
         }
 
@@ -407,7 +407,7 @@ public final class ReleaseNotesSupport {
                 HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() != 200) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "GitHub API returned " + response.statusCode()
                             + " for " + url + ": " + response.body());
         }
@@ -421,7 +421,7 @@ public final class ReleaseNotesSupport {
      * requiring {@code GITHUB_TOKEN} for write operations.
      */
     private static void closeMilestoneViaGh(String repo, int milestoneNumber)
-            throws MojoExecutionException {
+            throws MojoException {
         ReleaseSupport.execCapture(new java.io.File("."),
                 "gh", "api", "repos/" + repo + "/milestones/" + milestoneNumber,
                 "-X", "PATCH", "-f", "state=closed");
@@ -436,10 +436,10 @@ public final class ReleaseNotesSupport {
      * @param outputDir directory to write release-notes.adoc into
      * @param log       Maven logger
      * @return the written file path, or null on failure
-     * @throws MojoExecutionException if the GitHub API call fails
+     * @throws MojoException if the GitHub API call fails
      */
     public static Path generateFullHistory(String repo, Path outputDir, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             String url = API_BASE + "/repos/" + repo
                     + "/milestones?state=all&per_page=100&direction=desc&sort=completeness";
@@ -520,11 +520,11 @@ public final class ReleaseNotesSupport {
      * @param outputDir directory to write release-notes.xhtml into
      * @param log       Maven logger
      * @return the written file path, or null on failure
-     * @throws MojoExecutionException if the GitHub API call fails
+     * @throws MojoException if the GitHub API call fails
      */
     public static Path generateFullHistoryXhtml(String repo, Path outputDir,
                                                  Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             String url = API_BASE + "/repos/" + repo
                     + "/milestones?state=all&per_page=100&direction=desc";
@@ -614,11 +614,11 @@ public final class ReleaseNotesSupport {
      * @param outputDir directory to write the AsciiDoc file into
      * @param log       Maven logger
      * @return path to the written file, or null on failure
-     * @throws MojoExecutionException if the GitHub API call fails
+     * @throws MojoException if the GitHub API call fails
      */
     public static Path generateAsciidocToFile(String repo, String milestone,
                                                Path outputDir, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             int milestoneNumber = findMilestone(repo, milestone);
             if (milestoneNumber < 0) return null;
