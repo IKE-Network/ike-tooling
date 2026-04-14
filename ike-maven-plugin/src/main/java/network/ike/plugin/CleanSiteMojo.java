@@ -1,9 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 
@@ -21,8 +20,12 @@ import java.io.File;
  * mvn ike:clean-site -DsiteType=snapshot              # cleans current branch's snapshot
  * </pre>
  */
-@Mojo(name = "clean-site", requiresProject = false, threadSafe = true)
-public class CleanSiteMojo extends AbstractMojo {
+@Mojo(name = "clean-site", projectRequired = false)
+public class CleanSiteMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /**
      * Site type to clean: snapshot, checkpoint, or release.
@@ -53,7 +56,7 @@ public class CleanSiteMojo extends AbstractMojo {
     public CleanSiteMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         File gitRoot = ReleaseSupport.gitRoot(new File("."));
         File rootPom = new File(gitRoot, "pom.xml");
         String projectId = ReleaseSupport.readPomArtifactId(rootPom);
@@ -74,14 +77,14 @@ public class CleanSiteMojo extends AbstractMojo {
             }
             case "checkpoint" -> {
                 if (siteVersion == null || siteVersion.isBlank()) {
-                    throw new MojoExecutionException(
+                    throw new MojoException(
                             "siteVersion is required for checkpoint cleanup. "
                                     + "Specify -DsiteVersion=<version>.");
                 }
                 diskPath = ReleaseSupport.siteDiskPath(
                         projectId, "checkpoint", siteVersion);
             }
-            default -> throw new MojoExecutionException(
+            default -> throw new MojoException(
                     "Invalid siteType: '" + siteType
                             + "'. Must be one of: release, snapshot, checkpoint");
         }
@@ -106,7 +109,7 @@ public class CleanSiteMojo extends AbstractMojo {
             return;
         }
 
-        ReleaseSupport.cleanRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), diskPath);
+        ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), diskPath);
         getLog().info("Cleaned: " + diskPath);
     }
 }

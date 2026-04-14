@@ -2,12 +2,10 @@ package network.ike.plugin;
 
 import network.ike.docs.koncept.KonceptGlossaryProcessor;
 import network.ike.docs.koncept.KonceptInlineMacro;
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.plugin.Log;
 import org.asciidoctor.Asciidoctor;
 import org.asciidoctor.Attributes;
 import org.asciidoctor.AttributesBuilder;
@@ -54,9 +52,12 @@ import java.util.Map;
  * }</pre>
  */
 @Mojo(name = "asciidoc",
-      defaultPhase = LifecyclePhase.GENERATE_RESOURCES,
-      threadSafe = true)
-public class AsciidocMojo extends AbstractMojo {
+      defaultPhase = "generate-resources")
+public class AsciidocMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     // ── Source / output ───────────────────────────────────────────────
 
@@ -192,7 +193,7 @@ public class AsciidocMojo extends AbstractMojo {
     public AsciidocMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             getLog().info("ike:asciidoc skipped");
             return;
@@ -242,7 +243,7 @@ public class AsciidocMojo extends AbstractMojo {
                 hadErrors |= !tryConvert(asciidoctor, Backend.DOCBOOK, false);
             }
             if (hadErrors && strict) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "ike:asciidoc: one or more backends failed (strict mode)");
             }
         }
@@ -262,7 +263,7 @@ public class AsciidocMojo extends AbstractMojo {
         try {
             convertBackend(asciidoctor, backend, singleFile);
             return true;
-        } catch (MojoExecutionException e) {
+        } catch (MojoException e) {
             getLog().error("ike:asciidoc: " + backend + " conversion failed — "
                     + e.getMessage());
             return false;
@@ -277,7 +278,7 @@ public class AsciidocMojo extends AbstractMojo {
      * @param singleFile  if true, generate single-file HTML (data-uri)
      */
     private void convertBackend(Asciidoctor asciidoctor, Backend backend, boolean singleFile)
-            throws MojoExecutionException {
+            throws MojoException {
 
         File outDir;
         if (!standalone && backend == Backend.HTML && !singleFile) {
@@ -307,7 +308,7 @@ public class AsciidocMojo extends AbstractMojo {
                 // Single document conversion
                 File sourceFile = new File(sourceDirectory, sourceDocumentName);
                 if (!sourceFile.isFile()) {
-                    throw new MojoExecutionException(
+                    throw new MojoException(
                             "Source document not found: " + sourceFile);
                 }
                 asciidoctor.convertFile(sourceFile, options);
@@ -322,10 +323,10 @@ public class AsciidocMojo extends AbstractMojo {
             if (!standalone && backend == Backend.HTML && !singleFile) {
                 renameHtmlToXhtml(outDir);
             }
-        } catch (MojoExecutionException e) {
+        } catch (MojoException e) {
             throw e;
         } catch (Exception e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "AsciidoctorJ conversion failed for backend " + backend, e);
         } finally {
             // Unregister postprocessor to prevent it from running on next backend
@@ -449,7 +450,7 @@ public class AsciidocMojo extends AbstractMojo {
      * and rename {@code .html → .xhtml} so the Doxia XHTML parser
      * discovers them in {@code generatedSiteDirectory/xhtml/}.
      */
-    private void renameHtmlToXhtml(File dir) throws MojoExecutionException {
+    private void renameHtmlToXhtml(File dir) throws MojoException {
         File[] htmlFiles = dir.listFiles((d, name) -> name.endsWith(".html"));
         if (htmlFiles == null) return;
         for (File html : htmlFiles) {
@@ -476,7 +477,7 @@ public class AsciidocMojo extends AbstractMojo {
                 Files.delete(html.toPath());
                 getLog().debug("Wrapped and renamed " + html.getName() + " → " + xhtmlName);
             } catch (IOException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Failed to convert " + html + " to XHTML", e);
             }
         }
@@ -510,7 +511,7 @@ public class AsciidocMojo extends AbstractMojo {
     /**
      * Run output validation on all generated directories.
      */
-    private void validateOutputs() throws MojoExecutionException {
+    private void validateOutputs() throws MojoException {
         OutputValidator validator = new OutputValidator();
         List<OutputValidator.Issue> allIssues = new java.util.ArrayList<>();
 
@@ -550,7 +551,7 @@ public class AsciidocMojo extends AbstractMojo {
             getLog().info("Validation: " + errors + " error(s), " + warnings + " warning(s)");
 
             if (strict && errors > 0) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "ike:asciidoc validation failed with " + errors + " error(s)");
             }
         } else {

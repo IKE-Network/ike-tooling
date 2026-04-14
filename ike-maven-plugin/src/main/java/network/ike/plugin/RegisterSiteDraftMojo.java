@@ -1,9 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.util.List;
@@ -37,8 +36,12 @@ import java.util.List;
  * @see DeregisterSiteDraftMojo
  * @see OrgSiteSupport
  */
-@Mojo(name = "register-site-draft", requiresProject = false, aggregator = true, threadSafe = true)
-public class RegisterSiteDraftMojo extends AbstractMojo {
+@Mojo(name = "register-site-draft", projectRequired = false, aggregator = true)
+public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Git URL of the org site repository. */
     @Parameter(property = "orgRepo",
@@ -77,7 +80,7 @@ public class RegisterSiteDraftMojo extends AbstractMojo {
     public RegisterSiteDraftMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         File gitRoot = ReleaseSupport.gitRoot(new File("."));
         File rootPom = new File(gitRoot, "pom.xml");
 
@@ -115,7 +118,7 @@ public class RegisterSiteDraftMojo extends AbstractMojo {
             return;
         }
 
-        OrgSiteSupport.registerProject(gitRoot, Maven4LogAdapter.wrap(getLog()), orgRepo, orgBranch,
+        OrgSiteSupport.registerProject(gitRoot, getLog(), orgRepo, orgBranch,
                 artifactId, projectName, projectDescription, version,
                 projectSiteUrl, githubUrl, modules);
 
@@ -129,7 +132,7 @@ public class RegisterSiteDraftMojo extends AbstractMojo {
      * {@code releaseVersion} parameter, falls back to POM version
      * with {@code -SNAPSHOT} stripped.
      */
-    private String resolveVersion(File rootPom) throws MojoExecutionException {
+    private String resolveVersion(File rootPom) throws MojoException {
         if (releaseVersion != null && !releaseVersion.isBlank()) {
             return releaseVersion;
         }

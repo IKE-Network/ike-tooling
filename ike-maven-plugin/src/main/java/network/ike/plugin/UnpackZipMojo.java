@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,9 +48,12 @@ import java.util.zip.ZipInputStream;
  * @since 100
  */
 @Mojo(name = "unpack-zip",
-      defaultPhase = LifecyclePhase.GENERATE_RESOURCES,
-      threadSafe = true)
-public class UnpackZipMojo extends AbstractMojo {
+      defaultPhase = "generate-resources")
+public class UnpackZipMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /**
      * URL of the zip archive to download.
@@ -93,7 +94,7 @@ public class UnpackZipMojo extends AbstractMojo {
     public UnpackZipMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             getLog().debug("unpack-zip: skipped");
             return;
@@ -103,11 +104,11 @@ public class UnpackZipMojo extends AbstractMojo {
             Path zipFile = download();
             unpack(zipFile);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "unpack-zip failed for " + url, e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "unpack-zip interrupted for " + url, e);
         }
     }

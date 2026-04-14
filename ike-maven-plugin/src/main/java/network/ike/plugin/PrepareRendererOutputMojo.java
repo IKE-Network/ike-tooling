@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 
@@ -25,9 +23,12 @@ import java.io.File;
  * }</pre>
  */
 @Mojo(name = "prepare-renderer-output",
-      defaultPhase = LifecyclePhase.PREPARE_PACKAGE,
-      threadSafe = true)
-public class PrepareRendererOutputMojo extends AbstractMojo {
+      defaultPhase = "prepare-package")
+public class PrepareRendererOutputMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Root output directory (e.g., target/ike-doc). */
     @Parameter(property = "ike.doc.output.directory",
@@ -63,7 +64,7 @@ public class PrepareRendererOutputMojo extends AbstractMojo {
     public PrepareRendererOutputMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         int created = 0;
         created += mkdirIf(!skipPrince, "pdf-prince");
         created += mkdirIf(!skipAh, "pdf-ah");

@@ -1,18 +1,17 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.ProjectManager;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
-import java.util.Properties;
+import java.util.Map;
 
 /**
  * Compute build timestamp, platform, and JPackage version properties.
@@ -32,17 +31,24 @@ import java.util.Properties;
  * </pre>
  */
 @Mojo(name = "jpackage-props",
-      defaultPhase = LifecyclePhase.INITIALIZE,
-      requiresProject = true,
-      threadSafe = true)
-public class JpackagePropsMojo extends AbstractMojo {
+      defaultPhase = "initialize",
+      projectRequired = true)
+public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Creates this goal instance. */
     public JpackagePropsMojo() {}
 
-    /** The current Maven project. */
-    @Parameter(defaultValue = "${project}", readonly = true, required = true)
-    private MavenProject project;
+    /** The current project (injected by Maven 4). */
+    @org.apache.maven.api.di.Inject
+    private Project project;
+
+    /** Project manager for setting properties on the project. */
+    @org.apache.maven.api.di.Inject
+    private ProjectManager projectManager;
 
     /**
      * Application name pattern. Placeholders:
@@ -64,14 +70,14 @@ public class JpackagePropsMojo extends AbstractMojo {
     private String buildTimestamp;
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         Instant instant;
         try {
             instant = (buildTimestamp != null && !buildTimestamp.isBlank())
                     ? Instant.parse(buildTimestamp)
                     : Instant.now();
         } catch (Exception e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Invalid jpackage.buildTimestamp: " + buildTimestamp, e);
         }
 
@@ -82,25 +88,25 @@ public class JpackagePropsMojo extends AbstractMojo {
                 System.getProperty("os.arch", ""),
                 appNamePattern);
 
-        Properties p = project.getProperties();
-        p.setProperty("build.date", props.buildDate());
-        p.setProperty("build.year", props.buildYear());
-        p.setProperty("build.month", props.buildMonth());
-        p.setProperty("build.monthday", props.buildMonthday());
-        p.setProperty("build.hhmm", props.buildHhmm());
-        p.setProperty("build.display.date", props.buildDisplayDate());
-        p.setProperty("jreleaser.platform", props.platform());
-        p.setProperty("jreleaser.platform.work", props.platformWork());
-        p.setProperty("jreleaser.platform.suffix", props.platformSuffix());
-        p.setProperty("is.snapshot", String.valueOf(props.isSnapshot()));
-        p.setProperty("build.qualifier", props.buildQualifier());
-        p.setProperty("jpackage.app.version", props.jpackageAppVersion());
-        p.setProperty("jpackage.app.name", props.jpackageAppName());
-        p.setProperty("win.app.version", props.winAppVersion());
-        p.setProperty("win.version.major", props.winVersionMajor());
-        p.setProperty("win.version.minor", props.winVersionMinor());
-        p.setProperty("win.version.build", props.winVersionBuild());
-        p.setProperty("win.version.revision", props.winVersionRevision());
+        Map<String, String> p = projectManager.getProperties(project);
+        p.put("build.date", props.buildDate());
+        p.put("build.year", props.buildYear());
+        p.put("build.month", props.buildMonth());
+        p.put("build.monthday", props.buildMonthday());
+        p.put("build.hhmm", props.buildHhmm());
+        p.put("build.display.date", props.buildDisplayDate());
+        p.put("jreleaser.platform", props.platform());
+        p.put("jreleaser.platform.work", props.platformWork());
+        p.put("jreleaser.platform.suffix", props.platformSuffix());
+        p.put("is.snapshot", String.valueOf(props.isSnapshot()));
+        p.put("build.qualifier", props.buildQualifier());
+        p.put("jpackage.app.version", props.jpackageAppVersion());
+        p.put("jpackage.app.name", props.jpackageAppName());
+        p.put("win.app.version", props.winAppVersion());
+        p.put("win.version.major", props.winVersionMajor());
+        p.put("win.version.minor", props.winVersionMinor());
+        p.put("win.version.build", props.winVersionBuild());
+        p.put("win.version.revision", props.winVersionRevision());
 
         getLog().info("");
         getLog().info("JPackage Build Properties");

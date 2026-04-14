@@ -1,22 +1,25 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
 
 /**
  * Displays available IKE build tool goals.
  *
  * @see <a href="https://github.com/IKE-Network/ike-pipeline">IKE Pipeline</a>
  */
-@Mojo(name = "help", requiresProject = false, threadSafe = true)
-public class IkeHelpMojo extends AbstractMojo {
+@Mojo(name = "help", projectRequired = false)
+public class IkeHelpMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Creates this goal instance. */
     public IkeHelpMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         getLog().info("");
         getLog().info("IKE Build Tools — Available Goals");
         getLog().info("══════════════════════════════════════════════════════════════");

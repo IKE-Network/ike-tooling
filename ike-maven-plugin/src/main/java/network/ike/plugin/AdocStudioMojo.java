@@ -1,9 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -42,8 +41,12 @@ import java.nio.file.Path;
  * generation. On non-macOS platforms, the goal logs a warning and
  * exits cleanly.
  */
-@Mojo(name = "adocstudio", requiresProject = false, threadSafe = true)
-public class AdocStudioMojo extends AbstractMojo {
+@Mojo(name = "adocstudio", projectRequired = false)
+public class AdocStudioMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Creates this goal instance. */
     public AdocStudioMojo() {}
@@ -68,7 +71,7 @@ public class AdocStudioMojo extends AbstractMojo {
     private String outputDir;
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         getLog().info("");
         getLog().info("IKE Adoc Studio — Sidecar Generator");
         getLog().info("══════════════════════════════════════════════════════════════");
@@ -83,7 +86,7 @@ public class AdocStudioMojo extends AbstractMojo {
 
         // ── Verify Swift is available ────────────────────────
         if (!isSwiftAvailable()) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Swift runtime not found. Install Xcode or "
                     + "Command Line Tools: xcode-select --install");
         }
@@ -93,7 +96,7 @@ public class AdocStudioMojo extends AbstractMojo {
         try {
             scriptFile = extractScript();
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to extract Swift script from plugin JAR", e);
         }
 
@@ -107,7 +110,7 @@ public class AdocStudioMojo extends AbstractMojo {
         getLog().info("");
 
         if (!Files.isDirectory(source)) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Source directory does not exist: " + source);
         }
 
@@ -115,11 +118,11 @@ public class AdocStudioMojo extends AbstractMojo {
         try {
             int exitCode = runSwift(scriptFile, source, output);
             if (exitCode != 0) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Swift script exited with code " + exitCode);
             }
         } catch (IOException | InterruptedException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to execute Swift script", e);
         } finally {
             // Clean up temp file
@@ -141,10 +144,10 @@ public class AdocStudioMojo extends AbstractMojo {
 
     // ── Helpers ──────────────────────────────────────────────
 
-    private Path extractScript() throws IOException, MojoExecutionException {
+    private Path extractScript() throws IOException, MojoException {
         try (InputStream is = getClass().getResourceAsStream(SWIFT_RESOURCE)) {
             if (is == null) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Swift script not found on classpath: "
                         + SWIFT_RESOURCE);
             }

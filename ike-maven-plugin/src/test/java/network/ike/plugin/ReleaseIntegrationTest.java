@@ -1,6 +1,6 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.api.plugin.MojoException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -36,7 +36,7 @@ class ReleaseIntegrationTest {
         String headBefore = execCapture(tempDir, "git", "rev-parse", "HEAD");
         String tagsBefore = execCapture(tempDir, "git", "tag", "-l");
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
@@ -63,13 +63,13 @@ class ReleaseIntegrationTest {
         createReleaseProject(tempDir);
         exec(tempDir, "git", "checkout", "-b", "develop");
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.deploySite = false;
         mojo.skipVerify = true;
 
         assertThatThrownBy(mojo::execute)
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("main");
     }
 
@@ -78,7 +78,7 @@ class ReleaseIntegrationTest {
         createReleaseProject(tempDir);
         exec(tempDir, "git", "checkout", "-b", "develop");
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.allowBranch = "develop";
         mojo.skipVerify = true;
@@ -90,7 +90,7 @@ class ReleaseIntegrationTest {
         // by confirming the exception is NOT about the branch.
         try {
             mojo.execute();
-        } catch (MojoExecutionException e) {
+        } catch (MojoException e) {
             // Acceptable — but must NOT be a branch check failure
             assertThat(e.getMessage()).doesNotContain("Must be on 'develop' branch");
         }
@@ -100,7 +100,7 @@ class ReleaseIntegrationTest {
     void release_localPhase_createsTagAndBumps() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
         mojo.deploySite = false;
@@ -111,7 +111,7 @@ class ReleaseIntegrationTest {
         // verify git state regardless.
         try {
             mojo.execute();
-        } catch (MojoExecutionException e) {
+        } catch (MojoException e) {
             // Expected — external phase failure
         }
 
@@ -136,14 +136,14 @@ class ReleaseIntegrationTest {
     void release_snapshotReleaseVersion_throws() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.releaseVersion = "1.0.0-SNAPSHOT";
         mojo.skipVerify = true;
         mojo.deploySite = false;
 
         assertThatThrownBy(mojo::execute)
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("must not contain -SNAPSHOT");
     }
 
@@ -153,7 +153,7 @@ class ReleaseIntegrationTest {
     void release_nextVersionNotSnapshot_throws() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.releaseVersion = "1.0.0";
         mojo.nextVersion = "1.0.1";  // missing -SNAPSHOT
@@ -161,7 +161,7 @@ class ReleaseIntegrationTest {
         mojo.deploySite = false;
 
         assertThatThrownBy(mojo::execute)
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("must end with -SNAPSHOT");
     }
 
@@ -173,14 +173,14 @@ class ReleaseIntegrationTest {
         // Create the release branch beforehand
         exec(tempDir, "git", "branch", "release/1.0.0");
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.releaseVersion = "1.0.0";
         mojo.skipVerify = true;
         mojo.deploySite = false;
 
         assertThatThrownBy(mojo::execute)
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("already exists");
     }
 
@@ -190,7 +190,7 @@ class ReleaseIntegrationTest {
     void release_noExplicitVersion_derivesFromPom() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
@@ -208,7 +208,7 @@ class ReleaseIntegrationTest {
     void release_explicitReleaseVersion_used() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.releaseVersion = "42";
@@ -231,13 +231,13 @@ class ReleaseIntegrationTest {
         Files.writeString(tempDir.resolve("README.txt"), "modified content",
                 StandardCharsets.UTF_8);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
         mojo.deploySite = false;
 
         assertThatThrownBy(mojo::execute)
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("unstaged");
     }
 
@@ -248,14 +248,14 @@ class ReleaseIntegrationTest {
         // Create a project with a sub-module that uses ${project.version}
         createReleaseProjectWithSubModule(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
         mojo.deploySite = false;
 
         try {
             mojo.execute();
-        } catch (MojoExecutionException e) {
+        } catch (MojoException e) {
             // Expected — external phase failure
         }
 
@@ -273,7 +273,7 @@ class ReleaseIntegrationTest {
     void release_dryRun_deploySiteTrue_logsSiteUrl() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
@@ -293,7 +293,7 @@ class ReleaseIntegrationTest {
     void release_dryRun_blankReleaseVersion_derives() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
@@ -309,7 +309,7 @@ class ReleaseIntegrationTest {
     void release_dryRun_blankNextVersion_derives() throws Exception {
         createReleaseProject(tempDir);
 
-        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
@@ -446,5 +446,18 @@ class ReleaseIntegrationTest {
                             + String.join(" ", command));
         }
         return output;
+    }
+
+    /** Create a ReleaseDraftMojo with log injected (Maven 4 uses @Inject, not setLog). */
+    private static ReleaseDraftMojo createMojo() {
+        ReleaseDraftMojo mojo = new ReleaseDraftMojo();
+        try {
+            var field = ReleaseDraftMojo.class.getDeclaredField("log");
+            field.setAccessible(true);
+            field.set(mojo, new TestLog());
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException("Cannot inject log", e);
+        }
+        return mojo;
     }
 }

@@ -1,11 +1,9 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,14 +33,17 @@ import java.util.zip.ZipOutputStream;
  * </pre>
  */
 @Mojo(name = "package-doc",
-      defaultPhase = LifecyclePhase.PACKAGE,
-      requiresProject = true,
-      threadSafe = true)
-public class PackageDocMojo extends AbstractMojo {
+      defaultPhase = "package",
+      projectRequired = true)
+public class PackageDocMojo implements org.apache.maven.api.plugin.Mojo {
 
-    /** The current project (injected by Maven). */
-    @Parameter(defaultValue = "${project}", readonly = true, required = true)
-    private MavenProject project;
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
+
+    /** The current project (injected by Maven 4). */
+    @org.apache.maven.api.di.Inject
+    private Project project;
 
     /**
      * AsciiDoc source directory to package.
@@ -60,7 +61,7 @@ public class PackageDocMojo extends AbstractMojo {
     public PackageDocMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             getLog().info("package-doc: skipped");
             return;
@@ -82,11 +83,11 @@ public class PackageDocMojo extends AbstractMojo {
             getLog().info("package-doc: packaged " + count
                     + " file(s) into " + zipFile.getFileName());
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to create documentation archive", e);
         }
 
-        project.getArtifact().setFile(zipFile.toFile());
+        // TODO: Maven 4 artifact attachment via ProjectManager
     }
 
     // ── Pure testable function ───────────────────────────────────────

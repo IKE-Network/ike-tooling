@@ -1,9 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -49,8 +48,12 @@ import java.util.List;
  * or override version with {@code mvn ike:release-publish -DreleaseVersion=2}
  *
  */
-@Mojo(name = "release-draft", requiresProject = false, aggregator = true, threadSafe = true)
-public class ReleaseDraftMojo extends AbstractMojo {
+@Mojo(name = "release-draft", projectRequired = false, aggregator = true)
+public class ReleaseDraftMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     @Parameter(property = "releaseVersion")
     String releaseVersion;
@@ -95,7 +98,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
     public ReleaseDraftMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         File startDir = baseDir != null ? baseDir : new File(".");
         File gitRoot = ReleaseSupport.gitRoot(startDir);
         File rootPom = new File(gitRoot, "pom.xml");
@@ -114,13 +117,13 @@ public class ReleaseDraftMojo extends AbstractMojo {
 
         // Reject SNAPSHOT release versions
         if (releaseVersion.contains("-SNAPSHOT")) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Release version must not contain -SNAPSHOT.");
         }
 
         // Enforce SNAPSHOT suffix on next version
         if (!nextVersion.endsWith("-SNAPSHOT")) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Next version must end with -SNAPSHOT (got '" + nextVersion + "').");
         }
 
@@ -136,7 +139,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
         } else {
             String expectedBranch = allowBranch != null ? allowBranch : "main";
             if (!currentBranch.equals(expectedBranch)) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Must be on '" + expectedBranch + "' branch (currently on '" +
                                 currentBranch + "'). Use -DallowBranch=" +
                                 currentBranch + " to override.");
@@ -152,7 +155,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
                 // Expected — branch does not exist
             }
             if (releaseBranchExists) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Branch '" + releaseBranch + "' already exists locally. "
                         + "Switch to it to resume, or delete it to start fresh:\n"
                         + "  Resume: git checkout " + releaseBranch
@@ -215,7 +218,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
         // ── Release ───────────────────────────────────────────────────
 
         // Resolve Maven wrapper (requires mvnw or mvn on PATH — skip for draft)
-        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, Maven4LogAdapter.wrap(getLog()));
+        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
 
         // Build environment audit (needs mvnw for --version)
         logAudit(gitRoot, mvnw, currentBranch, releaseBranch, oldVersion, projectId);
@@ -227,7 +230,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
             resolvedPoms = List.of(); // backups handle restore later
         } else {
             // Create release branch
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(gitRoot, getLog(),
                     "git", "checkout", "-b", releaseBranch);
 
             // Set version
@@ -236,13 +239,13 @@ public class ReleaseDraftMojo extends AbstractMojo {
 
             // Stamp reproducible build timestamp
             getLog().info("Stamping project.build.outputTimestamp: " + releaseTimestamp);
-            ReleaseSupport.stampOutputTimestamp(rootPom, releaseTimestamp, Maven4LogAdapter.wrap(getLog()));
+            ReleaseSupport.stampOutputTimestamp(rootPom, releaseTimestamp, getLog());
 
             // WORKAROUND: Maven 4 consumer POM doesn't resolve ${project.version}
             // in <build><plugins>, <pluginManagement>, or <dependencyManagement>.
             getLog().info("Resolving ${project.version} references:");
             resolvedPoms =
-                    ReleaseSupport.replaceProjectVersionRefs(gitRoot, releaseVersion, Maven4LogAdapter.wrap(getLog()));
+                    ReleaseSupport.replaceProjectVersionRefs(gitRoot, releaseVersion, getLog());
         }
 
         // Build and install (not just verify) — reactor siblings with
@@ -252,7 +255,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
         // fails on inter-module resolution. Using 'install' puts
         // artifacts in the local repo for sibling resolution.
         if (!skipVerify) {
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(gitRoot, getLog(),
                     mvnw.getAbsolutePath(), "clean", "install", "-B", "-T", "1");
         } else {
             getLog().info("Skipping verify (-DskipVerify=true)");
@@ -263,35 +266,35 @@ public class ReleaseDraftMojo extends AbstractMojo {
         // is not @ThreadSafe and emits a warning in parallel sessions.
         if (deploySite) {
             getLog().info("Building site (pre-flight check)...");
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(gitRoot, getLog(),
                     mvnw.getAbsolutePath(), "site", "site:stage", "-B", "-T", "1");
         }
 
         // Commit
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()), "git", "add", "pom.xml");
-        ReleaseSupport.gitAddFiles(gitRoot, Maven4LogAdapter.wrap(getLog()), resolvedPoms);
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(gitRoot, getLog(), "git", "add", "pom.xml");
+        ReleaseSupport.gitAddFiles(gitRoot, getLog(), resolvedPoms);
+        ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "commit", "-m",
                 "release: set version to " + releaseVersion);
 
         // Tag
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "tag", "-a", "v" + releaseVersion,
                 "-m", "Release " + releaseVersion);
 
         // Restore ${project.version} references
         getLog().info("Restoring ${project.version} references:");
-        List<File> restoredPoms = ReleaseSupport.restoreBackups(gitRoot, Maven4LogAdapter.wrap(getLog()));
+        List<File> restoredPoms = ReleaseSupport.restoreBackups(gitRoot, getLog());
         if (!restoredPoms.isEmpty()) {
-            ReleaseSupport.gitAddFiles(gitRoot, Maven4LogAdapter.wrap(getLog()), restoredPoms);
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.gitAddFiles(gitRoot, getLog(), restoredPoms);
+            ReleaseSupport.exec(gitRoot, getLog(),
                     "git", "commit", "-m",
                     "release: restore ${project.version} references");
         }
 
         // Merge back to main
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()), "git", "checkout", "main");
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(gitRoot, getLog(), "git", "checkout", "main");
+        ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "merge", "--no-ff", releaseBranch,
                 "-m", "merge: release " + releaseVersion);
 
@@ -305,17 +308,17 @@ public class ReleaseDraftMojo extends AbstractMojo {
         ReleaseSupport.setPomVersion(rootPom, currentVersion, nextVersion);
 
         // Verify build with new SNAPSHOT version
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(gitRoot, getLog(),
                 mvnw.getAbsolutePath(), "clean", "verify", "-B", "-T", "1");
 
         // Commit
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()), "git", "add", "pom.xml");
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(gitRoot, getLog(), "git", "add", "pom.xml");
+        ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "commit", "-m",
                 "post-release: bump to " + nextVersion);
 
         // Clean up release branch
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "branch", "-d", releaseBranch);
 
         // ── External actions (all local work is done) ─────────────────
@@ -335,7 +338,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
         getLog().info("");
 
         // Deploy from the tagged release commit
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "checkout", "v" + releaseVersion);
 
         // Site URL info needed for both generation and deploy phases
@@ -353,7 +356,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
                 stagingUrl = ReleaseSupport.siteStagingUrl(releaseUrl);
 
                 // 1. Verify (generates JaCoCo coverage data)
-                ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+                ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "verify", "-B", "-T", "1");
 
                 // 2. Generate release history XHTML for site inclusion
@@ -361,7 +364,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
                     Path generatedXhtml = gitRoot.toPath()
                             .resolve("target").resolve("generated-site").resolve("xhtml");
                     Path xhtmlFile = ReleaseNotesSupport.generateFullHistoryXhtml(
-                            issueRepo, generatedXhtml, Maven4LogAdapter.wrap(getLog()));
+                            issueRepo, generatedXhtml, getLog());
                     if (xhtmlFile != null) {
                         getLog().info("Generated release history: " + xhtmlFile);
                     }
@@ -371,17 +374,17 @@ public class ReleaseDraftMojo extends AbstractMojo {
                 }
 
                 // 3. Build site (generates JaCoCo HTML from jacoco.exec)
-                ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+                ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "site", "-B", "-T", "1");
 
                 // 4. Inject breadcrumbs into JaCoCo reports
                 getLog().info("Injecting breadcrumbs into JaCoCo reports...");
-                ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+                ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "network.ike.tooling:ike-maven-plugin:inject-breadcrumb",
                         "-B", "-T", "1");
 
                 // 5. Stage site (packages for deploy)
-                ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+                ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "site:stage", "-B", "-T", "1");
 
                 // 6. Deploy site + publish (while target/staging/ exists)
@@ -399,19 +402,19 @@ public class ReleaseDraftMojo extends AbstractMojo {
             // clean deploy: fresh build ensures artifact integrity.
             // Site was already deployed above (before clean wipes staging).
             getLog().info("Deploying to Nexus...");
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(gitRoot, getLog(),
                     mvnw.getAbsolutePath(), "clean", "deploy", "-B", "-T", "1",
                     "-P", "release,signArtifacts");
         } finally {
             // Always return to main, even if deploy fails
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()), "git", "checkout", "main");
+            ReleaseSupport.exec(gitRoot, getLog(), "git", "checkout", "main");
         }
 
         // Push tag and main
         if (hasOrigin) {
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(gitRoot, getLog(),
                     "git", "push", "origin", "v" + releaseVersion);
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(gitRoot, getLog(),
                     "git", "push", "origin", "main");
         } else {
             getLog().info("No 'origin' remote — skipping push");
@@ -431,7 +434,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
                     projectId, "snapshot", "main");
             try {
                 getLog().info("Cleaning snapshot/main site...");
-                ReleaseSupport.cleanRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), snapshotDisk);
+                ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), snapshotDisk);
             } catch (Exception e) {
                 getLog().warn("Could not clean snapshot site (may not exist): "
                         + e.getMessage());
@@ -502,7 +505,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
      */
     private void preflightChecks(File gitRoot, boolean hasOrigin,
                                   String projectId)
-            throws MojoExecutionException {
+            throws MojoException {
         getLog().info("");
         getLog().info("PREFLIGHT CHECKS");
         List<String> warnings = new java.util.ArrayList<>();
@@ -514,7 +517,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
                         "git", "push", "--dry-run", "origin", "main");
                 getLog().info("  Git push:    authenticated  ✓");
             } catch (Exception e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Cannot push to origin. Fix authentication before "
                                 + "releasing.\n  Error: " + e.getMessage());
             }
@@ -553,10 +556,10 @@ public class ReleaseDraftMojo extends AbstractMojo {
 
         // 4. Maven wrapper
         try {
-            ReleaseSupport.resolveMavenWrapper(gitRoot, Maven4LogAdapter.wrap(getLog()));
+            ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
             getLog().info("  Maven:       wrapper found  ✓");
         } catch (Exception e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Maven wrapper (mvnw) not found. Run: mvn wrapper:wrapper");
         }
 
@@ -602,7 +605,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
 
                 if (answer == null
                         || !answer.trim().equalsIgnoreCase("yes")) {
-                    throw new MojoExecutionException(
+                    throw new MojoException(
                             "Release aborted. Resolve warnings and retry.");
                 }
             }
@@ -612,7 +615,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
 
     private void logAudit(File gitRoot, File mvnw, String branch,
                           String releaseBranch, String oldVersion,
-                          String projectId) throws MojoExecutionException {
+                          String projectId) throws MojoException {
         String gitCommit = ReleaseSupport.execCapture(gitRoot,
                 "git", "rev-parse", "--short", "HEAD");
         String mavenVersion = ReleaseSupport.execCapture(gitRoot,
@@ -654,15 +657,15 @@ public class ReleaseDraftMojo extends AbstractMojo {
     private void deploySiteAndPublish(File gitRoot, File mvnw,
                                        String projectId, String version,
                                        String releaseDisk, String stagingUrl)
-            throws MojoExecutionException {
+            throws MojoException {
         String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);
 
         getLog().info("Deploying site to staging...");
-        ReleaseSupport.cleanRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), stagingDisk);
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
+        ReleaseSupport.exec(gitRoot, getLog(),
                 mvnw.getAbsolutePath(), "site:deploy", "-B", "-T", "1",
                 "-Dsite.deploy.url=" + stagingUrl);
-        ReleaseSupport.swapRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), releaseDisk);
+        ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
 
         // GitHub Pages publishing is now handled by deploy-site-publish
         // (the former publish-site goal was merged into deploy-site in v83)
@@ -695,18 +698,18 @@ public class ReleaseDraftMojo extends AbstractMojo {
      */
     private void createGitHubRelease(File gitRoot, String projectId,
                                       String version)
-            throws MojoExecutionException {
+            throws MojoException {
         String milestoneName = projectId + " v" + version;
 
         // Try milestone-based notes first
         Path notesFile = ReleaseNotesSupport.generateToFile(
-                issueRepo, milestoneName, Maven4LogAdapter.wrap(getLog()));
+                issueRepo, milestoneName, getLog());
 
         try {
             if (notesFile != null) {
                 getLog().info("Release notes generated from milestone: "
                         + milestoneName);
-                ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+                ReleaseSupport.exec(gitRoot, getLog(),
                         "gh", "release", "create", "v" + version,
                         "--title", version,
                         "--notes-file", notesFile.toString(),
@@ -714,7 +717,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
             } else {
                 getLog().info("No milestone \"" + milestoneName
                         + "\" found — using auto-generated notes");
-                ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+                ReleaseSupport.exec(gitRoot, getLog(),
                         "gh", "release", "create", "v" + version,
                         "--title", version,
                         "--generate-notes", "--verify-tag");
@@ -730,7 +733,7 @@ public class ReleaseDraftMojo extends AbstractMojo {
         // Non-fatal — the release is already done at this point.
         if (notesFile != null) {
             try {
-                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, Maven4LogAdapter.wrap(getLog()));
+                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, getLog());
             } catch (Exception e) {
                 getLog().warn("Could not close milestone (release succeeded): "
                         + e.getMessage());

@@ -1,7 +1,7 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
 
 /**
  * Execute the full release workflow.
@@ -14,14 +14,14 @@ import org.apache.maven.plugins.annotations.Mojo;
  *
  * @see ReleaseDraftMojo
  */
-@Mojo(name = "release-publish", requiresProject = false, aggregator = true, threadSafe = true)
+@Mojo(name = "release-publish", projectRequired = false, aggregator = true)
 public class ReleasePublishMojo extends ReleaseDraftMojo {
 
     /** Creates this goal instance. */
     public ReleasePublishMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         publish = true;
         super.execute();
     }

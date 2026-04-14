@@ -1,7 +1,7 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.logging.SystemStreamLog;
+import org.apache.maven.api.plugin.MojoException;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -247,7 +247,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
     void validateRemotePath_rejectsPathOutsideSiteBase() {
         assertThatThrownBy(() ->
                 ReleaseSupport.validateRemotePath("/tmp/evil-path"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("does not start with");
     }
 
@@ -256,12 +256,12 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         // Base path itself
         assertThatThrownBy(() ->
                 ReleaseSupport.validateRemotePath("/srv/ike-site/"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("too shallow");
         // Only one component deep (project name, no type)
         assertThatThrownBy(() ->
                 ReleaseSupport.validateRemotePath("/srv/ike-site/project"))
-                .isInstanceOf(MojoExecutionException.class)
+                .isInstanceOf(MojoException.class)
                 .hasMessageContaining("too shallow");
     }
 
@@ -326,7 +326,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
 
         ReleaseSupport.cleanRemoteSiteDir(
                 workDir.toFile(),
-                new SystemStreamLog(),
+                new network.ike.plugin.TestLog(),
                 dir,
                 sshPrefix());
 
@@ -345,7 +345,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
 
         ReleaseSupport.swapRemoteSiteDir(
                 workDir.toFile(),
-                new SystemStreamLog(),
+                new network.ike.plugin.TestLog(),
                 base,
                 sshPrefix());
 
@@ -370,7 +370,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
 
         ReleaseSupport.swapRemoteSiteDir(
                 workDir.toFile(),
-                new SystemStreamLog(),
+                new network.ike.plugin.TestLog(),
                 base,
                 sshPrefix());
 
@@ -388,7 +388,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        CleanSiteMojo mojo = new CleanSiteMojo();
+        CleanSiteMojo mojo = createMojo(CleanSiteMojo.class);
         // Set fields via package-private access (same package)
         setField(mojo, "siteType", "snapshot");
         setField(mojo, "branch", "feature/old-work");
@@ -419,14 +419,14 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        CleanSiteMojo mojo = new CleanSiteMojo();
+        CleanSiteMojo mojo = createMojo(CleanSiteMojo.class);
         setField(mojo, "siteType", "invalid");
 
         String origDir = System.getProperty("user.dir");
         try {
             System.setProperty("user.dir", gitDir.getAbsolutePath());
             assertThatThrownBy(mojo::execute)
-                    .isInstanceOf(MojoExecutionException.class)
+                    .isInstanceOf(MojoException.class)
                     .hasMessageContaining("Invalid siteType");
         } finally {
             System.setProperty("user.dir", origDir);
@@ -440,7 +440,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        CleanSiteMojo mojo = new CleanSiteMojo();
+        CleanSiteMojo mojo = createMojo(CleanSiteMojo.class);
         setField(mojo, "siteType", "checkpoint");
         // siteVersion is null — should fail
 
@@ -448,7 +448,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         try {
             System.setProperty("user.dir", gitDir.getAbsolutePath());
             assertThatThrownBy(mojo::execute)
-                    .isInstanceOf(MojoExecutionException.class)
+                    .isInstanceOf(MojoException.class)
                     .hasMessageContaining("siteVersion is required");
         } finally {
             System.setProperty("user.dir", origDir);
@@ -463,7 +463,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        DeploySiteDraftMojo mojo = new DeploySiteDraftMojo();
+        DeploySiteDraftMojo mojo = createMojo(DeploySiteDraftMojo.class);
         setField(mojo, "siteType", "release");
         setField(mojo, "dryRun", true);
         setField(mojo, "skipBuild", true);
@@ -485,7 +485,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        DeploySiteDraftMojo mojo = new DeploySiteDraftMojo();
+        DeploySiteDraftMojo mojo = createMojo(DeploySiteDraftMojo.class);
         setField(mojo, "siteType", "bogus");
         setField(mojo, "dryRun", true);
 
@@ -493,7 +493,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         try {
             System.setProperty("user.dir", gitDir.getAbsolutePath());
             assertThatThrownBy(mojo::execute)
-                    .isInstanceOf(MojoExecutionException.class)
+                    .isInstanceOf(MojoException.class)
                     .hasMessageContaining("Invalid siteType");
         } finally {
             System.setProperty("user.dir", origDir);
@@ -506,7 +506,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        DeploySiteDraftMojo mojo = new DeploySiteDraftMojo();
+        DeploySiteDraftMojo mojo = createMojo(DeploySiteDraftMojo.class);
         setField(mojo, "siteType", "snapshot");
         setField(mojo, "branch", "feature/kec-test");
         setField(mojo, "dryRun", true);
@@ -527,7 +527,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         gitDir.mkdirs();
         initGitRepoWithPom(gitDir, "test-project");
 
-        DeploySiteDraftMojo mojo = new DeploySiteDraftMojo();
+        DeploySiteDraftMojo mojo = createMojo(DeploySiteDraftMojo.class);
         setField(mojo, "siteType", "checkpoint");
         setField(mojo, "siteVersion", "7-checkpoint.20260301.1");
         setField(mojo, "dryRun", true);
@@ -663,5 +663,18 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         int exit = proc.waitFor();
         assertThat(exit).as("SSH command failed: " + command).isZero();
         return output;
+    }
+
+    /** Create a Mojo with log injected (Maven 4 uses @Inject, not setLog). */
+    private static <T> T createMojo(Class<T> type) {
+        try {
+            T mojo = type.getDeclaredConstructor().newInstance();
+            var field = type.getDeclaredField("log");
+            field.setAccessible(true);
+            field.set(mojo, new TestLog());
+            return mojo;
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException("Cannot create " + type.getSimpleName(), e);
+        }
     }
 }

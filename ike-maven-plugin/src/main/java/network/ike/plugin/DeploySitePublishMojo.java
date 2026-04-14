@@ -1,7 +1,7 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
 
 /**
  * Deploy the Maven site to a versioned URL.
@@ -14,14 +14,14 @@ import org.apache.maven.plugins.annotations.Mojo;
  *
  * @see DeploySiteDraftMojo
  */
-@Mojo(name = "deploy-site-publish", requiresProject = false, aggregator = true, threadSafe = true)
+@Mojo(name = "deploy-site-publish", projectRequired = false, aggregator = true)
 public class DeploySitePublishMojo extends DeploySiteDraftMojo {
 
     /** Creates this goal instance. */
     public DeploySitePublishMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         publish = true;
         super.execute();
     }

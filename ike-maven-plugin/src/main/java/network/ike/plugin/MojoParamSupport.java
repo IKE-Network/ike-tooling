@@ -1,11 +1,11 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.Log;
 
 /**
  * Static utility for interactive parameter resolution in mojos
- * that extend {@link org.apache.maven.plugin.AbstractMojo} directly
+ * that implement {@link org.apache.maven.api.plugin.Mojo} directly
  * (no shared base class).
  *
  * <p>Tries {@code System.console()} first (real terminal), then
@@ -28,11 +28,11 @@ final class MojoParamSupport {
      * @param log           Maven logger — prompt goes through the logger so
      *                      IntelliJ renders it without a {@code [stdout]} prefix
      * @return the resolved value — either the original or user-supplied
-     * @throws MojoExecutionException if no value can be obtained
+     * @throws MojoException if no value can be obtained
      */
     static String requireParam(String currentValue, String propertyName,
                                String promptLabel, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         if (currentValue != null && !currentValue.isBlank()) {
             return currentValue.trim();
         }
@@ -65,7 +65,7 @@ final class MojoParamSupport {
             }
         }
 
-        throw new MojoExecutionException(
+        throw new MojoException(
                 propertyName + " is required. Specify -D" + propertyName
                         + "=<value> or run interactively.");
     }

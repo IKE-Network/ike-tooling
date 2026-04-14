@@ -1,9 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 
@@ -34,8 +33,12 @@ import java.io.File;
  * @see RegisterSiteDraftMojo
  * @see OrgSiteSupport
  */
-@Mojo(name = "deregister-site-draft", requiresProject = false, aggregator = true, threadSafe = true)
-public class DeregisterSiteDraftMojo extends AbstractMojo {
+@Mojo(name = "deregister-site-draft", projectRequired = false, aggregator = true)
+public class DeregisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Git URL of the org site repository. */
     @Parameter(property = "orgRepo",
@@ -61,7 +64,7 @@ public class DeregisterSiteDraftMojo extends AbstractMojo {
     public DeregisterSiteDraftMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         boolean draft = !publish;
 
         getLog().info("");
@@ -78,7 +81,7 @@ public class DeregisterSiteDraftMojo extends AbstractMojo {
             return;
         }
 
-        OrgSiteSupport.deregisterProject(Maven4LogAdapter.wrap(getLog()), orgRepo, orgBranch, projectId);
+        OrgSiteSupport.deregisterProject(getLog(), orgRepo, orgBranch, projectId);
 
         getLog().info("");
         getLog().info("Deregistered " + projectId + " from ike.network");

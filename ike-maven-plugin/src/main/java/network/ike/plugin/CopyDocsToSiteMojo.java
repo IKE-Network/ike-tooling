@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -30,9 +28,12 @@ import java.util.List;
  * </pre>
  */
 @Mojo(name = "copy-docs",
-      defaultPhase = LifecyclePhase.SITE,
-      threadSafe = true)
-public class CopyDocsToSiteMojo extends AbstractMojo {
+      defaultPhase = "site")
+public class CopyDocsToSiteMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Directory containing rendered HTML and assets. */
     @Parameter(property = "generatedDocsDir", required = true)
@@ -50,7 +51,7 @@ public class CopyDocsToSiteMojo extends AbstractMojo {
     public CopyDocsToSiteMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (!generatedDocsDir.isDirectory()) {
             getLog().info("copy-docs: generated-docs directory does not exist, "
                     + "skipping — " + generatedDocsDir);
@@ -68,7 +69,7 @@ public class CopyDocsToSiteMojo extends AbstractMojo {
                 copied += copyByExtension(source, dest, ext);
             }
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to copy docs to site", e);
         }
 

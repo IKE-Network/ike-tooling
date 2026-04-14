@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,9 +31,12 @@ import java.nio.file.Path;
  * </pre>
  */
 @Mojo(name = "patch-docbook",
-      defaultPhase = LifecyclePhase.GENERATE_RESOURCES,
-      threadSafe = true)
-public class PatchDocbookMojo extends AbstractMojo {
+      defaultPhase = "generate-resources")
+public class PatchDocbookMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Root directory of the unpacked DocBook XSL distribution. */
     @Parameter(property = "docbookDir", required = true)
@@ -45,7 +46,7 @@ public class PatchDocbookMojo extends AbstractMojo {
     public PatchDocbookMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (!docbookDir.isDirectory()) {
             getLog().info("patch-docbook: directory does not exist, skipping — "
                     + docbookDir);
@@ -71,7 +72,7 @@ public class PatchDocbookMojo extends AbstractMojo {
      */
     private void patchFile(Path file, String description,
                            java.util.function.UnaryOperator<String> transform)
-            throws MojoExecutionException {
+            throws MojoException {
         if (!Files.isRegularFile(file)) {
             getLog().info("patch-docbook: " + file.getFileName()
                     + " not found, skipping " + description);
@@ -86,7 +87,7 @@ public class PatchDocbookMojo extends AbstractMojo {
                         + " from " + file.getFileName());
             }
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to patch " + file, e);
         }
     }

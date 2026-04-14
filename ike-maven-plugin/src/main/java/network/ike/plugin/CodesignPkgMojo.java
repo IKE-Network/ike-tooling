@@ -1,11 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -55,17 +52,16 @@ import java.util.Locale;
  * <p>On non-macOS platforms the goal skips silently.
  */
 @Mojo(name = "codesign-pkg",
-      defaultPhase = LifecyclePhase.VERIFY,
-      requiresProject = true,
-      threadSafe = true)
-public class CodesignPkgMojo extends AbstractMojo {
+      defaultPhase = "verify",
+      projectRequired = true)
+public class CodesignPkgMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Creates this goal instance. */
     public CodesignPkgMojo() {}
-
-    /** The current Maven project. */
-    @Parameter(defaultValue = "${project}", readonly = true, required = true)
-    private MavenProject project;
 
     /**
      * Directory containing the {@code .pkg} files produced by jpackage.
@@ -106,7 +102,7 @@ public class CodesignPkgMojo extends AbstractMojo {
     private String keychainPassword;
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             getLog().info("Package codesigning skipped (codesign.pkg.skip=true)");
             return;
@@ -162,17 +158,17 @@ public class CodesignPkgMojo extends AbstractMojo {
     /**
      * Unlock the login keychain if a password is available.
      */
-    private void unlockKeychainIfNeeded() throws MojoExecutionException {
+    private void unlockKeychainIfNeeded() throws MojoException {
         if (keychainPassword == null || keychainPassword.isBlank()) {
             return;
         }
         getLog().info("  Unlocking keychain for codesign...");
-        ReleaseSupport.exec(new java.io.File("."), Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(new java.io.File("."), getLog(),
                 "security", "unlock-keychain",
                 "-p", keychainPassword,
                 System.getProperty("user.home")
                         + "/Library/Keychains/login.keychain-db");
-        ReleaseSupport.exec(new java.io.File("."), Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(new java.io.File("."), getLog(),
                 "security", "set-key-partition-list",
                 "-S", "apple-tool:,apple:,codesign:",
                 "-s", "-k", keychainPassword,
@@ -184,7 +180,7 @@ public class CodesignPkgMojo extends AbstractMojo {
      * Process a single {@code .pkg} file: expand, re-sign app with
      * entitlements, repack, and re-sign the package.
      */
-    private void processPackage(Path pkg) throws MojoExecutionException {
+    private void processPackage(Path pkg) throws MojoException {
         String pkgName = pkg.getFileName().toString();
         getLog().info("Processing: " + pkgName);
 
@@ -199,20 +195,20 @@ public class CodesignPkgMojo extends AbstractMojo {
             workDir = Files.createTempDirectory("codesign-pkg-work-");
             expandedDir = workDir.resolve("expanded");
             getLog().info("  Expanding .pkg...");
-            ReleaseSupport.exec(pkg.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),
                     "pkgutil", "--expand", pkg.toString(), expandedDir.toString());
 
             // Step 2: Find the inner component .pkg directory
             Path componentPkg = findComponentPkg(expandedDir);
             if (componentPkg == null) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "No component .pkg found inside expanded package");
             }
             getLog().info("  Component: " + componentPkg.getFileName());
 
             Path payload = componentPkg.resolve("Payload");
             if (!Files.isRegularFile(payload)) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "No Payload found in " + componentPkg);
             }
 
@@ -224,7 +220,7 @@ public class CodesignPkgMojo extends AbstractMojo {
             // Step 4: Find the .app bundle and its main executable
             Path appBundle = findAppBundle(payloadDir);
             if (appBundle == null) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "No .app bundle found in extracted Payload");
             }
             getLog().info("  App bundle: " + appBundle.getFileName());
@@ -232,7 +228,7 @@ public class CodesignPkgMojo extends AbstractMojo {
             Path macosDir = appBundle.resolve("Contents/MacOS");
             Path mainExec = findMainExecutable(macosDir);
             if (mainExec == null) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "No executable found in " + macosDir);
             }
             getLog().info("  Main executable: " + mainExec.getFileName());
@@ -252,13 +248,13 @@ public class CodesignPkgMojo extends AbstractMojo {
             // Step 8: Regenerate BOM
             Path bom = componentPkg.resolve("Bom");
             getLog().info("  Regenerating BOM...");
-            ReleaseSupport.exec(payloadDir.toFile(), Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(payloadDir.toFile(), getLog(),
                     "mkbom", payloadDir.toString(), bom.toString());
 
             // Step 9: Flatten back to .pkg
             Path flattenedPkg = pkg.getParent().resolve(pkgName + ".tmp");
             getLog().info("  Flattening .pkg...");
-            ReleaseSupport.exec(pkg.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),
                     "pkgutil", "--flatten", expandedDir.toString(),
                     flattenedPkg.toString());
 
@@ -266,7 +262,7 @@ public class CodesignPkgMojo extends AbstractMojo {
             String installerIdentity = deriveInstallerIdentity(signingIdentity);
             Path signedPkg = pkg.getParent().resolve(pkgName + ".signed");
             getLog().info("  Signing .pkg with: " + installerIdentity);
-            ReleaseSupport.exec(pkg.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),
                     "productsign",
                     "--sign", installerIdentity,
                     "--timestamp",
@@ -280,7 +276,7 @@ public class CodesignPkgMojo extends AbstractMojo {
             getLog().info("  Done — entitlements applied to " + pkgName);
 
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to process package: " + pkgName, e);
         } finally {
             if (payloadDir != null) deleteRecursively(payloadDir);
@@ -346,10 +342,10 @@ public class CodesignPkgMojo extends AbstractMojo {
      * Extract a gzip-compressed cpio Payload archive.
      */
     private void extractPayload(Path payload, Path targetDir)
-            throws MojoExecutionException {
+            throws MojoException {
         // gunzip -dc Payload | cpio -id
         // We use a shell pipeline for this
-        ReleaseSupport.exec(targetDir.toFile(), Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(targetDir.toFile(), getLog(),
                 "sh", "-c",
                 "gunzip -dc " + shellQuote(payload.toString())
                         + " | cpio -id 2>/dev/null");
@@ -359,9 +355,9 @@ public class CodesignPkgMojo extends AbstractMojo {
      * Repack extracted files into a gzip-compressed cpio Payload.
      */
     private void repackPayload(Path sourceDir, Path payloadFile)
-            throws MojoExecutionException {
+            throws MojoException {
         // find . -print | cpio -o --format odc | gzip -c > Payload
-        ReleaseSupport.exec(sourceDir.toFile(), Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(sourceDir.toFile(), getLog(),
                 "sh", "-c",
                 "find . -print | cpio -o --format odc 2>/dev/null"
                         + " | gzip -c > " + shellQuote(payloadFile.toString()));
@@ -371,8 +367,8 @@ public class CodesignPkgMojo extends AbstractMojo {
      * Sign a file or bundle with entitlements.
      */
     private void codesignWithEntitlements(Path target)
-            throws MojoExecutionException {
-        ReleaseSupport.exec(target.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
+            throws MojoException {
+        ReleaseSupport.exec(target.getParent().toFile(), getLog(),
                 "codesign", "--force", "--timestamp",
                 "--options", "runtime",
                 "--entitlements", entitlementsFile.getAbsolutePath(),
@@ -393,7 +389,7 @@ public class CodesignPkgMojo extends AbstractMojo {
     /**
      * Find {@code .pkg} files in the package directory.
      */
-    private List<Path> findPkgFiles() throws MojoExecutionException {
+    private List<Path> findPkgFiles() throws MojoException {
         List<Path> result = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(
                 pkgDir.toPath(),
@@ -405,7 +401,7 @@ public class CodesignPkgMojo extends AbstractMojo {
                 }
             }
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to scan for .pkg files in " + pkgDir, e);
         }
         return result;

@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -52,10 +50,13 @@ import java.util.List;
  * </pre>
  */
 @Mojo(name = "render-pdf",
-      defaultPhase = LifecyclePhase.PACKAGE,
-      requiresProject = true,
-      threadSafe = true)
-public class RenderPdfMojo extends AbstractMojo {
+      defaultPhase = "package",
+      projectRequired = true)
+public class RenderPdfMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /**
      * Renderer to use. One of: {@code prince}, {@code ah},
@@ -129,7 +130,7 @@ public class RenderPdfMojo extends AbstractMojo {
     public RenderPdfMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             return;
         }
@@ -148,7 +149,7 @@ public class RenderPdfMojo extends AbstractMojo {
         try {
             Files.createDirectories(outputDir.toPath());
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to create output directory: " + outputDir, e);
         }
 
@@ -163,13 +164,13 @@ public class RenderPdfMojo extends AbstractMojo {
             try {
                 int exitCode = invokeRenderer(command);
                 if (exitCode != 0) {
-                    throw new MojoExecutionException(
+                    throw new MojoException(
                             "Renderer " + renderer + " failed with exit code "
                                     + exitCode + " for " + input.getFileName());
                 }
                 rendered++;
             } catch (IOException | InterruptedException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Failed to invoke " + renderer + " for "
                                 + input.getFileName(), e);
             }
@@ -350,10 +351,10 @@ public class RenderPdfMojo extends AbstractMojo {
      *
      * @param type the renderer type (determines input extension)
      * @return list of input file paths
-     * @throws MojoExecutionException if inputDir is not a directory
+     * @throws MojoException if inputDir is not a directory
      */
     List<Path> discoverInputFiles(RendererType type)
-            throws MojoExecutionException {
+            throws MojoException {
         if (!inputDir.isDirectory()) {
             return List.of();
         }
@@ -383,7 +384,7 @@ public class RenderPdfMojo extends AbstractMojo {
                     }
                 }
             } catch (IOException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Failed to scan input directory: " + inputDir, e);
             }
         }
@@ -394,14 +395,14 @@ public class RenderPdfMojo extends AbstractMojo {
     // ── Helpers ──────────────────────────────────────────────────────
 
     static RendererType resolveRenderer(String name)
-            throws MojoExecutionException {
+            throws MojoException {
         return switch (name.toLowerCase()) {
             case "prince" -> RendererType.PRINCE;
             case "ah", "antennahouse" -> RendererType.AH;
             case "weasyprint" -> RendererType.WEASYPRINT;
             case "xep" -> RendererType.XEP;
             case "fop" -> RendererType.FOP;
-            default -> throw new MojoExecutionException(
+            default -> throw new MojoException(
                     "Unknown renderer: " + name
                             + ". Supported: prince, ah, weasyprint, xep, fop");
         };
@@ -414,11 +415,11 @@ public class RenderPdfMojo extends AbstractMojo {
     }
 
     private void validateExecutable(String exe, RendererType type)
-            throws MojoExecutionException {
+            throws MojoException {
         // For java-based renderers (xep, fop), validate classpath instead
         if (type == RendererType.XEP || type == RendererType.FOP) {
             if (classpath == null || classpath.isEmpty()) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Renderer " + renderer
                                 + " requires <classpath> to be set");
             }
@@ -432,7 +433,7 @@ public class RenderPdfMojo extends AbstractMojo {
             check.redirectOutput(ProcessBuilder.Redirect.DISCARD);
             int result = check.start().waitFor();
             if (result != 0) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Renderer executable not found: " + exe
                                 + ". Install it or set <executable>.");
             }

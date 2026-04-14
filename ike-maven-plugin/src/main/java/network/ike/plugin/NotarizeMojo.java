@@ -1,11 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -64,17 +61,16 @@ import java.util.Locale;
  *      Apple: Notarizing macOS Software Before Distribution</a>
  */
 @Mojo(name = "notarize",
-      defaultPhase = LifecyclePhase.VERIFY,
-      requiresProject = true,
-      threadSafe = true)
-public class NotarizeMojo extends AbstractMojo {
+      defaultPhase = "verify",
+      projectRequired = true)
+public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Creates this goal instance. */
     public NotarizeMojo() {}
-
-    /** The current Maven project. */
-    @Parameter(defaultValue = "${project}", readonly = true, required = true)
-    private MavenProject project;
 
     /**
      * Directory containing jpackage output artifacts.
@@ -106,7 +102,7 @@ public class NotarizeMojo extends AbstractMojo {
     private int timeoutMinutes;
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             getLog().info("Notarization skipped (notarize.skip=true)");
             return;
@@ -145,15 +141,15 @@ public class NotarizeMojo extends AbstractMojo {
      * Submit, staple, and verify a single installer artifact.
      *
      * @param artifact path to the .pkg or .dmg file
-     * @throws MojoExecutionException if any step fails
+     * @throws MojoException if any step fails
      */
-    private void notarize(Path artifact) throws MojoExecutionException {
+    private void notarize(Path artifact) throws MojoException {
         String fileName = artifact.getFileName().toString();
         File workDir = artifact.getParent().toFile();
 
         // Step 1: Submit to Apple notary service (capture output to check status)
         getLog().info("Submitting for notarization: " + fileName);
-        String output = ReleaseSupport.execCaptureAndLog(workDir, Maven4LogAdapter.wrap(getLog()),
+        String output = ReleaseSupport.execCaptureAndLog(workDir, getLog(),
                 "xcrun", "notarytool", "submit",
                 artifact.toString(),
                 "--keychain-profile", keychainProfile,
@@ -181,7 +177,7 @@ public class NotarizeMojo extends AbstractMojo {
             if (submissionId != null) {
                 getLog().error("Fetching rejection details (id: " + submissionId + ")...");
                 try {
-                    ReleaseSupport.exec(workDir, Maven4LogAdapter.wrap(getLog()),
+                    ReleaseSupport.exec(workDir, getLog(),
                             "xcrun", "notarytool", "log",
                             submissionId,
                             "--keychain-profile", keychainProfile);
@@ -190,7 +186,7 @@ public class NotarizeMojo extends AbstractMojo {
                 }
             }
 
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Notarization failed for " + fileName
                             + " — status: " + (status != null ? status : "unknown")
                             + (submissionId != null ? " (id: " + submissionId + ")" : ""));
@@ -200,14 +196,14 @@ public class NotarizeMojo extends AbstractMojo {
 
         // Step 3: Staple the notarization ticket
         getLog().info("Stapling ticket: " + fileName);
-        ReleaseSupport.exec(workDir, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(workDir, getLog(),
                 "xcrun", "stapler", "staple",
                 artifact.toString());
 
         // Step 4: Verify with Gatekeeper
         getLog().info("Verifying: " + fileName);
         String assessType = fileName.endsWith(".pkg") ? "install" : "open";
-        ReleaseSupport.exec(workDir, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(workDir, getLog(),
                 "spctl", "--assess",
                 "--type", assessType,
                 "--verbose=4",
@@ -220,9 +216,9 @@ public class NotarizeMojo extends AbstractMojo {
      * Find all .pkg and .dmg files in the artifact directory.
      *
      * @return list of installer artifact paths
-     * @throws MojoExecutionException if the directory cannot be read
+     * @throws MojoException if the directory cannot be read
      */
-    private List<Path> findInstallerArtifacts() throws MojoExecutionException {
+    private List<Path> findInstallerArtifacts() throws MojoException {
         List<Path> result = new ArrayList<>();
         if (!artifactDir.isDirectory()) {
             return result;
@@ -240,7 +236,7 @@ public class NotarizeMojo extends AbstractMojo {
                 }
             }
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to scan for installer artifacts in " + artifactDir, e);
         }
         return result;

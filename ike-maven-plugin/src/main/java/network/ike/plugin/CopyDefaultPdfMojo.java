@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,9 +31,12 @@ import java.nio.file.StandardCopyOption;
  * }</pre>
  */
 @Mojo(name = "copy-default-pdf",
-      defaultPhase = LifecyclePhase.VERIFY,
-      threadSafe = true)
-public class CopyDefaultPdfMojo extends AbstractMojo {
+      defaultPhase = "verify")
+public class CopyDefaultPdfMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Root output directory (e.g., target/ike-doc). */
     @Parameter(property = "ike.doc.output.directory",
@@ -60,7 +61,7 @@ public class CopyDefaultPdfMojo extends AbstractMojo {
     public CopyDefaultPdfMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             getLog().debug("copy-default-pdf: skipped");
             return;
@@ -96,7 +97,7 @@ public class CopyDefaultPdfMojo extends AbstractMojo {
                 getLog().warn("copy-default-pdf: no PDFs found in " + sourceDir);
             }
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to copy default PDF", e);
         }
     }

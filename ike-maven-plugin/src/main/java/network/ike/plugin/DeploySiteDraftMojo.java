@@ -1,9 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 
@@ -37,8 +36,12 @@ import java.io.File;
  * mvn ike:deploy-site-publish -DsiteType=checkpoint -DsiteVersion=7-checkpoint.20260228.1
  * </pre>
  */
-@Mojo(name = "deploy-site-draft", requiresProject = false, aggregator = true, threadSafe = true)
-public class DeploySiteDraftMojo extends AbstractMojo {
+@Mojo(name = "deploy-site-draft", projectRequired = false, aggregator = true)
+public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     private static final String SITE_URL_BASE = "scpexe://proxy/srv/ike-site/";
 
@@ -80,12 +83,12 @@ public class DeploySiteDraftMojo extends AbstractMojo {
     public DeploySiteDraftMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         siteType = MojoParamSupport.requireParam(siteType, "siteType",
                 "Site type (release, snapshot, or checkpoint)", getLog());
 
         File gitRoot = ReleaseSupport.gitRoot(new File("."));
-        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, Maven4LogAdapter.wrap(getLog()));
+        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
         File rootPom = new File(gitRoot, "pom.xml");
 
         String projectId = ReleaseSupport.readPomArtifactId(rootPom);
@@ -122,7 +125,7 @@ public class DeploySiteDraftMojo extends AbstractMojo {
                 targetUrl = SITE_URL_BASE + projectId + "/checkpoint/" + siteVersion;
                 diskPath = ReleaseSupport.siteDiskPath(projectId, "checkpoint", siteVersion);
             }
-            default -> throw new MojoExecutionException(
+            default -> throw new MojoException(
                     "Invalid siteType: '" + siteType +
                             "'. Must be one of: release, snapshot, checkpoint");
         }
@@ -167,23 +170,23 @@ public class DeploySiteDraftMojo extends AbstractMojo {
 
         // Build first (unless skipped)
         if (!skipBuild) {
-            ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+            ReleaseSupport.exec(gitRoot, getLog(),
                     mvnw.getAbsolutePath(), "clean", "verify", "-B");
         }
 
         if (!skipSwap) {
             // Clean any leftover staging directory
-            ReleaseSupport.cleanRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), stagingDisk);
+            ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
         }
 
         // Generate, stage, and deploy site (to staging dir or direct)
-        ReleaseSupport.exec(gitRoot, Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(gitRoot, getLog(),
                 mvnw.getAbsolutePath(), "site", "site:stage", "site:deploy", "-B",
                 "-Dsite.deploy.url=" + deployUrl);
 
         if (!skipSwap) {
             // Atomic swap: staging → live
-            ReleaseSupport.swapRemoteSiteDir(gitRoot, Maven4LogAdapter.wrap(getLog()), diskPath);
+            ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), diskPath);
         }
 
         String publicUrl = toPublicSiteUrl(targetUrl);

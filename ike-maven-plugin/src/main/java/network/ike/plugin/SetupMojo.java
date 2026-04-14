@@ -1,9 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,8 +26,12 @@ import java.util.Set;
  *
  * <p>Usage: {@code mvnw ike:setup}
  */
-@Mojo(name = "setup", requiresProject = false, threadSafe = true)
-public class SetupMojo extends AbstractMojo {
+@Mojo(name = "setup", projectRequired = false)
+public class SetupMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Creates this goal instance. */
     public SetupMojo() {}
@@ -44,7 +47,7 @@ public class SetupMojo extends AbstractMojo {
     boolean force;
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         getLog().info("");
         getLog().info("IKE VCS Bridge — Setup");
         getLog().info("══════════════════════════════════════════════════════════════");
@@ -55,7 +58,7 @@ public class SetupMojo extends AbstractMojo {
         try {
             Files.createDirectories(hooksDir);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to create hooks directory: " + hooksDir, e);
         }
 
@@ -76,7 +79,7 @@ public class SetupMojo extends AbstractMojo {
                 getLog().info("  " + hookName + ": installed");
                 installed++;
             } catch (IOException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Failed to write hook: " + target, e);
             }
         }
@@ -99,15 +102,15 @@ public class SetupMojo extends AbstractMojo {
         getLog().info("");
     }
 
-    private String readResource(String path) throws MojoExecutionException {
+    private String readResource(String path) throws MojoException {
         try (InputStream is = getClass().getResourceAsStream(path)) {
             if (is == null) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Hook resource not found on classpath: " + path);
             }
             return new String(is.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to read hook resource: " + path, e);
         }
     }
@@ -159,7 +162,7 @@ public class SetupMojo extends AbstractMojo {
         }
     }
 
-    private void checkHooksPath(Path expectedDir) throws MojoExecutionException {
+    private void checkHooksPath(Path expectedDir) throws MojoException {
         try {
             Process proc = new ProcessBuilder(
                     "git", "config", "--global", "core.hooksPath")

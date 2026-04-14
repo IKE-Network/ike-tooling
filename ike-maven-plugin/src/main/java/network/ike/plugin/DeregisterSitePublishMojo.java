@@ -1,7 +1,7 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
 
 /**
  * Remove a project from the IKE Network org landing page.
@@ -14,14 +14,14 @@ import org.apache.maven.plugins.annotations.Mojo;
  *
  * @see DeregisterSiteDraftMojo
  */
-@Mojo(name = "deregister-site-publish", requiresProject = false, aggregator = true, threadSafe = true)
+@Mojo(name = "deregister-site-publish", projectRequired = false, aggregator = true)
 public class DeregisterSitePublishMojo extends DeregisterSiteDraftMojo {
 
     /** Creates this goal instance. */
     public DeregisterSitePublishMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         publish = true;
         super.execute();
     }

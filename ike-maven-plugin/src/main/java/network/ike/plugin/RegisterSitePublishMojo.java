@@ -1,7 +1,7 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
 
 /**
  * Register a project on the IKE Network org landing page.
@@ -14,14 +14,14 @@ import org.apache.maven.plugins.annotations.Mojo;
  *
  * @see RegisterSiteDraftMojo
  */
-@Mojo(name = "register-site-publish", requiresProject = false, aggregator = true, threadSafe = true)
+@Mojo(name = "register-site-publish", projectRequired = false, aggregator = true)
 public class RegisterSitePublishMojo extends RegisterSiteDraftMojo {
 
     /** Creates this goal instance. */
     public RegisterSitePublishMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         publish = true;
         super.execute();
     }

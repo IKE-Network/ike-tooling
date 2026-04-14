@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,9 +33,12 @@ import java.util.regex.Pattern;
  * </pre>
  */
 @Mojo(name = "scan-logs",
-      defaultPhase = LifecyclePhase.VERIFY,
-      threadSafe = true)
-public class ScanRendererLogsMojo extends AbstractMojo {
+      defaultPhase = "verify")
+public class ScanRendererLogsMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Directory containing {@code renderer-*.log} files. */
     @Parameter(property = "logsDir", required = true)
@@ -52,7 +53,7 @@ public class ScanRendererLogsMojo extends AbstractMojo {
     public ScanRendererLogsMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (!logsDir.isDirectory()) {
             getLog().debug("scan-logs: directory does not exist, skipping — "
                     + logsDir);

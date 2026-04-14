@@ -2,7 +2,7 @@ package network.ike.plugin;
 
 import org.apache.maven.api.plugin.Log;
 import org.apache.maven.api.plugin.MojoException;
-import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.api.plugin.MojoException;
 import org.asciidoctor.Asciidoctor;
 import org.asciidoctor.Attributes;
 import org.asciidoctor.Options;
@@ -65,18 +65,18 @@ public final class OrgSiteSupport {
      * @param siteUrl       public site URL (e.g., https://ike.network/ike-pipeline/)
      * @param githubUrl     GitHub repository URL
      * @param modules       reactor module names (may be empty)
-     * @throws MojoExecutionException if the fragment cannot be written
+     * @throws MojoException if the fragment cannot be written
      */
     public static void writeFragment(File orgRoot, String artifactId,
                                       String name, String description,
                                       String version, String siteUrl,
                                       String githubUrl, List<String> modules)
-            throws MojoExecutionException {
+            throws MojoException {
         Path fragmentDir = orgRoot.toPath().resolve(FRAGMENT_DIR);
         try {
             Files.createDirectories(fragmentDir);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not create fragment directory: " + fragmentDir, e);
         }
 
@@ -123,7 +123,7 @@ public final class OrgSiteSupport {
         try {
             Files.writeString(fragmentFile, sb.toString(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not write fragment: " + fragmentFile, e);
         }
     }
@@ -133,20 +133,20 @@ public final class OrgSiteSupport {
      *
      * @param orgRoot    root of the cloned org repository
      * @param artifactId Maven artifact ID (filename without extension)
-     * @throws MojoExecutionException if the fragment does not exist or cannot be deleted
+     * @throws MojoException if the fragment does not exist or cannot be deleted
      */
     public static void deleteFragment(File orgRoot, String artifactId)
-            throws MojoExecutionException {
+            throws MojoException {
         Path fragmentFile = orgRoot.toPath()
                 .resolve(FRAGMENT_DIR).resolve(artifactId + ".adoc");
         if (!Files.exists(fragmentFile)) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "No registration fragment found: " + fragmentFile);
         }
         try {
             Files.delete(fragmentFile);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not delete fragment: " + fragmentFile, e);
         }
     }
@@ -161,10 +161,10 @@ public final class OrgSiteSupport {
      * preamble (title, description) is embedded here as a template.
      *
      * @param orgRoot root of the cloned org repository
-     * @throws MojoExecutionException if fragments cannot be read or index cannot be written
+     * @throws MojoException if fragments cannot be read or index cannot be written
      */
     public static void regenerateIndex(File orgRoot)
-            throws MojoExecutionException {
+            throws MojoException {
         Path fragmentDir = orgRoot.toPath().resolve(FRAGMENT_DIR);
         List<String> fragmentNames = new ArrayList<>();
 
@@ -175,7 +175,7 @@ public final class OrgSiteSupport {
                     fragmentNames.add(entry.getFileName().toString());
                 }
             } catch (IOException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Could not scan fragment directory: " + fragmentDir, e);
             }
         }
@@ -206,7 +206,7 @@ public final class OrgSiteSupport {
             Files.createDirectories(indexFile.getParent());
             Files.writeString(indexFile, sb.toString(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not write index: " + indexFile, e);
         }
     }
@@ -224,13 +224,13 @@ public final class OrgSiteSupport {
      *
      * @param orgRoot root of the cloned org repository
      * @param log     Maven logger
-     * @throws MojoExecutionException if rendering fails
+     * @throws MojoException if rendering fails
      */
     public static void renderToXhtml(File orgRoot, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         Path indexAdoc = orgRoot.toPath().resolve(INDEX_ADOC);
         if (!Files.exists(indexAdoc)) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Index AsciiDoc not found: " + indexAdoc);
         }
 
@@ -239,7 +239,7 @@ public final class OrgSiteSupport {
         try {
             Files.createDirectories(xhtmlDir);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not create XHTML output directory: " + xhtmlDir, e);
         }
 
@@ -271,7 +271,7 @@ public final class OrgSiteSupport {
                 Files.move(htmlFile, xhtmlFile, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to rename rendered index to .xhtml", e);
         }
     }
@@ -284,10 +284,10 @@ public final class OrgSiteSupport {
      *
      * @param orgRoot root of the cloned org repository
      * @param log     Maven logger
-     * @throws MojoExecutionException if the build fails
+     * @throws MojoException if the build fails
      */
     public static void buildSite(File orgRoot, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         File mvnw = resolveMaven(orgRoot, log);
         log.info("Building org site...");
         ReleaseSupport.exec(orgRoot, log,
@@ -304,13 +304,13 @@ public final class OrgSiteSupport {
      * @param orgRoot   root of the cloned org repository
      * @param repoUrl   git remote URL for force-push
      * @param log       Maven logger
-     * @throws MojoExecutionException if publishing fails
+     * @throws MojoException if publishing fails
      */
     public static void publishToGhPages(File orgRoot, String repoUrl, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         Path stagingDir = orgRoot.toPath().resolve("target").resolve("staging");
         if (!Files.isDirectory(stagingDir)) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Staging directory does not exist: " + stagingDir
                             + ". Site build may have failed.");
         }
@@ -321,7 +321,7 @@ public final class OrgSiteSupport {
         try {
             tempDir = Files.createTempDirectory("ike-org-site-publish-");
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not create temp directory for publish", e);
         }
 
@@ -336,7 +336,7 @@ public final class OrgSiteSupport {
             try {
                 ReleaseSupport.copyDirectory(stagingDir, tempDir);
             } catch (IOException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Failed to copy staging dir: " + e.getMessage(), e);
             }
 
@@ -364,15 +364,15 @@ public final class OrgSiteSupport {
      * @param branch   branch to clone
      * @param log      Maven logger
      * @return the cloned directory
-     * @throws MojoExecutionException if cloning fails
+     * @throws MojoException if cloning fails
      */
     public static File cloneOrgRepo(String repoUrl, String branch, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         Path tempDir;
         try {
             tempDir = Files.createTempDirectory("ike-org-site-");
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Could not create temp directory for clone", e);
         }
 
@@ -391,11 +391,11 @@ public final class OrgSiteSupport {
      * @param message commit message
      * @param branch  branch to push
      * @param log     Maven logger
-     * @throws MojoExecutionException if commit or push fails
+     * @throws MojoException if commit or push fails
      */
     public static void commitAndPush(File orgRoot, String message,
                                       String branch, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         ReleaseSupport.exec(orgRoot, log, "git", "add", "-A");
 
         // Check if there are changes to commit
@@ -427,7 +427,7 @@ public final class OrgSiteSupport {
      * @param siteUrl         public site URL
      * @param githubUrl       GitHub repository URL
      * @param modules         reactor module names
-     * @throws MojoExecutionException if any step fails
+     * @throws MojoException if any step fails
      */
     public static void registerProject(File callerGitRoot, Log log,
                                         String orgRepoUrl, String orgBranch,
@@ -435,7 +435,7 @@ public final class OrgSiteSupport {
                                         String description, String version,
                                         String siteUrl, String githubUrl,
                                         List<String> modules)
-            throws MojoExecutionException {
+            throws MojoException {
         File orgRoot = cloneOrgRepo(orgRepoUrl, orgBranch, log);
         try {
             writeFragment(orgRoot, artifactId, name, description,
@@ -460,11 +460,11 @@ public final class OrgSiteSupport {
      * @param orgRepoUrl git URL of the org site repo
      * @param orgBranch  branch for source content
      * @param artifactId artifact ID to deregister
-     * @throws MojoExecutionException if any step fails
+     * @throws MojoException if any step fails
      */
     public static void deregisterProject(Log log, String orgRepoUrl,
                                           String orgBranch, String artifactId)
-            throws MojoExecutionException {
+            throws MojoException {
         File orgRoot = cloneOrgRepo(orgRepoUrl, orgBranch, log);
         try {
             deleteFragment(orgRoot, artifactId);
@@ -487,7 +487,7 @@ public final class OrgSiteSupport {
      * falls back to system {@code mvn}.
      */
     private static File resolveMaven(File repoRoot, Log log)
-            throws MojoExecutionException {
+            throws MojoException {
         File mvnw = new File(repoRoot, "mvnw");
         if (mvnw.isFile() && mvnw.canExecute()) {
             return mvnw;
@@ -497,7 +497,7 @@ public final class OrgSiteSupport {
             String path = ReleaseSupport.execCapture(repoRoot, "which", "mvn");
             return new File(path.trim());
         } catch (Exception e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "No Maven wrapper or system 'mvn' found", e);
         }
     }

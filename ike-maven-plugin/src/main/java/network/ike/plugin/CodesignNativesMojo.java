@@ -1,11 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -58,17 +55,16 @@ import java.util.zip.ZipOutputStream;
  *      Apple: Notarizing macOS Software Before Distribution</a>
  */
 @Mojo(name = "codesign-natives",
-      defaultPhase = LifecyclePhase.PACKAGE,
-      requiresProject = true,
-      threadSafe = true)
-public class CodesignNativesMojo extends AbstractMojo {
+      defaultPhase = "package",
+      projectRequired = true)
+public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Creates this goal instance. */
     public CodesignNativesMojo() {}
-
-    /** The current Maven project. */
-    @Parameter(defaultValue = "${project}", readonly = true, required = true)
-    private MavenProject project;
 
     /**
      * Root directory of the jlink runtime image to scan.
@@ -107,7 +103,7 @@ public class CodesignNativesMojo extends AbstractMojo {
     private String keychainPassword;
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             getLog().info("Native codesigning skipped (codesign.skip=true)");
             return;
@@ -170,7 +166,7 @@ public class CodesignNativesMojo extends AbstractMojo {
      */
     private void scanTree(Path root, List<Path> looseNatives,
                           List<Path> jarsWithNatives)
-            throws MojoExecutionException {
+            throws MojoException {
         try {
             Files.walkFileTree(root, new SimpleFileVisitor<>() {
                 @Override
@@ -191,7 +187,7 @@ public class CodesignNativesMojo extends AbstractMojo {
                 }
             });
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to scan runtime image: " + root, e);
         }
     }
@@ -217,7 +213,7 @@ public class CodesignNativesMojo extends AbstractMojo {
      *
      * @return the number of native files signed in this JAR
      */
-    private int processJar(Path jarPath) throws MojoExecutionException {
+    private int processJar(Path jarPath) throws MojoException {
         String jarName = jarPath.getFileName().toString();
         getLog().info("Processing JAR: " + jarName);
 
@@ -225,7 +221,7 @@ public class CodesignNativesMojo extends AbstractMojo {
         try {
             tempDir = Files.createTempDirectory("codesign-jar-");
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to create temp directory", e);
+            throw new MojoException("Failed to create temp directory", e);
         }
 
         try {
@@ -246,7 +242,7 @@ public class CodesignNativesMojo extends AbstractMojo {
                     }
                 }
             } catch (IOException e) {
-                throw new MojoExecutionException(
+                throw new MojoException(
                         "Failed to extract natives from " + jarPath, e);
             }
 
@@ -275,7 +271,7 @@ public class CodesignNativesMojo extends AbstractMojo {
                     Files.move(repackedJar, jarPath,
                             StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException e2) {
-                    throw new MojoExecutionException(
+                    throw new MojoException(
                             "Failed to replace JAR: " + jarPath, e2);
                 }
             }
@@ -296,7 +292,7 @@ public class CodesignNativesMojo extends AbstractMojo {
      */
     private void repackJar(Path originalJar, Path outputJar,
                            Path signedDir, List<String> nativeEntries)
-            throws MojoExecutionException {
+            throws MojoException {
         try (ZipFile original = new ZipFile(originalJar.toFile());
              OutputStream fos = Files.newOutputStream(outputJar);
              ZipOutputStream zos = new ZipOutputStream(fos)) {
@@ -350,7 +346,7 @@ public class CodesignNativesMojo extends AbstractMojo {
             }
 
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to repack JAR: " + originalJar, e);
         }
     }
@@ -360,18 +356,18 @@ public class CodesignNativesMojo extends AbstractMojo {
      * This prevents interactive prompts during codesign on dev machines
      * and is required for CI where no GUI is available.
      */
-    private void unlockKeychainIfNeeded() throws MojoExecutionException {
+    private void unlockKeychainIfNeeded() throws MojoException {
         if (keychainPassword == null || keychainPassword.isBlank()) {
             return;
         }
         getLog().info("  Unlocking keychain for codesign...");
-        ReleaseSupport.exec(new java.io.File("."), Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(new java.io.File("."), getLog(),
                 "security", "unlock-keychain",
                 "-p", keychainPassword,
                 System.getProperty("user.home")
                         + "/Library/Keychains/login.keychain-db");
         // Also set the partition list so codesign can access the key
-        ReleaseSupport.exec(new java.io.File("."), Maven4LogAdapter.wrap(getLog()),
+        ReleaseSupport.exec(new java.io.File("."), getLog(),
                 "security", "set-key-partition-list",
                 "-S", "apple-tool:,apple:,codesign:",
                 "-s", "-k", keychainPassword,
@@ -382,8 +378,8 @@ public class CodesignNativesMojo extends AbstractMojo {
     /**
      * Sign a single native file with {@code codesign}.
      */
-    private void codesign(Path file) throws MojoExecutionException {
-        ReleaseSupport.exec(file.getParent().toFile(), Maven4LogAdapter.wrap(getLog()),
+    private void codesign(Path file) throws MojoException {
+        ReleaseSupport.exec(file.getParent().toFile(), getLog(),
                 "codesign", "--force", "--timestamp",
                 "--options", "runtime",
                 "--sign", signingIdentity,

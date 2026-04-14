@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,9 +27,12 @@ import java.nio.file.Path;
  * </pre>
  */
 @Mojo(name = "inject-breadcrumb",
-      defaultPhase = LifecyclePhase.VERIFY,
-      threadSafe = true)
-public class InjectBreadcrumbMojo extends AbstractMojo {
+      defaultPhase = "verify")
+public class InjectBreadcrumbMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Directory containing JaCoCo HTML reports. */
     @Parameter(property = "targetDir",
@@ -50,7 +51,7 @@ public class InjectBreadcrumbMojo extends AbstractMojo {
     public InjectBreadcrumbMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (!targetDir.isDirectory()) {
             getLog().info("inject-breadcrumb: directory does not exist, "
                     + "skipping — " + targetDir);
@@ -61,7 +62,7 @@ public class InjectBreadcrumbMojo extends AbstractMojo {
         try {
             writeThemeCss(targetDir.toPath());
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to write theme CSS in " + targetDir, e);
         }
 
@@ -69,7 +70,7 @@ public class InjectBreadcrumbMojo extends AbstractMojo {
         try {
             patched = processDirectory(targetDir.toPath(), link, label);
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to inject breadcrumbs in " + targetDir, e);
         }
 

@@ -28,7 +28,7 @@ class BuildToolsIntegrationTest {
 
         FixSvgMojo mojo = new FixSvgMojo();
         mojo.htmlFile = htmlFile.toFile();
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         mojo.execute();
 
         String result = Files.readString(htmlFile);
@@ -41,7 +41,7 @@ class BuildToolsIntegrationTest {
     void fixSvg_missingFile_skips(@TempDir Path tmp) throws Exception {
         FixSvgMojo mojo = new FixSvgMojo();
         mojo.htmlFile = tmp.resolve("missing.html").toFile();
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         // Should not throw
         mojo.execute();
     }
@@ -72,7 +72,7 @@ class BuildToolsIntegrationTest {
 
         PatchDocbookMojo mojo = new PatchDocbookMojo();
         mojo.docbookDir = tmp.toFile();
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         mojo.execute();
 
         assertThat(Files.readString(foDir.resolve("docbook.xsl")))
@@ -88,7 +88,7 @@ class BuildToolsIntegrationTest {
     void patchDocbook_missingDir_skips(@TempDir Path tmp) throws Exception {
         PatchDocbookMojo mojo = new PatchDocbookMojo();
         mojo.docbookDir = tmp.resolve("nonexistent").toFile();
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         // Should not throw
         mojo.execute();
     }
@@ -104,7 +104,7 @@ class BuildToolsIntegrationTest {
 
         ScanRendererLogsMojo mojo = new ScanRendererLogsMojo();
         mojo.logsDir = tmp.toFile();
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         // Should not throw — informational only
         mojo.execute();
     }
@@ -113,7 +113,7 @@ class BuildToolsIntegrationTest {
     void scanLogs_missingDir_skips(@TempDir Path tmp) throws Exception {
         ScanRendererLogsMojo mojo = new ScanRendererLogsMojo();
         mojo.logsDir = tmp.resolve("nonexistent").toFile();
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         // Should not throw
         mojo.execute();
     }
@@ -136,7 +136,7 @@ class BuildToolsIntegrationTest {
         CopyDocsToSiteMojo mojo = new CopyDocsToSiteMojo();
         mojo.generatedDocsDir = genDocs.toFile();
         mojo.siteDir = siteDir.toFile();
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         mojo.execute();
 
         Path dest = siteDir.resolve("docs");
@@ -153,7 +153,7 @@ class BuildToolsIntegrationTest {
         CopyDocsToSiteMojo mojo = new CopyDocsToSiteMojo();
         mojo.generatedDocsDir = tmp.resolve("nonexistent").toFile();
         mojo.siteDir = tmp.resolve("site").toFile();
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         // Should not throw
         mojo.execute();
     }
@@ -173,7 +173,7 @@ class BuildToolsIntegrationTest {
         mojo.targetDir = tmp.toFile();
         mojo.link = "../index.html";
         mojo.label = "\u2190 Project Site";
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         mojo.execute();
 
         String result = Files.readString(htmlFile);
@@ -194,7 +194,7 @@ class BuildToolsIntegrationTest {
         mojo.targetDir = tmp.toFile();
         mojo.link = "../index.html";
         mojo.label = "\u2190 Project Site";
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         mojo.execute();
 
         assertThat(Files.readString(htmlFile)).isEqualTo(original);
@@ -206,7 +206,7 @@ class BuildToolsIntegrationTest {
         mojo.targetDir = tmp.resolve("nonexistent").toFile();
         mojo.link = "../index.html";
         mojo.label = "\u2190 Project Site";
-        mojo.setLog(new SilentLog());
+        injectLog(mojo, new SilentLog());
         // Should not throw
         mojo.execute();
     }
@@ -216,22 +216,41 @@ class BuildToolsIntegrationTest {
     /**
      * Minimal Maven log that discards all output.
      */
-    private static class SilentLog implements org.apache.maven.plugin.logging.Log {
+    private static class SilentLog implements org.apache.maven.api.plugin.Log {
         @Override public boolean isDebugEnabled() { return false; }
-        @Override public void debug(CharSequence content) {}
-        @Override public void debug(CharSequence content, Throwable error) {}
-        @Override public void debug(Throwable error) {}
+        @Override public void debug(CharSequence c) {}
+        @Override public void debug(CharSequence c, Throwable e) {}
+        @Override public void debug(Throwable e) {}
+        @Override public void debug(java.util.function.Supplier<String> c) {}
+        @Override public void debug(java.util.function.Supplier<String> c, Throwable e) {}
         @Override public boolean isInfoEnabled() { return false; }
-        @Override public void info(CharSequence content) {}
-        @Override public void info(CharSequence content, Throwable error) {}
-        @Override public void info(Throwable error) {}
+        @Override public void info(CharSequence c) {}
+        @Override public void info(CharSequence c, Throwable e) {}
+        @Override public void info(Throwable e) {}
+        @Override public void info(java.util.function.Supplier<String> c) {}
+        @Override public void info(java.util.function.Supplier<String> c, Throwable e) {}
         @Override public boolean isWarnEnabled() { return false; }
-        @Override public void warn(CharSequence content) {}
-        @Override public void warn(CharSequence content, Throwable error) {}
-        @Override public void warn(Throwable error) {}
+        @Override public void warn(CharSequence c) {}
+        @Override public void warn(CharSequence c, Throwable e) {}
+        @Override public void warn(Throwable e) {}
+        @Override public void warn(java.util.function.Supplier<String> c) {}
+        @Override public void warn(java.util.function.Supplier<String> c, Throwable e) {}
         @Override public boolean isErrorEnabled() { return false; }
-        @Override public void error(CharSequence content) {}
-        @Override public void error(CharSequence content, Throwable error) {}
-        @Override public void error(Throwable error) {}
+        @Override public void error(CharSequence c) {}
+        @Override public void error(CharSequence c, Throwable e) {}
+        @Override public void error(Throwable e) {}
+        @Override public void error(java.util.function.Supplier<String> c) {}
+        @Override public void error(java.util.function.Supplier<String> c, Throwable e) {}
+    }
+
+    /** Inject a Log into a Maven 4 Mojo's private @Inject field. */
+    private static void injectLog(Object mojo, org.apache.maven.api.plugin.Log log) {
+        try {
+            var field = mojo.getClass().getDeclaredField("log");
+            field.setAccessible(true);
+            field.set(mojo, log);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException("Cannot inject log into " + mojo.getClass(), e);
+        }
     }
 }

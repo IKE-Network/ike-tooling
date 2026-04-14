@@ -1,13 +1,12 @@
 package network.ike.plugin;
 
-import org.apache.maven.model.Dependency;
-import org.apache.maven.model.DependencyManagement;
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.model.Dependency;
+import org.apache.maven.api.model.DependencyManagement;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -55,18 +54,21 @@ import java.util.List;
  * </pre>
  */
 @Mojo(name = "generate-bom",
-      defaultPhase = LifecyclePhase.GENERATE_RESOURCES,
-      requiresProject = true,
-      threadSafe = true)
-public class GenerateBomMojo extends AbstractMojo {
+      defaultPhase = "generate-resources",
+      projectRequired = true)
+public class GenerateBomMojo implements org.apache.maven.api.plugin.Mojo {
 
-    /** The current project (injected by Maven). */
-    @Parameter(defaultValue = "${project}", readonly = true, required = true)
-    private MavenProject project;
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
-    /** Reactor projects (injected by Maven). */
-    @Parameter(defaultValue = "${reactorProjects}", readonly = true, required = true)
-    private List<MavenProject> reactorProjects;
+    /** The current project (injected by Maven 4). */
+    @org.apache.maven.api.di.Inject
+    private Project project;
+
+    /** Reactor projects via Maven 4 Session. */
+    @org.apache.maven.api.di.Inject
+    private Session session;
 
     /**
      * Artifact ID of the reactor module whose {@code <dependencyManagement>}
@@ -79,18 +81,19 @@ public class GenerateBomMojo extends AbstractMojo {
     public GenerateBomMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         // ── Find source module in reactor ────────────────────────────
-        MavenProject source = reactorProjects.stream()
+        List<Project> reactorProjects = session.getProjects();
+        Project source = reactorProjects.stream()
                 .filter(p -> p.getArtifactId().equals(sourceArtifactId))
                 .findFirst()
-                .orElseThrow(() -> new MojoExecutionException(
+                .orElseThrow(() -> new MojoException(
                         sourceArtifactId + " not found in reactor. "
                         + "Ensure it is listed before this module in <subprojects>."));
 
-        DependencyManagement depMgmt = source.getDependencyManagement();
+        DependencyManagement depMgmt = source.getModel().getDependencyManagement();
         if (depMgmt == null || depMgmt.getDependencies().isEmpty()) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     sourceArtifactId + " has no <dependencyManagement> entries.");
         }
 
@@ -106,7 +109,8 @@ public class GenerateBomMojo extends AbstractMojo {
         // ── Generate BOM POM ─────────────────────────────────────────
         String bomXml = buildBomXml(
                 project.getGroupId(), project.getArtifactId(), project.getVersion(),
-                project.getName(), project.getDescription(), project.getUrl(),
+                project.getModel().getName(), project.getModel().getDescription(),
+                project.getModel().getUrl(),
                 entries);
 
         Path targetDir = Path.of(project.getBuild().getDirectory());
@@ -115,14 +119,12 @@ public class GenerateBomMojo extends AbstractMojo {
             Path bomPom = targetDir.resolve("generated-bom.xml");
             Files.writeString(bomPom, bomXml);
 
-            // Replace the project POM so install/deploy uses the
-            // generated BOM instead of the stub.
-            project.setPomFile(bomPom.toFile());
+            // TODO: Maven 4 Project is immutable — generated BOM needs a different attachment mechanism
 
             getLog().info("Generated BOM with " + deps.size()
                     + " managed entries from " + sourceArtifactId);
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to write generated BOM", e);
+            throw new MojoException("Failed to write generated BOM", e);
         }
     }
 

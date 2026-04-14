@@ -1,10 +1,8 @@
 package network.ike.plugin;
 
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
@@ -26,9 +24,12 @@ import java.nio.file.Files;
  * </pre>
  */
 @Mojo(name = "fix-svg",
-      defaultPhase = LifecyclePhase.PROCESS_RESOURCES,
-      threadSafe = true)
-public class FixSvgMojo extends AbstractMojo {
+      defaultPhase = "process-resources")
+public class FixSvgMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** The HTML file to process. */
     @Parameter(property = "htmlFile", required = true)
@@ -42,7 +43,7 @@ public class FixSvgMojo extends AbstractMojo {
     public FixSvgMojo() {}
 
     @Override
-    public void execute() throws MojoExecutionException {
+    public void execute() throws MojoException {
         if (skip) {
             getLog().debug("fix-svg: skipped");
             return;
@@ -66,7 +67,7 @@ public class FixSvgMojo extends AbstractMojo {
             getLog().info("fix-svg: removed " + count
                     + " bare <rect/> element(s) from " + htmlFile.getName());
         } catch (IOException e) {
-            throw new MojoExecutionException(
+            throw new MojoException(
                     "Failed to process " + htmlFile, e);
         }
     }
