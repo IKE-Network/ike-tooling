@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -47,13 +48,13 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
     /** Creates this goal instance. */
     public JpackagePropsMojo() {}
 
+    /** The current Maven session. */
+    @org.apache.maven.api.di.Inject
+    private Session session;
+
     /** The current project (injected by Maven 4). */
     @org.apache.maven.api.di.Inject
     private Project project;
-
-    /** Project manager for setting properties on the project. */
-    @org.apache.maven.api.di.Inject
-    private ProjectManager projectManager;
 
     /**
      * Application name pattern. Placeholders:
@@ -93,6 +94,7 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
                 System.getProperty("os.arch", ""),
                 appNamePattern);
 
+        ProjectManager projectManager = session.getService(ProjectManager.class);
         Map<String, String> p = projectManager.getProperties(project);
         p.put("build.date", props.buildDate());
         p.put("build.year", props.buildYear());
