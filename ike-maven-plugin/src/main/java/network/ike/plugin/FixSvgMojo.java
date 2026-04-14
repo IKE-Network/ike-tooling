@@ -29,7 +29,11 @@ public class FixSvgMojo implements org.apache.maven.api.plugin.Mojo {
 
     @org.apache.maven.api.di.Inject
     private org.apache.maven.api.plugin.Log log;
-    /** Access the Maven logger. @return the logger */
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
     protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** The HTML file to process. */

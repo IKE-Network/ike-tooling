@@ -28,7 +28,11 @@ public class PrepareRendererOutputMojo implements org.apache.maven.api.plugin.Mo
 
     @org.apache.maven.api.di.Inject
     private org.apache.maven.api.plugin.Log log;
-    /** Access the Maven logger. @return the logger */
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
     protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
     /** Root output directory (e.g., target/ike-doc). */
