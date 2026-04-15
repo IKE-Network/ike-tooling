@@ -7,9 +7,22 @@
 
 ## Packaging
 
-Doc-only projects use `jar` packaging, even though they produce no Java classes.
-This avoids the `pom-skip-renderers` profile (which disables all renderers for
-POM-packaging modules). The JAR artifact is minimal (only `META-INF/MANIFEST.MF`).
+Doc-only projects **must** use `ike-doc` packaging:
+
+```xml
+<packaging>ike-doc</packaging>
+```
+
+The `ike-doc` lifecycle (provided by `ike-maven-plugin` with `<extensions>true</extensions>`)
+is purpose-built for documentation modules:
+
+- **No compile, test, or jar phases** — skips all Java-related lifecycle bindings
+- **Primary artifact is a ZIP** of the AsciiDoc sources (`.zip` extension, not `.jar`)
+- **Rendering** is handled by the inherited `doc-pipeline` profile from `ike-parent`
+- **Classified ZIPs** (html, pdf, asciidoc) are attached by `maven-assembly-plugin`
+
+Do not use `jar` packaging for doc-only modules — it produces an empty JAR artifact.
+Do not use `pom` packaging — it disables renderers via the `pom-skip-renderers` profile.
 
 ## Required Directory Structure
 
@@ -236,7 +249,7 @@ artifact ID `topics`. The group ID carries project uniqueness. See
 
 - **Directory**: always `topics/`
 - **ArtifactId**: always `topics`
-- **Packaging**: JAR (renders HTML by default for authoring preview)
+- **Packaging**: `ike-doc` (renders HTML by default for authoring preview)
 - **Source**: `src/docs/asciidoc/topics/` with topic files, plus
   `index.adoc` for a browsable all-topics preview
 - **Artifact**: publishes a `-asciidoc` classified ZIP of all sources
@@ -253,6 +266,7 @@ artifact ID `topics`. The group ID carries project uniqueness. See
         <version>1.1.0-SNAPSHOT</version>
     </parent>
     <artifactId>topics</artifactId>
+    <packaging>ike-doc</packaging>
     <version>1.0.0-SNAPSHOT</version>
 
     <name>Topics</name>
@@ -288,7 +302,7 @@ artifact ID `topics`. The group ID carries project uniqueness. See
 An assembly module composes topics from one or more topic libraries
 into a single document:
 
-- **Packaging**: JAR (full renderer pipeline)
+- **Packaging**: `ike-doc`
 - **Source**: `src/docs/asciidoc/` with the assembly `.adoc` file
 - **Dependencies**: one or more topic library `-asciidoc` ZIPs
 - **Unpack**: `ike-parent` automatically unpacks `-asciidoc` ZIPs to
@@ -306,6 +320,7 @@ into a single document:
         <version>1.1.0-SNAPSHOT</version>
     </parent>
     <artifactId>my-compendium</artifactId>
+    <packaging>ike-doc</packaging>
     <version>1.0.0-SNAPSHOT</version>
 
     <properties>
