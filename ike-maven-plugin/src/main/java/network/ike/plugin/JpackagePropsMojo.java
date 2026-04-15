@@ -12,7 +12,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
-import java.util.Map;
+
 
 /**
  * Compute build timestamp, platform, and JPackage version properties.
@@ -94,26 +94,25 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
                 System.getProperty("os.arch", ""),
                 appNamePattern);
 
-        ProjectManager projectManager = session.getService(ProjectManager.class);
-        Map<String, String> p = projectManager.getProperties(project);
-        p.put("build.date", props.buildDate());
-        p.put("build.year", props.buildYear());
-        p.put("build.month", props.buildMonth());
-        p.put("build.monthday", props.buildMonthday());
-        p.put("build.hhmm", props.buildHhmm());
-        p.put("build.display.date", props.buildDisplayDate());
-        p.put("jreleaser.platform", props.platform());
-        p.put("jreleaser.platform.work", props.platformWork());
-        p.put("jreleaser.platform.suffix", props.platformSuffix());
-        p.put("is.snapshot", String.valueOf(props.isSnapshot()));
-        p.put("build.qualifier", props.buildQualifier());
-        p.put("jpackage.app.version", props.jpackageAppVersion());
-        p.put("jpackage.app.name", props.jpackageAppName());
-        p.put("win.app.version", props.winAppVersion());
-        p.put("win.version.major", props.winVersionMajor());
-        p.put("win.version.minor", props.winVersionMinor());
-        p.put("win.version.build", props.winVersionBuild());
-        p.put("win.version.revision", props.winVersionRevision());
+        ProjectManager pm = session.getService(ProjectManager.class);
+        pm.setProperty(project, "build.date", props.buildDate());
+        pm.setProperty(project, "build.year", props.buildYear());
+        pm.setProperty(project, "build.month", props.buildMonth());
+        pm.setProperty(project, "build.monthday", props.buildMonthday());
+        pm.setProperty(project, "build.hhmm", props.buildHhmm());
+        pm.setProperty(project, "build.display.date", props.buildDisplayDate());
+        pm.setProperty(project, "jreleaser.platform", props.platform());
+        pm.setProperty(project, "jreleaser.platform.work", props.platformWork());
+        pm.setProperty(project, "jreleaser.platform.suffix", props.platformSuffix());
+        pm.setProperty(project, "is.snapshot", String.valueOf(props.isSnapshot()));
+        pm.setProperty(project, "build.qualifier", props.buildQualifier());
+        pm.setProperty(project, "jpackage.app.version", props.jpackageAppVersion());
+        pm.setProperty(project, "jpackage.app.name", props.jpackageAppName());
+        pm.setProperty(project, "win.app.version", props.winAppVersion());
+        pm.setProperty(project, "win.version.major", props.winVersionMajor());
+        pm.setProperty(project, "win.version.minor", props.winVersionMinor());
+        pm.setProperty(project, "win.version.build", props.winVersionBuild());
+        pm.setProperty(project, "win.version.revision", props.winVersionRevision());
 
         getLog().info("");
         getLog().info("JPackage Build Properties");
