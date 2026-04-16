@@ -382,13 +382,24 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
 
     /**
      * Sign a single native file with {@code codesign}.
+     * Captures and logs stdout/stderr so that signing errors
+     * (keychain access, certificate issues) are visible (#134).
      */
     private void codesign(Path file) throws MojoException {
-        ReleaseSupport.exec(file.getParent().toFile(), getLog(),
-                "codesign", "--force", "--timestamp",
-                "--options", "runtime",
-                "--sign", signingIdentity,
-                file.toString());
+        try {
+            ReleaseSupport.execCaptureAndLog(
+                    file.getParent().toFile(), getLog(),
+                    "codesign", "--force", "--timestamp",
+                    "--options", "runtime",
+                    "--sign", signingIdentity,
+                    file.toString());
+        } catch (MojoException e) {
+            // Re-throw with the file path for context — the captured
+            // output was already logged by execCaptureAndLog
+            throw new MojoException(
+                    "codesign failed for " + file.getFileName()
+                    + ": " + e.getMessage(), e);
+        }
     }
 
     /**

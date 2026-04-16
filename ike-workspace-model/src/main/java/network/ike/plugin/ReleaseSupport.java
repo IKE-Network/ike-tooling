@@ -266,9 +266,13 @@ public class ReleaseSupport {
             }
             int exit = proc.waitFor();
             if (exit != 0) {
+                String output = captured.toString().trim();
+                String detail = output.isEmpty()
+                        ? ""
+                        : "\nOutput:\n" + output;
                 throw new MojoException(
-                        "Command failed (exit " + exit + "): " +
-                                String.join(" ", command));
+                        "Command failed (exit " + exit + "): "
+                                + String.join(" ", command) + detail);
             }
             return captured.toString().trim();
         } catch (IOException | InterruptedException e) {
