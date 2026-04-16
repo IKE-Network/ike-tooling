@@ -150,4 +150,41 @@ class ManifestReaderTest {
         assertThat(m.defaults().mavenVersion()).isNull();
         assertThat(m.components().get("my-lib").mavenVersion()).isNull();
     }
+
+    @Test
+    void returnsEmptyIdeSettingsWhenSectionAbsent() {
+        assertThat(manifest.ide()).isEqualTo(IdeSettings.EMPTY);
+        assertThat(manifest.ide().hasAnyValue()).isFalse();
+        assertThat(manifest.ide().languageLevel()).isNull();
+        assertThat(manifest.ide().jdkName()).isNull();
+    }
+
+    @Test
+    void parsesIdeSettingsWhenPresent() {
+        String yaml = """
+                schema-version: "1.0"
+                ide:
+                  language-level: JDK_25_PREVIEW
+                  jdk-name: "25"
+                components: {}
+                """;
+        Manifest m = ManifestReader.read(new StringReader(yaml));
+        assertThat(m.ide().languageLevel()).isEqualTo("JDK_25_PREVIEW");
+        assertThat(m.ide().jdkName()).isEqualTo("25");
+        assertThat(m.ide().hasAnyValue()).isTrue();
+    }
+
+    @Test
+    void parsesIdeSettingsWithPartialFields() {
+        String yaml = """
+                schema-version: "1.0"
+                ide:
+                  language-level: JDK_21
+                components: {}
+                """;
+        Manifest m = ManifestReader.read(new StringReader(yaml));
+        assertThat(m.ide().languageLevel()).isEqualTo("JDK_21");
+        assertThat(m.ide().jdkName()).isNull();
+        assertThat(m.ide().hasAnyValue()).isTrue();
+    }
 }

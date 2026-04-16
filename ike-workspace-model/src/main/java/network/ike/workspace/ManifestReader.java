@@ -63,9 +63,20 @@ public final class ManifestReader {
         Map<String, Component> components = parseComponents(
                 mapField(root, "components"), defaults);
         Map<String, List<String>> groups = parseGroups(mapField(root, "groups"));
+        IdeSettings ide = parseIdeSettings(mapField(root, "ide"));
 
         return new Manifest(schemaVersion, generated, defaults,
-                componentTypes, components, groups);
+                componentTypes, components, groups, ide);
+    }
+
+    private static IdeSettings parseIdeSettings(Map<String, Object> map) {
+        if (map == null) {
+            return IdeSettings.EMPTY;
+        }
+        return new IdeSettings(
+                stringField(map, "language-level", null),
+                stringField(map, "jdk-name", null)
+        );
     }
 
     private static Defaults parseDefaults(Map<String, Object> map) {

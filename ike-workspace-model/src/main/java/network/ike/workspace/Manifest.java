@@ -15,6 +15,8 @@ import java.util.Map;
  * @param componentTypes  named component type definitions
  * @param components      named component definitions (insertion-ordered)
  * @param groups          named groups mapping to lists of component/group names
+ * @param ide             optional IntelliJ project settings shared across
+ *                        collaborators; {@link IdeSettings#EMPTY} when absent
  */
 public record Manifest(
         String schemaVersion,
@@ -22,5 +24,6 @@ public record Manifest(
         Defaults defaults,
         Map<String, ComponentType> componentTypes,
         Map<String, Component> components,
-        Map<String, List<String>> groups
+        Map<String, List<String>> groups,
+        IdeSettings ide
 ) {}
