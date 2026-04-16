@@ -211,51 +211,95 @@ all three mechanisms — convention-based properties suppress false positives.
 
 ## Goal Reference
 
-### Workspace Goals
+Most mutating goals come in `-draft` / `-publish` pairs.
+Draft previews the operation; publish executes it.
+Run `ws:help` for the complete auto-discovered list.
+
+### Workspace Management
 
 | Goal | Description |
 |------|-------------|
-| `ws:verify` | Validate manifest consistency (deps exist, no cycles, groups resolve, types defined) |
-| `ws:status` | Git status across all repos (branch, dirty/clean, branch mismatch detection) |
-| `ws:cascade` | Show downstream impact of a change (`-Dcomponent=<name>` required) |
-| `ws:graph` | Print dependency graph (text or `-Dformat=dot` for Graphviz DOT) |
-| `ws:init` | Clone/initialize repos from manifest (Syncthing-aware) |
-| `ws:pull` | `git pull --rebase` across repos |
+| `ws:init` | Clone/initialize repos; fetches and rebases existing clones |
+| `ws:verify` | Validate manifest consistency |
+| `ws:verify-convergence` | Full verify + transitive dependency convergence |
+| `ws:overview` | Dashboard: manifest, graph, status, cascade |
+| `ws:graph` | Print dependency graph (text or `-Dformat=dot`) |
+| `ws:cascade` | Show downstream impact of a change |
+| `ws:pull` | `git pull --rebase` across repos (requires clean trees) |
 | `ws:stignore` | Generate `.stignore` files for Syncthing |
-| `ws:dashboard` | Composite: verify + status + cascade-from-dirty |
+| `ws:fix` | Auto-fix issues found by verify |
 
-### Gitflow Goals
-
-| Goal | Description |
-|------|-------------|
-| `ws:feature-start` | Create `feature/<name>` branch with branch-qualified version |
-| `ws:feature-finish` | Merge feature branch to main with `--no-ff`, strip qualifier, tag |
-| `ws:checkpoint` | Record multi-repo checkpoint YAML (SHAs, versions, dirty flags) |
-
-### Release Goals
+### Version Alignment
 
 | Goal | Description |
 |------|-------------|
-| `ws:release` | Workspace-level release orchestration — scan, filter, topo-sort, release in dependency order |
-| `ike:generate-bom` | Auto-generate a standalone BOM POM from `ike-parent`'s `dependencyManagement` |
+| `ws:align-draft` / `-publish` | Align inter-component dependency versions |
+| `ws:set-parent-draft` / `-publish` | Update parent version across workspace |
+
+### Feature Branching
+
+| Goal | Description |
+|------|-------------|
+| `ws:feature-start-draft` / `-publish` | Create feature branch with qualified versions |
+| `ws:feature-finish-merge-draft` / `-publish` | No-ff merge (preserves history) |
+| `ws:feature-finish-squash-draft` / `-publish` | Squash merge (single commit) |
+| `ws:feature-abandon-draft` / `-publish` | Delete feature branch |
+| `ws:switch-draft` / `-publish` | Switch branch across workspace |
+| `ws:update-feature-draft` / `-publish` | Rebase feature onto main |
+
+### Release & Checkpoint
+
+| Goal | Description |
+|------|-------------|
+| `ws:release-draft` / `-publish` | Release modified components in dependency order |
+| `ws:checkpoint-draft` / `-publish` | Tag all components, record SHAs |
+| `ws:post-release` | Bump to next development version |
+| `ws:release-notes` | Generate notes from GitHub milestone |
+
+### VCS Bridge (Syncthing)
+
+| Goal | Description |
+|------|-------------|
+| `ws:commit` | Commit across repos (`-DaddAll=true -Dpush=true -Dmessage="..."`) |
+| `ws:push` | Push all components (warns about uncommitted changes) |
+| `ws:sync` | Reconcile state after machine switch |
 
 ### Common Options
 
 | Option | Applicable Goals | Description |
 |--------|------------------|-------------|
-| `-Dworkspace.manifest=<path>` | All workspace goals | Path to workspace.yaml (auto-detected by searching upward) |
-| `-Dgroup=<name>` | status, init, pull, feature-start, feature-finish | Restrict to named group |
-| `-Dcomponent=<name>` | cascade | Component to analyze (required) |
-| `-Dformat=dot` | graph | Graphviz DOT output |
-| `-Dfeature=<name>` | feature-start, feature-finish | Feature name (branch: `feature/<name>`) |
-| `-DskipVersion=true` | feature-start | Skip POM version qualification |
-| `-DtargetBranch=<name>` | feature-finish | Merge target (default: `main`) |
-| `-Dpush=true` | feature-finish, checkpoint, release | Push to origin |
-| `-Dtag=true` | checkpoint | Tag each component |
-| `-DdryRun=true` | feature-start, feature-finish, release | Show plan without executing |
-| `-Dname=<name>` | checkpoint | Checkpoint name (required) |
-| `-DskipCheckpoint=true` | release | Skip pre-release checkpoint creation |
-| `-Dbom.source=<artifactId>` | generate-bom | Source POM for dependency extraction (default: `ike-parent`) |
+| `-Dworkspace.manifest=<path>` | All | Path to workspace.yaml (auto-detected) |
+| `-Dgroup=<name>` | Most multi-repo goals | Restrict to named group or component |
+| `-Dfeature=<name>` | feature-start, feature-finish, feature-abandon | Feature name |
+| `-DtargetBranch=<name>` | feature-finish, switch | Target branch (default: `main`) |
+| `-Dparent.version=<v>` | set-parent | Target parent version |
+| `-DaddAll=true` | commit | Stage all changes before committing |
+| `-Dpush=true` | commit, release | Push to origin after operation |
+| `-Dmessage=<msg>` | commit, feature-finish | Commit message |
+| `-Dname=<name>` | checkpoint | Checkpoint name (auto-derived) |
+| `-DskipCheckpoint=true` | release | Skip pre-release checkpoint |
+
+### Preflight Validation
+
+Multi-repo goals validate that all component working trees are clean
+before starting. If any component has uncommitted changes, the goal
+fails immediately with a list of affected repos and files, along with
+the specific `ws:commit` command to resolve it. No partial
+modifications occur.
+
+**Publish goals with hard preflight:** `release`, `align`, `set-parent`,
+`checkpoint`, `pull`, `switch`, `feature-start`, `feature-finish-*`,
+`feature-abandon`, `update-feature`
+
+**Draft goals:** warn about uncommitted changes that would block the
+corresponding `-publish` goal, but still run the preview.
+
+**`ws:commit`:** skips VCS bridge catch-up when there are pending
+changes to commit, preventing branch-switch conflicts. Warns at
+WARN level when skipping repos with unstaged changes.
+
+**`ws:push`:** warns about uncommitted changes after pushing, and
+automatically sets upstream tracking for new branches.
 
 ## Version Convention
 
@@ -575,6 +619,32 @@ mvn ws:release -Dpush=true
 
 ## Troubleshooting
 
+### "Cannot X — uncommitted changes in:"
+
+All multi-repo publish goals require clean working trees. The error
+lists each blocking repo and its uncommitted files, along with the
+command to resolve:
+
+```bash
+# Commit all pending changes across the workspace:
+mvn ws:commit -DaddAll=true -Dmessage="your commit message"
+
+# Or commit and push in one step:
+mvn ws:commit -DaddAll=true -Dpush=true -Dmessage="your commit message"
+
+# Then retry the blocked goal:
+mvn ws:align-publish
+```
+
+Draft goals warn about uncommitted changes but still run the preview.
+
+### Stale Clones on CI
+
+`ws:init` fetches and rebases existing clones when the working tree
+is clean. If clones are stale (e.g., parent POM bumps not applied),
+re-run `ws:init`. If rebase conflicts occur, delete the component
+directory and let `ws:init` re-clone.
+
 ### Recovery from Failed `ws-release`
 
 If `ws-release` fails mid-cascade (e.g., build failure in the second
@@ -610,11 +680,12 @@ mvn ws:feature-finish -Dfeature=my-feature -Dpush=true
 
 If `mvn ws:status` fails with "No plugin found for prefix 'ws'":
 
-1. Verify `~/.m2/settings.xml` contains `network.ike` in `<pluginGroups>`:
+1. Verify `~/.m2/settings.xml` contains the plugin group:
 
 ```xml
 <pluginGroups>
-  <pluginGroup>network.ike</pluginGroup>
+  <pluginGroup>network.ike.pipeline</pluginGroup>
+  <pluginGroup>network.ike.tooling</pluginGroup>
 </pluginGroups>
 ```
 
