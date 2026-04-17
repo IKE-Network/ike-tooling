@@ -130,46 +130,6 @@ class WorkspaceGraphTest {
         assertThat(cycle).contains("a", "b");
     }
 
-    // ── Group Expansion ─────────────────────────────────────────────
-
-    @Test
-    void expandStudioGroup() {
-        Set<String> components = graph.expandGroup("studio");
-        assertThat(components).containsExactlyInAnyOrder(
-                "ike-parent", "ike-bom", "extra-tools",
-                "tinkar-core", "rocks-kb", "komet", "komet-desktop");
-    }
-
-    @Test
-    void expandDocsGroup() {
-        Set<String> components = graph.expandGroup("docs");
-        assertThat(components).containsExactlyInAnyOrder(
-                "ike-pipeline", "ike-lab-documents",
-                "ike-infrastructure", "ike");
-    }
-
-    @Test
-    void expandNestedGroup() {
-        // "core" = [foundation, tinkar-core, rocks-kb]
-        // "foundation" = [ike-parent, ike-bom]
-        Set<String> components = graph.expandGroup("core");
-        assertThat(components).containsExactlyInAnyOrder(
-                "ike-parent", "ike-bom", "tinkar-core", "rocks-kb");
-    }
-
-    @Test
-    void expandComponentNameReturnsItself() {
-        Set<String> components = graph.expandGroup("tinkar-core");
-        assertThat(components).containsExactly("tinkar-core");
-    }
-
-    @Test
-    void expandUnknownGroupThrows() {
-        assertThatThrownBy(() -> graph.expandGroup("nonexistent"))
-                .isInstanceOf(ManifestException.class)
-                .hasMessageContaining("Unknown component or group");
-    }
-
     // ── Verify ──────────────────────────────────────────────────────
 
     @Test

@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 
 import java.io.StringReader;
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -95,25 +94,6 @@ class ManifestReaderTest {
     void parsesEmptyDependencies() {
         Component parent = manifest.components().get("ike-parent");
         assertThat(parent.dependsOn()).isEmpty();
-    }
-
-    @Test
-    void parsesGroups() {
-        assertThat(manifest.groups()).containsKeys(
-                "studio", "docs", "foundation", "core", "app", "all");
-        assertThat(manifest.groups().get("studio")).containsExactly(
-                "ike-parent", "ike-bom", "extra-tools",
-                "tinkar-core", "rocks-kb", "komet", "komet-desktop");
-        assertThat(manifest.groups().get("docs")).containsExactly(
-                "ike-pipeline", "ike-lab-documents",
-                "ike-infrastructure", "ike");
-    }
-
-    @Test
-    void parsesGroupWithNestedGroupReference() {
-        // "core" group references "foundation" (a group), plus direct components
-        List<String> core = manifest.groups().get("core");
-        assertThat(core).contains("foundation", "tinkar-core", "rocks-kb");
     }
 
     @Test

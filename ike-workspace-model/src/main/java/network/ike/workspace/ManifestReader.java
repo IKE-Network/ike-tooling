@@ -62,11 +62,10 @@ public final class ManifestReader {
                 mapField(root, "component-types"));
         Map<String, Component> components = parseComponents(
                 mapField(root, "components"), defaults);
-        Map<String, List<String>> groups = parseGroups(mapField(root, "groups"));
         IdeSettings ide = parseIdeSettings(mapField(root, "ide"));
 
         return new Manifest(schemaVersion, generated, defaults,
-                componentTypes, components, groups, ide);
+                componentTypes, components, ide);
     }
 
     private static IdeSettings parseIdeSettings(Map<String, Object> map) {
@@ -169,21 +168,6 @@ public final class ManifestReader {
             ));
         }
         return Collections.unmodifiableList(result);
-    }
-
-    private static Map<String, List<String>> parseGroups(
-            Map<String, Object> map) {
-        if (map == null) {
-            return Map.of();
-        }
-        Map<String, List<String>> result = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> entry : map.entrySet()) {
-            @SuppressWarnings("unchecked")
-            List<String> members = (List<String>) entry.getValue();
-            result.put(entry.getKey(),
-                    members == null ? List.of() : List.copyOf(members));
-        }
-        return Collections.unmodifiableMap(result);
     }
 
     @SuppressWarnings("unchecked")

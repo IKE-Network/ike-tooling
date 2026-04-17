@@ -210,51 +210,6 @@ public final class WorkspaceGraph {
         return Collections.unmodifiableList(cycle);
     }
 
-    // ── Group Expansion ─────────────────────────────────────────────
-
-    /**
-     * Expand a group name recursively into its component names.
-     * Group references within groups are expanded transitively.
-     * Direct component names pass through unchanged.
-     *
-     * @param groupName the group (or component) to expand
-     * @return deduplicated set of component names
-     * @throws ManifestException if a group reference cannot be resolved
-     */
-    public Set<String> expandGroup(String groupName) {
-        Set<String> result = new LinkedHashSet<>();
-        Set<String> expanding = new LinkedHashSet<>();
-        expandGroupRecursive(groupName, result, expanding);
-        return Collections.unmodifiableSet(result);
-    }
-
-    private void expandGroupRecursive(String name, Set<String> result,
-                                       Set<String> expanding) {
-        // If it's a component name, add directly
-        if (manifest.components().containsKey(name)) {
-            result.add(name);
-            return;
-        }
-
-        // Must be a group — expand its members
-        List<String> members = manifest.groups().get(name);
-        if (members == null) {
-            throw new ManifestException(
-                    "Unknown component or group: " + name);
-        }
-
-        if (!expanding.add(name)) {
-            throw new ManifestException(
-                    "Circular group reference: " + name);
-        }
-
-        for (String member : members) {
-            expandGroupRecursive(member, result, expanding);
-        }
-
-        expanding.remove(name);
-    }
-
     // ── Manifest Verification ───────────────────────────────────────
 
     /**
@@ -282,18 +237,7 @@ public final class WorkspaceGraph {
             errors.add("Dependency cycle: " + String.join(" → ", cycle));
         }
 
-        // Check 3: all group references resolve
-        for (Map.Entry<String, List<String>> entry : manifest.groups().entrySet()) {
-            for (String member : entry.getValue()) {
-                if (!manifest.components().containsKey(member)
-                        && !manifest.groups().containsKey(member)) {
-                    errors.add("Group '" + entry.getKey()
-                            + "' references unknown component or group: " + member);
-                }
-            }
-        }
-
-        // Check 4: all component types are defined
+        // Check 3: all component types are defined
         for (Component component : manifest.components().values()) {
             if (!manifest.componentTypes().containsKey(component.type())) {
                 errors.add(component.name() + " has unknown type: "

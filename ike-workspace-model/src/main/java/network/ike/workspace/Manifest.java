@@ -1,6 +1,5 @@
 package network.ike.workspace;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -14,7 +13,6 @@ import java.util.Map;
  * @param defaults        default values for component fields
  * @param componentTypes  named component type definitions
  * @param components      named component definitions (insertion-ordered)
- * @param groups          named groups mapping to lists of component/group names
  * @param ide             optional IntelliJ project settings shared across
  *                        collaborators; {@link IdeSettings#EMPTY} when absent
  */
@@ -24,6 +22,5 @@ public record Manifest(
         Defaults defaults,
         Map<String, ComponentType> componentTypes,
         Map<String, Component> components,
-        Map<String, List<String>> groups,
         IdeSettings ide
 ) {}
