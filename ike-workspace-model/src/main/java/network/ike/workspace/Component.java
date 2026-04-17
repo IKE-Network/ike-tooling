@@ -6,7 +6,8 @@ import java.util.List;
  * A workspace component — one git repository in the workspace manifest.
  *
  * @param name         the component identifier (directory name and YAML key)
- * @param type         references a {@link ComponentType} name
+ * @param type         the subproject's type (enum, from the {@code type:}
+ *                     field in workspace.yaml)
  * @param description  human-readable purpose
  * @param repo         git clone URL
  * @param branch       the branch to track
@@ -21,12 +22,12 @@ import java.util.List;
  *                     and ws:align to enforce parent version alignment.
  * @param sha          git commit SHA to check out. When present, {@code ws:init}
  *                     checks out this exact commit instead of branch HEAD.
- *                     Written by {@code ws:checkpoint-apply}. Null means use
+ *                     Written by {@code ws:checkpoint-publish}. Null means use
  *                     branch HEAD.
  */
 public record Component(
         String name,
-        String type,
+        SubprojectType type,
         String description,
         String repo,
         String branch,

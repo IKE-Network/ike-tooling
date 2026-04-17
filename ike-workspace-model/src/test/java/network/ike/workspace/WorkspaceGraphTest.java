@@ -159,19 +159,18 @@ class WorkspaceGraphTest {
     }
 
     @Test
-    void verifyDetectsUnknownType() {
+    void parseRejectsUnknownType() {
+        // SubprojectType.fromYamlName throws at parse time, before the
+        // graph is ever built — the closed enum is the validity check.
         String yaml = """
                 schema-version: "1.0"
                 components:
                   a:
                     type: bogus
-                component-types:
-                  software:
-                    build-command: "mvn clean install"
                 """;
-        Manifest m = ManifestReader.read(new StringReader(yaml));
-        WorkspaceGraph g = new WorkspaceGraph(m);
-        List<String> errors = g.verify();
-        assertThat(errors).anyMatch(e -> e.contains("unknown type: bogus"));
+        StringReader reader = new StringReader(yaml);
+        assertThatThrownBy(() -> ManifestReader.read(reader))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown subproject type: \"bogus\"");
     }
 }

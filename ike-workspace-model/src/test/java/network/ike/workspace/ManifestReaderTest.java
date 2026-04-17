@@ -31,20 +31,6 @@ class ManifestReaderTest {
     }
 
     @Test
-    void parsesComponentTypes() {
-        assertThat(manifest.componentTypes()).containsKeys(
-                "infrastructure", "software", "document",
-                "knowledge-source", "template");
-
-        ComponentType software = manifest.componentTypes().get("software");
-        assertThat(software.buildCommand()).isEqualTo("mvn clean install");
-        assertThat(software.checkpointMechanism()).isEqualTo("git-tag");
-
-        ComponentType document = manifest.componentTypes().get("document");
-        assertThat(document.buildCommand()).isEqualTo("mvn clean verify");
-    }
-
-    @Test
     void parsesAllComponents() {
         assertThat(manifest.components()).hasSize(12);
         assertThat(manifest.components()).containsKeys(
@@ -58,7 +44,7 @@ class ManifestReaderTest {
     @Test
     void parsesComponentFields() {
         Component tinkar = manifest.components().get("tinkar-core");
-        assertThat(tinkar.type()).isEqualTo("software");
+        assertThat(tinkar.type()).isEqualTo(SubprojectType.SOFTWARE);
         assertThat(tinkar.repo()).isEqualTo("https://github.com/ikmdev/tinkar-core.git");
         assertThat(tinkar.branch()).isEqualTo("feature/kec-jan-24");
         assertThat(tinkar.version()).isEqualTo("1.127.2-kec-jan-24-SNAPSHOT");

@@ -58,14 +58,16 @@ public final class ManifestReader {
         String generated = stringField(root, "generated", null);
 
         Defaults defaults = parseDefaults(mapField(root, "defaults"));
-        Map<String, ComponentType> componentTypes = parseComponentTypes(
-                mapField(root, "component-types"));
+        // component-types: / subproject-types: is legacy: SubprojectType
+        // now carries the build command and checkpoint mechanism as
+        // compile-time data. A present section is silently ignored;
+        // ws:align strips it from workspace.yaml.
         Map<String, Component> components = parseComponents(
                 mapField(root, "components"), defaults);
         IdeSettings ide = parseIdeSettings(mapField(root, "ide"));
 
         return new Manifest(schemaVersion, generated, defaults,
-                componentTypes, components, ide);
+                components, ide);
     }
 
     private static IdeSettings parseIdeSettings(Map<String, Object> map) {
@@ -86,26 +88,6 @@ public final class ManifestReader {
                 stringField(map, "branch", "main"),
                 stringField(map, "maven-version", null)
         );
-    }
-
-    private static Map<String, ComponentType> parseComponentTypes(
-            Map<String, Object> map) {
-        if (map == null) {
-            return Map.of();
-        }
-        Map<String, ComponentType> result = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> entry : map.entrySet()) {
-            String name = entry.getKey();
-            @SuppressWarnings("unchecked")
-            Map<String, Object> fields = (Map<String, Object>) entry.getValue();
-            result.put(name, new ComponentType(
-                    name,
-                    stringField(fields, "description", ""),
-                    stringField(fields, "build-command", "mvn clean install"),
-                    stringField(fields, "checkpoint-mechanism", "git-tag")
-            ));
-        }
-        return Collections.unmodifiableMap(result);
     }
 
     private static Map<String, Component> parseComponents(
@@ -140,7 +122,8 @@ public final class ManifestReader {
 
         return new Component(
                 name,
-                stringField(fields, "type", "software"),
+                SubprojectType.fromYamlName(
+                        stringField(fields, "type", "software")),
                 stringField(fields, "description", ""),
                 stringField(fields, "repo", ""),
                 branch,

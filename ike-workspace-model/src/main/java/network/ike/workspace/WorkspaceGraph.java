@@ -237,13 +237,9 @@ public final class WorkspaceGraph {
             errors.add("Dependency cycle: " + String.join(" → ", cycle));
         }
 
-        // Check 3: all component types are defined
-        for (Component component : manifest.components().values()) {
-            if (!manifest.componentTypes().containsKey(component.type())) {
-                errors.add(component.name() + " has unknown type: "
-                        + component.type());
-            }
-        }
+        // Type validity is enforced at parse time by SubprojectType.fromYamlName,
+        // so by the time we reach verify() every component.type() is a valid
+        // enum value — no additional check needed here.
 
         return Collections.unmodifiableList(errors);
     }

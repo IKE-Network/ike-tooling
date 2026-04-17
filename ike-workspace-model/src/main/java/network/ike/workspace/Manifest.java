@@ -11,7 +11,6 @@ import java.util.Map;
  * @param schemaVersion   manifest format version (currently "1.0")
  * @param generated       date string when the manifest was last updated
  * @param defaults        default values for component fields
- * @param componentTypes  named component type definitions
  * @param components      named component definitions (insertion-ordered)
  * @param ide             optional IntelliJ project settings shared across
  *                        collaborators; {@link IdeSettings#EMPTY} when absent
@@ -20,7 +19,6 @@ public record Manifest(
         String schemaVersion,
         String generated,
         Defaults defaults,
-        Map<String, ComponentType> componentTypes,
         Map<String, Component> components,
         IdeSettings ide
 ) {}
