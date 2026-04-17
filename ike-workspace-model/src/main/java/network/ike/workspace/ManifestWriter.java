@@ -182,29 +182,16 @@ public final class ManifestWriter {
 
     /**
      * Update the branch field for a single component in the YAML text.
-     * Finds the component block and replaces the branch value.
+     * If the component block does not yet declare a {@code branch:} field,
+     * it is inserted after the {@code type:} line so the manifest and git
+     * state stay in sync (see issue #159).
      *
      * @param yaml          full YAML content
      * @param componentName the component key to find
      * @param newBranch     the new branch value
-     * @return updated YAML content
+     * @return updated YAML content (unchanged if the component is absent)
      */
-    static String updateComponentBranch(String yaml, String componentName, String newBranch) {
-        // Find the component block: "  componentName:" at 2-space indent under components:
-        // Then find "    branch: <value>" within that block (before the next component or section)
-
-        String escapedName = Pattern.quote(componentName);
-
-        // Match the component header and capture everything until we find branch:
-        Pattern blockPattern = Pattern.compile(
-            "(^  " + escapedName + ":\\s*$.*?^    branch:\\s*)(\\S+.*?)$",
-            Pattern.MULTILINE | Pattern.DOTALL
-        );
-
-        Matcher m = blockPattern.matcher(yaml);
-        if (m.find()) {
-            return m.replaceFirst("$1" + Matcher.quoteReplacement(newBranch));
-        }
-        return yaml; // component not found or has no branch field — leave unchanged
+    public static String updateComponentBranch(String yaml, String componentName, String newBranch) {
+        return addOrUpdateComponentField(yaml, componentName, "branch", newBranch, "type");
     }
 }

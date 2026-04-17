@@ -91,4 +91,38 @@ class ManifestWriterTest {
         String result = ManifestWriter.updateComponentBranch(yaml, "nonexistent", "feature/x");
         assertThat(result).isEqualTo(yaml);
     }
+
+    @Test
+    void insertsBranchFieldWhenComponentHasNone(@TempDir Path tmp) throws IOException {
+        // Issue #159: components that inherit branch from defaults have no
+        // per-component branch: field. Earlier versions of updateBranches
+        // silently no-oped on those, leaving git on feature/X but the
+        // manifest claiming main.
+        String yaml = """
+                components:
+                  tinkar-core:
+                    type: software
+                    repo: https://example.com/tinkar-core.git
+                    version: 1.0.0-SNAPSHOT
+                  komet:
+                    type: software
+                    repo: https://example.com/komet.git
+                    version: 2.0.0-SNAPSHOT
+                """;
+        Path manifest = tmp.resolve("workspace.yaml");
+        Files.writeString(manifest, yaml);
+
+        ManifestWriter.updateBranches(manifest, Map.of(
+                "tinkar-core", "feature/march",
+                "komet", "feature/march"));
+
+        String result = Files.readString(manifest);
+        assertThat(result).contains("    type: software");
+        assertThat(result).contains("    branch: feature/march");
+        // Both components got the branch field inserted
+        long branchLineCount = result.lines()
+                .filter(l -> l.trim().equals("branch: feature/march"))
+                .count();
+        assertThat(branchLineCount).isEqualTo(2);
+    }
 }
