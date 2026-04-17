@@ -301,6 +301,30 @@ WARN level when skipping repos with unstaged changes.
 **`ws:push`:** warns about uncommitted changes after pushing, and
 automatically sets upstream tracking for new branches.
 
+### Report Generation Contract
+
+Every `ws:*` goal that assesses or mutates cross-component state **must**
+call `AbstractWorkspaceMojo.writeReport(WsGoal goal, String markdownBody)`
+at the end of execution. The report is persisted under the workspace
+`session/` directory as `ws꞉<goal-name>.md` (using U+A789, not `:`, to
+cluster in IDE file browsers). Overwritten on each run.
+
+The `goal` parameter is the typed `WsGoal` enum entry, not a string
+literal — this keeps subprocess exec, report paths, and preflight
+messages compiler-visible and guarded by `WsGoalExhaustivenessTest`.
+
+Exceptions:
+
+* Pure help / bootstrap goals (`ws:help`, `ws:create`) print directly
+  to the console; no per-goal report file.
+* Aggregator goals (`ws:report`) aggregate the other per-goal reports
+  rather than producing their own.
+* Publish mojos that extend a draft parent (e.g.
+  `WsAlignPublishMojo extends WsAlignDraftMojo`) inherit the report via
+  `super.execute()` — the draft writes a report keyed on whichever
+  variant actually ran, via the `publish ? WsGoal.X_PUBLISH : WsGoal.X_DRAFT`
+  ternary.
+
 ## Version Convention
 
 Feature branches use branch-qualified versions:
