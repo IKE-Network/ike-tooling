@@ -13,10 +13,10 @@ import java.util.List;
 /**
  * Per-goal report writer for {@code ike:*} goals.
  *
- * <p>Each goal writes its own file in the {@code session/} directory
- * at the Maven project root the goal was executed from. Files are
- * <b>overwritten</b> on each run (not appended), so the content always
- * reflects the latest execution.
+ * <p>Each goal writes its own file directly in the Maven project root
+ * the goal was executed from (alongside the invoking {@code pom.xml}).
+ * Files are <b>overwritten</b> on each run (not appended), so the
+ * content always reflects the latest execution.
  *
  * <p>Filenames use {@code ꞉} (U+A789 MODIFIER LETTER COLON) to cluster
  * visually as {@code ike꞉goal-name.md} in IDE file browsers. For
@@ -24,32 +24,28 @@ import java.util.List;
  * {@code ike꞉release-draft.md}, {@code ike꞉release-publish.md}.
  *
  * <p><strong>Self-healing gitignore:</strong> before writing, this class
- * ensures {@code session/ike꞉*.md} is listed in the {@code .gitignore}
- * of the nearest {@code .git} ancestor. The pattern targets only the
- * ike report files, not the {@code session/} directory itself, so a
- * consumer remains free to place unrelated sidecar content there. If
- * the pattern is missing, it is appended. This keeps session reports
- * out of git without any manual setup — a fresh clone of a consumer
- * repo becomes report-ready the first time an {@code ike:*} goal runs.
+ * ensures {@code ike꞉*.md} is listed in the {@code .gitignore} of the
+ * nearest {@code .git} ancestor. If the pattern is missing, it is
+ * appended. This keeps reports out of git without any manual setup —
+ * a fresh clone of a consumer repo becomes report-ready the first time
+ * an {@code ike:*} goal runs.
  *
  * <p>Parallels {@code network.ike.plugin.ws.WorkspaceReport}. The ws
- * writer targets the workspace root (typically outside any git repo);
- * this writer targets per-module git repos, hence the gitignore step.
+ * writer targets the workspace root's {@code session/} directory
+ * (typically outside any git repo); this writer targets per-module
+ * git repos and sits next to the {@code pom.xml}, hence the inline
+ * gitignore step.
  */
 public final class IkeReport {
 
     /** U+A789 MODIFIER LETTER COLON — filesystem-safe visual colon. */
     private static final char COLON = '\uA789';
 
-    private static final String SESSION_DIR = "session";
-
     /**
-     * Glob appended to {@code .gitignore} when missing. Targets only
-     * the ike report files so the {@code session/} directory itself
-     * remains available for unrelated sidecar content a consumer might
-     * place there.
+     * Glob appended to {@code .gitignore} when missing. Matches every
+     * {@code ike꞉*.md} report at the root of the git repository.
      */
-    static final String GITIGNORE_PATTERN = "session/ike\uA789*.md";
+    static final String GITIGNORE_PATTERN = "ike\uA789*.md";
 
     private static final DateTimeFormatter TIMESTAMP_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -57,10 +53,9 @@ public final class IkeReport {
     private IkeReport() {}
 
     /**
-     * Write a goal's report to its per-goal file, overwriting any
-     * previous content. Creates the {@code session/} directory and
-     * (if needed) self-heals the nearest {@code .gitignore} so the
-     * report does not land in git.
+     * Write a goal's report to its per-goal file at the project root,
+     * overwriting any previous content. Self-heals the nearest
+     * {@code .gitignore} if needed so the report does not land in git.
      *
      * @param projectRoot the Maven project root the goal executed from
      * @param goal        the goal whose output is being reported
@@ -69,13 +64,11 @@ public final class IkeReport {
      */
     public static void write(Path projectRoot, IkeGoal goal,
                               String content, Log log) {
-        Path sessionDir = projectRoot.resolve(SESSION_DIR);
         String filename = "ike" + COLON + goal.goalName() + ".md";
-        Path reportFile = sessionDir.resolve(filename);
+        Path reportFile = projectRoot.resolve(filename);
 
         try {
             ensureGitignored(projectRoot, log);
-            Files.createDirectories(sessionDir);
 
             String timestamp = LocalDateTime.now().format(TIMESTAMP_FMT);
             String fullContent = "# " + goal.qualified() + "\n"
@@ -100,7 +93,7 @@ public final class IkeReport {
      */
     public static Path reportPath(Path projectRoot, IkeGoal goal) {
         String filename = "ike" + COLON + goal.goalName() + ".md";
-        return projectRoot.resolve(SESSION_DIR).resolve(filename);
+        return projectRoot.resolve(filename);
     }
 
     /**
