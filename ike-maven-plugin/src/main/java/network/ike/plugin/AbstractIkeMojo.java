@@ -17,6 +17,9 @@ import java.nio.file.Path;
  */
 public abstract class AbstractIkeMojo implements Mojo {
 
+    /** Default constructor — subclasses are instantiated by Maven. */
+    protected AbstractIkeMojo() {}
+
     @Inject
     private Log log;
 

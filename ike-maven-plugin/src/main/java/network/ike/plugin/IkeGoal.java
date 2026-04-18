@@ -19,62 +19,91 @@ import java.util.Optional;
  */
 public enum IkeGoal {
 
+    /** {@code ike:adocstudio} — edit the project in AsciiDocFX. */
     ADOCSTUDIO("adocstudio", AdocStudioMojo.class,
             "Edit the project in AsciiDocFX."),
+    /** {@code ike:asciidoc} — render AsciiDoc to HTML. */
     ASCIIDOC("asciidoc", AsciidocMojo.class,
             "Render AsciiDoc to HTML."),
+    /** {@code ike:clean-site} — clear stale site content before redeployment. */
     CLEAN_SITE("clean-site", CleanSiteMojo.class,
             "Clear stale site content before redeployment."),
+    /** {@code ike:codesign-natives} — sign macOS native binaries in a runtime image. */
     CODESIGN_NATIVES("codesign-natives", CodesignNativesMojo.class,
             "Sign macOS native libraries and executables inside a runtime image."),
+    /** {@code ike:codesign-pkg} — sign a {@code .pkg} installer with Developer ID. */
     CODESIGN_PKG("codesign-pkg", CodesignPkgMojo.class,
             "Sign a .pkg installer with a Developer ID Installer certificate."),
+    /** {@code ike:copy-default-pdf} — copy the default-renderer PDF to the site. */
     COPY_DEFAULT_PDF("copy-default-pdf", CopyDefaultPdfMojo.class,
             "Copy the project's default-renderer PDF to the site."),
+    /** {@code ike:copy-docs} — copy rendered docs into the site. */
     COPY_DOCS("copy-docs", CopyDocsToSiteMojo.class,
             "Copy rendered docs into the site."),
+    /** {@code ike:deploy-site-draft} — preview deploying the aggregated site. */
     DEPLOY_SITE_DRAFT("deploy-site-draft", DeploySiteDraftMojo.class,
             "Preview deploying the aggregated site to its target."),
+    /** {@code ike:deploy-site-publish} — deploy the aggregated site to its target. */
     DEPLOY_SITE_PUBLISH("deploy-site-publish", DeploySitePublishMojo.class,
             "Deploy the aggregated site to its target."),
+    /** {@code ike:deregister-site-draft} — preview deregistering a site alias. */
     DEREGISTER_SITE_DRAFT("deregister-site-draft", DeregisterSiteDraftMojo.class,
             "Preview deregistering a site alias from the site registry."),
+    /** {@code ike:deregister-site-publish} — deregister a site alias. */
     DEREGISTER_SITE_PUBLISH("deregister-site-publish", DeregisterSitePublishMojo.class,
             "Deregister a site alias from the site registry."),
+    /** {@code ike:fix-svg} — post-process SVGs for PDF renderer compatibility. */
     FIX_SVG("fix-svg", FixSvgMojo.class,
             "Post-process generated SVGs to work in all PDF renderers."),
+    /** {@code ike:generate-bom} — generate the auto-managed BOM. */
     GENERATE_BOM("generate-bom", GenerateBomMojo.class,
             "Generate the auto-managed BOM from the current dependencyManagement."),
+    /** {@code ike:help} — list {@code ike:*} goals from the plugin descriptor. */
     HELP("help", IkeHelpMojo.class,
             "List ike:* goals discovered from the plugin descriptor."),
+    /** {@code ike:inject-breadcrumb} — inject breadcrumbs into rendered HTML. */
     INJECT_BREADCRUMB("inject-breadcrumb", InjectBreadcrumbMojo.class,
             "Inject breadcrumb navigation into rendered HTML."),
+    /** {@code ike:jpackage-props} — emit jpackage properties from reactor config. */
     JPACKAGE_PROPS("jpackage-props", JpackagePropsMojo.class,
             "Emit jpackage properties files from reactor configuration."),
+    /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
     NOTARIZE("notarize", NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
+    /** {@code ike:package-doc} — package rendered docs as an ike-doc artifact. */
     PACKAGE_DOC("package-doc", PackageDocMojo.class,
             "Package rendered docs as an ike-doc artifact."),
+    /** {@code ike:patch-docbook} — apply local patches to DocBook XSL output. */
     PATCH_DOCBOOK("patch-docbook", PatchDocbookMojo.class,
             "Apply local patches to the DocBook XSL output."),
+    /** {@code ike:prepare-renderer-output} — prepare per-renderer output dirs. */
     PREPARE_RENDERER_OUTPUT("prepare-renderer-output", PrepareRendererOutputMojo.class,
             "Prepare per-renderer output directories."),
+    /** {@code ike:register-site-draft} — preview registering a site alias. */
     REGISTER_SITE_DRAFT("register-site-draft", RegisterSiteDraftMojo.class,
             "Preview registering a site alias in the site registry."),
+    /** {@code ike:register-site-publish} — register a site alias. */
     REGISTER_SITE_PUBLISH("register-site-publish", RegisterSitePublishMojo.class,
             "Register a site alias in the site registry."),
+    /** {@code ike:release-draft} — preview releasing the current project. */
     RELEASE_DRAFT("release-draft", ReleaseDraftMojo.class,
             "Preview releasing the current project."),
+    /** {@code ike:release-publish} — release the current project (tag + publish). */
     RELEASE_PUBLISH("release-publish", ReleasePublishMojo.class,
             "Release the current project (tag + publish)."),
+    /** {@code ike:rename} — rename output files to a canonical pattern. */
     RENAME("rename", RenameMojo.class,
             "Rename output files to a canonical pattern."),
+    /** {@code ike:render-pdf} — render AsciiDoc to PDF via a configured renderer. */
     RENDER_PDF("render-pdf", RenderPdfMojo.class,
             "Render AsciiDoc to PDF via a configured renderer."),
+    /** {@code ike:scan-logs} — scan renderer logs for warnings and errors. */
     SCAN_LOGS("scan-logs", ScanRendererLogsMojo.class,
             "Scan renderer logs for warnings and errors."),
+    /** {@code ike:setup} — one-time setup for an IKE development machine. */
     SETUP("setup", SetupMojo.class,
             "One-time setup for an IKE development machine."),
+    /** {@code ike:unpack-zip} — unpack a zip artifact into a target directory. */
     UNPACK_ZIP("unpack-zip", UnpackZipMojo.class,
             "Unpack a zip artifact into a target directory.");
 
@@ -96,32 +125,56 @@ public enum IkeGoal {
         this.description = description;
     }
 
-    /** The bare goal name as it appears in {@code @Mojo(name = ...)}. */
+    /**
+     * The bare goal name as it appears in {@code @Mojo(name = ...)}.
+     *
+     * @return the bare goal name
+     */
     public String goalName() {
         return goalName;
     }
 
-    /** The fully-qualified goal invocation, e.g. {@code "ike:release-publish"}. */
+    /**
+     * The fully-qualified goal invocation, e.g. {@code "ike:release-publish"}.
+     *
+     * @return the fully-qualified goal invocation
+     */
     public String qualified() {
         return PLUGIN_PREFIX + ":" + goalName;
     }
 
-    /** The mojo class that implements this goal. */
+    /**
+     * The mojo class that implements this goal.
+     *
+     * @return the mojo class
+     */
     public Class<? extends Mojo> mojoClass() {
         return mojoClass;
     }
 
-    /** One-line human description of what this goal does. */
+    /**
+     * One-line human description of what this goal does.
+     *
+     * @return the human description
+     */
     public String description() {
         return description;
     }
 
-    /** True if this is the {@code -draft} counterpart of a draft/publish pair. */
+    /**
+     * True if this is the {@code -draft} counterpart of a draft/publish pair.
+     *
+     * @return {@code true} when this goal is a draft variant
+     */
     public boolean isDraft() {
         return goalName.endsWith(DRAFT_SUFFIX);
     }
 
-    /** True if this is the {@code -publish} counterpart of a draft/publish pair. */
+    /**
+     * True if this is the {@code -publish} counterpart of a draft/publish pair.
+     *
+     * @return {@code true} when this goal is a publish variant
+     */
     public boolean isPublish() {
         return goalName.endsWith(PUBLISH_SUFFIX);
     }

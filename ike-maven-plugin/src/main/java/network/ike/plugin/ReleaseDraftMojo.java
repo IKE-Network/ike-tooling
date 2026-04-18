@@ -697,33 +697,29 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
     }
 
     /**
-     * Check that {@code mvn javadoc:javadoc} produces no warnings in
-     * {@code gitRoot}. On {@code publish} mode any warning aborts the
-     * release; on draft mode warnings are logged so the user sees what
-     * would block the real release.
+     * Check that javadoc generation — as the release profile runs it —
+     * produces no warnings across every reactor module. On
+     * {@code publish} mode any warning aborts the release; on draft
+     * mode warnings are logged so the user sees what would block the
+     * real release.
      *
-     * <p>Skipped when no {@code src/main/java} tree is present —
-     * doc-only and POM-only modules have nothing to check.
+     * <p>Skipped when no {@code src/main/java} tree exists anywhere in
+     * the reactor (doc-only / POM-only repos have nothing to check).
      *
-     * <p>Runs with {@code -DfailOnError=false -DfailOnWarnings=false}
-     * so every warning is reported in a single pass rather than
-     * stopping at the first one.
+     * <p>Matches the release path by invoking {@code mvn compile
+     * javadoc:jar} across the reactor — the same goal the {@code
+     * release} profile uses. {@code -DfailOnError=false
+     * -DfailOnWarnings=false} prevent the child build from exiting
+     * early so every module's warnings are collected in a single pass.
      *
-     * @param gitRoot module root whose javadoc is inspected
+     * @param gitRoot reactor root whose javadoc is inspected
      * @param publish {@code true} for publish mode (hard fail),
      *                {@code false} for draft mode (warn only)
      * @throws MojoException if publish mode and warnings are present
      */
     private void preflightJavadoc(File gitRoot, boolean publish)
             throws MojoException {
-        File javaSources = new File(gitRoot, "src/main/java");
-        if (!javaSources.isDirectory()) {
-            // No Java sources at the root — check any module
-            // subdirectories (reactor build).
-            if (!hasAnyJavaModule(gitRoot)) {
-                return;
-            }
-        }
+        if (!hasAnyJavaSource(gitRoot)) return;
 
         List<String> warnings = collectJavadocWarnings(gitRoot);
         getLog().info("");
@@ -750,13 +746,15 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
     }
 
     /**
-     * Return {@code true} if any subdirectory of {@code gitRoot} has a
-     * {@code src/main/java} tree (i.e. this is a multi-module reactor).
+     * Return {@code true} if {@code gitRoot} or any direct subdirectory
+     * contains a {@code src/main/java} tree. Covers both single-module
+     * and flat multi-module reactor layouts.
      *
      * @param gitRoot the repository root to search
-     * @return {@code true} if at least one module contains Java sources
+     * @return {@code true} if at least one Java source tree is present
      */
-    private boolean hasAnyJavaModule(File gitRoot) {
+    private boolean hasAnyJavaSource(File gitRoot) {
+        if (new File(gitRoot, "src/main/java").isDirectory()) return true;
         File[] entries = gitRoot.listFiles();
         if (entries == null) return false;
         for (File entry : entries) {
@@ -767,13 +765,15 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
     }
 
     /**
-     * Run {@code mvn -q javadoc:javadoc} in {@code gitRoot} and return
-     * every line matching {@code warning:}, stripped of the leading
-     * {@code [WARNING] } prefix. Tolerates subprocess failure so the
-     * release does not abort on an infrastructure issue (a real javadoc
-     * failure will resurface during the subsequent build phase).
+     * Run {@code mvn compile javadoc:jar} at {@code gitRoot} to mirror
+     * the release's javadoc path across every reactor module, and
+     * return every line matching {@code warning:} stripped of the
+     * leading {@code [WARNING] } prefix. Tolerates subprocess failure
+     * so the release does not abort on an infrastructure issue (a real
+     * javadoc failure will resurface during the subsequent build
+     * phase).
      *
-     * @param gitRoot the repository root in which to run javadoc
+     * @param gitRoot the reactor root in which to run javadoc
      * @return the captured warning lines in encounter order; empty if
      *         javadoc produced no warnings or the subprocess failed
      */
@@ -781,7 +781,9 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
         List<String> warnings = new ArrayList<>();
         try {
             Process proc = new ProcessBuilder(
-                    "mvn", "-q", "javadoc:javadoc",
+                    "mvn", "-q", "-B",
+                    "compile", "javadoc:jar",
+                    "-DskipTests",
                     "-DfailOnError=false",
                     "-DfailOnWarnings=false")
                     .directory(gitRoot)
