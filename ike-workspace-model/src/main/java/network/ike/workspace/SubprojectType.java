@@ -52,22 +52,38 @@ public enum SubprojectType {
         this.checkpointMechanism = checkpointMechanism;
     }
 
-    /** The lowercase identifier used in {@code workspace.yaml} {@code type:} fields. */
+    /**
+     * The lowercase identifier used in {@code workspace.yaml} {@code type:} fields.
+     *
+     * @return the yaml identifier for this subproject type
+     */
     public String yamlName() {
         return yamlName;
     }
 
-    /** Short human description of what this category of subproject is. */
+    /**
+     * Short human description of what this category of subproject is.
+     *
+     * @return the human-readable description
+     */
     public String description() {
         return description;
     }
 
-    /** The default Maven invocation for building a subproject of this type. */
+    /**
+     * The default Maven invocation for building a subproject of this type.
+     *
+     * @return the build command
+     */
     public String buildCommand() {
         return buildCommand;
     }
 
-    /** How a subproject of this type records reproducible state for a checkpoint. */
+    /**
+     * How a subproject of this type records reproducible state for a checkpoint.
+     *
+     * @return the checkpoint mechanism
+     */
     public CheckpointMechanism checkpointMechanism() {
         return checkpointMechanism;
     }
