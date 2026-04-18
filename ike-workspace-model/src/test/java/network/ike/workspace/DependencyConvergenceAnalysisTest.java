@@ -38,7 +38,7 @@ class DependencyConvergenceAnalysisTest {
         assertThat(d.groupId()).isEqualTo("org.slf4j");
         assertThat(d.artifactId()).isEqualTo("slf4j-api");
         assertThat(d.versionCount()).isEqualTo(2);
-        assertThat(d.versionToComponents()).containsKeys("2.0.16", "2.0.9");
+        assertThat(d.versionToSubprojects()).containsKeys("2.0.16", "2.0.9");
     }
 
     @Test
@@ -106,7 +106,7 @@ class DependencyConvergenceAnalysisTest {
                 divergences, "test-ws");
 
         assertThat(md).contains("# Dependency Convergence — test-ws");
-        assertThat(md).contains("| Artifact | Versions | Components |");
+        assertThat(md).contains("| Artifact | Versions | Subprojects |");
         assertThat(md).contains("`org.slf4j:slf4j-api`");
         assertThat(md).contains("## Details");
         assertThat(md).contains("**2.0.16**");

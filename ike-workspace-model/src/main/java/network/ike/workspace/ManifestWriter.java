@@ -75,7 +75,7 @@ public final class ManifestWriter {
 
     /**
      * Update the sha field for one or more components. If the sha field
-     * does not exist in the component block, it is inserted after the
+     * does not exist in the subproject block, it is inserted after the
      * branch field.
      *
      * @param manifestPath path to workspace.yaml
@@ -97,11 +97,11 @@ public final class ManifestWriter {
     }
 
     /**
-     * Update a field in a component block, or insert it after a reference
+     * Update a field in a subproject block, or insert it after a reference
      * field if it doesn't exist yet.
      *
      * @param yaml          full YAML content
-     * @param componentName the component key
+     * @param componentName the subproject key
      * @param field         the field name to update or insert
      * @param newValue      the new value (pre-quoted if needed)
      * @param afterField    insert after this field if the target field is absent
@@ -155,11 +155,11 @@ public final class ManifestWriter {
     }
 
     /**
-     * Update a named field within a component block in the YAML text.
+     * Update a named field within a subproject block in the YAML text.
      *
      * @param yaml          full YAML content
-     * @param componentName the component key to find
-     * @param field         the field name within the component block
+     * @param componentName the subproject key to find
+     * @param field         the field name within the subproject block
      * @param newValue      the new value
      * @return updated YAML content
      */
@@ -182,14 +182,14 @@ public final class ManifestWriter {
 
     /**
      * Update the branch field for a single component in the YAML text.
-     * If the component block does not yet declare a {@code branch:} field,
+     * If the subproject block does not yet declare a {@code branch:} field,
      * it is inserted after the {@code type:} line so the manifest and git
      * state stay in sync (see issue #159).
      *
      * @param yaml          full YAML content
-     * @param componentName the component key to find
+     * @param componentName the subproject key to find
      * @param newBranch     the new branch value
-     * @return updated YAML content (unchanged if the component is absent)
+     * @return updated YAML content (unchanged if the subproject is absent)
      */
     public static String updateComponentBranch(String yaml, String componentName, String newBranch) {
         return addOrUpdateComponentField(yaml, componentName, "branch", newBranch, "type");

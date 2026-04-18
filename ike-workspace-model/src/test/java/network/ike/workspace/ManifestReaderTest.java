@@ -43,7 +43,7 @@ class ManifestReaderTest {
 
     @Test
     void parsesComponentFields() {
-        Component tinkar = manifest.components().get("tinkar-core");
+        Subproject tinkar = manifest.components().get("tinkar-core");
         assertThat(tinkar.type()).isEqualTo(SubprojectType.SOFTWARE);
         assertThat(tinkar.repo()).isEqualTo("https://github.com/ikmdev/tinkar-core.git");
         assertThat(tinkar.branch()).isEqualTo("feature/kec-jan-24");
@@ -53,7 +53,7 @@ class ManifestReaderTest {
 
     @Test
     void parsesDependencies() {
-        Component komet = manifest.components().get("komet");
+        Subproject komet = manifest.components().get("komet");
         assertThat(komet.dependsOn()).hasSize(3);
         assertThat(komet.dependsOn()).extracting(Dependency::component)
                 .containsExactly("tinkar-core", "rocks-kb", "ike-bom");
@@ -63,7 +63,7 @@ class ManifestReaderTest {
 
     @Test
     void parsesContentRelationship() {
-        Component labDocs = manifest.components().get("ike-lab-documents");
+        Subproject labDocs = manifest.components().get("ike-lab-documents");
         assertThat(labDocs.dependsOn()).extracting(Dependency::relationship)
                 .contains("content");
         assertThat(labDocs.dependsOn()).extracting(Dependency::component)
@@ -72,25 +72,25 @@ class ManifestReaderTest {
 
     @Test
     void parsesNullVersion() {
-        Component labDocs = manifest.components().get("ike-lab-documents");
+        Subproject labDocs = manifest.components().get("ike-lab-documents");
         assertThat(labDocs.version()).isNull();
     }
 
     @Test
     void parsesEmptyDependencies() {
-        Component parent = manifest.components().get("ike-parent");
+        Subproject parent = manifest.components().get("ike-parent");
         assertThat(parent.dependsOn()).isEmpty();
     }
 
     @Test
     void parsesComponentMavenVersionOverride() {
-        Component komet = manifest.components().get("komet");
+        Subproject komet = manifest.components().get("komet");
         assertThat(komet.mavenVersion()).isEqualTo("4.0.0-rc-3");
     }
 
     @Test
     void inheritsNullMavenVersionWhenNotSpecified() {
-        Component tinkar = manifest.components().get("tinkar-core");
+        Subproject tinkar = manifest.components().get("tinkar-core");
         assertThat(tinkar.mavenVersion()).isNull();
     }
 

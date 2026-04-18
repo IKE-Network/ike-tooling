@@ -10,13 +10,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Scans a Maven component root to determine the complete set of
+ * Scans a Maven subproject root to determine the complete set of
  * published artifacts (groupId:artifactId pairs).
  *
  * <p>This is the "published artifact set" from the handoff design:
- * given a component root directory, recursively walk the POM hierarchy
+ * given a subproject root directory, recursively walk the POM hierarchy
  * (root POM plus all subprojects/modules) and collect every
- * groupId:artifactId pair that the component publishes.
+ * groupId:artifactId pair that the subproject publishes.
  *
  * <p>POM parsing uses simple regex matching (consistent with the
  * {@code ReleaseSupport} pattern) rather than a full XML parser.
@@ -50,26 +50,26 @@ public final class PublishedArtifactSet {
             Pattern.compile("(?s)<parent>.*?</parent>");
 
     /**
-     * Scan a component root and return the complete set of published
+     * Scan a subproject root and return the complete set of published
      * artifacts (groupId:artifactId pairs).
      *
      * <p>Reads the root pom.xml, extracts its coordinates, then
      * recursively descends into each subproject (or module) directory
      * to collect all published artifacts.
      *
-     * @param componentRoot the root directory of the Maven component
+     * @param subprojectRoot the root directory of the Maven subproject
      * @return the set of all published artifacts
      * @throws IOException if a POM file cannot be read
      */
-    public static Set<Artifact> scan(Path componentRoot) throws IOException {
+    public static Set<Artifact> scan(Path subprojectRoot) throws IOException {
         Set<Artifact> artifacts = new LinkedHashSet<>();
-        Path rootPom = componentRoot.resolve("pom.xml");
+        Path rootPom = subprojectRoot.resolve("pom.xml");
 
         if (!Files.exists(rootPom)) {
             return artifacts;
         }
 
-        scanPom(componentRoot, rootPom, null, artifacts);
+        scanPom(subprojectRoot, rootPom, null, artifacts);
         return artifacts;
     }
 
@@ -90,12 +90,12 @@ public final class PublishedArtifactSet {
      * Parse a single POM, add its artifact to the set, then recurse
      * into any declared subprojects or modules.
      *
-     * @param componentRoot  the component root (for resolving relative paths)
+     * @param subprojectRoot  the subproject root (for resolving relative paths)
      * @param pomPath        the POM file to parse
      * @param inheritGroupId the parent groupId to inherit if not declared
      * @param artifacts      accumulator for discovered artifacts
      */
-    private static void scanPom(Path componentRoot, Path pomPath,
+    private static void scanPom(Path subprojectRoot, Path pomPath,
                                 String inheritGroupId,
                                 Set<Artifact> artifacts) throws IOException {
         String content = Files.readString(pomPath, StandardCharsets.UTF_8);
@@ -152,7 +152,7 @@ public final class PublishedArtifactSet {
             String subproject = subMatcher.group(1).trim();
             Path subPom = pomDir.resolve(subproject).resolve("pom.xml");
             if (Files.exists(subPom)) {
-                scanPom(componentRoot, subPom, effectiveGroupId, artifacts);
+                scanPom(subprojectRoot, subPom, effectiveGroupId, artifacts);
             }
         }
 
@@ -162,7 +162,7 @@ public final class PublishedArtifactSet {
             String module = modMatcher.group(1).trim();
             Path modPom = pomDir.resolve(module).resolve("pom.xml");
             if (Files.exists(modPom)) {
-                scanPom(componentRoot, modPom, effectiveGroupId, artifacts);
+                scanPom(subprojectRoot, modPom, effectiveGroupId, artifacts);
             }
         }
     }

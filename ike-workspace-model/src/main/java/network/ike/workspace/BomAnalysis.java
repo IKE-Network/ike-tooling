@@ -17,21 +17,21 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Analyzes BOM imports in workspace component POMs to detect
+ * Analyzes BOM imports in workspace subproject POMs to detect
  * version cascade gaps and support feature-start BOM updates.
  *
  * <p>Key concepts:
  * <ul>
  *   <li><strong>Workspace-internal BOM:</strong> a BOM (pom import)
  *       whose groupId:artifactId is in the published artifact set
- *       of a workspace component</li>
+ *       of a workspace subproject</li>
  *   <li><strong>External BOM:</strong> a BOM not published by any
- *       workspace component</li>
- *   <li><strong>Cascade gap:</strong> when component A depends on
- *       component B, but A has no version-property or workspace-internal
+ *       workspace subproject</li>
+ *   <li><strong>Cascade gap:</strong> when subproject A depends on
+ *       subproject B, but A has no version-property or workspace-internal
  *       BOM import that tracks B's version</li>
  *   <li><strong>External pin:</strong> an external BOM manages
- *       artifacts published by a workspace component, potentially
+ *       artifacts published by a workspace subproject, potentially
  *       overriding the workspace version</li>
  * </ul>
  */
@@ -40,32 +40,32 @@ public final class BomAnalysis {
     private BomAnalysis() {}
 
     /**
-     * A BOM import found in a component's {@code <dependencyManagement>}.
+     * A BOM import found in a subproject's {@code <dependencyManagement>}.
      *
      * @param groupId    BOM groupId
      * @param artifactId BOM artifactId
      * @param version    declared version (may contain ${property} refs)
-     * @param isWorkspaceInternal true if published by a workspace component
-     * @param publishingComponent name of the workspace component that
+     * @param isWorkspaceInternal true if published by a workspace subproject
+     * @param publishingSubproject name of the workspace subproject that
      *                            publishes this BOM (null if external)
      * @param orderIndex position in the import list (0-based, for
      *                   precedence analysis)
      */
     public record BomImport(String groupId, String artifactId, String version,
                             boolean isWorkspaceInternal,
-                            String publishingComponent,
+                            String publishingSubproject,
                             int orderIndex) {}
 
     /**
-     * A detected cascade issue for a component.
+     * A detected cascade issue for a subproject.
      *
-     * @param componentName    the component with the issue
-     * @param dependsOn        the upstream component it depends on
+     * @param subprojectName   the subproject with the issue
+     * @param dependsOn        the upstream subproject it depends on
      * @param hasVersionProperty whether a version-property tracks upstream
      * @param hasWorkspaceBom  whether a workspace-internal BOM import exists
      * @param externalBomPins  external BOMs that manage upstream's artifacts
      */
-    public record CascadeIssue(String componentName, String dependsOn,
+    public record CascadeIssue(String subprojectName, String dependsOn,
                                 boolean hasVersionProperty,
                                 boolean hasWorkspaceBom,
                                 List<BomImport> externalBomPins) {
@@ -91,11 +91,11 @@ public final class BomAnalysis {
     }
 
     /**
-     * Extract all BOM imports from a component's root POM's
+     * Extract all BOM imports from a subproject's root POM's
      * {@code <dependencyManagement>} section.
      *
      * @param pomFile the root POM to analyze
-     * @param workspaceArtifacts map of workspace component name to
+     * @param workspaceArtifacts map of workspace subproject name to
      *        its published artifact set
      * @return list of BOM imports in declaration order
      * @throws IOException if the POM cannot be read or parsed
@@ -138,22 +138,22 @@ public final class BomAnalysis {
 
                 if (gid == null || aid == null) continue;
 
-                // Check if this BOM is published by a workspace component
-                String publishingComponent = null;
+                // Check if this BOM is published by a workspace subproject
+                String publishingSubproject = null;
                 for (var entry : workspaceArtifacts.entrySet()) {
                     for (var artifact : entry.getValue()) {
                         if (artifact.groupId().equals(gid)
                                 && artifact.artifactId().equals(aid)) {
-                            publishingComponent = entry.getKey();
+                            publishingSubproject = entry.getKey();
                             break;
                         }
                     }
-                    if (publishingComponent != null) break;
+                    if (publishingSubproject != null) break;
                 }
 
                 imports.add(new BomImport(gid, aid, ver,
-                        publishingComponent != null,
-                        publishingComponent, index));
+                        publishingSubproject != null,
+                        publishingSubproject, index));
                 index++;
             }
         }
@@ -162,13 +162,13 @@ public final class BomAnalysis {
     }
 
     /**
-     * Analyze cascade issues for all components in the workspace.
+     * Analyze cascade issues for all subprojects in the workspace.
      *
      * @param wsDir         workspace root directory
      * @param manifest      the workspace manifest
-     * @param workspaceArtifacts published artifacts per component
+     * @param workspaceArtifacts published artifacts per subproject
      * @return list of cascade issues (empty if all edges can cascade)
-     * @throws IOException if a component POM cannot be read
+     * @throws IOException if a subproject POM cannot be read
      */
     public static List<CascadeIssue> analyzeCascadeIssues(
             Path wsDir, Manifest manifest,
@@ -178,23 +178,23 @@ public final class BomAnalysis {
         List<CascadeIssue> issues = new ArrayList<>();
 
         for (var entry : manifest.components().entrySet()) {
-            String compName = entry.getKey();
-            Component comp = entry.getValue();
+            String subprojectName = entry.getKey();
+            Subproject sub = entry.getValue();
 
-            if (comp.dependsOn() == null || comp.dependsOn().isEmpty()) continue;
+            if (sub.dependsOn() == null || sub.dependsOn().isEmpty()) continue;
 
-            Path pomFile = wsDir.resolve(compName).resolve("pom.xml");
+            Path pomFile = wsDir.resolve(subprojectName).resolve("pom.xml");
             List<BomImport> bomImports = extractBomImports(
                     pomFile, workspaceArtifacts);
 
-            for (Dependency dep : comp.dependsOn()) {
+            for (Dependency dep : sub.dependsOn()) {
                 String upstream = dep.component();
                 boolean hasVersionProp = dep.versionProperty() != null;
 
                 // Check if any workspace-internal BOM import tracks upstream
                 boolean hasWorkspaceBom = bomImports.stream()
                         .anyMatch(b -> b.isWorkspaceInternal
-                                && upstream.equals(b.publishingComponent));
+                                && upstream.equals(b.publishingSubproject));
 
                 // Find external BOMs that manage upstream's artifacts
                 Set<PublishedArtifactSet.Artifact> upstreamArtifacts =
@@ -214,7 +214,7 @@ public final class BomAnalysis {
                 }
 
                 if (!hasVersionProp && !hasWorkspaceBom) {
-                    issues.add(new CascadeIssue(compName, upstream,
+                    issues.add(new CascadeIssue(subprojectName, upstream,
                             hasVersionProp, hasWorkspaceBom, externalPins));
                 }
             }

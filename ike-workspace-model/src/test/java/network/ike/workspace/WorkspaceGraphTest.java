@@ -96,7 +96,7 @@ class WorkspaceGraphTest {
     void cascadeFromUnknownComponentThrows() {
         assertThatThrownBy(() -> graph.cascade("nonexistent"))
                 .isInstanceOf(ManifestException.class)
-                .hasMessageContaining("Unknown component");
+                .hasMessageContaining("Unknown subproject");
     }
 
     // ── Cycle Detection ─────────────────────────────────────────────
@@ -155,7 +155,7 @@ class WorkspaceGraphTest {
         Manifest m = ManifestReader.read(new StringReader(yaml));
         WorkspaceGraph g = new WorkspaceGraph(m);
         List<String> errors = g.verify();
-        assertThat(errors).anyMatch(e -> e.contains("unknown component: missing"));
+        assertThat(errors).anyMatch(e -> e.contains("unknown subproject: missing"));
     }
 
     @Test

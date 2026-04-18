@@ -13,7 +13,7 @@ import java.util.Set;
 /**
  * Graph operations over a workspace {@link Manifest}.
  *
- * <p>All algorithms operate on the component dependency graph defined
+ * <p>All algorithms operate on the subproject dependency graph defined
  * by {@code depends-on} entries in workspace.yaml. The graph is small
  * (typically &lt; 20 nodes) so simple implementations are preferred
  * over library dependencies.
@@ -22,10 +22,10 @@ public final class WorkspaceGraph {
 
     private final Manifest manifest;
 
-    /** Forward edges: component → components it depends on. */
+    /** Forward edges: subproject → subprojects it depends on. */
     private final Map<String, List<String>> forward;
 
-    /** Reverse edges: component → components that depend on it. */
+    /** Reverse edges: subproject → subprojects that depend on it. */
     private final Map<String, List<String>> reverse;
 
     /**
@@ -50,11 +50,11 @@ public final class WorkspaceGraph {
     // ── Topological Sort ────────────────────────────────────────────
 
     /**
-     * Topological sort of the given components (or all if none specified).
+     * Topological sort of the given subprojects (or all if none specified).
      * Dependencies outside the target set are ignored.
      *
-     * @param targetNames components to include; empty means all
-     * @return components in dependency order (dependencies first)
+     * @param targetNames subprojects to include; empty means all
+     * @return subprojects in dependency order (dependencies first)
      * @throws ManifestException if a cycle is detected
      */
     public List<String> topologicalSort(Set<String> targetNames) {
@@ -105,9 +105,9 @@ public final class WorkspaceGraph {
     }
 
     /**
-     * Topological sort of all components.
+     * Topological sort of all subprojects.
      *
-     * @return component names in dependency order (leaves first)
+     * @return subproject names in dependency order (leaves first)
      */
     public List<String> topologicalSort() {
         return topologicalSort(Set.of());
@@ -116,27 +116,27 @@ public final class WorkspaceGraph {
     // ── Cascade Analysis ────────────────────────────────────────────
 
     /**
-     * Compute the propagation set: all components that transitively
-     * depend on the given component (BFS on reverse edges).
+     * Compute the propagation set: all subprojects that transitively
+     * depend on the given subproject (BFS on reverse edges).
      *
-     * <p>The result does NOT include the starting component itself.
+     * <p>The result does NOT include the starting subproject itself.
      *
-     * @param componentName the changed component
-     * @return components affected by a change, in BFS discovery order
-     * @throws ManifestException if the component does not exist
+     * @param subprojectName the changed subproject
+     * @return subprojects affected by a change, in BFS discovery order
+     * @throws ManifestException if the subproject does not exist
      */
-    public List<String> cascade(String componentName) {
-        if (!manifest.components().containsKey(componentName)) {
+    public List<String> cascade(String subprojectName) {
+        if (!manifest.components().containsKey(subprojectName)) {
             throw new ManifestException(
-                    "Unknown component: " + componentName);
+                    "Unknown subproject: " + subprojectName);
         }
 
         List<String> result = new ArrayList<>();
         Set<String> visited = new LinkedHashSet<>();
-        visited.add(componentName);
+        visited.add(subprojectName);
 
         Deque<String> queue = new ArrayDeque<>();
-        queue.add(componentName);
+        queue.add(subprojectName);
 
         while (!queue.isEmpty()) {
             String current = queue.poll();
@@ -155,7 +155,7 @@ public final class WorkspaceGraph {
 
     /**
      * Detect dependency cycles. Returns the first cycle found as a
-     * list of component names forming the cycle, or an empty list
+     * list of subproject names forming the cycle, or an empty list
      * if no cycles exist.
      *
      * @return cycle path, or empty list if acyclic
@@ -221,11 +221,11 @@ public final class WorkspaceGraph {
     public List<String> verify() {
         List<String> errors = new ArrayList<>();
 
-        // Check 1: all dependency targets exist as components
-        for (Component component : manifest.components().values()) {
-            for (Dependency dep : component.dependsOn()) {
+        // Check 1: all dependency targets exist as subprojects
+        for (Subproject subproject : manifest.components().values()) {
+            for (Dependency dep : subproject.dependsOn()) {
                 if (!manifest.components().containsKey(dep.component())) {
-                    errors.add(component.name() + " depends on unknown component: "
+                    errors.add(subproject.name() + " depends on unknown subproject: "
                             + dep.component());
                 }
             }
@@ -238,7 +238,7 @@ public final class WorkspaceGraph {
         }
 
         // Type validity is enforced at parse time by SubprojectType.fromYamlName,
-        // so by the time we reach verify() every component.type() is a valid
+        // so by the time we reach verify() every subproject.type() is a valid
         // enum value — no additional check needed here.
 
         return Collections.unmodifiableList(errors);
@@ -262,12 +262,12 @@ public final class WorkspaceGraph {
 
     private Map<String, List<String>> buildForwardEdges() {
         Map<String, List<String>> edges = new LinkedHashMap<>();
-        for (Component component : manifest.components().values()) {
+        for (Subproject subproject : manifest.components().values()) {
             List<String> deps = new ArrayList<>();
-            for (Dependency dep : component.dependsOn()) {
+            for (Dependency dep : subproject.dependsOn()) {
                 deps.add(dep.component());
             }
-            edges.put(component.name(), Collections.unmodifiableList(deps));
+            edges.put(subproject.name(), Collections.unmodifiableList(deps));
         }
         return Collections.unmodifiableMap(edges);
     }
@@ -277,10 +277,10 @@ public final class WorkspaceGraph {
         for (String name : manifest.components().keySet()) {
             edges.put(name, new ArrayList<>());
         }
-        for (Component component : manifest.components().values()) {
-            for (Dependency dep : component.dependsOn()) {
+        for (Subproject subproject : manifest.components().values()) {
+            for (Dependency dep : subproject.dependsOn()) {
                 edges.computeIfAbsent(dep.component(), k -> new ArrayList<>())
-                        .add(component.name());
+                        .add(subproject.name());
             }
         }
         // Make immutable

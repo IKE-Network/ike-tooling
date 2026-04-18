@@ -62,7 +62,7 @@ public final class ManifestReader {
         // now carries the build command and checkpoint mechanism as
         // compile-time data. A present section is silently ignored;
         // ws:align strips it from workspace.yaml.
-        Map<String, Component> components = parseComponents(
+        Map<String, Subproject> components = parseComponents(
                 mapField(root, "components"), defaults);
         IdeSettings ide = parseIdeSettings(mapField(root, "ide"));
 
@@ -90,12 +90,12 @@ public final class ManifestReader {
         );
     }
 
-    private static Map<String, Component> parseComponents(
+    private static Map<String, Subproject> parseComponents(
             Map<String, Object> map, Defaults defaults) {
         if (map == null) {
             return Map.of();
         }
-        Map<String, Component> result = new LinkedHashMap<>();
+        Map<String, Subproject> result = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : map.entrySet()) {
             String name = entry.getKey();
             @SuppressWarnings("unchecked")
@@ -105,7 +105,7 @@ public final class ManifestReader {
         return Collections.unmodifiableMap(result);
     }
 
-    private static Component parseComponent(String name,
+    private static Subproject parseComponent(String name,
                                              Map<String, Object> fields,
                                              Defaults defaults) {
         String branch = stringField(fields, "branch", defaults.branch());
@@ -120,7 +120,7 @@ public final class ManifestReader {
                 (List<Map<String, Object>>) fields.get("depends-on");
         List<Dependency> deps = parseDependencies(depsRaw);
 
-        return new Component(
+        return new Subproject(
                 name,
                 SubprojectType.fromYamlName(
                         stringField(fields, "type", "software")),
