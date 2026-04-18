@@ -18,7 +18,6 @@
 #   - YAML because this is human-authored configuration with commentary.
 #   - Describes reality, not aspiration. Migration notes are inline.
 #   - depends-on captures inter-repo relationships Maven cannot express.
-#   - Groups enable partial operations without enumerating repos manually.
 #   - Builder-facing: this file drives `ws` CLI operations. Consumer-facing
 #     snapshots are checkpoint files (see ws checkpoint).
 
@@ -27,44 +26,20 @@ generated: 2026-02-25
 
 defaults:
   # No single default org — repos span three orgs.
-  # Each component specifies its own repo URL.
+  # Each subproject specifies its own repo URL.
   branch: main
   maven-version: "4.0.0-rc-5"
 
-# ─── Component types ──────────────────────────────────────────────
-
-component-types:
-  infrastructure:
-    description: "Build tooling, parent POMs, shared resources"
-    build-command: "mvn clean install"
-    checkpoint-mechanism: git-tag
-  software:
-    description: "Java libraries and applications"
-    build-command: "mvn clean install"
-    checkpoint-mechanism: git-tag
-  document:
-    description: "AsciiDoc topic libraries and assemblies"
-    build-command: "mvn clean verify"
-    checkpoint-mechanism: git-tag
-  knowledge-source:
-    description: "Terminology/ontology source → Tinkar import"
-    build-command: "mvn clean install -Pimport"
-    checkpoint-mechanism: composite  # git-tag + view-coordinate
-  template:
-    description: "GitHub template repos for new projects"
-    build-command: "mvn clean install"
-    checkpoint-mechanism: git-tag
-
-# ─── Components ───────────────────────────────────────────────────
+# ─── Subprojects ──────────────────────────────────────────────────
 #
-# Each component is a git repository. The dependency graph defined
+# Each subproject is a git repository. The dependency graph defined
 # by depends-on captures INTER-REPO relationships only.
 #
 # MIGRATION NOTES are inline where current state differs from target.
 # These document the incremental upgrade path without blocking
 # current functionality.
 
-components:
+subprojects:
 
   # ── Foundation: Java build conventions ──────────────────────────
   #
@@ -121,7 +96,7 @@ components:
     version: 1.127.2-kec-jan-24-SNAPSHOT
     groupId: dev.ikm.tinkar
     depends-on:
-      - component: ike-bom
+      - subproject: ike-bom
         relationship: build    # imports BOM for version management
     notes: >
       MIGRATION: Repo is in ikmdev org (target: IKE-Community).
@@ -138,9 +113,9 @@ components:
     version: 0.1.0-kec-rocks-jan-25-SNAPSHOT
     groupId: dev.ikm.ike
     depends-on:
-      - component: tinkar-core
+      - subproject: tinkar-core
         relationship: build
-      - component: ike-bom
+      - subproject: ike-bom
         relationship: build
     notes: >
       MIGRATION: Repo is in ikmdev org (target: IKE-Community).
@@ -156,7 +131,7 @@ components:
     version: 1.0.0-SNAPSHOT
     groupId: dev.ikm
     depends-on:
-      - component: ike-parent
+      - subproject: ike-parent
         relationship: build    # parent POM: dev.ikm:ike-parent:1.0.0-SNAPSHOT
     notes: >
       On develop branch (gitflow). Parent is dev.ikm:ike-parent
@@ -175,11 +150,11 @@ components:
     version: 1.58.0-kec-jan-24-SNAPSHOT
     groupId: dev.ikm.komet
     depends-on:
-      - component: tinkar-core
+      - subproject: tinkar-core
         relationship: build
-      - component: rocks-kb
+      - subproject: rocks-kb
         relationship: build
-      - component: ike-bom
+      - subproject: ike-bom
         relationship: build
     maven-version: "4.0.0-rc-3"
     notes: >
@@ -197,9 +172,9 @@ components:
     version: 3.0.0-kec-jan-19-SNAPSHOT
     groupId: dev.ikm.build   # inherited from java-parent
     depends-on:
-      - component: komet
+      - subproject: komet
         relationship: build
-      - component: ike-bom
+      - subproject: ike-bom
         relationship: build
     notes: >
       MIGRATION: Repo is in ikmdev org (target: IKE-Community).
@@ -255,11 +230,11 @@ components:
     version: ~
     groupId: network.ike
     depends-on:
-      - component: ike-pipeline
+      - subproject: ike-pipeline
         relationship: build
-      - component: tinkar-core
+      - subproject: tinkar-core
         relationship: content
-      - component: komet
+      - subproject: komet
         relationship: content
 
   ike-infrastructure:
@@ -271,7 +246,7 @@ components:
     version: ~
     groupId: network.ike
     depends-on:
-      - component: ike-pipeline
+      - subproject: ike-pipeline
         relationship: build
 
   ike:
@@ -283,28 +258,5 @@ components:
     version: ~
     groupId: network.ike
     depends-on:
-      - component: ike-pipeline
+      - subproject: ike-pipeline
         relationship: build
-
-# ─── Groups ───────────────────────────────────────────────────────
-#
-# Named subsets for partial workspace operations.
-#
-# The "studio" group matches the MacStudio aggregator's subprojects
-# list — this is the set of repos that build together for the Java
-# application stack.
-
-groups:
-  # The MacStudio reactor (matches IKE.studio/pom.xml subprojects)
-  studio: [ike-parent, ike-bom, extra-tools, tinkar-core, rocks-kb, komet, komet-desktop]
-
-  # The doc pipeline (matches IKE-sandbox working set)
-  docs: [ike-pipeline, ike-lab-documents, ike-infrastructure, ike]
-
-  # Layered subsets for partial builds
-  foundation: [ike-parent, ike-bom]
-  core: [foundation, tinkar-core, rocks-kb]
-  app: [komet, komet-desktop]
-
-  # Everything
-  all: [studio, docs, ike-knowledge-source-template]

@@ -31,9 +31,9 @@ class ManifestReaderTest {
     }
 
     @Test
-    void parsesAllComponents() {
-        assertThat(manifest.components()).hasSize(12);
-        assertThat(manifest.components()).containsKeys(
+    void parsesAllSubprojects() {
+        assertThat(manifest.subprojects()).hasSize(12);
+        assertThat(manifest.subprojects()).containsKeys(
                 "ike-parent", "ike-bom", "tinkar-core", "rocks-kb",
                 "extra-tools", "komet", "komet-desktop",
                 "ike-knowledge-source-template",
@@ -42,8 +42,8 @@ class ManifestReaderTest {
     }
 
     @Test
-    void parsesComponentFields() {
-        Subproject tinkar = manifest.components().get("tinkar-core");
+    void parsesSubprojectFields() {
+        Subproject tinkar = manifest.subprojects().get("tinkar-core");
         assertThat(tinkar.type()).isEqualTo(SubprojectType.SOFTWARE);
         assertThat(tinkar.repo()).isEqualTo("https://github.com/ikmdev/tinkar-core.git");
         assertThat(tinkar.branch()).isEqualTo("feature/kec-jan-24");
@@ -53,9 +53,9 @@ class ManifestReaderTest {
 
     @Test
     void parsesDependencies() {
-        Subproject komet = manifest.components().get("komet");
+        Subproject komet = manifest.subprojects().get("komet");
         assertThat(komet.dependsOn()).hasSize(3);
-        assertThat(komet.dependsOn()).extracting(Dependency::component)
+        assertThat(komet.dependsOn()).extracting(Dependency::subproject)
                 .containsExactly("tinkar-core", "rocks-kb", "ike-bom");
         assertThat(komet.dependsOn()).extracting(Dependency::relationship)
                 .containsOnly("build");
@@ -63,34 +63,34 @@ class ManifestReaderTest {
 
     @Test
     void parsesContentRelationship() {
-        Subproject labDocs = manifest.components().get("ike-lab-documents");
+        Subproject labDocs = manifest.subprojects().get("ike-lab-documents");
         assertThat(labDocs.dependsOn()).extracting(Dependency::relationship)
                 .contains("content");
-        assertThat(labDocs.dependsOn()).extracting(Dependency::component)
+        assertThat(labDocs.dependsOn()).extracting(Dependency::subproject)
                 .contains("tinkar-core", "komet");
     }
 
     @Test
     void parsesNullVersion() {
-        Subproject labDocs = manifest.components().get("ike-lab-documents");
+        Subproject labDocs = manifest.subprojects().get("ike-lab-documents");
         assertThat(labDocs.version()).isNull();
     }
 
     @Test
     void parsesEmptyDependencies() {
-        Subproject parent = manifest.components().get("ike-parent");
+        Subproject parent = manifest.subprojects().get("ike-parent");
         assertThat(parent.dependsOn()).isEmpty();
     }
 
     @Test
-    void parsesComponentMavenVersionOverride() {
-        Subproject komet = manifest.components().get("komet");
+    void parsesSubprojectMavenVersionOverride() {
+        Subproject komet = manifest.subprojects().get("komet");
         assertThat(komet.mavenVersion()).isEqualTo("4.0.0-rc-3");
     }
 
     @Test
     void inheritsNullMavenVersionWhenNotSpecified() {
-        Subproject tinkar = manifest.components().get("tinkar-core");
+        Subproject tinkar = manifest.subprojects().get("tinkar-core");
         assertThat(tinkar.mavenVersion()).isNull();
     }
 
@@ -105,16 +105,16 @@ class ManifestReaderTest {
     void handlesMinimalManifest() {
         String yaml = """
                 schema-version: "1.0"
-                components:
+                subprojects:
                   my-lib:
                     type: software
                     repo: https://example.com/my-lib.git
                 """;
         Manifest m = ManifestReader.read(new StringReader(yaml));
-        assertThat(m.components()).hasSize(1);
-        assertThat(m.components().get("my-lib").branch()).isEqualTo("main");
+        assertThat(m.subprojects()).hasSize(1);
+        assertThat(m.subprojects().get("my-lib").branch()).isEqualTo("main");
         assertThat(m.defaults().mavenVersion()).isNull();
-        assertThat(m.components().get("my-lib").mavenVersion()).isNull();
+        assertThat(m.subprojects().get("my-lib").mavenVersion()).isNull();
     }
 
     @Test
@@ -132,7 +132,7 @@ class ManifestReaderTest {
                 ide:
                   language-level: JDK_25_PREVIEW
                   jdk-name: "25"
-                components: {}
+                subprojects: {}
                 """;
         Manifest m = ManifestReader.read(new StringReader(yaml));
         assertThat(m.ide().languageLevel()).isEqualTo("JDK_25_PREVIEW");
@@ -146,11 +146,45 @@ class ManifestReaderTest {
                 schema-version: "1.0"
                 ide:
                   language-level: JDK_21
-                components: {}
+                subprojects: {}
                 """;
         Manifest m = ManifestReader.read(new StringReader(yaml));
         assertThat(m.ide().languageLevel()).isEqualTo("JDK_21");
         assertThat(m.ide().jdkName()).isNull();
         assertThat(m.ide().hasAnyValue()).isTrue();
+    }
+
+    // ── Legacy-schema hard-cut (#150) ────────────────────────────
+
+    @Test
+    void rejectsLegacyComponentsSchema() {
+        String yaml = """
+                schema-version: "1.0"
+                components:
+                  foo:
+                    type: software
+                """;
+        assertThatThrownBy(() -> ManifestReader.read(new StringReader(yaml)))
+                .isInstanceOf(ManifestException.class)
+                .hasMessageContaining("legacy 'components:' schema")
+                .hasMessageContaining("mvn ws:align");
+    }
+
+    @Test
+    void acceptsManifestWithBothKeysPreferringSubprojects() {
+        // If both `subprojects:` and `components:` appear (shouldn't
+        // happen in practice, but defense-in-depth), the reader uses
+        // `subprojects:` rather than the legacy key.
+        String yaml = """
+                schema-version: "1.0"
+                subprojects:
+                  new-shape:
+                    type: software
+                components:
+                  old-shape:
+                    type: software
+                """;
+        Manifest m = ManifestReader.read(new StringReader(yaml));
+        assertThat(m.subprojects()).containsOnlyKeys("new-shape");
     }
 }

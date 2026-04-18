@@ -177,7 +177,7 @@ public final class BomAnalysis {
 
         List<CascadeIssue> issues = new ArrayList<>();
 
-        for (var entry : manifest.components().entrySet()) {
+        for (var entry : manifest.subprojects().entrySet()) {
             String subprojectName = entry.getKey();
             Subproject sub = entry.getValue();
 
@@ -188,7 +188,7 @@ public final class BomAnalysis {
                     pomFile, workspaceArtifacts);
 
             for (Dependency dep : sub.dependsOn()) {
-                String upstream = dep.component();
+                String upstream = dep.subproject();
                 boolean hasVersionProp = dep.versionProperty() != null;
 
                 // Check if any workspace-internal BOM import tracks upstream

@@ -46,9 +46,9 @@ class WorkspaceGraphTest {
     }
 
     @Test
-    void topologicalSortIncludesAllComponents() {
+    void topologicalSortIncludesAllSubprojects() {
         List<String> sorted = graph.topologicalSort();
-        assertThat(sorted).hasSize(graph.manifest().components().size());
+        assertThat(sorted).hasSize(graph.manifest().subprojects().size());
     }
 
     @Test
@@ -80,7 +80,7 @@ class WorkspaceGraphTest {
     }
 
     @Test
-    void cascadeFromLeafComponentIsEmpty() {
+    void cascadeFromLeafSubprojectIsEmpty() {
         List<String> affected = graph.cascade("komet-desktop");
         assertThat(affected).isEmpty();
     }
@@ -93,7 +93,7 @@ class WorkspaceGraphTest {
     }
 
     @Test
-    void cascadeFromUnknownComponentThrows() {
+    void cascadeFromUnknownSubprojectThrows() {
         assertThatThrownBy(() -> graph.cascade("nonexistent"))
                 .isInstanceOf(ManifestException.class)
                 .hasMessageContaining("Unknown subproject");
@@ -111,16 +111,16 @@ class WorkspaceGraphTest {
     void detectsCycle() {
         String yaml = """
                 schema-version: "1.0"
-                components:
+                subprojects:
                   a:
                     type: software
                     depends-on:
-                      - component: b
+                      - subproject: b
                         relationship: build
                   b:
                     type: software
                     depends-on:
-                      - component: a
+                      - subproject: a
                         relationship: build
                 """;
         Manifest m = ManifestReader.read(new StringReader(yaml));
@@ -142,15 +142,12 @@ class WorkspaceGraphTest {
     void verifyDetectsMissingDependency() {
         String yaml = """
                 schema-version: "1.0"
-                components:
+                subprojects:
                   a:
                     type: software
                     depends-on:
-                      - component: missing
+                      - subproject: missing
                         relationship: build
-                component-types:
-                  software:
-                    build-command: "mvn clean install"
                 """;
         Manifest m = ManifestReader.read(new StringReader(yaml));
         WorkspaceGraph g = new WorkspaceGraph(m);
@@ -164,7 +161,7 @@ class WorkspaceGraphTest {
         // graph is ever built — the closed enum is the validity check.
         String yaml = """
                 schema-version: "1.0"
-                components:
+                subprojects:
                   a:
                     type: bogus
                 """;

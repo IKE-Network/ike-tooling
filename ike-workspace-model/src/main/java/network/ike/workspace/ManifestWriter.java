@@ -20,10 +20,10 @@ public final class ManifestWriter {
     private ManifestWriter() {}
 
     /**
-     * Update the branch field for one or more components.
+     * Update the branch field for one or more subprojects.
      *
      * @param manifestPath path to workspace.yaml
-     * @param branchUpdates map of component name to new branch value
+     * @param branchUpdates map of subproject name to new branch value
      * @throws IOException if the file cannot be read or written
      */
     public static void updateBranches(Path manifestPath, Map<String, String> branchUpdates)
@@ -31,9 +31,9 @@ public final class ManifestWriter {
         String content = Files.readString(manifestPath, StandardCharsets.UTF_8);
 
         for (Map.Entry<String, String> entry : branchUpdates.entrySet()) {
-            String componentName = entry.getKey();
+            String subprojectName = entry.getKey();
             String newBranch = entry.getValue();
-            content = updateComponentBranch(content, componentName, newBranch);
+            content = updateSubprojectBranch(content, subprojectName, newBranch);
         }
 
         Files.writeString(manifestPath, content, StandardCharsets.UTF_8);
@@ -54,10 +54,10 @@ public final class ManifestWriter {
     }
 
     /**
-     * Update the maven-version field for one or more components.
+     * Update the maven-version field for one or more subprojects.
      *
      * @param manifestPath   path to workspace.yaml
-     * @param versionUpdates map of component name to new maven-version value
+     * @param versionUpdates map of subproject name to new maven-version value
      * @throws IOException if the file cannot be read or written
      */
     public static void updateMavenVersions(Path manifestPath, Map<String, String> versionUpdates)
@@ -65,21 +65,21 @@ public final class ManifestWriter {
         String content = Files.readString(manifestPath, StandardCharsets.UTF_8);
 
         for (Map.Entry<String, String> entry : versionUpdates.entrySet()) {
-            String componentName = entry.getKey();
+            String subprojectName = entry.getKey();
             String newVersion = entry.getValue();
-            content = updateComponentField(content, componentName, "maven-version", newVersion);
+            content = updateSubprojectField(content, subprojectName, "maven-version", newVersion);
         }
 
         Files.writeString(manifestPath, content, StandardCharsets.UTF_8);
     }
 
     /**
-     * Update the sha field for one or more components. If the sha field
+     * Update the sha field for one or more subprojects. If the sha field
      * does not exist in the subproject block, it is inserted after the
      * branch field.
      *
      * @param manifestPath path to workspace.yaml
-     * @param shaUpdates   map of component name to SHA value
+     * @param shaUpdates   map of subproject name to SHA value
      * @throws IOException if the file cannot be read or written
      */
     public static void updateShas(Path manifestPath, Map<String, String> shaUpdates)
@@ -87,9 +87,9 @@ public final class ManifestWriter {
         String content = Files.readString(manifestPath, StandardCharsets.UTF_8);
 
         for (Map.Entry<String, String> entry : shaUpdates.entrySet()) {
-            String componentName = entry.getKey();
+            String subprojectName = entry.getKey();
             String sha = entry.getValue();
-            content = addOrUpdateComponentField(content, componentName,
+            content = addOrUpdateSubprojectField(content, subprojectName,
                     "sha", "\"" + sha + "\"", "branch");
         }
 
@@ -100,24 +100,24 @@ public final class ManifestWriter {
      * Update a field in a subproject block, or insert it after a reference
      * field if it doesn't exist yet.
      *
-     * @param yaml          full YAML content
-     * @param componentName the subproject key
-     * @param field         the field name to update or insert
-     * @param newValue      the new value (pre-quoted if needed)
-     * @param afterField    insert after this field if the target field is absent
+     * @param yaml           full YAML content
+     * @param subprojectName the subproject key
+     * @param field          the field name to update or insert
+     * @param newValue       the new value (pre-quoted if needed)
+     * @param afterField     insert after this field if the target field is absent
      * @return updated YAML content
      */
-    public static String addOrUpdateComponentField(String yaml, String componentName,
+    public static String addOrUpdateSubprojectField(String yaml, String subprojectName,
                                                     String field, String newValue,
                                                     String afterField) {
         // Try update first
-        String updated = updateComponentField(yaml, componentName, field, newValue);
+        String updated = updateSubprojectField(yaml, subprojectName, field, newValue);
         if (!updated.equals(yaml)) {
             return updated; // field existed and was updated
         }
 
         // Field doesn't exist — insert after afterField
-        String escapedName = Pattern.quote(componentName);
+        String escapedName = Pattern.quote(subprojectName);
         String escapedAfter = Pattern.quote(afterField);
 
         Pattern insertPattern = Pattern.compile(
@@ -157,15 +157,15 @@ public final class ManifestWriter {
     /**
      * Update a named field within a subproject block in the YAML text.
      *
-     * @param yaml          full YAML content
-     * @param componentName the subproject key to find
-     * @param field         the field name within the subproject block
-     * @param newValue      the new value
+     * @param yaml           full YAML content
+     * @param subprojectName the subproject key to find
+     * @param field          the field name within the subproject block
+     * @param newValue       the new value
      * @return updated YAML content
      */
-    public static String updateComponentField(String yaml, String componentName,
+    public static String updateSubprojectField(String yaml, String subprojectName,
                                         String field, String newValue) {
-        String escapedName = Pattern.quote(componentName);
+        String escapedName = Pattern.quote(subprojectName);
         String escapedField = Pattern.quote(field);
 
         Pattern blockPattern = Pattern.compile(
@@ -181,17 +181,17 @@ public final class ManifestWriter {
     }
 
     /**
-     * Update the branch field for a single component in the YAML text.
+     * Update the branch field for a single subproject in the YAML text.
      * If the subproject block does not yet declare a {@code branch:} field,
      * it is inserted after the {@code type:} line so the manifest and git
      * state stay in sync (see issue #159).
      *
-     * @param yaml          full YAML content
-     * @param componentName the subproject key to find
-     * @param newBranch     the new branch value
+     * @param yaml           full YAML content
+     * @param subprojectName the subproject key to find
+     * @param newBranch      the new branch value
      * @return updated YAML content (unchanged if the subproject is absent)
      */
-    public static String updateComponentBranch(String yaml, String componentName, String newBranch) {
-        return addOrUpdateComponentField(yaml, componentName, "branch", newBranch, "type");
+    public static String updateSubprojectBranch(String yaml, String subprojectName, String newBranch) {
+        return addOrUpdateSubprojectField(yaml, subprojectName, "branch", newBranch, "type");
     }
 }

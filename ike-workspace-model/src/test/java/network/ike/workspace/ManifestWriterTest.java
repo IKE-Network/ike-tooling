@@ -16,7 +16,7 @@ class ManifestWriterTest {
     @Test
     void updateSingleBranch() {
         String yaml = """
-                components:
+                subprojects:
                   tinkar-core:
                     type: software
                     branch: main
@@ -25,7 +25,7 @@ class ManifestWriterTest {
                     type: software
                     branch: main
                 """;
-        String result = ManifestWriter.updateComponentBranch(yaml, "tinkar-core", "feature/shield");
+        String result = ManifestWriter.updateSubprojectBranch(yaml, "tinkar-core", "feature/shield");
         assertThat(result).contains("tinkar-core:");
         assertThat(result).contains("branch: feature/shield");
         // komet should be unchanged
@@ -35,7 +35,7 @@ class ManifestWriterTest {
     @Test
     void updateMultipleBranches(@TempDir Path tmp) throws IOException {
         String yaml = """
-                components:
+                subprojects:
                   tinkar-core:
                     type: software
                     branch: main
@@ -62,8 +62,8 @@ class ManifestWriterTest {
     void preservesComments(@TempDir Path tmp) throws IOException {
         String yaml = """
                 # This is a comment
-                components:
-                  # Core component
+                subprojects:
+                  # Core subproject
                   tinkar-core:
                     type: software
                     description: The core library
@@ -77,29 +77,29 @@ class ManifestWriterTest {
 
         String result = Files.readString(manifest);
         assertThat(result).contains("# This is a comment");
-        assertThat(result).contains("# Core component");
+        assertThat(result).contains("# Core subproject");
         assertThat(result).contains("branch: feature/test");
     }
 
     @Test
-    void unknownComponentIsNoOp() {
+    void unknownSubprojectIsNoOp() {
         String yaml = """
-                components:
+                subprojects:
                   tinkar-core:
                     branch: main
                 """;
-        String result = ManifestWriter.updateComponentBranch(yaml, "nonexistent", "feature/x");
+        String result = ManifestWriter.updateSubprojectBranch(yaml, "nonexistent", "feature/x");
         assertThat(result).isEqualTo(yaml);
     }
 
     @Test
-    void insertsBranchFieldWhenComponentHasNone(@TempDir Path tmp) throws IOException {
-        // Issue #159: components that inherit branch from defaults have no
-        // per-component branch: field. Earlier versions of updateBranches
-        // silently no-oped on those, leaving git on feature/X but the
-        // manifest claiming main.
+    void insertsBranchFieldWhenSubprojectHasNone(@TempDir Path tmp) throws IOException {
+        // Issue #159: subprojects that inherit branch from defaults have
+        // no per-subproject branch: field. Earlier versions of
+        // updateBranches silently no-oped on those, leaving git on
+        // feature/X but the manifest claiming main.
         String yaml = """
-                components:
+                subprojects:
                   tinkar-core:
                     type: software
                     repo: https://example.com/tinkar-core.git
@@ -119,7 +119,7 @@ class ManifestWriterTest {
         String result = Files.readString(manifest);
         assertThat(result).contains("    type: software");
         assertThat(result).contains("    branch: feature/march");
-        // Both components got the branch field inserted
+        // Both subprojects got the branch field inserted
         long branchLineCount = result.lines()
                 .filter(l -> l.trim().equals("branch: feature/march"))
                 .count();

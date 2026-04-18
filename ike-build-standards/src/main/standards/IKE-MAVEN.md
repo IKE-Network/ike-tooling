@@ -51,7 +51,7 @@ together. It IS deployed to Nexus.
 
 The two serve different purposes: workspaces coordinate across repos,
 reactors coordinate within a repo. A workspace may contain multiple
-reactors as checked-out components.
+reactors as checked-out subprojects.
 
 ## Parent POM Inheritance
 

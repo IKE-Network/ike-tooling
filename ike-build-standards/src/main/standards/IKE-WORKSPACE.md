@@ -3,8 +3,8 @@
 ## What is an IKE Workspace?
 
 An IKE Workspace is a multi-repository development environment managed
-through `workspace.yaml` — a YAML manifest that declares all components,
-their inter-repository dependencies, groups, and component types.
+through `workspace.yaml` — a YAML manifest that declares all subprojects
+and their inter-repository dependencies.
 
 Workspace operations are implemented as Maven plugin goals in
 `ike-workspace-maven-plugin`, invokable via the `ws:` prefix (requires
@@ -14,11 +14,23 @@ Single-repo goals (release, setup, asciidoc, etc.) remain in
 `ike-maven-plugin` with the `ike:` prefix (requires
 `network.ike.tooling` in `<pluginGroups>`).
 
+### Schema Migration (#150)
+
+As of the #150 schema rename, the manifest's top-level key is
+`subprojects:` (was `components:`). The `component-types:` and `groups:`
+sections have been removed — subproject types are now a compile-time enum
+(`network.ike.workspace.SubprojectType`) rather than runtime configuration.
+
+Workspaces that still use the legacy `components:` schema are automatically
+migrated on the first run of `ws:align`. All other goals hard-cut on the
+legacy schema with an error pointing users at `ws:align`. The migration is
+idempotent — running it twice is a no-op.
+
 ### POM Changes — Use Tooling, Not Manual Edits
 
 Never use `sed`, `awk`, or regex-based POM manipulation. Use:
 
-- **`ws:align-publish`** for parent version bumps and inter-component
+- **`ws:align-publish`** for parent version bumps and inter-subproject
   dependency version alignment
 - **OpenRewrite** for structural migrations:
   `mvn rewrite:run -Drewrite.activeRecipes=network.ike.MigrateGroupIds`
@@ -82,21 +94,21 @@ The workspace root must contain a `pom.xml` that declares both plugins:
     <!-- File-activated profiles for partial checkout -->
     <profiles>
         <profile>
-            <id>component-name</id>
+            <id>subproject-name</id>
             <activation>
-                <file><exists>${project.basedir}/component-name/pom.xml</exists></file>
+                <file><exists>${project.basedir}/subproject-name/pom.xml</exists></file>
             </activation>
             <subprojects>
-                <subproject>component-name</subproject>
+                <subproject>subproject-name</subproject>
             </subprojects>
         </profile>
-        <!-- Repeat for each component -->
+        <!-- Repeat for each subproject -->
     </profiles>
 </project>
 ```
 
 File-activated profiles enable incremental IntelliJ builds: only checked-out
-components participate in the reactor. Missing components are silently skipped.
+subprojects participate in the reactor. Missing subprojects are silently skipped.
 
 ## workspace.yaml Manifest
 
@@ -109,71 +121,60 @@ generated: 2026-02-25
 defaults:
   branch: main
 
-component-types:
-  infrastructure:
-    description: "Build tooling, parent POMs"
-    build-command: "mvn clean install"
-    checkpoint-mechanism: git-tag
-  software:
-    description: "Java libraries and applications"
-    build-command: "mvn clean install"
-    checkpoint-mechanism: git-tag
-  document:
-    description: "AsciiDoc topic libraries and assemblies"
-    build-command: "mvn clean verify"
-    checkpoint-mechanism: git-tag
-
-components:
-  - name: ike-pipeline
+subprojects:
+  ike-pipeline:
     type: infrastructure
     repo: git@github.com:IKE-Community/ike-pipeline.git
     version: "24-SNAPSHOT"
     depends-on: []
 
-  - name: tinkar-core
+  tinkar-core:
     type: software
     repo: git@github.com:ikmdev/tinkar-core.git
     version: "1.80.0-SNAPSHOT"
     depends-on:
-      - component: ike-pipeline
+      - subproject: ike-pipeline
         relationship: build
-
-groups:
-  core: [ike-pipeline, tinkar-core]
-  all: [ike-pipeline, tinkar-core, ...]
 ```
+
+Workspaces on the legacy `components:` schema are automatically migrated
+on the first run of `ws:align`. See "Schema Migration" above.
 
 ### Manifest Fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `schema-version` | Yes | Schema version for forward compatibility |
-| `defaults.branch` | Yes | Default branch for all components |
-| `component-types` | Yes | Named types with build commands and checkpoint mechanisms |
-| `components` | Yes | List of repositories in the workspace |
-| `groups` | No | Named subsets for partial operations |
+| `defaults.branch` | Yes | Default branch for all subprojects |
+| `subprojects` | Yes | Map of subproject-name → subproject definition |
 
-### Component Fields
+### Subproject Fields
+
+Each subproject entry is keyed by its name (which must match the
+directory name on disk). The entry is a map of these fields:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Unique identifier (matches directory name) |
-| `type` | Yes | References a `component-types` key |
+| `type` | Yes | One of `software`, `infrastructure`, `document` (values of `SubprojectType` enum) |
 | `repo` | Yes | Git clone URL |
 | `branch` | No | Override default branch |
 | `version` | No | Current version string (null/`~` for unversioned) |
-| `group-id` | No | Maven groupId for version updates |
+| `groupId` | No | Maven groupId for version updates |
+| `parent` | No | Name of the workspace subproject that provides this one's Maven parent POM |
 | `depends-on` | No | List of dependency declarations |
+| `sha` | No | Pinned commit SHA (written by `ws:checkpoint`) |
+| `maven-version` | No | Override `defaults.maven-version` for this subproject |
+| `notes` | No | Free-text migration notes |
 
 ### Dependency Relationships
 
 ```yaml
 depends-on:
-  - component: ike-pipeline
+  - subproject: ike-pipeline
     relationship: build      # needs compiled artifacts
-  - component: tinkar-core
+  - subproject: tinkar-core
     relationship: content    # references architecture/concepts
-  - component: ike-pipeline
+  - subproject: ike-pipeline
     relationship: tooling    # uses CLI tools or plugins
 ```
 
@@ -183,29 +184,29 @@ rebuild; `content` dependencies may require only review.
 ### Version Cascade Mechanisms
 
 When `ws:feature-start` creates a feature branch, it cascades
-branch-qualified SNAPSHOT versions to downstream components via three
+branch-qualified SNAPSHOT versions to downstream subprojects via three
 complementary mechanisms:
 
 1. **version-property** (workspace.yaml `depends-on` declaration):
    Explicit `version-property: <prop-name>` in workspace.yaml tells
    `feature-start` which POM property to update. This is the most
-   precise and recommended for cross-component version tracking.
+   precise and recommended for cross-subproject version tracking.
 
 2. **cascadeBomProperties** (naming convention):
    Scans POM `<properties>` blocks for entries matching
-   `<{component-name}.version>`. When a workspace component publishes
+   `<{subproject-name}.version>`. When a workspace subproject publishes
    artifacts, any downstream POM that tracks the upstream version via
    this naming convention gets automatically updated. No workspace.yaml
    declaration needed — the convention is enough.
 
 3. **cascadeBomImports** (workspace-internal BOM imports):
    Scans `<dependencyManagement>` for `<type>pom</type>` /
-   `<scope>import</scope>` entries published by workspace components.
+   `<scope>import</scope>` entries published by workspace subprojects.
    Updates the BOM import version to the branch-qualified SNAPSHOT.
 
 **Cascade gap detection:** `ws:feature-start` reports cascade gaps when
 a dependency edge has *none* of the above mechanisms. This means the
-downstream component may resolve stale versions from external BOMs
+downstream subproject may resolve stale versions from external BOMs
 instead of the feature branch versions. The gap detection accounts for
 all three mechanisms — convention-based properties suppress false positives.
 
@@ -233,7 +234,7 @@ Run `ws:help` for the complete auto-discovered list.
 
 | Goal | Description |
 |------|-------------|
-| `ws:align-draft` / `-publish` | Align inter-component dependency versions |
+| `ws:align-draft` / `-publish` | Align inter-subproject dependency versions; migrates legacy schema |
 | `ws:set-parent-draft` / `-publish` | Update parent version across workspace |
 
 ### Feature Branching
@@ -251,8 +252,8 @@ Run `ws:help` for the complete auto-discovered list.
 
 | Goal | Description |
 |------|-------------|
-| `ws:release-draft` / `-publish` | Release modified components in dependency order |
-| `ws:checkpoint-draft` / `-publish` | Tag all components, record SHAs |
+| `ws:release-draft` / `-publish` | Release modified subprojects in dependency order |
+| `ws:checkpoint-draft` / `-publish` | Tag all subprojects, record SHAs |
 | `ws:post-release` | Bump to next development version |
 | `ws:release-notes` | Generate notes from GitHub milestone |
 
@@ -261,7 +262,7 @@ Run `ws:help` for the complete auto-discovered list.
 | Goal | Description |
 |------|-------------|
 | `ws:commit` | Commit across repos (`-DaddAll=true -Dpush=true -Dmessage="..."`) |
-| `ws:push` | Push all components (warns about uncommitted changes) |
+| `ws:push` | Push all subprojects (warns about uncommitted changes) |
 | `ws:sync` | Reconcile state after machine switch |
 
 ### Common Options
@@ -269,7 +270,7 @@ Run `ws:help` for the complete auto-discovered list.
 | Option | Applicable Goals | Description |
 |--------|------------------|-------------|
 | `-Dworkspace.manifest=<path>` | All | Path to workspace.yaml (auto-detected) |
-| `-Dgroup=<name>` | Most multi-repo goals | Restrict to named group or component |
+| `-Dsubproject=<name>` | `ws:add`, `ws:remove`, `ws:release` | Restrict to named subproject |
 | `-Dfeature=<name>` | feature-start, feature-finish, feature-abandon | Feature name |
 | `-DtargetBranch=<name>` | feature-finish, switch | Target branch (default: `main`) |
 | `-Dparent.version=<v>` | set-parent | Target parent version |
@@ -281,8 +282,8 @@ Run `ws:help` for the complete auto-discovered list.
 
 ### Preflight Validation
 
-Multi-repo goals validate that all component working trees are clean
-before starting. If any component has uncommitted changes, the goal
+Multi-repo goals validate that all subproject working trees are clean
+before starting. If any subproject has uncommitted changes, the goal
 fails immediately with a list of affected repos and files, along with
 the specific `ws:commit` command to resolve it. No partial
 modifications occur.
@@ -303,7 +304,7 @@ automatically sets upstream tracking for new branches.
 
 ### Report Generation Contract
 
-Every `ws:*` goal that assesses or mutates cross-component state **must**
+Every `ws:*` goal that assesses or mutates cross-subproject state **must**
 call `AbstractWorkspaceMojo.writeReport(WsGoal goal, String markdownBody)`
 at the end of execution. The report is persisted under the workspace
 `session/` directory as `ws꞉<goal-name>.md` (using U+A789, not `:`, to
@@ -376,56 +377,55 @@ of `git clone`.
 ## Partial Checkout
 
 File-activated profiles in the workspace POM enable partial checkout:
-only cloned components participate in the reactor. This supports:
+only cloned subprojects participate in the reactor. This supports:
 
 - **Incremental IntelliJ builds**: Open the workspace POM; only checked-out
   modules appear in the project tree.
-- **Selective `mvn -pl -am`**: Build a specific component and its
+- **Selective `mvn -pl -am`**: Build a specific subproject and its
   dependencies within the workspace.
-- **New developer onboarding**: Clone workspace, run `ws:init -Dgroup=core`,
-  build immediately with a minimal set.
+- **New developer onboarding**: Clone workspace, run `ws:init`,
+  build immediately with the set that has been checked out.
 
 ## Checkpoint Files
 
-`ws:checkpoint` records per-component state to
+`ws:checkpoint` records per-subproject state to
 `checkpoints/checkpoint-<name>.yaml`:
 
 ```yaml
 checkpoint:
   name: "release-1.0"
   created: "2026-03-20T17:00:00Z"
-  components:
+  subprojects:
     ike-pipeline:
       sha: "a1b2c3d..."
       short-sha: "a1b2c3d"
       branch: "main"
       type: infrastructure
       version: "24-SNAPSHOT"
-      dirty: false
 ```
 
 Checkpoint files are committed to the workspace repository.
-Optional tagging (`-Dtag=true`) creates `checkpoint/<name>/<component>`
-tags in each component's repo.
+Optional tagging (`-Dtag=true`) creates `checkpoint/<name>/<subproject>`
+tags in each subproject's repo.
 
 ## Workspace Release Orchestration (`ws:release`)
 
-`ws:release` automates multi-component release across a workspace.
-It replaces manual per-component release sequences with a single
+`ws:release` automates multi-subproject release across a workspace.
+It replaces manual per-subproject release sequences with a single
 orchestrated workflow that respects inter-repository dependency order.
 
 ### The Self-Limiting Cascade
 
 The release is *self-limiting*: only checked-out repositories with
-commits since their last release tag are candidates. Components that
+commits since their last release tag are candidates. Subprojects that
 are not checked out or have no changes are silently skipped. This
 means the release scope is determined by the intersection of two sets:
 
-1. Components physically present in the workspace (checked out)
-2. Components with commits since their last release tag (dirty)
+1. Subprojects physically present in the workspace (checked out)
+2. Subprojects with commits since their last release tag (dirty)
 
-A workspace with three of ten components checked out will release
-at most three components — and only those with actual changes.
+A workspace with three of ten subprojects checked out will release
+at most three subprojects — and only those with actual changes.
 
 ### Workflow
 
@@ -435,7 +435,7 @@ The goal executes five phases:
 2. **Filter dirty** — For each checked-out repo, compare HEAD against
    the last release tag. Only repos with new commits are candidates.
 3. **Topological sort** — Order candidates by dependency graph so that
-   upstream components release before their dependents.
+   upstream subprojects release before their dependents.
 4. **Release in order** — For each candidate (in topo order):
    - Strip `-SNAPSHOT` from the version
    - Build and verify
@@ -444,8 +444,8 @@ The goal executes five phases:
    - Bump to the next SNAPSHOT version
 5. **Update cross-references** — After each release, update parent
    version references in downstream POMs that depend on the just-released
-   component. This keeps the cascade self-consistent: when `ike-pipeline`
-   releases version 24, downstream components that reference
+   subproject. This keeps the cascade self-consistent: when `ike-pipeline`
+   releases version 24, downstream subprojects that reference
    `ike-pipeline` as a parent are updated to `<version>24</version>`
    before they build.
 
@@ -458,8 +458,7 @@ release to enable recovery. Use `-DskipCheckpoint=true` to bypass this.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `-Dcomponent=<name>` | (all dirty) | Release only the named component (and its dirty dependents) |
-| `-Dgroup=<name>` | (all) | Restrict to components in the named group |
+| `-Dsubproject=<name>` | (all dirty) | Release only the named subproject (and its dirty dependents) |
 | `-DdryRun=true` | `false` | Show the release plan without executing |
 | `-Dpush=true` | `false` | Push tags and commits to origin after each release |
 | `-DskipCheckpoint=true` | `false` | Skip the pre-release checkpoint |
@@ -470,14 +469,14 @@ release to enable recovery. Use `-DskipCheckpoint=true` to bypass this.
 # Dry run — see what would be released and in what order
 mvn ws:release -DdryRun=true
 
-# Release all dirty components, push results
+# Release all dirty subprojects, push results
 mvn ws:release -Dpush=true
 
 # Release only ike-pipeline and its dirty dependents
-mvn ws:release -Dcomponent=ike-pipeline -Dpush=true
+mvn ws:release -Dsubproject=ike-pipeline -Dpush=true
 
-# Release the "core" group without creating a checkpoint
-mvn ws:release -Dgroup=core -DskipCheckpoint=true -Dpush=true
+# Release without creating a checkpoint
+mvn ws:release -DskipCheckpoint=true -Dpush=true
 ```
 
 ### Dry Run Output
@@ -486,7 +485,7 @@ A dry run prints the release plan without executing:
 
 ```
 [INFO] === Workspace Release Plan (DRY RUN) ===
-[INFO] Dirty components (topo order):
+[INFO] Dirty subprojects (topo order):
 [INFO]   1. ike-pipeline       24-SNAPSHOT → 24 → 25-SNAPSHOT
 [INFO]   2. tinkar-core         1.80.0-SNAPSHOT → 1.80.0 → 1.81.0-SNAPSHOT
 [INFO] Cross-reference updates:
@@ -560,14 +559,14 @@ mvn clean install -pl ike-bom -am
 
 ## Gitflow Workflow — End to End
 
-### Single-Component Feature
+### Single-Subproject Feature
 
-A feature that touches only one component (e.g., `tinkar-core`):
+A feature that touches only one subproject (e.g., `tinkar-core`):
 
 ```bash
 # Start the feature — creates feature/add-nid-index branch, sets
 # version to 1.80.0-add-nid-index-SNAPSHOT
-mvn ws:feature-start -Dfeature=add-nid-index -Dcomponent=tinkar-core
+mvn ws:feature-start -Dfeature=add-nid-index -Dsubproject=tinkar-core
 
 # Work in tinkar-core/, commit normally
 cd tinkar-core
@@ -585,13 +584,13 @@ mvn ws:feature-finish -Dfeature=add-nid-index -DdryRun=true
 mvn ws:feature-finish -Dfeature=add-nid-index -Dpush=true
 ```
 
-### Multi-Component Feature
+### Multi-Subproject Feature
 
 A feature spanning `ike-pipeline` and `tinkar-core`:
 
 ```bash
-# Start across the core group
-mvn ws:feature-start -Dfeature=new-renderer -Dgroup=core
+# Start across all checked-out subprojects
+mvn ws:feature-start -Dfeature=new-renderer
 # Creates feature/new-renderer in both repos
 # ike-pipeline: 24-new-renderer-SNAPSHOT
 # tinkar-core:  1.80.0-new-renderer-SNAPSHOT
@@ -609,7 +608,7 @@ git add -A && git commit -m "feat: enable weasyprint2 for tinkar docs"
 mvn ws:checkpoint -Dname=new-renderer-wip
 
 # Preview the coordinated merge
-mvn ws:feature-finish -Dfeature=new-renderer -Dgroup=core -DdryRun=true
+mvn ws:feature-finish -Dfeature=new-renderer -DdryRun=true
 # Output:
 #   ike-pipeline: merge feature/new-renderer → main
 #     Version: 24-new-renderer-SNAPSHOT → 24-SNAPSHOT
@@ -617,18 +616,18 @@ mvn ws:feature-finish -Dfeature=new-renderer -Dgroup=core -DdryRun=true
 #     Version: 1.80.0-new-renderer-SNAPSHOT → 1.80.0-SNAPSHOT
 
 # Merge and push all
-mvn ws:feature-finish -Dfeature=new-renderer -Dgroup=core -Dpush=true
+mvn ws:feature-finish -Dfeature=new-renderer -Dpush=true
 ```
 
 ### Release After Feature
 
-After merging a feature, release the affected components:
+After merging a feature, release the affected subprojects:
 
 ```bash
 # See what needs releasing
 mvn ws:release -DdryRun=true
 # Output:
-#   Dirty components (topo order):
+#   Dirty subprojects (topo order):
 #     1. ike-pipeline       24-SNAPSHOT → 24 → 25-SNAPSHOT
 #     2. tinkar-core         1.80.0-SNAPSHOT → 1.80.0 → 1.81.0-SNAPSHOT
 #   Cross-reference updates:
@@ -666,22 +665,22 @@ Draft goals warn about uncommitted changes but still run the preview.
 
 `ws:init` fetches and rebases existing clones when the working tree
 is clean. If clones are stale (e.g., parent POM bumps not applied),
-re-run `ws:init`. If rebase conflicts occur, delete the component
+re-run `ws:init`. If rebase conflicts occur, delete the subproject
 directory and let `ws:init` re-clone.
 
 ### Recovery from Failed `ws-release`
 
 If `ws-release` fails mid-cascade (e.g., build failure in the second
-component), the pre-release checkpoint file records the state of every
-component before the release started. Re-running `mvn ws:release`
-skips components that were already tagged and released — it resumes
+subproject), the pre-release checkpoint file records the state of every
+subproject before the release started. Re-running `mvn ws:release`
+skips subprojects that were already tagged and released — it resumes
 from the point of failure.
 
 ```bash
 # Check the checkpoint to see what was released
 cat checkpoints/checkpoint-pre-release-*.yaml
 
-# Re-run — already-released components are skipped
+# Re-run — already-released subprojects are skipped
 mvn ws:release -Dpush=true
 ```
 
@@ -691,12 +690,12 @@ When `feature-finish` encounters a merge conflict, it stops in the
 conflicting repository. Resolve manually:
 
 ```bash
-cd <conflicting-component>
+cd <conflicting-subproject>
 # Resolve conflicts in the affected files
 git add <resolved-files>
 git commit
 
-# Re-run feature-finish — already-merged components are skipped
+# Re-run feature-finish — already-merged subprojects are skipped
 mvn ws:feature-finish -Dfeature=my-feature -Dpush=true
 ```
 
@@ -721,16 +720,14 @@ If `mvn ws:status` fails with "No plugin found for prefix 'ws'":
 mvn install -pl ike-workspace-maven-plugin -f <path-to-ike-pipeline>/pom.xml
 ```
 
-### Component Not Found in Manifest
+### Subproject Not Found in Manifest
 
-If a goal reports "component not found" for a name you expect to exist:
+If a goal reports "subproject not found" for a name you expect to exist:
 
-- Check spelling: component names in `workspace.yaml` are case-sensitive
+- Check spelling: subproject names in `workspace.yaml` are case-sensitive
   and must match directory names exactly.
-- Check groups: if using `-Dgroup=core`, the component must be listed
-  in the `groups.core` array in `workspace.yaml`.
-- Check checkout: some goals only operate on checked-out components.
-  Run `mvn ws:status` to see which components are present.
+- Check checkout: some goals only operate on checked-out subprojects.
+  Run `mvn ws:overview` to see which subprojects are present.
 
 ## Key Rules
 

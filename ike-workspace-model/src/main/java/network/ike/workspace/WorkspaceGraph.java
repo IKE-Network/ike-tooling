@@ -59,7 +59,7 @@ public final class WorkspaceGraph {
      */
     public List<String> topologicalSort(Set<String> targetNames) {
         Set<String> targets = targetNames.isEmpty()
-                ? manifest.components().keySet()
+                ? manifest.subprojects().keySet()
                 : targetNames;
 
         // Kahn's algorithm
@@ -126,7 +126,7 @@ public final class WorkspaceGraph {
      * @throws ManifestException if the subproject does not exist
      */
     public List<String> cascade(String subprojectName) {
-        if (!manifest.components().containsKey(subprojectName)) {
+        if (!manifest.subprojects().containsKey(subprojectName)) {
             throw new ManifestException(
                     "Unknown subproject: " + subprojectName);
         }
@@ -162,11 +162,11 @@ public final class WorkspaceGraph {
      */
     public List<String> detectCycle() {
         // DFS with three-color marking: WHITE=unvisited, GRAY=in-stack, BLACK=done
-        Set<String> white = new LinkedHashSet<>(manifest.components().keySet());
+        Set<String> white = new LinkedHashSet<>(manifest.subprojects().keySet());
         Set<String> gray = new LinkedHashSet<>();
         Map<String, String> parent = new LinkedHashMap<>();
 
-        for (String start : manifest.components().keySet()) {
+        for (String start : manifest.subprojects().keySet()) {
             if (!white.contains(start)) continue;
 
             Deque<String> stack = new ArrayDeque<>();
@@ -222,11 +222,11 @@ public final class WorkspaceGraph {
         List<String> errors = new ArrayList<>();
 
         // Check 1: all dependency targets exist as subprojects
-        for (Subproject subproject : manifest.components().values()) {
+        for (Subproject subproject : manifest.subprojects().values()) {
             for (Dependency dep : subproject.dependsOn()) {
-                if (!manifest.components().containsKey(dep.component())) {
+                if (!manifest.subprojects().containsKey(dep.subproject())) {
                     errors.add(subproject.name() + " depends on unknown subproject: "
-                            + dep.component());
+                            + dep.subproject());
                 }
             }
         }
@@ -262,10 +262,10 @@ public final class WorkspaceGraph {
 
     private Map<String, List<String>> buildForwardEdges() {
         Map<String, List<String>> edges = new LinkedHashMap<>();
-        for (Subproject subproject : manifest.components().values()) {
+        for (Subproject subproject : manifest.subprojects().values()) {
             List<String> deps = new ArrayList<>();
             for (Dependency dep : subproject.dependsOn()) {
-                deps.add(dep.component());
+                deps.add(dep.subproject());
             }
             edges.put(subproject.name(), Collections.unmodifiableList(deps));
         }
@@ -274,12 +274,12 @@ public final class WorkspaceGraph {
 
     private Map<String, List<String>> buildReverseEdges() {
         Map<String, List<String>> edges = new LinkedHashMap<>();
-        for (String name : manifest.components().keySet()) {
+        for (String name : manifest.subprojects().keySet()) {
             edges.put(name, new ArrayList<>());
         }
-        for (Subproject subproject : manifest.components().values()) {
+        for (Subproject subproject : manifest.subprojects().values()) {
             for (Dependency dep : subproject.dependsOn()) {
-                edges.computeIfAbsent(dep.component(), k -> new ArrayList<>())
+                edges.computeIfAbsent(dep.subproject(), k -> new ArrayList<>())
                         .add(subproject.name());
             }
         }

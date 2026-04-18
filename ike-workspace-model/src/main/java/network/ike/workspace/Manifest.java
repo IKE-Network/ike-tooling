@@ -11,7 +11,7 @@ import java.util.Map;
  * @param schemaVersion   manifest format version (currently "1.0")
  * @param generated       date string when the manifest was last updated
  * @param defaults        default values for subproject fields
- * @param components      named subproject definitions (insertion-ordered)
+ * @param subprojects     named subproject definitions (insertion-ordered)
  * @param ide             optional IntelliJ project settings shared across
  *                        collaborators; {@link IdeSettings#EMPTY} when absent
  */
@@ -19,6 +19,6 @@ public record Manifest(
         String schemaVersion,
         String generated,
         Defaults defaults,
-        Map<String, Subproject> components,
+        Map<String, Subproject> subprojects,
         IdeSettings ide
 ) {}
