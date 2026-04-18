@@ -78,3 +78,11 @@
 - Favor composition over inheritance.
 - Keep methods short — if a method needs a comment explaining what a block does, extract it.
 - No wildcard imports. IDE should manage imports automatically.
+
+## Javadoc
+
+- Every public class, interface, method, record, and enum constant has complete javadoc.
+- Every parameter gets an `@param`. Every non-void method gets an `@return`. Every declared checked exception gets a `@throws` (document unchecked exceptions when they are part of the contract).
+- A method that needs any tag (`@param`, `@return`, `@throws`) uses a multi-line javadoc block. Single-line `/** Description. */` is only valid when no tags apply.
+- **When changing any Java file, verify its javadoc is complete before completing the task.** Run `mvn javadoc:javadoc` on the module and check for `warning: no @param` / `warning: no @return` / `warning: no @throws` lines. Fix them in the same change — do not defer.
+- The release preflight enforces this: the `JAVADOC_CLEAN` condition in `ws:release-publish` fails the release if any javadoc warnings remain (see issue #168). Fixing at edit time keeps the release path green.
