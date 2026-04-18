@@ -4,11 +4,16 @@ import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -184,6 +189,10 @@ public class ReleaseDraftMojo implements org.apache.maven.api.plugin.Mojo {
         if (publish) {
             preflightChecks(gitRoot, hasOrigin, projectId);
         }
+        // Javadoc preflight (#168) — runs in both modes. Publish fails
+        // on warnings; draft logs them so the user sees what would block
+        // the real release.
+        preflightJavadoc(gitRoot, publish);
 
         // Derive timestamp from the current HEAD commit, not wall-clock time.
         // This ensures two independent builds from the same tag produce the
@@ -616,6 +625,115 @@ public class ReleaseDraftMojo implements org.apache.maven.api.plugin.Mojo {
             }
         }
         getLog().info("");
+    }
+
+    /**
+     * Check that {@code mvn javadoc:javadoc} produces no warnings in
+     * {@code gitRoot}. On {@code publish} mode any warning aborts the
+     * release; on draft mode warnings are logged so the user sees what
+     * would block the real release.
+     *
+     * <p>Skipped when no {@code src/main/java} tree is present —
+     * doc-only and POM-only modules have nothing to check.
+     *
+     * <p>Runs with {@code -DfailOnError=false -DfailOnWarnings=false}
+     * so every warning is reported in a single pass rather than
+     * stopping at the first one.
+     *
+     * @param gitRoot module root whose javadoc is inspected
+     * @param publish {@code true} for publish mode (hard fail),
+     *                {@code false} for draft mode (warn only)
+     * @throws MojoException if publish mode and warnings are present
+     */
+    private void preflightJavadoc(File gitRoot, boolean publish)
+            throws MojoException {
+        File javaSources = new File(gitRoot, "src/main/java");
+        if (!javaSources.isDirectory()) {
+            // No Java sources at the root — check any module
+            // subdirectories (reactor build).
+            if (!hasAnyJavaModule(gitRoot)) {
+                return;
+            }
+        }
+
+        List<String> warnings = collectJavadocWarnings(gitRoot);
+        getLog().info("");
+        if (warnings.isEmpty()) {
+            getLog().info("  Javadoc:     warning-free  ✓");
+            return;
+        }
+
+        getLog().info("  Javadoc:     " + warnings.size()
+                + " warning(s)  ✗");
+        for (String w : warnings) {
+            getLog().warn("    " + w);
+        }
+
+        if (publish) {
+            throw new MojoException(
+                    "Javadoc preflight failed: " + warnings.size()
+                            + " warning(s) must be resolved before publish.\n"
+                            + "  Convention: every public method needs"
+                            + " complete @param / @return / @throws tags.");
+        }
+        getLog().warn("  (Draft mode — would block publish.)");
+        getLog().info("");
+    }
+
+    /**
+     * Return {@code true} if any subdirectory of {@code gitRoot} has a
+     * {@code src/main/java} tree (i.e. this is a multi-module reactor).
+     *
+     * @param gitRoot the repository root to search
+     * @return {@code true} if at least one module contains Java sources
+     */
+    private boolean hasAnyJavaModule(File gitRoot) {
+        File[] entries = gitRoot.listFiles();
+        if (entries == null) return false;
+        for (File entry : entries) {
+            if (!entry.isDirectory()) continue;
+            if (new File(entry, "src/main/java").isDirectory()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Run {@code mvn -q javadoc:javadoc} in {@code gitRoot} and return
+     * every line matching {@code warning:}, stripped of the leading
+     * {@code [WARNING] } prefix. Tolerates subprocess failure so the
+     * release does not abort on an infrastructure issue (a real javadoc
+     * failure will resurface during the subsequent build phase).
+     *
+     * @param gitRoot the repository root in which to run javadoc
+     * @return the captured warning lines in encounter order; empty if
+     *         javadoc produced no warnings or the subprocess failed
+     */
+    private List<String> collectJavadocWarnings(File gitRoot) {
+        List<String> warnings = new ArrayList<>();
+        try {
+            Process proc = new ProcessBuilder(
+                    "mvn", "-q", "javadoc:javadoc",
+                    "-DfailOnError=false",
+                    "-DfailOnWarnings=false")
+                    .directory(gitRoot)
+                    .redirectErrorStream(true)
+                    .start();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(proc.getInputStream(),
+                            StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.contains("warning:")) continue;
+                    warnings.add(line.replaceFirst(
+                            "^\\[WARNING\\] ", "").strip());
+                }
+            }
+            proc.waitFor();
+        } catch (IOException | InterruptedException e) {
+            getLog().debug("Javadoc preflight subprocess failed: "
+                    + e.getMessage());
+        }
+        return warnings;
     }
 
     private void logAudit(File gitRoot, File mvnw, String branch,
