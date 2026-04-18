@@ -205,6 +205,32 @@ and running `mvn deploy`. This produces untagged, unreproducible artifacts.
 **During development**, all versions remain `-SNAPSHOT`. Only release
 scripts may transition a version to a non-SNAPSHOT release.
 
+### Release Preflight
+
+`ike:release-publish` and `ike:release-draft` run a shared preflight
+before any state mutation. The checks fast-fail failures in seconds
+rather than after a 10-minute build:
+
+1. **Git push auth** — dry-run push to `origin/main` (publish only).
+2. **SSH proxy** — site-deploy server reachable (publish only).
+3. **gh CLI** — installed and authenticated (publish only).
+4. **Maven wrapper** — `mvnw` present and executable (publish only).
+5. **Javadoc** — `mvn compile javadoc:jar` across the reactor produces
+   zero warnings. Publish hard-fails; draft warns. See issue #168.
+
+The connectivity checks (1–4) are publish-only. The javadoc check (5)
+runs in both modes so draft previews surface what would block publish.
+
+### Goal Reports (`ike꞉*.md`)
+
+Every `ike:*` goal extending `AbstractIkeMojo` writes a markdown
+report to the Maven project root as `ike꞉<goal-name>.md` (using
+U+A789 `꞉` for visual clustering with `ws꞉*.md` reports). Files are
+overwritten each run, not appended — the content always reflects the
+latest execution. On first run in a fresh repo, the goal self-heals
+the nearest `.gitignore` by appending `ike꞉*.md` so reports are
+never checked in. See issue #169.
+
 ### Standards Version Coordination
 
 The `ike-build-standards` version is managed inline in `ike-parent`'s
