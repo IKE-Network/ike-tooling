@@ -54,16 +54,7 @@ import java.util.List;
  *
  */
 @Mojo(name = "release-draft", projectRequired = false, aggregator = true)
-public class ReleaseDraftMojo implements org.apache.maven.api.plugin.Mojo {
-
-    @org.apache.maven.api.di.Inject
-    private org.apache.maven.api.plugin.Log log;
-    /**
-     * Access the Maven logger.
-     *
-     * @return the logger
-     */
-    protected org.apache.maven.api.plugin.Log getLog() { return log; }
+public class ReleaseDraftMojo extends AbstractIkeMojo {
 
     @Parameter(property = "releaseVersion")
     String releaseVersion;
@@ -226,6 +217,9 @@ public class ReleaseDraftMojo implements org.apache.maven.api.plugin.Mojo {
             }
             getLog().info("[DRAFT] Would push tag and main to origin");
             getLog().info("[DRAFT] Would create GitHub Release");
+            writeReport(IkeGoal.RELEASE_DRAFT, startDir.toPath(),
+                    buildReleaseReport(true, oldVersion, releaseBranch,
+                            projectId, releaseTimestamp));
             return;
         }
 
@@ -470,6 +464,81 @@ public class ReleaseDraftMojo implements org.apache.maven.api.plugin.Mojo {
         }
         getLog().info("  Merged to main");
         getLog().info("  Next version: " + nextVersion);
+
+        writeReport(IkeGoal.RELEASE_PUBLISH, startDir.toPath(),
+                buildReleaseReport(false, oldVersion, releaseBranch,
+                        projectId, releaseTimestamp));
+    }
+
+    /**
+     * Build the markdown body for an {@code ike:release-*} session report.
+     *
+     * @param draft            {@code true} for draft preview, {@code false}
+     *                         for a completed publish run
+     * @param oldVersion       the pre-release POM version
+     * @param releaseBranch    the release branch that was (or would be) created
+     * @param projectId        the artifactId of the project being released
+     * @param releaseTimestamp the reproducible build timestamp stamped
+     *                         into {@code project.build.outputTimestamp}
+     * @return the markdown body
+     */
+    private String buildReleaseReport(boolean draft, String oldVersion,
+                                       String releaseBranch,
+                                       String projectId,
+                                       String releaseTimestamp) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("**Project:** ").append(projectId).append("\n");
+        sb.append("**Mode:** ").append(draft ? "draft (preview)" : "publish")
+                .append("\n");
+        sb.append("**Version:** ").append(oldVersion).append(" → ")
+                .append(releaseVersion).append("\n");
+        sb.append("**Next version:** ").append(nextVersion).append("\n");
+        sb.append("**Release branch:** ").append(releaseBranch).append("\n");
+        sb.append("**Tag:** v").append(releaseVersion).append("\n");
+        sb.append("**Timestamp:** ").append(releaseTimestamp).append("\n\n");
+
+        String verb = draft ? "Would" : "Did";
+        sb.append("## Local actions\n");
+        sb.append("1. ").append(verb)
+                .append(" create branch `").append(releaseBranch).append("`\n");
+        sb.append("2. ").append(verb)
+                .append(" set version ").append(oldVersion).append(" → ")
+                .append(releaseVersion).append("\n");
+        sb.append("3. ").append(verb)
+                .append(" stamp `project.build.outputTimestamp`\n");
+        sb.append("4. ").append(verb)
+                .append(" resolve `${project.version}` in all POMs\n");
+        sb.append("5. ").append(verb).append(" run `mvnw clean verify -B`\n");
+        sb.append("6. ").append(verb)
+                .append(" commit and tag `v").append(releaseVersion)
+                .append("`\n");
+        sb.append("7. ").append(verb)
+                .append(" merge `").append(releaseBranch).append("` to main\n");
+        sb.append("8. ").append(verb)
+                .append(" bump to next version ").append(nextVersion)
+                .append("\n\n");
+
+        sb.append("## External actions\n");
+        int step = 1;
+        if (deploySite) {
+            sb.append(step++).append(". ").append(verb)
+                    .append(" generate site\n");
+        }
+        sb.append(step++).append(". ").append(verb)
+                .append(" deploy to Nexus from tag `v")
+                .append(releaseVersion).append("`\n");
+        if (deploySite) {
+            sb.append(step++).append(". ").append(verb)
+                    .append(" deploy site to ")
+                    .append("`scpexe://proxy/srv/ike-site/")
+                    .append(projectId).append("/release`\n");
+        }
+        sb.append(step++).append(". ").append(verb)
+                .append(" push tag and main to origin\n");
+        sb.append(step).append(". ").append(verb)
+                .append(" create GitHub Release\n");
+
+        return sb.toString();
     }
 
     /**
