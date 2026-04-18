@@ -452,7 +452,7 @@ class ReleaseIntegrationTest {
     private static ReleaseDraftMojo createMojo() {
         ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         try {
-            var field = ReleaseDraftMojo.class.getDeclaredField("log");
+            var field = AbstractIkeMojo.class.getDeclaredField("log");
             field.setAccessible(true);
             field.set(mojo, new TestLog());
         } catch (ReflectiveOperationException e) {
