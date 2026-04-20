@@ -1,15 +1,25 @@
 package network.ike.plugin;
 
+import org.apache.maven.api.model.Dependency;
+import org.apache.maven.api.model.DependencyManagement;
+import org.apache.maven.api.model.Model;
+import org.apache.maven.api.model.Parent;
+import org.apache.maven.api.model.Plugin;
+import org.apache.maven.api.model.PluginManagement;
+import org.apache.maven.api.model.Profile;
 import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.model.v4.MavenStaxReader;
+
+import javax.xml.stream.XMLStreamException;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
 
 /**
  * Scan POM files for {@code -SNAPSHOT} references that would leak into
@@ -26,52 +36,36 @@ import java.util.regex.Pattern;
  * builds fail with "artifact not found" — even though the release
  * passed locally.
  *
- * <p>This scanner runs two layers of check at release time:
+ * <p>This scanner uses Maven 4's own {@link MavenStaxReader} to parse
+ * POMs into the typed {@link Model} tree, then inspects only the
+ * contexts that feed the consumer POM:
  *
  * <ul>
  *   <li><strong>Source properties scan</strong> via
- *       {@link #scanSourceProperties(File)} — reads the root
- *       {@code <properties>} block and fails if any value ends in
+ *       {@link #scanSourceProperties(File)} — inspects
+ *       {@code <properties>} and fails if any value ends in
  *       {@code -SNAPSHOT}. Catches the bug at its source before any
  *       release mutation runs.</li>
  *   <li><strong>Post-mutation version scan</strong> via
- *       {@link #scanForSnapshotVersions(List)} — after
- *       {@link ReleaseSupport#replaceProjectVersionRefs(File, String,
- *       org.apache.maven.api.plugin.Log)} has rewritten
- *       {@code ${project.version}} to a literal, scans every POM for
- *       any remaining {@code <version>...-SNAPSHOT</version>}. Defense
- *       in depth for literal SNAPSHOT versions that slipped past the
- *       property scan.</li>
+ *       {@link #scanForSnapshotVersions(List)} — walks the model's
+ *       {@code <parent>}, {@code <dependencies>}, {@code <dependencyManagement>},
+ *       {@code <build>/<plugins>}, {@code <build>/<pluginManagement>}, and
+ *       every profile's equivalent sections. Any {@code -SNAPSHOT}
+ *       version here is a baked-in reference that would leak through
+ *       the consumer POM.</li>
  * </ul>
+ *
+ * <p><strong>Not scanned:</strong> the module's own {@code <version>}
+ * (immediate child of {@code <project>}), because during release the
+ * module version is handled by
+ * {@link ReleaseSupport#setPomVersion(java.io.File, String, String)}
+ * and is not a consumer-POM leakage path. Comments, CDATA, and
+ * whitespace are natively ignored by the Maven parser.
  */
 public final class SnapshotScanner {
 
     /** Suffix that marks a SNAPSHOT version. */
     private static final String SNAPSHOT_SUFFIX = "-SNAPSHOT";
-
-    /**
-     * Matches the root {@code <properties>...</properties>} block. The
-     * {@code DOTALL} flag lets {@code .} cross newlines so the block
-     * can span multiple lines.
-     */
-    private static final Pattern PROPERTIES_BLOCK = Pattern.compile(
-            "<properties>(.*?)</properties>", Pattern.DOTALL);
-
-    /**
-     * Matches a single property element inside a {@code <properties>}
-     * block. Captures the element name and the text value. Does not
-     * match self-closing or commented elements (those won't hold a
-     * SNAPSHOT value anyway).
-     */
-    private static final Pattern PROPERTY_ELEMENT = Pattern.compile(
-            "<([A-Za-z][A-Za-z0-9._-]*)>([^<]+)</\\1>");
-
-    /**
-     * Matches any {@code <version>...</version>} element in a POM.
-     * Used by the post-mutation scan to catch literal SNAPSHOT versions.
-     */
-    private static final Pattern VERSION_ELEMENT = Pattern.compile(
-            "<version>([^<]+)</version>");
 
     private SnapshotScanner() {}
 
@@ -80,8 +74,8 @@ public final class SnapshotScanner {
      *
      * @param pomFile  the POM file containing the reference
      * @param location descriptor of the element location
-     *                 (e.g. {@code "<ike-tooling.version>"} or
-     *                 {@code "<version>"} for a literal version)
+     *                 (e.g. {@code "properties/ike-tooling.version"} or
+     *                 {@code "pluginManagement/plugin[ike-maven-plugin]"})
      * @param value    the SNAPSHOT-ending value found
      */
     public record Violation(File pomFile, String location, String value) {
@@ -103,74 +97,60 @@ public final class SnapshotScanner {
     }
 
     /**
-     * Scan the root {@code <properties>} block of a POM for any value
-     * ending in {@code -SNAPSHOT}.
+     * Scan the {@code <properties>} sections of a POM (root plus any
+     * profile properties) for any value ending in {@code -SNAPSHOT}.
      *
-     * <p>This is the primary gate that catches the original
+     * <p>This is the primary gate that catches the
      * {@code <ike-tooling.version>112-SNAPSHOT</ike-tooling.version>}
      * class of bug before any release mutation runs.
      *
      * @param pomFile the POM file to scan
-     * @return violations found in the properties block; empty if clean
-     * @throws MojoException if the file cannot be read
+     * @return violations found in properties; empty if clean
+     * @throws MojoException if the file cannot be read or parsed
      */
     public static List<Violation> scanSourceProperties(File pomFile) {
-        String content;
-        try {
-            content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new MojoException(
-                    "Failed to read " + pomFile + ": " + e.getMessage(), e);
-        }
-
-        Matcher blockMatcher = PROPERTIES_BLOCK.matcher(content);
-        if (!blockMatcher.find()) return List.of();
-
-        String propertiesBlock = blockMatcher.group(1);
+        Model model = parseModel(pomFile);
         List<Violation> violations = new ArrayList<>();
-        Matcher propMatcher = PROPERTY_ELEMENT.matcher(propertiesBlock);
-        while (propMatcher.find()) {
-            String name = propMatcher.group(1);
-            String value = propMatcher.group(2).trim();
-            if (value.endsWith(SNAPSHOT_SUFFIX)) {
-                violations.add(new Violation(
-                        pomFile, "<" + name + ">", value));
-            }
+
+        collectSnapshotProperties(model.getProperties(), "properties",
+                pomFile, violations);
+
+        for (Profile profile : model.getProfiles()) {
+            collectSnapshotProperties(profile.getProperties(),
+                    "profiles/" + profile.getId() + "/properties",
+                    pomFile, violations);
         }
+
         return violations;
     }
 
     /**
-     * Scan a list of POM files for any literal
-     * {@code <version>...-SNAPSHOT</version>} element.
+     * Scan a list of POMs for any {@code <version>...-SNAPSHOT</version>}
+     * in the consumer-POM-relevant contexts: {@code <parent>},
+     * {@code <dependencies>}, {@code <dependencyManagement>},
+     * {@code <build>/<plugins>}, {@code <build>/<pluginManagement>},
+     * and the same sections within every profile.
      *
      * <p>Intended for use <em>after</em>
      * {@link ReleaseSupport#replaceProjectVersionRefs(File, String,
      * org.apache.maven.api.plugin.Log)} has resolved
-     * {@code ${project.version}} to a literal. Any remaining SNAPSHOT
-     * version in a {@code <version>} element is a baked-in reference
-     * that would leak through the consumer POM.
+     * {@code ${project.version}} to a literal.
+     *
+     * <p>Explicitly skips the module's own {@code <version>} element —
+     * that is handled by {@link ReleaseSupport#setPomVersion} and does
+     * not leak into the consumer POM as a stale SNAPSHOT.
      *
      * @param pomFiles POM files to scan
      * @return violations found across all POMs; empty if clean
-     * @throws MojoException if any file cannot be read
+     * @throws MojoException if any file cannot be read or parsed
      */
     public static List<Violation> scanForSnapshotVersions(List<File> pomFiles) {
         List<Violation> violations = new ArrayList<>();
         for (File pom : pomFiles) {
-            String content;
-            try {
-                content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                throw new MojoException(
-                        "Failed to read " + pom + ": " + e.getMessage(), e);
-            }
-            Matcher m = VERSION_ELEMENT.matcher(content);
-            while (m.find()) {
-                String value = m.group(1).trim();
-                if (value.endsWith(SNAPSHOT_SUFFIX)) {
-                    violations.add(new Violation(pom, "<version>", value));
-                }
+            Model model = parseModel(pom);
+            scanModel(pom, model, "", violations);
+            for (Profile profile : model.getProfiles()) {
+                scanProfile(pom, profile, violations);
             }
         }
         return violations;
@@ -197,5 +177,135 @@ public final class SnapshotScanner {
         }
         sb.append(remedyHint);
         return sb.toString();
+    }
+
+    // ── parser ────────────────────────────────────────────────────────
+
+    private static Model parseModel(File pomFile) {
+        try (Reader reader = Files.newBufferedReader(pomFile.toPath(),
+                StandardCharsets.UTF_8)) {
+            return new MavenStaxReader().read(reader);
+        } catch (IOException | XMLStreamException e) {
+            throw new MojoException(
+                    "Failed to parse " + pomFile + ": " + e.getMessage(), e);
+        }
+    }
+
+    // ── properties collection ────────────────────────────────────────
+
+    private static void collectSnapshotProperties(Map<String, String> props,
+                                                   String locationPrefix,
+                                                   File pomFile,
+                                                   List<Violation> into) {
+        if (props == null) return;
+        for (Map.Entry<String, String> entry : props.entrySet()) {
+            String value = entry.getValue();
+            if (value != null && value.endsWith(SNAPSHOT_SUFFIX)) {
+                into.add(new Violation(pomFile,
+                        locationPrefix + "/" + entry.getKey(), value));
+            }
+        }
+    }
+
+    // ── model traversal for version scans ────────────────────────────
+
+    private static void scanModel(File pom, Model model, String prefix,
+                                   List<Violation> into) {
+        // <parent><version> — inherited parent reference
+        Parent parent = model.getParent();
+        if (parent != null && isSnapshot(parent.getVersion())) {
+            into.add(new Violation(pom,
+                    prefix + "parent[" + coords(parent.getGroupId(),
+                            parent.getArtifactId()) + "]",
+                    parent.getVersion()));
+        }
+
+        // <dependencies><dependency><version>
+        scanDependencies(pom, model.getDependencies(),
+                prefix + "dependencies", into);
+
+        // <dependencyManagement><dependencies><dependency><version>
+        DependencyManagement dm = model.getDependencyManagement();
+        if (dm != null) {
+            scanDependencies(pom, dm.getDependencies(),
+                    prefix + "dependencyManagement", into);
+        }
+
+        // <build><plugins><plugin><version>
+        if (model.getBuild() != null) {
+            scanPlugins(pom, model.getBuild().getPlugins(),
+                    prefix + "build/plugins", into);
+
+            // <build><pluginManagement><plugins><plugin><version>
+            PluginManagement pm = model.getBuild().getPluginManagement();
+            if (pm != null) {
+                scanPlugins(pom, pm.getPlugins(),
+                        prefix + "build/pluginManagement", into);
+            }
+        }
+    }
+
+    private static void scanProfile(File pom, Profile profile,
+                                     List<Violation> into) {
+        String prefix = "profiles/" + profile.getId() + "/";
+
+        scanDependencies(pom, profile.getDependencies(),
+                prefix + "dependencies", into);
+
+        DependencyManagement dm = profile.getDependencyManagement();
+        if (dm != null) {
+            scanDependencies(pom, dm.getDependencies(),
+                    prefix + "dependencyManagement", into);
+        }
+
+        if (profile.getBuild() != null) {
+            scanPlugins(pom, profile.getBuild().getPlugins(),
+                    prefix + "build/plugins", into);
+
+            PluginManagement pm = profile.getBuild().getPluginManagement();
+            if (pm != null) {
+                scanPlugins(pom, pm.getPlugins(),
+                        prefix + "build/pluginManagement", into);
+            }
+        }
+    }
+
+    private static void scanDependencies(File pom, List<Dependency> deps,
+                                          String prefix,
+                                          List<Violation> into) {
+        if (deps == null) return;
+        for (Dependency dep : deps) {
+            if (isSnapshot(dep.getVersion())) {
+                into.add(new Violation(pom,
+                        prefix + "/" + coords(dep.getGroupId(),
+                                dep.getArtifactId()),
+                        dep.getVersion()));
+            }
+        }
+    }
+
+    private static void scanPlugins(File pom, List<Plugin> plugins,
+                                     String prefix,
+                                     List<Violation> into) {
+        if (plugins == null) return;
+        for (Plugin plugin : plugins) {
+            if (isSnapshot(plugin.getVersion())) {
+                into.add(new Violation(pom,
+                        prefix + "/" + coords(plugin.getGroupId(),
+                                plugin.getArtifactId()),
+                        plugin.getVersion()));
+            }
+        }
+    }
+
+    private static boolean isSnapshot(String version) {
+        return version != null && version.endsWith(SNAPSHOT_SUFFIX);
+    }
+
+    private static String coords(String groupId, String artifactId) {
+        if (groupId == null || groupId.isBlank()) {
+            return artifactId == null ? "?" : artifactId;
+        }
+        return groupId + ":" + artifactId;
     }
 }
