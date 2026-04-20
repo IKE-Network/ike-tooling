@@ -10,7 +10,7 @@ import java.nio.file.Path;
  * Common base class for {@code ike:*} goals. Provides the injected
  * Maven logger and a {@link #writeReport(IkeGoal, Path, String)} helper
  * so every goal can emit a markdown session report to
- * {@code <projectRoot>/session/ike꞉<goal>.md}.
+ * {@code <projectRoot>/ike꞉<goal>.md}.
  *
  * <p>Parallels {@code network.ike.plugin.ws.AbstractWorkspaceMojo} in
  * the ws plugin. See issue #169.
@@ -33,9 +33,8 @@ public abstract class AbstractIkeMojo implements Mojo {
     }
 
     /**
-     * Write a goal's report to its per-goal file in the
-     * {@code session/} directory of the given project root.
-     * Overwrites any previous content and self-heals
+     * Write a goal's report to its per-goal file at the given project
+     * root. Overwrites any previous content and self-heals
      * {@code .gitignore} in the nearest git ancestor.
      *
      * @param goal        the goal whose output is being reported

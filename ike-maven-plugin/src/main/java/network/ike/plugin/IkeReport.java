@@ -30,11 +30,10 @@ import java.util.List;
  * a fresh clone of a consumer repo becomes report-ready the first time
  * an {@code ike:*} goal runs.
  *
- * <p>Parallels {@code network.ike.plugin.ws.WorkspaceReport}. The ws
- * writer targets the workspace root's {@code session/} directory
- * (typically outside any git repo); this writer targets per-module
- * git repos and sits next to the {@code pom.xml}, hence the inline
- * gitignore step.
+ * <p>Parallels {@code network.ike.plugin.ws.WorkspaceReport}. Both
+ * writers target their respective roots (the workspace root for ws,
+ * the project root for ike) and both self-heal the nearest
+ * {@code .gitignore}.
  */
 public final class IkeReport {
 
