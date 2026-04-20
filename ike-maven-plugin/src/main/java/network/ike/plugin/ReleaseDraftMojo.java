@@ -185,6 +185,28 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
         // the real release.
         preflightJavadoc(gitRoot, publish);
 
+        // SNAPSHOT-in-properties preflight (#177): Maven 4's consumer
+        // POM flattener resolves properties and promotes pluginManagement
+        // into plugins when writing the released artifact. If a
+        // <properties> value ends in -SNAPSHOT it leaks into the released
+        // POM as a literal, breaking downstream builds. Catch it before
+        // any mutation — publish hard-fails, draft warns.
+        List<SnapshotScanner.Violation> propViolations =
+                SnapshotScanner.scanSourceProperties(rootPom);
+        if (!propViolations.isEmpty()) {
+            String msg = SnapshotScanner.formatViolations(propViolations, gitRoot,
+                    propViolations.size() + " SNAPSHOT property value(s) would"
+                            + " leak into released POMs:",
+                    "  These values are resolved by Maven 4's consumer POM\n"
+                    + "  flattener and baked into released artifacts. Bump\n"
+                    + "  each property to a released (non-SNAPSHOT) version\n"
+                    + "  before re-running the release.");
+            if (publish) {
+                throw new MojoException(msg);
+            }
+            getLog().warn(msg);
+        }
+
         // Derive timestamp from the current HEAD commit, not wall-clock time.
         // This ensures two independent builds from the same tag produce the
         // same project.build.outputTimestamp value — which is the reproducibility
@@ -254,6 +276,23 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
             getLog().info("Resolving ${project.version} references:");
             resolvedPoms =
                     ReleaseSupport.replaceProjectVersionRefs(gitRoot, releaseVersion, getLog());
+
+            // Defense in depth (#177): after ${project.version} substitution
+            // the only legitimate <version> values are released literals.
+            // Scan all POMs for any surviving <version>...-SNAPSHOT</version>
+            // before we commit the release tag.
+            List<File> allPoms = ReleaseSupport.findPomFiles(gitRoot);
+            List<SnapshotScanner.Violation> versionViolations =
+                    SnapshotScanner.scanForSnapshotVersions(allPoms);
+            if (!versionViolations.isEmpty()) {
+                throw new MojoException(SnapshotScanner.formatViolations(
+                        versionViolations, gitRoot,
+                        versionViolations.size() + " literal SNAPSHOT <version>"
+                                + " element(s) remain after property resolution:",
+                        "  These would be baked into the released artifact.\n"
+                        + "  Replace each with a released version or resolve via\n"
+                        + "  ${project.version} before re-running the release."));
+            }
         }
 
         // Build and install (not just verify) — reactor siblings with
