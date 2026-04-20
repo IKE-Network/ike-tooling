@@ -819,8 +819,11 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
     private List<String> collectJavadocWarnings(File gitRoot) {
         List<String> warnings = new ArrayList<>();
         try {
+            // -q stripped the [WARNING] prefix the grep below keys on,
+            // letting javadoc "reference not found" warnings slip through
+            // preflight (see ike-issues #178). -B keeps output non-interactive.
             Process proc = new ProcessBuilder(
-                    "mvn", "-q", "-B",
+                    "mvn", "-B",
                     "compile", "javadoc:jar",
                     "-DskipTests",
                     "-DfailOnError=false",
