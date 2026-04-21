@@ -58,7 +58,6 @@ public class IkeHelpMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("  ike:feature-finish-rebase                       Rebase onto target, linear history");
         getLog().info("  ike:ws-checkpoint                               Record multi-repo checkpoint (SHAs+versions)");
         getLog().info("  ike:ws-checkpoint-draft                       Preview checkpoint without writing files or tags");
-        getLog().info("  ike:ws-release                                  Release all components with unreleased commits in topo order");
         getLog().info("");
         getLog().info("  ── Release Goals ────────────────────────────────────────");
         getLog().info("  ike:help                                        This help message");
@@ -103,13 +102,6 @@ public class IkeHelpMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("  -DdeploySite=true      Deploy site for each component");
         getLog().info("  -DskipVerify=true      Skip tests during build");
         getLog().info("  -Dpublish=true          Execute without writing files or tags");
-        getLog().info("");
-        getLog().info("Options for ike:ws-release:");
-        getLog().info("  -Dcomponent=<name>     Release one specific component");
-        getLog().info("  -Dgroup=<name>         Restrict to components in group");
-        getLog().info("  -Dpublish=true          Execute (default would be released");
-        getLog().info("  -Dpush=true            Push releases to origin (default: true)");
-        getLog().info("  -DskipCheckpoint=true  Skip pre-release checkpoint");
         getLog().info("");
         getLog().info("Options for ike:release:");
         getLog().info("  -DreleaseVersion=<v>   Version to release (auto-derived from POM)");
