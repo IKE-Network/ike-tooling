@@ -252,7 +252,7 @@ Run `ws:help` for the complete auto-discovered list.
 
 | Goal | Description |
 |------|-------------|
-| `ws:release-draft` / `-publish` | Release modified subprojects in dependency order |
+| `ws:release-draft` / `-publish` | Release release-pending subprojects in dependency order |
 | `ws:checkpoint-draft` / `-publish` | Tag all subprojects, record SHAs |
 | `ws:post-release` | Bump to next development version |
 | `ws:release-notes` | Generate notes from GitHub milestone |
