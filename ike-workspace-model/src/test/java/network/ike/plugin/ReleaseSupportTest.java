@@ -797,6 +797,152 @@ class ReleaseSupportTest {
         assertThat(result.getAbsolutePath()).isEqualTo(mvnw.toAbsolutePath().toString());
     }
 
+    @Test
+    void resolveMavenWrapperFor_unixSelectsMvnw(@TempDir Path tmpDir) throws Exception {
+        initGitRepo(tmpDir);
+        // Both wrappers present — Unix path must select mvnw, NOT mvnw.cmd
+        Path mvnw = tmpDir.resolve("mvnw");
+        Path mvnwCmd = tmpDir.resolve("mvnw.cmd");
+        Files.writeString(mvnw, "#!/bin/sh", StandardCharsets.UTF_8);
+        Files.writeString(mvnwCmd, "@echo off", StandardCharsets.UTF_8);
+
+        File result = ReleaseSupport.resolveMavenWrapperFor(
+                tmpDir.toFile(), new TestLog(), false);
+        assertThat(result.getName()).isEqualTo("mvnw");
+        assertThat(result.getAbsolutePath()).isEqualTo(mvnw.toAbsolutePath().toString());
+    }
+
+    @Test
+    void resolveMavenWrapperFor_windowsSelectsMvnwCmd(@TempDir Path tmpDir) throws Exception {
+        initGitRepo(tmpDir);
+        // Both wrappers present — Windows path must select mvnw.cmd, NOT mvnw
+        Path mvnw = tmpDir.resolve("mvnw");
+        Path mvnwCmd = tmpDir.resolve("mvnw.cmd");
+        Files.writeString(mvnw, "#!/bin/sh", StandardCharsets.UTF_8);
+        Files.writeString(mvnwCmd, "@echo off", StandardCharsets.UTF_8);
+
+        File result = ReleaseSupport.resolveMavenWrapperFor(
+                tmpDir.toFile(), new TestLog(), true);
+        assertThat(result.getName()).isEqualTo("mvnw.cmd");
+        assertThat(result.getAbsolutePath()).isEqualTo(mvnwCmd.toAbsolutePath().toString());
+    }
+
+    @Test
+    void resolveMavenWrapperFor_windowsWithOnlyUnixWrapper_fallsThroughToSystem(
+            @TempDir Path tmpDir) throws Exception {
+        initGitRepo(tmpDir);
+        // Only mvnw present — on Windows that's not usable, so we fall through
+        // to system lookup (which/where mvn.cmd). Since this test runs on a
+        // Unix host, the Windows branch will try `where mvn.cmd`, which is not
+        // available on Unix → expect the "neither found" MojoException.
+        Path mvnw = tmpDir.resolve("mvnw");
+        Files.writeString(mvnw, "#!/bin/sh", StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> ReleaseSupport.resolveMavenWrapperFor(
+                tmpDir.toFile(), new TestLog(), true))
+                .isInstanceOf(MojoException.class)
+                .hasMessageContaining("mvnw.cmd")
+                .hasMessageContaining("mvn.cmd");
+    }
+
+    @Test
+    void resolveMavenWrapperFor_unixNoWrapper_fallsBackToSystemMvn(
+            @TempDir Path tmpDir) throws Exception {
+        // Only run when system mvn is on PATH (typical CI/dev environment)
+        // Otherwise skip — we exercise the failure path in a separate test.
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                hasSystemMvn(), "system 'mvn' not on PATH");
+        initGitRepo(tmpDir);
+        // No wrapper at all — should fall back to system mvn via `which mvn`.
+
+        CapturingLog log = new CapturingLog();
+        File result = ReleaseSupport.resolveMavenWrapperFor(
+                tmpDir.toFile(), log, false);
+
+        assertThat(result.exists())
+                .as("system mvn returned by `which` must exist on disk").isTrue();
+        assertThat(result.getName()).isIn("mvn", "mvn.cmd");
+        assertThat(log.infos)
+                .anyMatch(m -> m.contains("No Maven wrapper found")
+                        && m.contains("using system"));
+    }
+
+    // ── firstNonEmptyLine ───────────────────────────────────────────
+
+    @Test
+    void firstNonEmptyLine_singleLine() {
+        assertThat(ReleaseSupport.firstNonEmptyLine("/usr/local/bin/mvn"))
+                .isEqualTo("/usr/local/bin/mvn");
+    }
+
+    @Test
+    void firstNonEmptyLine_singleLineWithTrailingNewline() {
+        assertThat(ReleaseSupport.firstNonEmptyLine("/usr/local/bin/mvn\n"))
+                .isEqualTo("/usr/local/bin/mvn");
+    }
+
+    @Test
+    void firstNonEmptyLine_singleLineWithSurroundingWhitespace() {
+        assertThat(ReleaseSupport.firstNonEmptyLine("   /usr/local/bin/mvn   "))
+                .isEqualTo("/usr/local/bin/mvn");
+    }
+
+    @Test
+    void firstNonEmptyLine_windowsWhereMultiLineCRLF() {
+        // Windows `where mvn.cmd` returns CRLF-separated lines, e.g.:
+        //   C:\Tools\maven\bin\mvn.cmd
+        //   C:\ProgramData\chocolatey\bin\mvn.cmd
+        // We must take the FIRST entry (earliest on PATH wins).
+        String whereOutput =
+                "C:\\Tools\\maven\\bin\\mvn.cmd\r\n"
+                        + "C:\\ProgramData\\chocolatey\\bin\\mvn.cmd\r\n";
+        assertThat(ReleaseSupport.firstNonEmptyLine(whereOutput))
+                .isEqualTo("C:\\Tools\\maven\\bin\\mvn.cmd");
+    }
+
+    @Test
+    void firstNonEmptyLine_multiLineLF() {
+        String output = "/usr/local/bin/mvn\n/opt/homebrew/bin/mvn\n";
+        assertThat(ReleaseSupport.firstNonEmptyLine(output))
+                .isEqualTo("/usr/local/bin/mvn");
+    }
+
+    @Test
+    void firstNonEmptyLine_skipsLeadingBlankLines() {
+        String output = "\n\n   \n/usr/local/bin/mvn\n";
+        assertThat(ReleaseSupport.firstNonEmptyLine(output))
+                .isEqualTo("/usr/local/bin/mvn");
+    }
+
+    @Test
+    void firstNonEmptyLine_emptyInput() {
+        assertThat(ReleaseSupport.firstNonEmptyLine("")).isEqualTo("");
+    }
+
+    @Test
+    void firstNonEmptyLine_onlyWhitespace() {
+        assertThat(ReleaseSupport.firstNonEmptyLine("   \n  \n  ")).isEqualTo("");
+    }
+
+    // ── isWindows ───────────────────────────────────────────────────
+
+    @Test
+    void isWindows_matchesOsNameProperty() {
+        boolean expected = System.getProperty("os.name", "")
+                .toLowerCase().contains("win");
+        assertThat(ReleaseSupport.isWindows()).isEqualTo(expected);
+    }
+
+    private static boolean hasSystemMvn() {
+        try {
+            return ReleaseSupport.execCapture(
+                    new File(System.getProperty("user.dir")),
+                    "which", "mvn").length() > 0;
+        } catch (MojoException e) {
+            return false;
+        }
+    }
+
     // ── readPomVersion: version only in parent ─────────────────────
 
     @Test

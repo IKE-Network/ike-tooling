@@ -379,9 +379,20 @@ public class ReleaseSupport {
     }
 
     /**
+     * Check if the current platform is Windows.
+     *
+     * @return {@code true} if {@code os.name} contains "win"
+     */
+    public static boolean isWindows() {
+        return System.getProperty("os.name", "")
+                .toLowerCase(java.util.Locale.ROOT).contains("win");
+    }
+
+    /**
      * Resolve the Maven executable. Prefers the Maven wrapper
-     * ({@code mvnw}) at the git root; falls back to {@code mvn}
-     * from the system PATH (resolved via {@code which}).
+     * ({@code mvnw} on Unix, {@code mvnw.cmd} on Windows) at the
+     * git root; falls back to system Maven located via {@code which}
+     * on Unix or {@code where} on Windows.
      *
      * @param gitRoot the git repository root directory
      * @param log     Maven logger
@@ -389,16 +400,33 @@ public class ReleaseSupport {
      * @throws MojoException if neither wrapper nor system Maven is found
      */
     public static File resolveMavenWrapper(File gitRoot, Log log) throws MojoException {
-        String name = System.getProperty("os.name", "")
-                .toLowerCase().contains("win") ? "mvnw.cmd" : "mvnw";
-        File wrapper = new File(gitRoot, name);
+        return resolveMavenWrapperFor(gitRoot, log, isWindows());
+    }
+
+    /**
+     * OS-injected variant of {@link #resolveMavenWrapper(File, Log)} for testing.
+     * Production callers should use the two-argument overload.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @param windows {@code true} to use Windows wrapper/lookup conventions,
+     *                {@code false} for Unix conventions
+     * @return the resolved Maven executable
+     * @throws MojoException if neither wrapper nor system Maven is found
+     */
+    static File resolveMavenWrapperFor(File gitRoot, Log log, boolean windows)
+            throws MojoException {
+        String wrapperName = windows ? "mvnw.cmd" : "mvnw";
+        File wrapper = new File(gitRoot, wrapperName);
         if (wrapper.exists()) {
             return wrapper;
         }
         // Fall back to system mvn — resolve via PATH
-        String systemName = name.replace("mvnw", "mvn");
+        String systemName = windows ? "mvn.cmd" : "mvn";
+        String lookupTool = windows ? "where" : "which";
         try {
-            String path = execCapture(gitRoot, "which", systemName);
+            String output = execCapture(gitRoot, lookupTool, systemName);
+            String path = firstNonEmptyLine(output);
             log.info("No Maven wrapper found; using system '" + path + "'");
             return new File(path);
         } catch (MojoException _) {
@@ -406,6 +434,24 @@ public class ReleaseSupport {
                     "Neither Maven wrapper (" + wrapper.getAbsolutePath() +
                             ") nor system '" + systemName + "' found on PATH.");
         }
+    }
+
+    /**
+     * Return the first non-empty line of {@code output}, trimmed.
+     * Handles the Windows {@code where} command, which may emit multiple
+     * matches separated by newlines (e.g. {@code mvn.cmd} from a wrapper
+     * shim and from a system install).
+     *
+     * @param output multi-line command output
+     * @return first non-empty line trimmed, or the trimmed full output
+     *         if no non-empty line exists
+     */
+    static String firstNonEmptyLine(String output) {
+        return output.lines()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .findFirst()
+                .orElse(output.trim());
     }
 
     /**
