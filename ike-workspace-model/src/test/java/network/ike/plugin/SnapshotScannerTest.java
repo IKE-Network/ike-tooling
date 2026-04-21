@@ -373,6 +373,162 @@ class SnapshotScannerTest {
                 .containsExactly("1-SNAPSHOT", "3-SNAPSHOT");
     }
 
+    // ── Regression: ike-parent shape (#175 acceptance criterion #3) ───
+
+    /**
+     * Anchor the {@code <ike-tooling.version>112-SNAPSHOT</ike-tooling.version>}
+     * bug to the actual ike-parent layout from before the property bump
+     * (commit {@code 401196c}). The shape mirrors the real POM:
+     *
+     * <ul>
+     *   <li>Multiple {@code <dependencyManagement>} entries reference
+     *       {@code ${ike-tooling.version}} (consumer-POM-flattened — Maven 4
+     *       writes the resolved literal into the released artifact).</li>
+     *   <li>One {@code <pluginManagement>} entry uses a literal version
+     *       because Maven loads extensions before property interpolation
+     *       (this entry must not be flagged).</li>
+     *   <li>The {@code <ike-tooling.version>} property value is
+     *       {@code 112-SNAPSHOT} — exactly the value that leaked into
+     *       released {@code ike-parent-105.pom}.</li>
+     * </ul>
+     *
+     * <p>Layer 1 ({@link SnapshotScanner#scanSourceProperties}) must
+     * flag the property exactly once. Layer 2
+     * ({@link SnapshotScanner#scanForSnapshotVersions}) against the
+     * literal-resolved POM must report zero violations — there is no
+     * baked-in SNAPSHOT once the property has been bumped to a release
+     * version.
+     */
+    @Test
+    void regression_ikeParentShape_circa_401196c_flagsPropertyOnce(@TempDir Path dir)
+            throws IOException {
+        File pom = writePom(dir, """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>network.ike</groupId>
+                  <artifactId>ike-parent</artifactId>
+                  <version>105</version>
+                  <packaging>pom</packaging>
+                  <properties>
+                    <ike-tooling.version>112-SNAPSHOT</ike-tooling.version>
+                  </properties>
+                  <dependencyManagement>
+                    <dependencies>
+                      <dependency>
+                        <groupId>network.ike.tooling</groupId>
+                        <artifactId>ike-build-standards</artifactId>
+                        <version>${ike-tooling.version}</version>
+                        <classifier>claude</classifier>
+                        <type>zip</type>
+                      </dependency>
+                      <dependency>
+                        <groupId>network.ike.tooling</groupId>
+                        <artifactId>ike-build-standards</artifactId>
+                        <version>${ike-tooling.version}</version>
+                        <classifier>docs</classifier>
+                        <type>zip</type>
+                      </dependency>
+                      <dependency>
+                        <groupId>network.ike.tooling</groupId>
+                        <artifactId>ike-build-standards</artifactId>
+                        <version>${ike-tooling.version}</version>
+                        <classifier>asciidoctorconfig</classifier>
+                        <type>zip</type>
+                      </dependency>
+                      <dependency>
+                        <groupId>network.ike.tooling</groupId>
+                        <artifactId>ike-build-standards</artifactId>
+                        <version>${ike-tooling.version}</version>
+                        <classifier>config</classifier>
+                        <type>zip</type>
+                      </dependency>
+                    </dependencies>
+                  </dependencyManagement>
+                  <build>
+                    <pluginManagement>
+                      <plugins>
+                        <plugin>
+                          <groupId>network.ike.tooling</groupId>
+                          <artifactId>ike-maven-plugin</artifactId>
+                          <version>118</version>
+                          <extensions>true</extensions>
+                        </plugin>
+                      </plugins>
+                    </pluginManagement>
+                  </build>
+                </project>
+                """);
+
+        // Layer 1: source-side property scan flags the SNAPSHOT property
+        // exactly once. The four <dependency> entries that reference
+        // ${ike-tooling.version} are NOT flagged here — they would only
+        // be flagged after Maven's consumer POM flattener resolves them,
+        // which Layer 2 simulates after release-time substitution.
+        List<SnapshotScanner.Violation> propViolations =
+                SnapshotScanner.scanSourceProperties(pom);
+        assertThat(propViolations).singleElement().satisfies(v -> {
+            assertThat(v.location()).isEqualTo("properties/ike-tooling.version");
+            assertThat(v.value()).isEqualTo("112-SNAPSHOT");
+        });
+
+        // Layer 2: against the as-written POM (with property references
+        // unresolved), no <version>...-SNAPSHOT</version> literal exists,
+        // so the version scan must be silent. The literal "118" on the
+        // extensions plugin must not trip a false positive.
+        List<SnapshotScanner.Violation> versionViolations =
+                SnapshotScanner.scanForSnapshotVersions(List.of(pom));
+        assertThat(versionViolations).isEmpty();
+    }
+
+    /**
+     * Same shape as {@link #regression_ikeParentShape_circa_401196c_flagsPropertyOnce}
+     * but with the property bumped to a released version. Both layers
+     * must report clean — this is the post-fix state that the release
+     * gate is enforcing.
+     */
+    @Test
+    void regression_ikeParentShape_postPropertyBump_passesBothLayers(@TempDir Path dir)
+            throws IOException {
+        File pom = writePom(dir, """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>network.ike</groupId>
+                  <artifactId>ike-parent</artifactId>
+                  <version>106</version>
+                  <packaging>pom</packaging>
+                  <properties>
+                    <ike-tooling.version>117</ike-tooling.version>
+                  </properties>
+                  <dependencyManagement>
+                    <dependencies>
+                      <dependency>
+                        <groupId>network.ike.tooling</groupId>
+                        <artifactId>ike-build-standards</artifactId>
+                        <version>${ike-tooling.version}</version>
+                        <classifier>claude</classifier>
+                        <type>zip</type>
+                      </dependency>
+                    </dependencies>
+                  </dependencyManagement>
+                  <build>
+                    <pluginManagement>
+                      <plugins>
+                        <plugin>
+                          <groupId>network.ike.tooling</groupId>
+                          <artifactId>ike-maven-plugin</artifactId>
+                          <version>118</version>
+                          <extensions>true</extensions>
+                        </plugin>
+                      </plugins>
+                    </pluginManagement>
+                  </build>
+                </project>
+                """);
+
+        assertThat(SnapshotScanner.scanSourceProperties(pom)).isEmpty();
+        assertThat(SnapshotScanner.scanForSnapshotVersions(List.of(pom))).isEmpty();
+    }
+
     // ── Violation.toBullet ────────────────────────────────────────────
 
     @Test

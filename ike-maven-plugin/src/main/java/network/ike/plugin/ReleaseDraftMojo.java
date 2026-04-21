@@ -185,12 +185,14 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
         // the real release.
         preflightJavadoc(gitRoot, publish);
 
-        // SNAPSHOT-in-properties preflight (#177): Maven 4's consumer
-        // POM flattener resolves properties and promotes pluginManagement
-        // into plugins when writing the released artifact. If a
-        // <properties> value ends in -SNAPSHOT it leaks into the released
-        // POM as a literal, breaking downstream builds. Catch it before
-        // any mutation — publish hard-fails, draft warns.
+        // SNAPSHOT-in-properties preflight (#175, #177): Maven 4's
+        // consumer POM flattener resolves properties and promotes
+        // pluginManagement into plugins when writing the released
+        // artifact. If a <properties> value ends in -SNAPSHOT it leaks
+        // into the released POM as a literal, breaking downstream
+        // builds (e.g. ike-parent-105.pom shipped with
+        // <ike-tooling.version>112-SNAPSHOT</ike-tooling.version>).
+        // Catch it before any mutation — publish hard-fails, draft warns.
         List<SnapshotScanner.Violation> propViolations =
                 SnapshotScanner.scanSourceProperties(rootPom);
         if (!propViolations.isEmpty()) {
@@ -277,10 +279,11 @@ public class ReleaseDraftMojo extends AbstractIkeMojo {
             resolvedPoms =
                     ReleaseSupport.replaceProjectVersionRefs(gitRoot, releaseVersion, getLog());
 
-            // Defense in depth (#177): after ${project.version} substitution
-            // the only legitimate <version> values are released literals.
-            // Scan all POMs for any surviving <version>...-SNAPSHOT</version>
-            // before we commit the release tag.
+            // Defense in depth (#175, #177): after ${project.version}
+            // substitution the only legitimate <version> values are
+            // released literals. Scan all POMs for any surviving
+            // <version>...-SNAPSHOT</version> before we commit the
+            // release tag — this is Layer 2 of the SNAPSHOT preflight.
             List<File> allPoms = ReleaseSupport.findPomFiles(gitRoot);
             List<SnapshotScanner.Violation> versionViolations =
                     SnapshotScanner.scanForSnapshotVersions(allPoms);
