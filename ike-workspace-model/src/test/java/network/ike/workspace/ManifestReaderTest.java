@@ -167,7 +167,13 @@ class ManifestReaderTest {
         assertThatThrownBy(() -> ManifestReader.read(new StringReader(yaml)))
                 .isInstanceOf(ManifestException.class)
                 .hasMessageContaining("legacy 'components:' schema")
-                .hasMessageContaining("mvn ws:align");
+                // Issue #170: the recommended migration goal must be the
+                // ACTUAL goal name. `ws:align` (without -draft / -publish)
+                // does not exist; the apply variant is `ws:align-publish`.
+                .hasMessageContaining("'mvn ws:align-publish'")
+                .extracting(Throwable::getMessage)
+                .asString()
+                .doesNotMatch("(?<![-\\w])ws:align(?![-\\w])");
     }
 
     @Test

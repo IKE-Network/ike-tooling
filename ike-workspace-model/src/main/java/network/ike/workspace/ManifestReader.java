@@ -23,9 +23,10 @@ import java.util.regex.Pattern;
  *
  * <p>As of #150, the manifest uses the {@code subprojects:} top-level
  * key. Legacy manifests with {@code components:} are rejected by
- * {@link #read(Path)} — run {@code mvn ws:align} to migrate, or call
+ * {@link #read(Path)} — run {@code mvn ws:align-publish} to migrate,
+ * or call
  * {@link #migrateLegacySchemaIfNeeded(Path, java.util.function.Consumer)}
- * first as {@code ws:align} does internally.
+ * first as {@code ws:align-publish} does internally.
  */
 public final class ManifestReader {
 
@@ -63,12 +64,12 @@ public final class ManifestReader {
             throw new ManifestException("Empty manifest");
         }
         // Hard-cut on the legacy schema (#150): the reader only accepts
-        // the new `subprojects:` key. `ws:align` migrates in-place via
-        // migrateLegacySchemaIfNeeded before calling read().
+        // the new `subprojects:` key. `ws:align-publish` migrates in-place
+        // via migrateLegacySchemaIfNeeded before calling read().
         if (root.containsKey("components") && !root.containsKey("subprojects")) {
             throw new ManifestException(
                     "workspace.yaml uses legacy 'components:' schema. "
-                            + "Run 'mvn ws:align' to migrate to "
+                            + "Run 'mvn ws:align-publish' to migrate to "
                             + "'subprojects:' (see #150).");
         }
         return parseManifest(root);
@@ -82,7 +83,7 @@ public final class ManifestReader {
         // component-types: / subproject-types: is legacy: SubprojectType
         // now carries the build command and checkpoint mechanism as
         // compile-time data. A present section is silently ignored;
-        // ws:align strips it from workspace.yaml.
+        // ws:align-publish strips it from workspace.yaml.
         Map<String, Subproject> subprojects = parseSubprojects(
                 mapField(root, "subprojects"), defaults);
         IdeSettings ide = parseIdeSettings(mapField(root, "ide"));
@@ -227,9 +228,9 @@ public final class ManifestReader {
      *       {@code  - subproject:}</li>
      * </ul>
      *
-     * <p>This is the entry point {@code ws:align} calls before reading
-     * the manifest, so legacy workspaces auto-migrate on first align.
-     * Other callers get the hard-cut error from {@link #read(Path)}.
+     * <p>This is the entry point {@code ws:align-publish} calls before
+     * reading the manifest, so legacy workspaces auto-migrate on first
+     * align. Other callers get the hard-cut error from {@link #read(Path)}.
      *
      * @param manifestPath path to workspace.yaml
      * @param infoLog      optional info-level log sink (nullable)
