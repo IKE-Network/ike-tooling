@@ -222,7 +222,7 @@ class ReleaseIntegrationTest {
         assertThat(mojo.nextVersion).isEqualTo("43-SNAPSHOT");
     }
 
-    // ── Dirty worktree rejection ────────────────────────────────────
+    // ── Uncommitted worktree rejection ──────────────────────────────
 
     @Test
     void release_dirtyWorktree_throws() throws Exception {

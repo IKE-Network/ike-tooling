@@ -58,7 +58,7 @@ public class IkeHelpMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("  ike:feature-finish-rebase                       Rebase onto target, linear history");
         getLog().info("  ike:ws-checkpoint                               Record multi-repo checkpoint (SHAs+versions)");
         getLog().info("  ike:ws-checkpoint-draft                       Preview checkpoint without writing files or tags");
-        getLog().info("  ike:ws-release                                  Release all dirty components in topo order");
+        getLog().info("  ike:ws-release                                  Release all components with unreleased commits in topo order");
         getLog().info("");
         getLog().info("  ── Release Goals ────────────────────────────────────────");
         getLog().info("  ike:help                                        This help message");

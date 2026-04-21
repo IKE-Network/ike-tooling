@@ -422,7 +422,7 @@ are not checked out or have no changes are silently skipped. This
 means the release scope is determined by the intersection of two sets:
 
 1. Subprojects physically present in the workspace (checked out)
-2. Subprojects with commits since their last release tag (dirty)
+2. Subprojects with commits since their last release tag (release-pending)
 
 A workspace with three of ten subprojects checked out will release
 at most three subprojects — and only those with actual changes.
@@ -432,8 +432,8 @@ at most three subprojects — and only those with actual changes.
 The goal executes five phases:
 
 1. **Scan** — Walk the workspace manifest, identify checked-out repos.
-2. **Filter dirty** — For each checked-out repo, compare HEAD against
-   the last release tag. Only repos with new commits are candidates.
+2. **Filter release-pending** — For each checked-out repo, compare HEAD
+   against the last release tag. Only repos with new commits are candidates.
 3. **Topological sort** — Order candidates by dependency graph so that
    upstream subprojects release before their dependents.
 4. **Release in order** — For each candidate (in topo order):
@@ -458,7 +458,7 @@ release to enable recovery. Use `-DskipCheckpoint=true` to bypass this.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `-Dsubproject=<name>` | (all dirty) | Release only the named subproject (and its dirty dependents) |
+| `-Dsubproject=<name>` | (all release-pending) | Release only the named subproject (and its release-pending dependents) |
 | `-DdryRun=true` | `false` | Show the release plan without executing |
 | `-Dpush=true` | `false` | Push tags and commits to origin after each release |
 | `-DskipCheckpoint=true` | `false` | Skip the pre-release checkpoint |
@@ -469,10 +469,10 @@ release to enable recovery. Use `-DskipCheckpoint=true` to bypass this.
 # Dry run — see what would be released and in what order
 mvn ws:release -DdryRun=true
 
-# Release all dirty subprojects, push results
+# Release all release-pending subprojects, push results
 mvn ws:release -Dpush=true
 
-# Release only ike-pipeline and its dirty dependents
+# Release only ike-pipeline and its release-pending dependents
 mvn ws:release -Dsubproject=ike-pipeline -Dpush=true
 
 # Release without creating a checkpoint
@@ -485,7 +485,7 @@ A dry run prints the release plan without executing:
 
 ```
 [INFO] === Workspace Release Plan (DRY RUN) ===
-[INFO] Dirty subprojects (topo order):
+[INFO] Release-pending subprojects (topo order):
 [INFO]   1. ike-pipeline       24-SNAPSHOT → 24 → 25-SNAPSHOT
 [INFO]   2. tinkar-core         1.80.0-SNAPSHOT → 1.80.0 → 1.81.0-SNAPSHOT
 [INFO] Cross-reference updates:
@@ -627,7 +627,7 @@ After merging a feature, release the affected subprojects:
 # See what needs releasing
 mvn ws:release -DdryRun=true
 # Output:
-#   Dirty subprojects (topo order):
+#   Release-pending subprojects (topo order):
 #     1. ike-pipeline       24-SNAPSHOT → 24 → 25-SNAPSHOT
 #     2. tinkar-core         1.80.0-SNAPSHOT → 1.80.0 → 1.81.0-SNAPSHOT
 #   Cross-reference updates:

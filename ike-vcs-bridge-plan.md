@@ -13,7 +13,7 @@ message, and provides simple commands to reconcile.
 **Problem.** Syncthing syncs working trees between machines with `.git` excluded
 (Syncthing corrupts `.git` internals). When machine A commits and pushes, machine B's
 working tree is updated by Syncthing, but B's `.git` doesn't know about the commit.
-B sees phantom dirty files. A commit on B duplicates A's changes and creates
+B sees phantom uncommitted files. A commit on B duplicates A's changes and creates
 divergent history.
 
 **Solution.** A state file (`.ike/vcs-state`) is written by a `post-commit` git hook
