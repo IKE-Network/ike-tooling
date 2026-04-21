@@ -43,10 +43,20 @@ let fm = FileManager.default
 
 /// An assembly module is a directory containing both pom.xml and
 /// src/docs/asciidoc/ with at least one .adoc file.
+///
+/// The anchor folder is NOT the module root — anchoring at the module
+/// root drags the whole Maven tree (including `target/` with hundreds
+/// of unpacked build artifacts) into Adoc Studio's index, which hangs
+/// the loader. Instead we anchor narrowly at `src/docs/asciidoc/` and
+/// add a second anchor for `target/generated-sources/asciidoc/topics-asciidoc/`
+/// (when present) so `include::{topics}/…` directives can still resolve
+/// in the preview while keeping each index scope small.
 struct Assembly {
     let name: String
     let moduleDir: URL
-    let adocFiles: [String]   // relative to moduleDir
+    let sourceDir: URL         // <module>/src/docs/asciidoc
+    let topicsDir: URL?        // <module>/target/generated-sources/asciidoc/topics-asciidoc (if exists)
+    let adocFiles: [String]    // filenames relative to sourceDir
 }
 
 func discoverAssemblies() throws -> [Assembly] {
@@ -75,9 +85,9 @@ func discoverAssemblies() throws -> [Assembly] {
             options: [.skipsHiddenFiles]) {
             for case let file as URL in enumerator {
                 if file.pathExtension == "adoc" {
-                    // Path relative to module root
+                    // Path relative to the source anchor (src/docs/asciidoc)
                     let relative = file.path.replacingOccurrences(
-                        of: item.path + "/", with: "")
+                        of: adocDir.path + "/", with: "")
                     adocFiles.append(relative)
                 }
             }
@@ -85,9 +95,16 @@ func discoverAssemblies() throws -> [Assembly] {
 
         guard !adocFiles.isEmpty else { continue }
 
+        // Second anchor for unpacked topic dependencies (populated by mvn validate)
+        let topics = item.appendingPathComponent(
+            "target/generated-sources/asciidoc/topics-asciidoc")
+        let topicsDir: URL? = fm.isDirectory(atPath: topics.path) ? topics : nil
+
         assemblies.append(Assembly(
             name: item.lastPathComponent,
             moduleDir: item,
+            sourceDir: adocDir,
+            topicsDir: topicsDir,
             adocFiles: adocFiles.sorted()))
     }
 
@@ -131,15 +148,23 @@ func parseAsciidoctorConfig(at moduleDir: URL) -> [String: String] {
 // ── JSON generation ──────────────────────────────────────────
 
 func generateAdocProject(assembly: Assembly) throws -> Data {
-    let bookmark = try createBookmark(for: assembly.moduleDir)
-    let bookmarkBase64 = bookmark.base64EncodedString()
+    let sourceBookmark = try createBookmark(for: assembly.sourceDir)
+        .base64EncodedString()
 
     let rootId = UUID().uuidString
-    let anchorId = UUID().uuidString
+    let sourceAnchorId = UUID().uuidString
+    let topicsAnchorId = UUID().uuidString
     let mediaId = UUID().uuidString
     let windowConfigUserId = UUID().uuidString
+    // Adoc Studio expects location = [<provider-domain UUID>, <base64 bookmark>].
+    // The UUID is a fixed constant — a v5 UUID Adoc Studio uses to tag the
+    // macOS local-volume file-provider domain. Known-good project files
+    // (UNLV keynote, ikm-ds) both carry this exact value. A random UUID
+    // causes the Codable decoder to fail with
+    // "The data couldn’t be read because it isn’t in the correct format."
+    let locationId = "4805A3B8-B68D-5814-AFA5-F5697D3D0FB8"
 
-    // Build file entries for each .adoc file
+    // Build file entries for each .adoc file under src/docs/asciidoc
     var fileChildren: [[String: Any]] = []
 
     // Media folder
@@ -156,7 +181,7 @@ func generateAdocProject(assembly: Assembly) throws -> Data {
     ])
 
     // AsciiDoc files
-    for (index, adocFile) in assembly.adocFiles.enumerated() {
+    for adocFile in assembly.adocFiles {
         let fileName = URL(fileURLWithPath: adocFile).lastPathComponent
         fileChildren.append([
             "id": UUID().uuidString,
@@ -166,8 +191,48 @@ func generateAdocProject(assembly: Assembly) throws -> Data {
         ])
     }
 
-    // Read .asciidoctorconfig attributes
+    // Read .asciidoctorconfig attributes (lives at the module root)
     let attrs = parseAsciidoctorConfig(at: assembly.moduleDir)
+
+    // Primary anchor: the authored source tree (narrow — usually <10 files).
+    let sourceAnchor: [String: Any] = [
+        "children": fileChildren,
+        "createIndexFile": false,
+        "folderSubType": 0,
+        "id": sourceAnchorId,
+        "indexFileName": "index.adoc",
+        "isHiddenInComposite": false,
+        "location": [locationId, sourceBookmark],
+        "name": assembly.name,
+        "pathFromProjectFolder": "",
+        "sortDirection": 0,
+        "sortOrder": 0,
+        "type": "anchorFolder"
+    ]
+
+    // Secondary anchor (optional): unpacked topic dependencies for
+    // include:: resolution in the preview. Separate anchor keeps the
+    // read-only topic tree out of the primary source index.
+    var anchorList: [[String: Any]] = [sourceAnchor]
+    if let topicsDir = assembly.topicsDir {
+        let topicsBookmark = try createBookmark(for: topicsDir)
+            .base64EncodedString()
+        let topicsAnchor: [String: Any] = [
+            "children": [] as [Any],
+            "createIndexFile": false,
+            "folderSubType": 0,
+            "id": topicsAnchorId,
+            "indexFileName": "index.adoc",
+            "isHiddenInComposite": false,
+            "location": [locationId, topicsBookmark],
+            "name": "topics (generated)",
+            "pathFromProjectFolder": "",
+            "sortDirection": 0,
+            "sortOrder": 1,
+            "type": "anchorFolder"
+        ]
+        anchorList.append(topicsAnchor)
+    }
 
     let project: [String: Any] = [
         "exportProductsMode": "selected",
@@ -181,24 +246,7 @@ func generateAdocProject(assembly: Assembly) throws -> Data {
         "oneTimeExportUsesPreview": true,
         "products": [] as [Any],
         "root": [
-            "children": [
-                [
-                    "children": fileChildren,
-                    "createIndexFile": false,
-                    "folderSubType": 0,
-                    "id": anchorId,
-                    "indexFileName": "index.adoc",
-                    "isHiddenInComposite": false,
-                    "location": [
-                        bookmarkBase64
-                    ],
-                    "name": assembly.name,
-                    "pathFromProjectFolder": "",
-                    "sortDirection": 0,
-                    "sortOrder": 0,
-                    "type": "anchorFolder"
-                ] as [String: Any]
-            ],
+            "children": anchorList,
             "createIndexFile": false,
             "folderSubType": 0,
             "id": rootId,
@@ -215,8 +263,8 @@ func generateAdocProject(assembly: Assembly) throws -> Data {
                 [
                     "collapsedWarningCategories": [] as [Any],
                     "couplesPreviewContent": true,
-                    "editorNode": anchorId,
-                    "expandedNodes": [rootId],
+                    "editorNode": sourceAnchorId,
+                    "expandedNodes": [rootId, sourceAnchorId],
                     "focusedArea": "sidebar",
                     "focusedDocumentContentArea": "editor",
                     "geometries": [
@@ -235,7 +283,7 @@ func generateAdocProject(assembly: Assembly) throws -> Data {
                         ] as [String: Any]
                     ],
                     "navigationHistory": [
-                        "nodes": [anchorId]
+                        "nodes": [sourceAnchorId]
                     ] as [String: Any],
                     "nodeConfigurations": [] as [Any],
                     "partsCounterPart": "charactersWithoutSpacesAndMarkup",
@@ -263,8 +311,8 @@ func generateAdocProject(assembly: Assembly) throws -> Data {
                         "pdfZoom": ["fit": [:] as [String: Any]] as [String: Any],
                         "products": [] as [Any]
                     ] as [String: Any],
-                    "previewNode": anchorId,
-                    "selectedNodes": [anchorId],
+                    "previewNode": sourceAnchorId,
+                    "selectedNodes": [sourceAnchorId],
                     "showsPartsCounter": false,
                     "syncsExpansionState": true,
                     "syncsScrolling": true
