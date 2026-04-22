@@ -21,13 +21,22 @@ import java.util.Locale;
  * Re-sign the {@code .app} bundle inside a jpackage-produced {@code .pkg}
  * installer to add macOS entitlements required by the JVM.
  *
- * <p>JReleaser's jpackage assembler does not support the
- * {@code --mac-entitlements} flag, so the JVM's JIT entitlements
- * ({@code com.apple.security.cs.allow-jit}, etc.) are missing from the
- * signed app.  Without them the JVM crashes immediately on Apple Silicon
+ * <p>This workaround exists because of <a
+ * href="https://bugs.openjdk.org/browse/JDK-8358723">JDK-8358723</a>:
+ * {@code jpackage --mac-sign} in older JDKs signs the main launcher and
+ * nested runtime binaries without entitlements, so the JVM's JIT
+ * entitlements ({@code com.apple.security.cs.allow-jit}, etc.) are
+ * missing.  Without them the JVM crashes immediately on Apple Silicon
  * with {@code EXC_BREAKPOINT} in {@code pthread_jit_write_protect_np}.
  *
- * <p>This goal post-processes the {@code .pkg}:
+ * <p>The fix for JDK-8358723 is backported to <b>JDK 25.0.2+</b> via
+ * <a href="https://bugs.openjdk.org/browse/JDK-8369477">JDK-8369477</a>
+ * (OpenJDK 25.0.2 Jan 2026 CPU; Oracle JDK 25.0.3 Apr 2026 CPU) and is
+ * present in JDK 26 mainline.  On those JDKs jpackage signs correctly,
+ * and re-signing on top produces a signature variant macOS 26.4's notary
+ * rejects.  This goal therefore <b>auto-skips on JDK 25.0.2 or newer</b>.
+ *
+ * <p>This goal post-processes the {@code .pkg} (only on JDK &lt; 25.0.2):
  * <ol>
  *   <li>Expands the {@code .pkg} with {@code pkgutil --expand}</li>
  *   <li>Extracts the Payload (gzip + cpio archive)</li>
@@ -49,7 +58,9 @@ import java.util.Locale;
  * </execution>
  * }</pre>
  *
- * <p>On non-macOS platforms the goal skips silently.
+ * <p>On non-macOS platforms the goal skips silently.  Set
+ * {@code -Dcodesign.pkg.forceWorkaround=true} to run the re-sign on
+ * JDK 25.0.2+ (debugging only).
  */
 @Mojo(name = "codesign-pkg",
       defaultPhase = "verify",
@@ -98,6 +109,15 @@ public class CodesignPkgMojo implements org.apache.maven.api.plugin.Mojo {
     private boolean skip;
 
     /**
+     * Force the entitlements workaround even on JDK 25.0.2+ where
+     * jpackage itself signs with entitlements (JDK-8369477 / JDK-8358723).
+     * Normally the goal auto-skips on fixed JDKs; this override is for
+     * debugging or temporary compatibility with downstream tooling.
+     */
+    @Parameter(property = "codesign.pkg.forceWorkaround", defaultValue = "false")
+    private boolean forceWorkaround;
+
+    /**
      * Keychain password for unlocking the signing keychain before codesign.
      * Read from {@code CODESIGN_KEYCHAIN_PASSWORD} environment variable
      * if not set via Maven property.
@@ -110,6 +130,17 @@ public class CodesignPkgMojo implements org.apache.maven.api.plugin.Mojo {
     public void execute() throws MojoException {
         if (skip) {
             getLog().info("Package codesigning skipped (codesign.pkg.skip=true)");
+            return;
+        }
+
+        if (!forceWorkaround && jpackageHasEntitlementsFix(Runtime.version())) {
+            getLog().info("Package codesigning skipped — running JDK "
+                    + Runtime.version()
+                    + " includes the JDK-8358723 entitlements fix"
+                    + " (JDK-8369477 backport). jpackage signs correctly;"
+                    + " re-signing here would produce a signature macOS 26.4+"
+                    + " notarization rejects."
+                    + " Set -Dcodesign.pkg.forceWorkaround=true to override.");
             return;
         }
 
@@ -389,6 +420,22 @@ public class CodesignPkgMojo implements org.apache.maven.api.plugin.Mojo {
         return applicationIdentity.replace(
                 "Developer ID Application",
                 "Developer ID Installer");
+    }
+
+    /**
+     * True when the JDK described by {@code v} contains the JDK-8358723
+     * entitlements fix — JDK 26 mainline, or JDK 25.0.2+ via the
+     * JDK-8369477 backport.
+     *
+     * @param v the JDK version to test (typically {@link Runtime#version()})
+     * @return {@code true} if jpackage on this JDK signs with entitlements
+     *         and the re-sign workaround should be skipped
+     */
+    static boolean jpackageHasEntitlementsFix(Runtime.Version v) {
+        int feature = v.feature();
+        if (feature >= 26) return true;
+        if (feature == 25 && v.update() >= 2) return true;
+        return false;
     }
 
     /**
