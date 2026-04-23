@@ -80,10 +80,10 @@ public final class ManifestReader {
         String generated = stringField(root, "generated", null);
 
         Defaults defaults = parseDefaults(mapField(root, "defaults"));
-        // component-types: / subproject-types: is legacy: SubprojectType
-        // now carries the build command and checkpoint mechanism as
-        // compile-time data. A present section is silently ignored;
-        // ws:align-publish strips it from workspace.yaml.
+        // component-types: / subproject-types: is legacy; the concept of
+        // a per-subproject type has been removed entirely. A present
+        // section or per-subproject `type:` field is silently ignored;
+        // ws:align-publish strips legacy structure from workspace.yaml.
         Map<String, Subproject> subprojects = parseSubprojects(
                 mapField(root, "subprojects"), defaults);
         IdeSettings ide = parseIdeSettings(mapField(root, "ide"));
@@ -144,8 +144,6 @@ public final class ManifestReader {
 
         return new Subproject(
                 name,
-                SubprojectType.fromYamlName(
-                        stringField(fields, "type", "software")),
                 stringField(fields, "description", ""),
                 stringField(fields, "repo", ""),
                 branch,

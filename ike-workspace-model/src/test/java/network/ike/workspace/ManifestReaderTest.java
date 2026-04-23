@@ -44,7 +44,6 @@ class ManifestReaderTest {
     @Test
     void parsesSubprojectFields() {
         Subproject tinkar = manifest.subprojects().get("tinkar-core");
-        assertThat(tinkar.type()).isEqualTo(SubprojectType.SOFTWARE);
         assertThat(tinkar.repo()).isEqualTo("https://github.com/ikmdev/tinkar-core.git");
         assertThat(tinkar.branch()).isEqualTo("feature/kec-jan-24");
         assertThat(tinkar.version()).isEqualTo("1.127.2-kec-jan-24-SNAPSHOT");

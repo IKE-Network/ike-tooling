@@ -183,7 +183,7 @@ public final class ManifestWriter {
     /**
      * Update the branch field for a single subproject in the YAML text.
      * If the subproject block does not yet declare a {@code branch:} field,
-     * it is inserted after the {@code type:} line so the manifest and git
+     * it is inserted after the {@code repo:} line so the manifest and git
      * state stay in sync (see issue #159).
      *
      * @param yaml           full YAML content
@@ -192,6 +192,6 @@ public final class ManifestWriter {
      * @return updated YAML content (unchanged if the subproject is absent)
      */
     public static String updateSubprojectBranch(String yaml, String subprojectName, String newBranch) {
-        return addOrUpdateSubprojectField(yaml, subprojectName, "branch", newBranch, "type");
+        return addOrUpdateSubprojectField(yaml, subprojectName, "branch", newBranch, "repo");
     }
 }

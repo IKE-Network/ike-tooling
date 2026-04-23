@@ -6,8 +6,6 @@ import java.util.List;
  * A workspace subproject — one git repository in the workspace manifest.
  *
  * @param name         the subproject identifier (directory name and YAML key)
- * @param type         the subproject's type (enum, from the {@code type:}
- *                     field in workspace.yaml)
  * @param description  human-readable purpose
  * @param repo         git clone URL
  * @param branch       the branch to track
@@ -27,7 +25,6 @@ import java.util.List;
  */
 public record Subproject(
         String name,
-        SubprojectType type,
         String description,
         String repo,
         String branch,

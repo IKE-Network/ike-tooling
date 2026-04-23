@@ -156,18 +156,17 @@ class WorkspaceGraphTest {
     }
 
     @Test
-    void parseRejectsUnknownType() {
-        // SubprojectType.fromYamlName throws at parse time, before the
-        // graph is ever built — the closed enum is the validity check.
+    void parseSilentlyIgnoresUnknownType() {
+        // The subproject-type concept was removed; any `type:` field is
+        // silently ignored by the reader rather than rejected.
         String yaml = """
                 schema-version: "1.0"
                 subprojects:
                   a:
                     type: bogus
+                    repo: https://example.com/a.git
                 """;
-        StringReader reader = new StringReader(yaml);
-        assertThatThrownBy(() -> ManifestReader.read(reader))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Unknown subproject type: \"bogus\"");
+        Manifest m = ManifestReader.read(new StringReader(yaml));
+        assertThat(m.subprojects()).containsOnlyKeys("a");
     }
 }
