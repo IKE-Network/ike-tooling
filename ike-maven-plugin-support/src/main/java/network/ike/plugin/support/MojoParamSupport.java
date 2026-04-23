@@ -1,7 +1,7 @@
-package network.ike.plugin;
+package network.ike.plugin.support;
 
-import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
 
 /**
  * Static utility for interactive parameter resolution in mojos
@@ -13,8 +13,12 @@ import org.apache.maven.api.plugin.Log;
  * Maven as a child process with stdin wired to the Run console).
  * Fails fast with a clear error message when neither produces input
  * (CI, daemon mode).
+ *
+ * <p>Moved from {@code network.ike.plugin} as part of the plugin
+ * split (ike-issues #215) so both ike-maven-plugin and
+ * ike-doc-maven-plugin can share it.
  */
-final class MojoParamSupport {
+public final class MojoParamSupport {
 
     private MojoParamSupport() {}
 
@@ -22,16 +26,16 @@ final class MojoParamSupport {
      * Resolve a required parameter: return the value if present,
      * prompt interactively if possible, or fail fast.
      *
-     * @param currentValue  the value from the {@code @Parameter} field (may be null)
-     * @param propertyName  the {@code -D} property name (for the error message)
-     * @param promptLabel   human-readable label shown in the prompt
-     * @param log           Maven logger — prompt goes through the logger so
-     *                      IntelliJ renders it without a {@code [stdout]} prefix
+     * @param currentValue the value from the {@code @Parameter} field (may be null)
+     * @param propertyName the {@code -D} property name (for the error message)
+     * @param promptLabel  human-readable label shown in the prompt
+     * @param log          Maven logger — prompt goes through the logger so
+     *                     IntelliJ renders it without a {@code [stdout]} prefix
      * @return the resolved value — either the original or user-supplied
      * @throws MojoException if no value can be obtained
      */
-    static String requireParam(String currentValue, String propertyName,
-                               String promptLabel, Log log)
+    public static String requireParam(String currentValue, String propertyName,
+                                       String promptLabel, Log log)
             throws MojoException {
         if (currentValue != null && !currentValue.isBlank()) {
             return currentValue.trim();

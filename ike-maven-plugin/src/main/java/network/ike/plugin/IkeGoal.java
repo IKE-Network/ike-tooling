@@ -1,5 +1,6 @@
 package network.ike.plugin;
 
+import network.ike.plugin.support.GoalRef;
 import org.apache.maven.api.plugin.Mojo;
 
 import java.util.Optional;
@@ -17,7 +18,7 @@ import java.util.Optional;
  *
  * <p>See issue #166.
  */
-public enum IkeGoal {
+public enum IkeGoal implements GoalRef {
 
     /** {@code ike:adocstudio} — edit the project in AsciiDocFX. */
     ADOCSTUDIO("adocstudio", AdocStudioMojo.class,
@@ -130,8 +131,19 @@ public enum IkeGoal {
      *
      * @return the bare goal name
      */
+    @Override
     public String goalName() {
         return goalName;
+    }
+
+    /**
+     * The {@code ike} plugin prefix — shared by every goal in this enum.
+     *
+     * @return {@link #PLUGIN_PREFIX}
+     */
+    @Override
+    public String pluginPrefix() {
+        return PLUGIN_PREFIX;
     }
 
     /**
@@ -139,6 +151,7 @@ public enum IkeGoal {
      *
      * @return the fully-qualified goal invocation
      */
+    @Override
     public String qualified() {
         return PLUGIN_PREFIX + ":" + goalName;
     }
@@ -157,6 +170,7 @@ public enum IkeGoal {
      *
      * @return the human description
      */
+    @Override
     public String description() {
         return description;
     }

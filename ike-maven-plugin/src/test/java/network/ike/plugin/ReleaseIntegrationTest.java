@@ -1,5 +1,6 @@
 package network.ike.plugin;
 
+import network.ike.plugin.support.AbstractGoalMojo;
 import org.apache.maven.api.plugin.MojoException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -452,7 +453,7 @@ class ReleaseIntegrationTest {
     private static ReleaseDraftMojo createMojo() {
         ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         try {
-            var field = AbstractIkeMojo.class.getDeclaredField("log");
+            var field = AbstractGoalMojo.class.getDeclaredField("log");
             field.setAccessible(true);
             field.set(mojo, new TestLog());
         } catch (ReflectiveOperationException e) {

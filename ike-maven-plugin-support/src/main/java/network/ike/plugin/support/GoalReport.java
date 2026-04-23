@@ -1,4 +1,4 @@
-package network.ike.plugin;
+package network.ike.plugin.support;
 
 import org.apache.maven.api.plugin.Log;
 
@@ -11,7 +11,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
- * Per-goal report writer for {@code ike:*} goals.
+ * Per-goal report writer for IKE plugins.
  *
  * <p>Each goal writes its own file directly in the Maven project root
  * the goal was executed from (alongside the invoking {@code pom.xml}).
@@ -19,37 +19,36 @@ import java.util.List;
  * content always reflects the latest execution.
  *
  * <p>Filenames use {@code ꞉} (U+A789 MODIFIER LETTER COLON) to cluster
- * visually as {@code ike꞉goal-name.md} in IDE file browsers. For
+ * visually as {@code <prefix>꞉goal-name.md} in IDE file browsers. For
  * draft/publish goals, the filename includes the variant:
- * {@code ike꞉release-draft.md}, {@code ike꞉release-publish.md}.
+ * {@code ike꞉release-draft.md}, {@code ike꞉release-publish.md},
+ * {@code idoc꞉asciidoc.md}.
  *
- * <p><strong>Self-healing gitignore:</strong> before writing, this class
- * ensures {@code ike꞉*.md} is listed in the {@code .gitignore} of the
- * nearest {@code .git} ancestor. If the pattern is missing, it is
- * appended. This keeps reports out of git without any manual setup —
- * a fresh clone of a consumer repo becomes report-ready the first time
- * an {@code ike:*} goal runs.
+ * <p><strong>Self-healing gitignore:</strong> before writing, this
+ * class ensures {@code <prefix>꞉*.md} is listed in the
+ * {@code .gitignore} of the nearest {@code .git} ancestor. If the
+ * pattern is missing, it is appended. This keeps reports out of git
+ * without any manual setup — a fresh clone of a consumer repo becomes
+ * report-ready the first time an IKE goal runs. One entry is added
+ * per plugin prefix seen.
  *
- * <p>Parallels {@code network.ike.plugin.ws.WorkspaceReport}. Both
- * writers target their respective roots (the workspace root for ws,
- * the project root for ike) and both self-heal the nearest
- * {@code .gitignore}.
+ * <p>Parallels {@code network.ike.plugin.ws.WorkspaceReport} in the
+ * ws plugin; both writers target their respective roots (the workspace
+ * root for ws, the project root for ike/idoc) and both self-heal the
+ * nearest {@code .gitignore}.
+ *
+ * <p>Replaces the previous {@code network.ike.plugin.IkeReport} as part
+ * of the plugin split (ike-issues #215).
  */
-public final class IkeReport {
+public final class GoalReport {
 
     /** U+A789 MODIFIER LETTER COLON — filesystem-safe visual colon. */
     private static final char COLON = '\uA789';
 
-    /**
-     * Glob appended to {@code .gitignore} when missing. Matches every
-     * {@code ike꞉*.md} report at the root of the git repository.
-     */
-    static final String GITIGNORE_PATTERN = "ike\uA789*.md";
-
     private static final DateTimeFormatter TIMESTAMP_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private IkeReport() {}
+    private GoalReport() {}
 
     /**
      * Write a goal's report to its per-goal file at the project root,
@@ -61,13 +60,13 @@ public final class IkeReport {
      * @param content     markdown content to write
      * @param log         Maven logger (null-safe)
      */
-    public static void write(Path projectRoot, IkeGoal goal,
+    public static void write(Path projectRoot, GoalRef goal,
                               String content, Log log) {
-        String filename = "ike" + COLON + goal.goalName() + ".md";
+        String filename = goal.pluginPrefix() + COLON + goal.goalName() + ".md";
         Path reportFile = projectRoot.resolve(filename);
 
         try {
-            ensureGitignored(projectRoot, log);
+            ensureGitignored(projectRoot, gitignorePattern(goal), log);
 
             String timestamp = LocalDateTime.now().format(TIMESTAMP_FMT);
             String fullContent = "# " + goal.qualified() + "\n"
@@ -90,23 +89,36 @@ public final class IkeReport {
      * @param goal        the goal whose report is being located
      * @return path to the report file (may not exist yet)
      */
-    public static Path reportPath(Path projectRoot, IkeGoal goal) {
-        String filename = "ike" + COLON + goal.goalName() + ".md";
+    public static Path reportPath(Path projectRoot, GoalRef goal) {
+        String filename = goal.pluginPrefix() + COLON + goal.goalName() + ".md";
         return projectRoot.resolve(filename);
+    }
+
+    /**
+     * The {@code .gitignore} glob used to cover every report file
+     * emitted by a given goal's plugin prefix, e.g. {@code ike꞉*.md},
+     * {@code idoc꞉*.md}.
+     *
+     * @param goal the goal whose plugin prefix seeds the glob
+     * @return the gitignore glob string
+     */
+    static String gitignorePattern(GoalRef goal) {
+        return goal.pluginPrefix() + COLON + "*.md";
     }
 
     /**
      * Walk up from {@code projectRoot} looking for a {@code .git}
      * directory; ensure its sibling {@code .gitignore} lists
-     * {@link #GITIGNORE_PATTERN}. If the file is missing, create it.
-     * If the pattern is missing, append it. No-op when no {@code .git}
+     * {@code pattern}. If the file is missing, create it. If the
+     * pattern is missing, append it. No-op when no {@code .git}
      * ancestor is found (e.g. the module is not yet in a git repo).
      *
      * @param projectRoot the Maven project root to search from
+     * @param pattern     the gitignore glob to ensure is present
      * @param log         Maven logger (null-safe)
      * @throws IOException if the gitignore file cannot be read or written
      */
-    static void ensureGitignored(Path projectRoot, Log log)
+    static void ensureGitignored(Path projectRoot, String pattern, Log log)
             throws IOException {
         Path gitRoot = findGitRoot(projectRoot);
         if (gitRoot == null) return;
@@ -116,7 +128,7 @@ public final class IkeReport {
             List<String> lines = Files.readAllLines(gitignore,
                     StandardCharsets.UTF_8);
             for (String line : lines) {
-                if (matchesPattern(line.trim(), GITIGNORE_PATTERN)) {
+                if (matchesPattern(line.trim(), pattern)) {
                     return;
                 }
             }
@@ -125,19 +137,24 @@ public final class IkeReport {
             String appended = existing.endsWith("\n") ? existing
                     : existing + "\n";
             Files.writeString(gitignore,
-                    appended + "\n# ike:* goal reports\n"
-                            + GITIGNORE_PATTERN + "\n",
+                    appended + "\n# " + prefixHeader(pattern)
+                            + " goal reports\n" + pattern + "\n",
                     StandardCharsets.UTF_8);
         } else {
             Files.writeString(gitignore,
-                    "# ike:* goal reports\n"
-                            + GITIGNORE_PATTERN + "\n",
+                    "# " + prefixHeader(pattern) + " goal reports\n"
+                            + pattern + "\n",
                     StandardCharsets.UTF_8);
         }
         if (log != null) {
-            log.info("Added " + GITIGNORE_PATTERN
+            log.info("Added " + pattern
                     + " to " + gitRoot.relativize(gitignore));
         }
+    }
+
+    private static String prefixHeader(String pattern) {
+        int colonIx = pattern.indexOf(COLON);
+        return (colonIx > 0 ? pattern.substring(0, colonIx) : "ike") + ":*";
     }
 
     /**

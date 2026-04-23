@@ -1,5 +1,6 @@
 package network.ike.plugin;
 
+import network.ike.plugin.support.MojoParamSupport;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;

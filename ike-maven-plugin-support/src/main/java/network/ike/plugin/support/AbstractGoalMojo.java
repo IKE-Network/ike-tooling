@@ -1,0 +1,54 @@
+package network.ike.plugin.support;
+
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.Mojo;
+
+import java.nio.file.Path;
+
+/**
+ * Common base class for IKE plugin mojos. Provides the injected Maven
+ * logger and a {@link #writeReport(GoalRef, Path, String)} helper so
+ * every goal can emit a markdown session report to
+ * {@code <projectRoot>/<prefix>꞉<goal>.md} (e.g.
+ * {@code ike꞉release-publish.md}, {@code idoc꞉asciidoc.md}).
+ *
+ * <p>The report writer self-heals {@code .gitignore} to keep reports
+ * out of source control — see {@link GoalReport}. A single base class
+ * serves every IKE plugin because goals identify themselves via the
+ * {@link GoalRef} interface, not a plugin-specific enum type.
+ *
+ * <p>See <a href="https://github.com/IKE-Network/ike-issues/issues/215">
+ * ike-issues #215</a> for the split that introduced this class.
+ */
+public abstract class AbstractGoalMojo implements Mojo {
+
+    /** Default constructor — subclasses are instantiated by Maven's DI. */
+    protected AbstractGoalMojo() {}
+
+    @Inject
+    private Log log;
+
+    /**
+     * Access the Maven logger injected by Maven 4's plugin DI.
+     *
+     * @return the injected logger
+     */
+    protected Log getLog() {
+        return log;
+    }
+
+    /**
+     * Write a goal's report to its per-goal file at the given project
+     * root. Overwrites any previous content and self-heals
+     * {@code .gitignore} in the nearest git ancestor.
+     *
+     * @param goal        the goal whose output is being reported
+     * @param projectRoot the Maven project root the goal executed from
+     * @param content     markdown content to write
+     */
+    protected void writeReport(GoalRef goal, Path projectRoot,
+                                String content) {
+        GoalReport.write(projectRoot, goal, content, getLog());
+    }
+}

@@ -1,5 +1,6 @@
 package network.ike.plugin;
 
+import network.ike.plugin.support.AbstractGoalMojo;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -54,7 +55,7 @@ import java.util.List;
  *
  */
 @Mojo(name = "release-draft", projectRequired = false, aggregator = true)
-public class ReleaseDraftMojo extends AbstractIkeMojo {
+public class ReleaseDraftMojo extends AbstractGoalMojo {
 
     @Parameter(property = "releaseVersion")
     String releaseVersion;
