@@ -12,14 +12,22 @@ Read these files in `src/main/standards/`:
 
 ## Module Overview
 
-This module produces two classified ZIP artifacts:
-- `classifier=claude` — Claude instruction files (Markdown)
-- `classifier=docs` — human-readable convention documents (AsciiDoc)
+This module produces several classified ZIP artifacts:
+- `classifier=claude`           — Claude instruction files (Markdown)
+- `classifier=docs`             — human-readable convention documents (AsciiDoc)
+- `classifier=config`           — shared static config (checkstyle, editorconfig, …)
+- `classifier=asciidoctorconfig` — shared `.asciidoctorconfig` fragment
+- `classifier=scaffold`         — scaffold manifest + template files consumed by
+                                   `ike:scaffold-draft/publish/revert` (#221, #222)
 
 Consumer modules unpack the `claude` artifact at `validate` phase into
 `.claude/standards/` via `maven-dependency-plugin`.
 
-- **Artifact**: `network.ike:ike-build-standards:1.1.0-SNAPSHOT:zip:claude`
+The `scaffold` artifact unpacks to a flat tree rooted at
+`scaffold-manifest.yaml`; the manifest's `standards-version` is filtered
+to `${project.version}` at assembly time so the consumed zip carries
+the concrete artifact version into the lockfile.
+
 - **Packaging**: POM (no compiled code)
 - **Versioning**: Unified pipeline version (matches all reactor modules)
 
