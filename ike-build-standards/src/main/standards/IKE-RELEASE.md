@@ -150,5 +150,7 @@ closes the milestone automatically when a matching one is found.
 
 ### Commit Messages
 
-Use the `Assisted-by: Claude (Anthropic)` trailer when AI tools
-assisted with implementation. The developer is the sole author.
+Do not add any AI-attribution trailer to commits — no `Assisted-by`,
+no `Co-Authored-By`, no `Generated-with`. The developer is the sole
+author. Normal trailers that would exist independent of AI tooling
+(`Signed-off-by`, `Reviewed-by`, issue refs) are still appropriate.
