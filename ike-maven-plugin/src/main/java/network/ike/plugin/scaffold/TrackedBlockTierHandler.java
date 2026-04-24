@@ -26,6 +26,14 @@ import java.util.List;
  */
 public final class TrackedBlockTierHandler implements TierHandler {
 
+    /**
+     * Construct a stateless tracked-block tier handler. Instances are
+     * safe to share across planning calls; all per-invocation state
+     * lives on method parameters.
+     */
+    public TrackedBlockTierHandler() {
+    }
+
     @Override
     public ScaffoldTier tier() {
         return ScaffoldTier.TRACKED_BLOCK;

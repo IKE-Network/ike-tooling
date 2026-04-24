@@ -13,6 +13,10 @@ public final class MapTemplateSource implements TemplateSource {
     private final Map<String, byte[]> templates;
 
     /**
+     * Construct a source backed by the given map. Lookups return a
+     * defensive copy of the stored bytes, but the map itself is kept
+     * by reference for efficiency.
+     *
      * @param templates map from source path to template bytes; the
      *                  map is kept by reference, so callers must not
      *                  mutate it after construction

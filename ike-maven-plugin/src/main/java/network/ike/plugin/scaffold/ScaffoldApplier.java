@@ -34,6 +34,10 @@ public final class ScaffoldApplier {
     }
 
     /**
+     * Construct with an explicit clock. Tests supply a fixed clock so
+     * the {@code generated-at} timestamp recorded in the updated
+     * lockfile is deterministic.
+     *
      * @param clock clock used for timestamps written into the lockfile
      */
     public ScaffoldApplier(Clock clock) {

@@ -31,6 +31,12 @@ public final class ScaffoldPlanner {
     private final ModelAdapters modelAdapters;
 
     /**
+     * Construct a planner with the given handler registries. The
+     * planner selects a tier handler for file-based tiers and a model
+     * adapter for {@link ScaffoldTier#MODEL_MANAGED} entries based on
+     * each entry's declared tier and (for model-managed entries) its
+     * declared model name.
+     *
      * @param tierHandlers  registry of file-based tier handlers
      * @param modelAdapters registry of model adapters
      */

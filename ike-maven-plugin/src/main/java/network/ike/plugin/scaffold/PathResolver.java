@@ -22,6 +22,11 @@ public final class PathResolver {
     private final Path projectRoot;
 
     /**
+     * Construct a resolver bound to the given user-home and
+     * project-root anchors. Either anchor may be used at resolve time
+     * depending on the scope of the manifest entry; {@code projectRoot}
+     * may be omitted when only USER-scope resolution is required.
+     *
      * @param userHome    absolute path to the user's home directory;
      *                    required for USER-scope entries
      * @param projectRoot absolute path to the current project's root;

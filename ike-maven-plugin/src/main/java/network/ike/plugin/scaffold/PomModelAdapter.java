@@ -55,6 +55,14 @@ public final class PomModelAdapter implements ModelAdapter {
 
     private static final XmlParser PARSER = new XmlParser();
 
+    /**
+     * Construct a stateless POM adapter. Instances are safe to share
+     * across planning calls; the underlying OpenRewrite parser is held
+     * in a {@code static final} field.
+     */
+    public PomModelAdapter() {
+    }
+
     @Override
     public String modelName() {
         return MODEL_NAME;

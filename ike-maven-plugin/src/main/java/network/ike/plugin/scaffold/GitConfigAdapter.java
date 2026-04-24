@@ -40,6 +40,14 @@ public final class GitConfigAdapter implements ModelAdapter {
     /** Model name matching {@link ManifestEntry#model()}. */
     public static final String MODEL_NAME = "git-config";
 
+    /**
+     * Construct a stateless git-config adapter. Instances are safe to
+     * share across planning calls; all per-invocation state lives on
+     * method parameters.
+     */
+    public GitConfigAdapter() {
+    }
+
     @Override
     public String modelName() {
         return MODEL_NAME;

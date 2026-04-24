@@ -272,12 +272,21 @@ public final class ScaffoldMojoSupport {
             int install, int update, int skip,
             int upToDate, int userManaged) {
 
-        /** Total number of entries. */
+        /**
+         * Total number of entries across every action kind.
+         *
+         * @return sum of {@code install + update + skip + upToDate +
+         *         userManaged}
+         */
         public int total() {
             return install + update + skip + upToDate + userManaged;
         }
 
-        /** Whether any write action is planned. */
+        /**
+         * Whether any write action is planned.
+         *
+         * @return {@code true} if {@code install + update > 0}
+         */
         public boolean hasWrites() {
             return install + update > 0;
         }
@@ -285,6 +294,8 @@ public final class ScaffoldMojoSupport {
         /**
          * One-line summary like
          * {@code "2 install, 1 update, 0 skip, 0 ok, 1 user"}.
+         *
+         * @return summary line suitable for draft-output display
          */
         public String summary() {
             return install + " install, " + update + " update, "

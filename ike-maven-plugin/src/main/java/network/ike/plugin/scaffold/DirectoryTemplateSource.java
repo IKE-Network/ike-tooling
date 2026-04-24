@@ -16,6 +16,10 @@ public final class DirectoryTemplateSource implements TemplateSource {
     private final Path root;
 
     /**
+     * Construct a source rooted at the given unpacked scaffold
+     * directory. Template source paths are resolved as children of
+     * this root, with a guard that rejects any path that escapes it.
+     *
      * @param root directory containing the scaffold templates
      */
     public DirectoryTemplateSource(Path root) {

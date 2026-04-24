@@ -19,18 +19,26 @@ public sealed interface TierAction
                 TierAction.UpToDate,
                 TierAction.UserManaged {
 
-    /** The manifest entry this action relates to. */
+    /**
+     * The manifest entry this action relates to.
+     *
+     * @return the originating manifest entry
+     */
     ManifestEntry entry();
 
     /**
      * The absolute destination path on disk, with any {@code ~/}
      * or {@code {project.root}/} placeholders already expanded.
+     *
+     * @return the fully-resolved destination path
      */
     Path resolvedDest();
 
     /**
      * Human-readable summary rendered in {@code scaffold-draft}
      * output. One line per entry; may include counts or diff hints.
+     *
+     * @return the draft-output summary line for this action
      */
     String reason();
 
@@ -74,7 +82,12 @@ public sealed interface TierAction
             newContent = newContent.clone();
         }
 
-        /** Defensive copy of the content bytes. */
+        /**
+         * Accessor that returns a defensive copy of the content
+         * bytes so callers cannot mutate the record's state.
+         *
+         * @return a fresh clone of the bytes to write
+         */
         @Override
         public byte[] newContent() {
             return newContent.clone();

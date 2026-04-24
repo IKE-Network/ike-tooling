@@ -63,6 +63,14 @@ public final class MavenSettingsAdapter implements ModelAdapter {
     static final String SETTINGS_NS =
             "http://maven.apache.org/SETTINGS/1.2.0";
 
+    /**
+     * Construct a stateless Maven-settings adapter. Instances are safe
+     * to share across planning calls; all per-invocation state lives
+     * on method parameters.
+     */
+    public MavenSettingsAdapter() {
+    }
+
     @Override
     public String modelName() {
         return MODEL_NAME;

@@ -41,6 +41,10 @@ public final class ScaffoldReverter {
     }
 
     /**
+     * Construct with an explicit clock. Tests supply a fixed clock so
+     * the {@code generated-at} timestamp recorded in the updated
+     * lockfile after revert is deterministic.
+     *
      * @param clock clock for revert timestamps
      */
     public ScaffoldReverter(Clock clock) {

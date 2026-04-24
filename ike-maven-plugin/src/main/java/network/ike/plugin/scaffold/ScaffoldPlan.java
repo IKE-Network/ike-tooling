@@ -29,13 +29,23 @@ public record ScaffoldPlan(
         entries = entries == null ? List.of() : List.copyOf(entries);
     }
 
-    /** Whether the plan has any {@link TierAction.Write} actions. */
+    /**
+     * Whether the plan has any {@link TierAction.Write} actions.
+     *
+     * @return {@code true} if at least one planned entry carries a
+     *         {@link TierAction.Write}
+     */
     public boolean hasWrites() {
         return entries.stream()
                 .anyMatch(e -> e.action() instanceof TierAction.Write);
     }
 
-    /** Whether the plan has any {@link TierAction.Skip} actions. */
+    /**
+     * Whether the plan has any {@link TierAction.Skip} actions.
+     *
+     * @return {@code true} if at least one planned entry carries a
+     *         {@link TierAction.Skip}
+     */
     public boolean hasSkips() {
         return entries.stream()
                 .anyMatch(e -> e.action() instanceof TierAction.Skip);

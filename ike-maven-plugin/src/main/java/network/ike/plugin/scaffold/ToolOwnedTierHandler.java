@@ -24,6 +24,14 @@ import java.util.Arrays;
  */
 public final class ToolOwnedTierHandler implements TierHandler {
 
+    /**
+     * Construct a stateless tool-owned tier handler. Instances are
+     * safe to share across planning calls; all per-invocation state
+     * lives on method parameters.
+     */
+    public ToolOwnedTierHandler() {
+    }
+
     @Override
     public ScaffoldTier tier() {
         return ScaffoldTier.TOOL_OWNED;
