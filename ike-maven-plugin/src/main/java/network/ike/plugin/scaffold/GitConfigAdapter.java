@@ -68,6 +68,7 @@ public final class GitConfigAdapter implements ModelAdapter {
 
         boolean changed = fresh;
         List<ManagedElement> managed = new ArrayList<>();
+        List<String> userOverrides = new ArrayList<>();
         for (Map.Entry<String, Map<String, String>> sec
                 : ensure.entrySet()) {
             String sectionName = sec.getKey();
@@ -82,6 +83,11 @@ public final class GitConfigAdapter implements ModelAdapter {
                             path, Instant.now(),
                             currentStandardsVersion));
                 } else {
+                    String existing = doc.getKey(
+                            sectionName, kv.getKey());
+                    if (!kv.getValue().equals(existing)) {
+                        userOverrides.add(path);
+                    }
                     ManagedElement prior = priorByPath.get(path);
                     managed.add(prior != null
                             ? prior
@@ -95,6 +101,13 @@ public final class GitConfigAdapter implements ModelAdapter {
         if (!changed) {
             byte[] currentBytes = currentContent;
             String sha = Sha256.of(currentBytes);
+            if (!userOverrides.isEmpty()) {
+                return new ModelPlanResult(
+                        new TierAction.UserManaged(
+                                entry, resolvedDest, sha, sha,
+                                userOverrideReason(userOverrides)),
+                        managed);
+            }
             return new ModelPlanResult(
                     new TierAction.UpToDate(
                             entry, resolvedDest, sha, sha,
@@ -127,6 +140,15 @@ public final class GitConfigAdapter implements ModelAdapter {
 
     private static String configPath(String section, String key) {
         return "[" + section + "]." + key;
+    }
+
+    private static String userOverrideReason(List<String> paths) {
+        String first = paths.get(0);
+        if (paths.size() == 1) {
+            return "deferred to user value for " + first;
+        }
+        return "deferred to user values for " + first
+                + " and " + (paths.size() - 1) + " other(s)";
     }
 
     private static Map<String, ManagedElement> indexByPath(
@@ -246,6 +268,17 @@ public final class GitConfigAdapter implements ModelAdapter {
                 }
             }
             return false;
+        }
+
+        String getKey(String section, String key) {
+            for (Line l : lines) {
+                if (l.type == Line.Type.KEY
+                        && section.equals(l.section)
+                        && key.equals(l.key)) {
+                    return l.value;
+                }
+            }
+            return null;
         }
 
         void setKey(String section, String key, String value) {

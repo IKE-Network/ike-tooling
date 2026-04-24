@@ -80,7 +80,37 @@ class TierActionTest {
             case TierAction.Write w -> "write";
             case TierAction.Skip s -> "skip";
             case TierAction.UpToDate u -> "uptodate";
+            case TierAction.UserManaged m -> "usermanaged";
         };
         assertThat(label).isEqualTo("uptodate");
+    }
+
+    @Test
+    void userManagedHoldsBothHashes() {
+        TierAction.UserManaged m = new TierAction.UserManaged(
+                ENTRY, DEST, "sha256:tpl", "sha256:applied",
+                "deferred to user value for [core].hooksPath");
+        assertThat(m.templateSha()).isEqualTo("sha256:tpl");
+        assertThat(m.appliedSha()).isEqualTo("sha256:applied");
+        assertThat(m.reason()).contains("deferred to user value");
+    }
+
+    @Test
+    void userManagedRejectsNulls() {
+        assertThatThrownBy(() -> new TierAction.UserManaged(
+                null, DEST, "t", "a", "r"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new TierAction.UserManaged(
+                ENTRY, null, "t", "a", "r"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new TierAction.UserManaged(
+                ENTRY, DEST, null, "a", "r"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new TierAction.UserManaged(
+                ENTRY, DEST, "t", null, "r"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new TierAction.UserManaged(
+                ENTRY, DEST, "t", "a", null))
+                .isInstanceOf(NullPointerException.class);
     }
 }

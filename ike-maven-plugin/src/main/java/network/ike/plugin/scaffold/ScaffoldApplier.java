@@ -20,8 +20,9 @@ import java.util.Map;
  *
  * <p>{@link TierAction.Skip} actions are recorded in the returned
  * lockfile as-is (the existing entry stays put). {@link TierAction.UpToDate}
- * actions refresh the {@code standards-version} on model-managed
- * elements but are otherwise no-ops.
+ * and {@link TierAction.UserManaged} actions refresh the
+ * {@code standards-version} on model-managed elements but are
+ * otherwise no-ops.
  */
 public final class ScaffoldApplier {
 
@@ -76,6 +77,10 @@ public final class ScaffoldApplier {
         if (action instanceof TierAction.UpToDate u) {
             // Refresh standards-version in the lockfile entry.
             return lockfileEntryFor(pe, u.templateSha(), u.appliedSha());
+        }
+        if (action instanceof TierAction.UserManaged m) {
+            // No write; refresh lockfile provenance like UpToDate.
+            return lockfileEntryFor(pe, m.templateSha(), m.appliedSha());
         }
         // Skip: leave lockfile unchanged.
         return null;

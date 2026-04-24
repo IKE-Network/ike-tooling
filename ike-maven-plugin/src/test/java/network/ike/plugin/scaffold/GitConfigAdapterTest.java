@@ -70,7 +70,7 @@ class GitConfigAdapterTest {
     }
 
     @Test
-    void existingKeyLeftAloneButRecorded() {
+    void existingKeyWithDivergentValueIsUserManaged() {
         String current = """
                 [core]
                 \tautocrlf = input
@@ -79,10 +79,48 @@ class GitConfigAdapterTest {
                 entry(Map.of(
                         "core", Map.of("autocrlf", "false"))),
                 dest, bytes(current), null, "7");
-        // Already has autocrlf; existing value 'input' must win.
+        // Existing value 'input' must win AND be reported distinctly —
+        // this is NOT [OK] up to date; the manifest wanted "false".
+        assertThat(r.action())
+                .isInstanceOfSatisfying(TierAction.UserManaged.class,
+                        m -> assertThat(m.reason())
+                                .contains("[core].autocrlf"));
+        assertThat(r.managedElements()).hasSize(1);
+    }
+
+    @Test
+    void existingKeyWithMatchingValueIsUpToDate() {
+        String current = """
+                [core]
+                \tautocrlf = false
+                """;
+        ModelPlanResult r = adapter.plan(
+                entry(Map.of(
+                        "core", Map.of("autocrlf", "false"))),
+                dest, bytes(current), null, "7");
         assertThat(r.action())
                 .isInstanceOf(TierAction.UpToDate.class);
         assertThat(r.managedElements()).hasSize(1);
+    }
+
+    @Test
+    void multipleOverridesSummarisedInReason() {
+        String current = """
+                [core]
+                \tautocrlf = input
+                \thooksPath = /custom/hooks
+                """;
+        Map<String, String> coreKeys = new LinkedHashMap<>();
+        coreKeys.put("autocrlf", "false");
+        coreKeys.put("hooksPath", "~/.git-hooks");
+        Map<String, Object> ensure = new LinkedHashMap<>();
+        ensure.put("core", coreKeys);
+        ModelPlanResult r = adapter.plan(
+                entry(ensure), dest, bytes(current), null, "7");
+        assertThat(r.action())
+                .isInstanceOfSatisfying(TierAction.UserManaged.class,
+                        m -> assertThat(m.reason())
+                                .contains("1 other"));
     }
 
     @Test

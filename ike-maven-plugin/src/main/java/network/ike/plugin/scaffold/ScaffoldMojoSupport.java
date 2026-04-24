@@ -110,6 +110,7 @@ public final class ScaffoldMojoSupport {
      * [UPDATE]   .mvn/maven.config            -&gt; refresh
      * [SKIP]     .gitignore                   user-edited; +3/-1
      * [OK]       ~/.m2/settings.xml           up-to-date
+     * [USER]     ~/.gitconfig                 deferred to user value for [core].hooksPath
      * </pre>
      *
      * @param plan  the plan to render
@@ -140,7 +141,8 @@ public final class ScaffoldMojoSupport {
      * @return counts of each action type
      */
     public static Counts countActions(ScaffoldPlan plan) {
-        int install = 0, update = 0, skip = 0, upToDate = 0;
+        int install = 0, update = 0, skip = 0;
+        int upToDate = 0, userManaged = 0;
         for (PlannedEntry pe : plan.entries()) {
             TierAction a = pe.action();
             if (a instanceof TierAction.Write w) {
@@ -153,9 +155,11 @@ public final class ScaffoldMojoSupport {
                 skip++;
             } else if (a instanceof TierAction.UpToDate) {
                 upToDate++;
+            } else if (a instanceof TierAction.UserManaged) {
+                userManaged++;
             }
         }
-        return new Counts(install, update, skip, upToDate);
+        return new Counts(install, update, skip, upToDate, userManaged);
     }
 
     /**
@@ -225,6 +229,10 @@ public final class ScaffoldMojoSupport {
             return "  [OK]      " + padRight(dest, 36)
                     + "  " + u.reason();
         }
+        if (a instanceof TierAction.UserManaged m) {
+            return "  [USER]    " + padRight(dest, 36)
+                    + "  " + m.reason();
+        }
         return "  [?]       " + dest;
     }
 
@@ -252,19 +260,21 @@ public final class ScaffoldMojoSupport {
     /**
      * Aggregate counts of each action kind in a plan.
      *
-     * @param install  number of {@link TierAction.Write} with
-     *                 {@link TierAction.Write.Kind#INSTALL}
-     * @param update   number of {@link TierAction.Write} with
-     *                 {@link TierAction.Write.Kind#UPDATE}
-     * @param skip     number of {@link TierAction.Skip}
-     * @param upToDate number of {@link TierAction.UpToDate}
+     * @param install     number of {@link TierAction.Write} with
+     *                    {@link TierAction.Write.Kind#INSTALL}
+     * @param update      number of {@link TierAction.Write} with
+     *                    {@link TierAction.Write.Kind#UPDATE}
+     * @param skip        number of {@link TierAction.Skip}
+     * @param upToDate    number of {@link TierAction.UpToDate}
+     * @param userManaged number of {@link TierAction.UserManaged}
      */
     public record Counts(
-            int install, int update, int skip, int upToDate) {
+            int install, int update, int skip,
+            int upToDate, int userManaged) {
 
         /** Total number of entries. */
         public int total() {
-            return install + update + skip + upToDate;
+            return install + update + skip + upToDate + userManaged;
         }
 
         /** Whether any write action is planned. */
@@ -272,10 +282,14 @@ public final class ScaffoldMojoSupport {
             return install + update > 0;
         }
 
-        /** One-line summary like {@code "2 install, 1 update, 0 skip"}. */
+        /**
+         * One-line summary like
+         * {@code "2 install, 1 update, 0 skip, 0 ok, 1 user"}.
+         */
         public String summary() {
             return install + " install, " + update + " update, "
-                    + skip + " skip, " + upToDate + " ok";
+                    + skip + " skip, " + upToDate + " ok, "
+                    + userManaged + " user";
         }
     }
 

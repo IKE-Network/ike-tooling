@@ -16,7 +16,8 @@ import java.util.Objects;
 public sealed interface TierAction
         permits TierAction.Write,
                 TierAction.Skip,
-                TierAction.UpToDate {
+                TierAction.UpToDate,
+                TierAction.UserManaged {
 
     /** The manifest entry this action relates to. */
     ManifestEntry entry();
@@ -141,6 +142,48 @@ public sealed interface TierAction
 
         /** Compact constructor validating required fields. */
         public UpToDate {
+            Objects.requireNonNull(entry, "entry");
+            Objects.requireNonNull(resolvedDest, "resolvedDest");
+            Objects.requireNonNull(templateSha, "templateSha");
+            Objects.requireNonNull(appliedSha, "appliedSha");
+            Objects.requireNonNull(reason, "reason");
+        }
+    }
+
+    /**
+     * Publish must not touch {@link #resolvedDest()} because at least
+     * one managed element already exists with a value the user has
+     * chosen, and policy is to defer to the user's value rather than
+     * overwrite it.
+     *
+     * <p>Distinct from {@link UpToDate}: the file does <em>not</em>
+     * match the manifest's desired value — we simply refuse to
+     * overwrite what the user already set. A model adapter emits this
+     * state when every ensured element is already present on disk and
+     * at least one present value diverges from the manifest's value;
+     * if the whole set matches, {@link UpToDate} is used instead.
+     *
+     * <p>Lockfile semantics mirror {@link UpToDate}: model-managed
+     * provenance is refreshed but no bytes are written.
+     *
+     * @param entry        the manifest entry
+     * @param resolvedDest absolute destination path
+     * @param templateSha  hash of the current on-disk content (for
+     *                     lockfile metadata refresh; the file is not
+     *                     rewritten so this equals {@code appliedSha})
+     * @param appliedSha   hash of the current on-disk content
+     * @param reason       one-line summary — should name which
+     *                     element(s) were deferred
+     */
+    record UserManaged(
+            ManifestEntry entry,
+            Path resolvedDest,
+            String templateSha,
+            String appliedSha,
+            String reason) implements TierAction {
+
+        /** Compact constructor validating required fields. */
+        public UserManaged {
             Objects.requireNonNull(entry, "entry");
             Objects.requireNonNull(resolvedDest, "resolvedDest");
             Objects.requireNonNull(templateSha, "templateSha");

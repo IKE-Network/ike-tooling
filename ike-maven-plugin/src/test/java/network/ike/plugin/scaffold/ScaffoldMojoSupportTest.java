@@ -202,6 +202,28 @@ class ScaffoldMojoSupportTest {
         assertThat(rep).contains("up-to-date");
     }
 
+    @Test
+    void renderPlanReport_rendersUserManagedDistinctly() {
+        ManifestEntry e = new ManifestEntry(
+                "~/.gitconfig", ScaffoldScope.USER,
+                ScaffoldTier.MODEL_MANAGED, null,
+                "git-config", Map.of());
+        TierAction.UserManaged m = new TierAction.UserManaged(
+                e, Path.of("/tmp/.gitconfig"),
+                "sha256:aa", "sha256:aa",
+                "deferred to user value for [core].hooksPath");
+        ScaffoldPlan plan = new ScaffoldPlan("7", List.of(
+                new PlannedEntry(e, m, List.of())));
+
+        String rep = ScaffoldMojoSupport.renderPlanReport(
+                plan, ScaffoldScope.USER);
+
+        assertThat(rep).contains("[USER]");
+        assertThat(rep).doesNotContain("[OK]");
+        assertThat(rep).contains("deferred to user value");
+        assertThat(rep).contains("[core].hooksPath");
+    }
+
     // ── countActions ────────────────────────────────────────────────
 
     @Test
@@ -220,13 +242,16 @@ class ScaffoldMojoSupportTest {
                 e, p, "edited", "");
         TierAction.UpToDate ok = new TierAction.UpToDate(
                 e, p, sha, sha, "ok");
+        TierAction.UserManaged user = new TierAction.UserManaged(
+                e, p, sha, sha, "deferred");
 
         ScaffoldPlan plan = new ScaffoldPlan("7", List.of(
                 new PlannedEntry(e, inst, List.of()),
                 new PlannedEntry(e, inst, List.of()),
                 new PlannedEntry(e, upd, List.of()),
                 new PlannedEntry(e, skip, List.of()),
-                new PlannedEntry(e, ok, List.of())));
+                new PlannedEntry(e, ok, List.of()),
+                new PlannedEntry(e, user, List.of())));
 
         ScaffoldMojoSupport.Counts c =
                 ScaffoldMojoSupport.countActions(plan);
@@ -235,10 +260,12 @@ class ScaffoldMojoSupportTest {
         assertThat(c.update()).isEqualTo(1);
         assertThat(c.skip()).isEqualTo(1);
         assertThat(c.upToDate()).isEqualTo(1);
-        assertThat(c.total()).isEqualTo(5);
+        assertThat(c.userManaged()).isEqualTo(1);
+        assertThat(c.total()).isEqualTo(6);
         assertThat(c.hasWrites()).isTrue();
         assertThat(c.summary())
-                .isEqualTo("2 install, 1 update, 1 skip, 1 ok");
+                .isEqualTo(
+                        "2 install, 1 update, 1 skip, 1 ok, 1 user");
     }
 
     @Test

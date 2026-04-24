@@ -155,6 +155,45 @@ class ScaffoldApplierTest {
     }
 
     @Test
+    void userManagedRefreshesLockfileWithoutWriting(
+            @TempDir Path home) {
+        ManifestEntry e = new ManifestEntry(
+                "~/.gitconfig", ScaffoldScope.USER,
+                ScaffoldTier.MODEL_MANAGED, null,
+                "git-config", java.util.Map.of());
+        Path dest = home.resolve(".gitconfig");
+        // Precondition: file exists, stays exactly as-is after apply.
+        try {
+            Files.writeString(dest,
+                    "[core]\n\thooksPath = /custom/hooks\n");
+        } catch (IOException ex) {
+            throw new AssertionError(ex);
+        }
+        String sha = Sha256.of("any".getBytes());
+        TierAction.UserManaged m = new TierAction.UserManaged(
+                e, dest, sha, sha,
+                "deferred to user value for [core].hooksPath");
+        ManagedElement managed = new ManagedElement(
+                "[core].hooksPath", fixedNow, "7");
+        ScaffoldPlan plan = new ScaffoldPlan("7", List.of(
+                new PlannedEntry(e, m, List.of(managed))));
+
+        ScaffoldLockfile updated = applier.apply(
+                plan, ScaffoldLockfile.empty());
+
+        try {
+            assertThat(Files.readString(dest))
+                    .isEqualTo(
+                            "[core]\n\thooksPath = /custom/hooks\n");
+        } catch (IOException ex) {
+            throw new AssertionError(ex);
+        }
+        LockfileEntry le = updated.files().get("~/.gitconfig");
+        assertThat(le.tier()).isEqualTo(ScaffoldTier.MODEL_MANAGED);
+        assertThat(le.managedElements()).containsExactly(managed);
+    }
+
+    @Test
     void modelManagedWriteStoresManagedElements(@TempDir Path home) {
         ManifestEntry e = new ManifestEntry(
                 "~/.m2/settings.xml", ScaffoldScope.USER,
