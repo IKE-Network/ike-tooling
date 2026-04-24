@@ -42,10 +42,21 @@ files:
 
   # ── user scope ───────────────────────────────────────────────────
 
-  # VCS Bridge hooks live under ~/.git-hooks/ and activate once
-  # `git config --global core.hooksPath ~/.git-hooks` is set
-  # (handled by the ike:setup goal, or by a future git-config
-  # model-managed entry in this manifest).
+  # Point git at ~/.git-hooks/ so the VCS-bridge hooks below fire
+  # on commit/push. `GitConfigAdapter` treats each declared key as
+  # managed: if the user has already set core.hooksPath to anything
+  # else, their value wins and we just record the key as
+  # user-overridden in the lockfile.
+  - dest: ~/.gitconfig
+    scope: user
+    tier: model-managed
+    model: git-config
+    ensure:
+      core:
+        hooksPath: "~/.git-hooks"
+
+  # VCS Bridge hooks live under ~/.git-hooks/. Activated via the
+  # ~/.gitconfig entry above.
 
   - dest: ~/.git-hooks/post-commit
     scope: user
@@ -61,3 +72,19 @@ files:
     scope: user
     tier: tool-owned
     source: tool-owned/hooks/pre-push
+
+  # IKE plugin groups — lets the user run `mvn ike:…` and
+  # `mvn ws:…` without fully-qualified coordinates. Existing
+  # entries and unrelated settings (servers, profiles, …) are
+  # left untouched; a fresh settings.xml is minted if the file
+  # doesn't exist yet.
+  - dest: ~/.m2/settings.xml
+    scope: user
+    tier: model-managed
+    model: maven-settings-4
+    ensure:
+      pluginGroups:
+        - network.ike.tooling
+        - network.ike.platform
+        - network.ike.lab
+        - network.ike.examples
