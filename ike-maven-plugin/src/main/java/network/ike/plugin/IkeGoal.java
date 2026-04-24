@@ -98,6 +98,18 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:render-pdf} — render AsciiDoc to PDF via a configured renderer. */
     RENDER_PDF("render-pdf", RenderPdfMojo.class,
             "Render AsciiDoc to PDF via a configured renderer."),
+    /** {@code ike:scaffold-draft} — preview ike-build-standards scaffold changes. */
+    SCAFFOLD_DRAFT("scaffold-draft", ScaffoldDraftMojo.class,
+            "Preview what ike:scaffold-publish would apply from the "
+                    + "ike-build-standards scaffold."),
+    /** {@code ike:scaffold-publish} — apply the scaffold to disk. */
+    SCAFFOLD_PUBLISH("scaffold-publish", ScaffoldPublishMojo.class,
+            "Apply the ike-build-standards scaffold to disk and "
+                    + "update per-project and per-user lockfiles."),
+    /** {@code ike:scaffold-revert} — undo a previous scaffold-publish. */
+    SCAFFOLD_REVERT("scaffold-revert", ScaffoldRevertMojo.class,
+            "Undo a previous ike:scaffold-publish, leaving "
+                    + "user-edited files alone."),
     /** {@code ike:scan-logs} — scan renderer logs for warnings and errors. */
     SCAN_LOGS("scan-logs", ScanRendererLogsMojo.class,
             "Scan renderer logs for warnings and errors."),
