@@ -309,7 +309,19 @@ public final class VersionUpgradePlanBuilder {
 
     // ── Fingerprint ────────────────────────────────────────────────
 
-    private static String fingerprint(List<Path> poms) {
+    /**
+     * Compute the SHA-256 fingerprint of the supplied POM files,
+     * formatted as {@code "sha256:<hex>"}. Used at draft time to stamp
+     * the plan and at publish time to detect that the POMs have not
+     * been edited between draft and publish.
+     *
+     * @param poms POMs to fingerprint, in the order they were drafted
+     *             against (order matters — the digest is sensitive to
+     *             input order)
+     * @return the {@code sha256:...} fingerprint
+     * @throws PomScanException if any POM cannot be read
+     */
+    public static String fingerprint(List<Path> poms) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             for (Path p : poms) {

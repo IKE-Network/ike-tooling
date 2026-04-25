@@ -118,7 +118,15 @@ public enum IkeGoal implements GoalRef {
             "One-time setup for an IKE development machine."),
     /** {@code ike:unpack-zip} — unpack a zip artifact into a target directory. */
     UNPACK_ZIP("unpack-zip", UnpackZipMojo.class,
-            "Unpack a zip artifact into a target directory.");
+            "Unpack a zip artifact into a target directory."),
+    /** {@code ike:versions-upgrade-draft} — preview proposed version upgrades. */
+    VERSIONS_UPGRADE_DRAFT("versions-upgrade-draft",
+            VersionsUpgradeDraftMojo.class,
+            "Preview version upgrades against the configured ruleset."),
+    /** {@code ike:versions-upgrade-publish} — apply the version-upgrade plan. */
+    VERSIONS_UPGRADE_PUBLISH("versions-upgrade-publish",
+            VersionsUpgradePublishMojo.class,
+            "Apply the version-upgrade plan to the project's POM.");
 
     /** Shared {@code ike:} prefix for all goals in this plugin. */
     public static final String PLUGIN_PREFIX = "ike";
