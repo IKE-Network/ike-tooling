@@ -51,6 +51,15 @@ import java.util.List;
  * The markdown report written via {@code writeReport(...)} is the
  * durable record of what was applied.
  *
+ * <p><strong>Missing plan is a clean no-op.</strong> When the
+ * configured {@code planFile} does not exist on disk, the goal logs
+ * {@code "no plan for <module>"} at info level and returns success.
+ * This matters during a reactor cascade where a sibling module had
+ * nothing to upgrade in the prior {@code -draft} run (or where the
+ * prior publish already consumed and deleted its plan): a missing
+ * plan is indistinguishable from "nothing to do" and should not
+ * fail the cascade.
+ *
  * @see VersionsUpgradeDraftMojo
  */
 @Mojo(name = "versions-upgrade-publish", projectRequired = true)
@@ -89,10 +98,9 @@ public class VersionsUpgradePublishMojo extends AbstractGoalMojo {
         String nodeName = project.getArtifactId();
 
         if (!Files.isRegularFile(planPath)) {
-            throw new MojoException(
-                    "Plan not found: " + planPath
-                            + "\n  Run ike:versions-upgrade-draft first, or"
-                            + " set -DplanFile=<path>.");
+            getLog().info("no plan for " + nodeName
+                    + " (" + planPath + ") — nothing to publish.");
+            return;
         }
 
         VersionUpgradePlan plan = readPlan(planPath);
