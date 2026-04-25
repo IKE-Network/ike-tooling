@@ -355,6 +355,26 @@ class ScaffoldMojoSupportTest {
                 .containsExactly(ScaffoldScope.USER);
     }
 
+    // ── resolveProjectRoot ──────────────────────────────────────────
+
+    @Test
+    void resolveProjectRoot_overrideWins(@TempDir Path tmp) {
+        // Override always wins, no need for a session.
+        assertThat(ScaffoldMojoSupport.resolveProjectRoot(
+                tmp.toString(), null))
+                .isEqualTo(tmp);
+    }
+
+    @Test
+    void resolveProjectRoot_blankOverrideAndNullSessionGivesNull() {
+        assertThat(ScaffoldMojoSupport.resolveProjectRoot(null, null))
+                .isNull();
+        assertThat(ScaffoldMojoSupport.resolveProjectRoot("", null))
+                .isNull();
+        assertThat(ScaffoldMojoSupport.resolveProjectRoot(
+                "  ", null)).isNull();
+    }
+
     // ── helpers ─────────────────────────────────────────────────────
 
     private static final class RecordingLog implements Log {

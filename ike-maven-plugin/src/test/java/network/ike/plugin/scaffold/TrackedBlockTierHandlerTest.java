@@ -188,4 +188,82 @@ class TrackedBlockTierHandlerTest {
                 .isInstanceOf(ScaffoldException.class)
                 .hasMessageContaining("block-begin");
     }
+
+    // ── Whitelist-mode awareness ──────────────────────────────────
+
+    @Test
+    void whitelistFileWithoutWhitelistContentBecomesSkip() {
+        byte[] tpl = bytes(".idea/\n.DS_Store\n");
+        byte[] current = bytes(
+                "*\n!pom.xml\n!workspace.yaml\n");
+        TierAction a = handler.plan(entry, dest, current, tpl, null);
+        assertThat(a).isInstanceOfSatisfying(
+                TierAction.Skip.class,
+                s -> assertThat(s.reason()).contains("whitelist"));
+    }
+
+    @Test
+    void whitelistFileWithWhitelistContentSubstitutes() {
+        ManifestEntry whitelistAware = entry(Map.of(
+                "block-begin", BEGIN,
+                "block-end", END,
+                "whitelist-block-content",
+                        "!versions-upgrade-rules.yaml\n!.ike/\n"));
+        byte[] tpl = bytes(".idea/\n.DS_Store\n");
+        byte[] current = bytes(
+                "*\n!pom.xml\n!workspace.yaml\n");
+        TierAction a = handler.plan(
+                whitelistAware, dest, current, tpl, null);
+        TierAction.Write w = (TierAction.Write) a;
+        // The block content is the WHITELIST substitute, not the
+        // blacklist `tpl` bytes.
+        String produced = str(w.newContent());
+        assertThat(produced).contains("!versions-upgrade-rules.yaml");
+        assertThat(produced).contains("!.ike/");
+        assertThat(produced).doesNotContain(".idea/");
+        assertThat(w.appliedSha()).isEqualTo(
+                Sha256.of("!versions-upgrade-rules.yaml\n!.ike/\n"));
+    }
+
+    @Test
+    void blacklistFileIgnoresWhitelistContent() {
+        // A blacklist-mode file (no bare `*` line) must use `source`
+        // even when whitelist-block-content is supplied.
+        ManifestEntry whitelistAware = entry(Map.of(
+                "block-begin", BEGIN,
+                "block-end", END,
+                "whitelist-block-content",
+                        "!versions-upgrade-rules.yaml\n"));
+        byte[] tpl = bytes(".idea/\n.DS_Store\n");
+        byte[] current = bytes("target/\n*.iml\n");
+        TierAction a = handler.plan(
+                whitelistAware, dest, current, tpl, null);
+        TierAction.Write w = (TierAction.Write) a;
+        String produced = str(w.newContent());
+        assertThat(produced).contains(".idea/");
+        assertThat(produced).doesNotContain("!versions-upgrade-rules");
+    }
+
+    @Test
+    void detectsWhitelistByCatchAllStar() {
+        assertThat(TrackedBlockTierHandler
+                .isWhitelistIgnoreFile("*\n!pom.xml\n")).isTrue();
+        assertThat(TrackedBlockTierHandler
+                .isWhitelistIgnoreFile(
+                        "# header\n\n*\n!pom.xml\n")).isTrue();
+        assertThat(TrackedBlockTierHandler
+                .isWhitelistIgnoreFile("**\n!pom.xml\n")).isTrue();
+    }
+
+    @Test
+    void detectsBlacklistWhenNoCatchAll() {
+        assertThat(TrackedBlockTierHandler
+                .isWhitelistIgnoreFile("target/\n*.iml\n")).isFalse();
+        assertThat(TrackedBlockTierHandler
+                .isWhitelistIgnoreFile("# all comments\n")).isFalse();
+        assertThat(TrackedBlockTierHandler
+                .isWhitelistIgnoreFile("")).isFalse();
+        assertThat(TrackedBlockTierHandler
+                .isWhitelistIgnoreFile("*.iml\n*.log\n")).isFalse();
+    }
 }

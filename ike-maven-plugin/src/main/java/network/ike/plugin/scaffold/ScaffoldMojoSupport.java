@@ -1,5 +1,6 @@
 package network.ike.plugin.scaffold;
 
+import org.apache.maven.api.Session;
 import org.apache.maven.api.plugin.Log;
 
 import java.nio.file.Files;
@@ -30,6 +31,51 @@ public final class ScaffoldMojoSupport {
             ".ike/scaffold.lock";
 
     private ScaffoldMojoSupport() {}
+
+    /**
+     * Resolve the effective project root for a scaffold goal.
+     *
+     * <p>Goals annotated {@code projectRequired = false} cannot rely on
+     * Maven's parameter-default expansion of {@code ${project.basedir}}
+     * — Maven 4 leaves the placeholder uninterpolated when no project
+     * is required, even when one is in scope. Callers therefore pass an
+     * explicit {@code projectRoot} parameter when supplied by the user;
+     * when blank, this helper derives the directory from
+     * {@link Session#getTopDirectory()} (the directory Maven was
+     * launched from).
+     *
+     * <p>The result is null when no {@code pom.xml} sits at the
+     * resolved location, which the calling mojo treats as
+     * fresh-machine bootstrap (user scope only, no project scope).
+     *
+     * @param projectRootOverride raw value of the {@code projectRoot}
+     *                            parameter; null/blank means
+     *                            "auto-detect"
+     * @param session             Maven 4 session; required for
+     *                            auto-detection. May be {@code null}
+     *                            in tests that supply an explicit
+     *                            override.
+     * @return absolute project root, or {@code null} when no project
+     *         is in scope at the resolved location
+     */
+    public static Path resolveProjectRoot(
+            String projectRootOverride, Session session) {
+        if (projectRootOverride != null
+                && !projectRootOverride.isBlank()) {
+            return Path.of(projectRootOverride);
+        }
+        if (session == null) {
+            return null;
+        }
+        Path top = session.getTopDirectory();
+        if (top == null) {
+            return null;
+        }
+        if (!Files.isRegularFile(top.resolve("pom.xml"))) {
+            return null;
+        }
+        return top;
+    }
 
     /**
      * Resolve the manifest file at the root of a scaffold tree.

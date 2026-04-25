@@ -10,6 +10,8 @@ import network.ike.plugin.scaffold.ScaffoldMojoSupport;
 import network.ike.plugin.scaffold.ScaffoldReverter;
 import network.ike.plugin.scaffold.ScaffoldScope;
 import network.ike.plugin.scaffold.TierHandlers;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -52,8 +54,18 @@ import java.nio.file.Path;
 public class ScaffoldRevertMojo
         implements org.apache.maven.api.plugin.Mojo {
 
-    @org.apache.maven.api.di.Inject
+    @Inject
     private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Maven 4 session — used to derive the project root from
+     * {@link Session#getTopDirectory()} when {@code projectRoot} is
+     * not supplied. Maven's parameter-default expansion does not
+     * interpolate {@code ${project.basedir}} for goals annotated
+     * {@code projectRequired = false}, so we resolve it here.
+     */
+    @Inject
+    private Session session;
 
     /**
      * Access the Maven logger.
@@ -73,12 +85,12 @@ public class ScaffoldRevertMojo
     String scaffoldDir;
 
     /**
-     * Override for the project root. Defaults to the running
-     * Maven project's base directory; null when invoked outside
-     * a project.
+     * Explicit override for the project root. When omitted, the goal
+     * uses {@link Session#getTopDirectory()} (the directory Maven was
+     * invoked from); a missing {@code pom.xml} at that location signals
+     * fresh-machine bootstrap and the project scope is skipped.
      */
-    @Parameter(property = "projectRoot",
-               defaultValue = "${project.basedir}")
+    @Parameter(property = "projectRoot")
     String projectRoot;
 
     /**
@@ -105,9 +117,8 @@ public class ScaffoldRevertMojo
         ScaffoldManifest manifest =
                 ScaffoldMojoSupport.loadManifest(scaffoldRoot);
         Path home = Path.of(userHome);
-        Path projRoot = (projectRoot == null || projectRoot.isBlank())
-                ? null
-                : Path.of(projectRoot);
+        Path projRoot = ScaffoldMojoSupport.resolveProjectRoot(
+                projectRoot, session);
         PathResolver resolver = new PathResolver(home, projRoot);
 
         // Instantiate the registries so adapter-specific revert

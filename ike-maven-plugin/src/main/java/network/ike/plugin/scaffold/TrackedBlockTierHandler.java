@@ -23,6 +23,21 @@ import java.util.List;
  * lockfile for this tier are hashes of the block <em>content</em>, not
  * the whole file. That way edits to unmanaged regions do not look like
  * drift on the managed block.
+ *
+ * <h2>Whitelist-style {@code .gitignore} awareness</h2>
+ *
+ * <p>Workspaces that ignore everything by default and whitelist a
+ * curated set of files (signalled by a bare {@code *} or {@code **}
+ * line in the destination) need a different block payload — the
+ * blacklist patterns shipped in {@code source} would either silently
+ * have no effect or, worse, cause newly tracked scaffold files to be
+ * ignored. When the manifest entry sets
+ * {@code whitelist-block-content} (an inline string in extras) the
+ * handler substitutes that content for the {@code source} bytes when
+ * whitelist mode is detected on disk. When whitelist mode is detected
+ * but no {@code whitelist-block-content} is supplied, the entry is
+ * reported as user-managed (no write) so the publish run does not
+ * pollute the user's whitelist.
  */
 public final class TrackedBlockTierHandler implements TierHandler {
 
@@ -64,7 +79,32 @@ public final class TrackedBlockTierHandler implements TierHandler {
                             + "' missing 'block-end'");
         }
 
-        String templateBlock = str(templateContent);
+        String currentStr = str(currentContent);
+
+        // Whitelist-mode awareness: when the destination is a
+        // whitelist-style ignore file (catch-all `*`/`**` line
+        // present), the blacklist patterns shipped in `source` would
+        // either be no-ops or silently mask scaffold-tracked files.
+        // Substitute `whitelist-block-content` from extras when
+        // supplied; otherwise leave the file alone and report as
+        // user-managed.
+        boolean whitelistMode = currentContent != null
+                && isWhitelistIgnoreFile(currentStr);
+        String whitelistContent =
+                stringExtra(entry, "whitelist-block-content");
+        if (whitelistMode && (whitelistContent == null
+                || whitelistContent.isBlank())) {
+            return new TierAction.Skip(
+                    entry, resolvedDest,
+                    "whitelist-style ignore file; no "
+                            + "'whitelist-block-content' supplied — "
+                            + "leaving file alone",
+                    "");
+        }
+
+        String templateBlock = whitelistMode
+                ? whitelistContent
+                : str(templateContent);
         String templateBlockSha = Sha256.of(templateBlock);
 
         // Case 1: file does not exist yet — create it with just the
@@ -79,8 +119,6 @@ public final class TrackedBlockTierHandler implements TierHandler {
                     TierAction.Write.Kind.INSTALL,
                     "install new file with managed block");
         }
-
-        String currentStr = str(currentContent);
         BlockSlice slice =
                 locate(currentStr, beginMarker, endMarker, entry);
 
@@ -143,6 +181,36 @@ public final class TrackedBlockTierHandler implements TierHandler {
     }
 
     // ── helpers ────────────────────────────────────────────────────
+
+    /**
+     * Detect whether an ignore-style file uses the whitelist
+     * convention: a top-level catch-all (a bare {@code *} or
+     * {@code **} line) that ignores everything by default, with
+     * {@code !pattern} entries to selectively whitelist files.
+     *
+     * <p>Comment and blank lines are ignored. The check is intentionally
+     * narrow — only a bare {@code *}/{@code **} (no surrounding text)
+     * counts. Files with patterns like {@code *.iml} or {@code build/*}
+     * are blacklist-mode and remain unaffected.
+     *
+     * @param content the file content as text; may be empty but not null
+     * @return {@code true} if the file matches the whitelist convention
+     */
+    static boolean isWhitelistIgnoreFile(String content) {
+        if (content == null || content.isEmpty()) {
+            return false;
+        }
+        for (String raw : content.split("\n")) {
+            String t = stripLineEnding(raw).trim();
+            if (t.isEmpty() || t.startsWith("#")) {
+                continue;
+            }
+            if (t.equals("*") || t.equals("**")) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /** A parsed managed-block slice within a larger file. */
     private record BlockSlice(
