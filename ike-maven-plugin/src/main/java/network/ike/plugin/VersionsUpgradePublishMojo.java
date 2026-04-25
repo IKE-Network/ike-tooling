@@ -45,9 +45,11 @@ import java.util.List;
  * check (intended for scripted recovery; the plan applier still
  * re-validates each {@code from-version} per entry).
  *
- * <p>The plan file is left in place after a successful publish so the
- * caller can re-run for documentation or incorporate it into a
- * release commit message. Pass {@code -DdeletePlan=true} to remove it.
+ * <p>On success the plan file is deleted — the goal completes its
+ * effect rather than leaving a transient artifact in the working
+ * tree. Re-run {@code ike:versions-upgrade-draft} to regenerate it.
+ * The markdown report written via {@code writeReport(...)} is the
+ * durable record of what was applied.
  *
  * @see VersionsUpgradeDraftMojo
  */
@@ -75,12 +77,6 @@ public class VersionsUpgradePublishMojo extends AbstractGoalMojo {
      */
     @Parameter(property = "forceStale", defaultValue = "false")
     boolean forceStale;
-
-    /**
-     * If true, delete the plan file after a successful publish.
-     */
-    @Parameter(property = "deletePlan", defaultValue = "false")
-    boolean deletePlan;
 
     /** Creates this goal instance. */
     public VersionsUpgradePublishMojo() {}
@@ -120,14 +116,12 @@ public class VersionsUpgradePublishMojo extends AbstractGoalMojo {
 
         int edits = applyPlan(pomPath, node);
 
-        if (deletePlan) {
-            try {
-                Files.deleteIfExists(planPath);
-                getLog().info("Deleted plan: " + planPath);
-            } catch (IOException e) {
-                getLog().warn("Could not delete plan " + planPath
-                        + ": " + e.getMessage());
-            }
+        try {
+            Files.deleteIfExists(planPath);
+            getLog().info("Removed plan file: " + planPath);
+        } catch (IOException e) {
+            getLog().warn("Could not delete plan " + planPath
+                    + ": " + e.getMessage());
         }
 
         logSummary(node, edits, planPath);
