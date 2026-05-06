@@ -87,9 +87,25 @@ public final class ManifestReader {
         Map<String, Subproject> subprojects = parseSubprojects(
                 mapField(root, "subprojects"), defaults);
         IdeSettings ide = parseIdeSettings(mapField(root, "ide"));
+        // Schema 1.1 (#183): typed workspace-root coordinates. Absent on
+        // legacy manifests; callers that need it check for null and
+        // suggest ws:adopt-root (#184).
+        WorkspaceRoot workspaceRoot = parseWorkspaceRoot(
+                mapField(root, "workspace-root"));
 
         return new Manifest(schemaVersion, generated, defaults,
-                subprojects, ide);
+                workspaceRoot, subprojects, ide);
+    }
+
+    private static WorkspaceRoot parseWorkspaceRoot(Map<String, Object> map) {
+        if (map == null) {
+            return null;
+        }
+        return new WorkspaceRoot(
+                stringField(map, "groupId", null),
+                stringField(map, "artifactId", null),
+                stringField(map, "version", null)
+        );
     }
 
     private static IdeSettings parseIdeSettings(Map<String, Object> map) {
@@ -142,6 +158,13 @@ public final class ManifestReader {
                 (List<Map<String, Object>>) fields.get("depends-on");
         List<Dependency> deps = parseDependencies(depsRaw);
 
+        // Alignment fields (#233 schema, sub-task 2). Legacy manifests
+        // without these default to snapshot-aligned, preserving today's
+        // behavior; tag/kind stay null in that case.
+        String state = stringField(fields, "state", Subproject.STATE_SNAPSHOT);
+        String tag = stringField(fields, "tag", null);
+        String kind = stringField(fields, "kind", null);
+
         return new Subproject(
                 name,
                 stringField(fields, "description", ""),
@@ -153,7 +176,10 @@ public final class ManifestReader {
                 stringField(fields, "notes", null),
                 stringField(fields, "maven-version", null),
                 stringField(fields, "parent", null),
-                stringField(fields, "sha", null)
+                stringField(fields, "sha", null),
+                state,
+                tag,
+                kind
         );
     }
 
