@@ -848,6 +848,93 @@ public class ReleaseSupport {
     }
 
     /**
+     * Update the {@code latest} symlink alongside a version-prefixed
+     * site deploy so that {@code <site-base>/latest/} always points at
+     * the most recent release (ike-issues#303).
+     *
+     * <p>For a release deployed to
+     * {@code /srv/ike-site/ike-platform/17/}, this issues
+     * {@code cd /srv/ike-site/ike-platform && ln -snf 17 latest} on the
+     * site host. Idempotent — the {@code -f} flag replaces any prior
+     * symlink target.
+     *
+     * <p>Uses the same SSH host as {@link #swapRemoteSiteDir}.
+     * Best-effort: callers should catch {@link MojoException} and
+     * surface as a warning rather than failing the release — the
+     * version-prefixed site is reachable at its own URL even if the
+     * alias update fails.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath the version-prefixed final site path
+     *                   (e.g. {@code /srv/ike-site/ike-platform/17})
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void updateLatestSymlink(File workDir, Log log,
+                                           String remotePath)
+            throws MojoException {
+        updateLatestSymlink(workDir, log, remotePath, "ssh", SITE_SSH_HOST);
+    }
+
+    /**
+     * Overload accepting an explicit SSH command prefix —
+     * package-private for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath the version-prefixed final site path
+     * @param sshPrefix  the SSH command tokens
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void updateLatestSymlink(File workDir, Log log,
+                                           String remotePath,
+                                           String... sshPrefix)
+            throws MojoException {
+        validateRemotePath(remotePath);
+        String parent = parentDir(remotePath);
+        String leaf = leafName(remotePath);
+        if (parent == null || leaf == null || leaf.isEmpty()) {
+            throw new MojoException(
+                    "Cannot derive parent/leaf from site path: " + remotePath);
+        }
+
+        log.info("Updating latest symlink: " + parent + "/latest -> " + leaf);
+        String[] cmd = new String[sshPrefix.length + 1];
+        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);
+        cmd[sshPrefix.length] = "cd " + parent
+                + " && ln -snf " + leaf + " latest";
+        exec(workDir, log, cmd);
+    }
+
+    /**
+     * Compute the parent directory of a Unix-style absolute path
+     * without crossing the {@link #SITE_DISK_BASE} boundary. Returns
+     * {@code null} when the input is at or above the base.
+     *
+     * <p>Package-private for testing.
+     */
+    static String parentDir(String absPath) {
+        int lastSlash = absPath.lastIndexOf('/');
+        if (lastSlash <= 0) return null;
+        String parent = absPath.substring(0, lastSlash);
+        return parent.startsWith(SITE_DISK_BASE.replaceAll("/$", ""))
+                ? parent : null;
+    }
+
+    /**
+     * Last path segment of a Unix-style absolute path — the basename.
+     * Trailing slashes are tolerated.
+     *
+     * <p>Package-private for testing.
+     */
+    static String leafName(String absPath) {
+        String trimmed = absPath.endsWith("/")
+                ? absPath.substring(0, absPath.length() - 1) : absPath;
+        int lastSlash = trimmed.lastIndexOf('/');
+        return lastSlash < 0 ? trimmed : trimmed.substring(lastSlash + 1);
+    }
+
+    /**
      * Return the scpexe URL for the staging directory.
      *
      * @param targetUrl the final site URL

@@ -907,6 +907,21 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 "-Dsite.deploy.url=" + stagingUrl);
         ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
 
+        // Update the `latest` alias to point at this version
+        // (ike-issues#303). Best-effort — log and continue on failure;
+        // the version-prefixed URL is still reachable.
+        try {
+            ReleaseSupport.updateLatestSymlink(gitRoot, getLog(), releaseDisk);
+        } catch (MojoException e) {
+            getLog().warn("  ⚠ latest symlink update failed (non-fatal): "
+                    + e.getMessage());
+            getLog().warn("    To fix manually: ssh proxy 'cd "
+                    + ReleaseSupport.parentDir(releaseDisk)
+                    + " && ln -snf "
+                    + ReleaseSupport.leafName(releaseDisk)
+                    + " latest'");
+        }
+
         // GitHub Pages publishing is now handled by deploy-site-publish
         // (the former publish-site goal was merged into deploy-site in v83)
     }
