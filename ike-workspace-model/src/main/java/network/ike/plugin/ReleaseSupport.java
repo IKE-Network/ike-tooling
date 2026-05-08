@@ -981,8 +981,11 @@ public class ReleaseSupport {
      * mangling, no version-prefixing. GitHub Pages then serves it at
      * {@code https://ike.network/<repo>/} via the org's CNAME.
      *
-     * <p>Patterned on {@link OrgSiteSupport#publishToGhPages} but
-     * generalized to any project's staging dir + remote.
+     * <p>Patterned on {@code OrgSiteSupport.publishToGhPages} (in
+     * the ike-maven-plugin module) but generalized to any project's
+     * staging dir + remote. ike-workspace-model can't {@code @link}
+     * directly to ike-maven-plugin classes — it sits below in the
+     * dependency stack, so they're not on its javadoc classpath.
      *
      * @param stagingDir directory containing the rendered site
      *                   (typically {@code target/staging/})
