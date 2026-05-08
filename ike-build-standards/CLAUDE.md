@@ -19,6 +19,13 @@ This module produces several classified ZIP artifacts:
 - `classifier=asciidoctorconfig` — shared `.asciidoctorconfig` fragment
 - `classifier=scaffold`         — scaffold manifest + template files consumed by
                                    `ike:scaffold-draft/publish/revert` (#221, #222)
+- `classifier=site-theme`       — canonical Forest theme `site.css` + `ike-logo.svg`,
+                                   unpacked at `pre-site` by `ike-parent`'s
+                                   `site-resources` profile so every consuming project
+                                   inherits the same Maven-Site theme without carrying
+                                   per-repo copies (#318). Hosted here rather than in
+                                   `ike-doc-resources` so `ike-tooling` itself can
+                                   consume it (#308) without inverting the cascade.
 
 Consumer modules unpack the `claude` artifact at `validate` phase into
 `.claude/standards/` via `maven-dependency-plugin`.
@@ -34,7 +41,12 @@ the concrete artifact version into the lockfile.
 ## Key Conventions
 
 - Uses the unified pipeline version (e.g., `1.1.0-SNAPSHOT`)
-- Assembly descriptors: `src/assembly/claude-standards.xml`, `src/assembly/docs.xml`
+- Assembly descriptors live in `src/assembly/`: `claude-standards.xml`,
+  `docs.xml`, `config.xml`, `asciidoctorconfig.xml`, `scaffold.xml`,
+  `site-theme.xml`. Each maps to one classified ZIP execution in
+  `pom.xml`'s `maven-assembly-plugin` config.
+- Source content for each classifier lives in `src/main/<classifier>/`
+  (e.g. `src/main/site-theme/css/site.css`).
 - Version is managed in `ike-parent`, which provides inline dependency management
 
 ## Build
