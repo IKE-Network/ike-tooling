@@ -13,7 +13,9 @@ import java.io.File;
  * <p>This goal deploys the project site to one of three location
  * types under {@code ike.komet.sh}:
  * <ul>
- *   <li>{@code release} — overwritten on each release</li>
+ *   <li>{@code release} — version-prefixed
+ *       ({@code <projectId>/<version>/}); a {@code latest} symlink
+ *       points at the most recent release (ike-issues#303)</li>
  *   <li>{@code snapshot} — versioned by git branch
  *       (e.g., {@code snapshot/main/}, {@code snapshot/feature/my-work/})</li>
  *   <li>{@code checkpoint} — immutable, versioned subdirectory</li>
@@ -116,9 +118,12 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
 
         switch (siteType) {
             case "release" -> {
-                subPath = null;
-                targetUrl = SITE_URL_BASE + projectId + "/release";
-                diskPath = ReleaseSupport.siteDiskPath(projectId, "release", null);
+                // Release sites are version-prefixed (ike-issues#303);
+                // siteVersion defaults to the POM version above.
+                subPath = siteVersion;
+                targetUrl = SITE_URL_BASE + projectId + "/" + siteVersion;
+                diskPath = ReleaseSupport.siteDiskPath(
+                        projectId, siteVersion, null);
             }
             case "snapshot" -> {
                 String safeBranch = ReleaseSupport.branchToSitePath(branch);
@@ -171,6 +176,11 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
             } else {
                 getLog().info("[DRAFT] Would deploy site to: " + targetUrl);
             }
+            if ("release".equals(siteType)) {
+                getLog().info("[DRAFT] Would update latest symlink: "
+                        + "/srv/ike-site/" + projectId + "/latest -> "
+                        + siteVersion);
+            }
             return;
         }
 
@@ -193,6 +203,17 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
         if (!skipSwap) {
             // Atomic swap: staging → live
             ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), diskPath);
+        }
+
+        // For release deploys, repoint the `latest` symlink so the
+        // canonical URL serves this version (ike-issues#303).
+        if ("release".equals(siteType)) {
+            try {
+                ReleaseSupport.updateLatestSymlink(gitRoot, getLog(), diskPath);
+            } catch (MojoException e) {
+                getLog().warn("  ⚠ latest symlink update failed (non-fatal): "
+                        + e.getMessage());
+            }
         }
 
         String publicUrl = toPublicSiteUrl(targetUrl);

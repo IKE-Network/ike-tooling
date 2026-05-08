@@ -237,8 +237,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     releaseVersion + " (critical)");
             if (deploySite) {
                 getLog().info("[DRAFT] Would deploy site to: " +
-                        "scpexe://proxy/srv/ike-site/" + projectId + "/release"
-                        + " (best-effort)");
+                        "scpexe://proxy/srv/ike-site/" + projectId + "/"
+                        + releaseVersion + " (best-effort)");
+                getLog().info("[DRAFT] Would update latest symlink: "
+                        + "/srv/ike-site/" + projectId + "/latest -> "
+                        + releaseVersion);
             }
             getLog().info("[DRAFT] Would push tag and main to origin");
             getLog().info("[DRAFT] Would create GitHub Release");
@@ -400,8 +403,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             // A release without a valid site is incomplete. The tag
             // checkout wiped target/, so everything is rebuilt here.
             if (deploySite) {
+                // Site is deployed to a version-prefixed directory
+                // (`/<projectId>/<releaseVersion>/`) and a `latest` symlink
+                // is updated to point at it. ike-issues#303.
                 releaseDisk = ReleaseSupport.siteDiskPath(
-                        projectId, "release", null);
+                        projectId, releaseVersion, null);
                 String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);
                 String releaseUrl = "scpexe://proxy" + releaseDisk;
                 stagingUrl = ReleaseSupport.siteStagingUrl(releaseUrl);
@@ -500,7 +506,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().info("  Tagged: v" + releaseVersion);
         getLog().info("  Deployed to Nexus");
         if (deploySite) {
-            getLog().info("  Site: http://ike.komet.sh/" + projectId + "/release/");
+            getLog().info("  Site: http://ike.komet.sh/" + projectId
+                    + "/" + releaseVersion + "/");
+            getLog().info("  Latest alias: http://ike.komet.sh/"
+                    + projectId + "/latest/");
         }
         if (publishSite && deploySite) {
             getLog().info("  GitHub Pages: https://ike.network/" + projectId + "/");
@@ -574,7 +583,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             sb.append(step++).append(". ").append(verb)
                     .append(" deploy site to ")
                     .append("`scpexe://proxy/srv/ike-site/")
-                    .append(projectId).append("/release`\n");
+                    .append(projectId).append("/")
+                    .append(releaseVersion).append("`\n");
+            sb.append(step++).append(". ").append(verb)
+                    .append(" update `latest` symlink -> `")
+                    .append(releaseVersion).append("`\n");
         }
         sb.append(step++).append(". ").append(verb)
                 .append(" push tag and main to origin\n");

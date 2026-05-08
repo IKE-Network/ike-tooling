@@ -47,8 +47,10 @@ public class CleanSiteMojo implements org.apache.maven.api.plugin.Mojo {
     private String branch;
 
     /**
-     * Version of the checkpoint site to clean.
-     * Only used when siteType=checkpoint.
+     * Version of the checkpoint or release site to clean.
+     * Only used when siteType=checkpoint or siteType=release.
+     * For {@code siteType=release}, defaults to the POM version
+     * if omitted.
      */
     @Parameter(property = "siteVersion")
     private String siteVersion;
@@ -70,7 +72,13 @@ public class CleanSiteMojo implements org.apache.maven.api.plugin.Mojo {
 
         switch (siteType) {
             case "release" -> {
-                diskPath = ReleaseSupport.siteDiskPath(projectId, "release", null);
+                // Release sites are version-prefixed (ike-issues#303).
+                // Default to POM version when siteVersion is omitted.
+                if (siteVersion == null || siteVersion.isBlank()) {
+                    siteVersion = ReleaseSupport.readPomVersion(rootPom);
+                }
+                diskPath = ReleaseSupport.siteDiskPath(
+                        projectId, siteVersion, null);
             }
             case "snapshot" -> {
                 if (branch == null || branch.isBlank()) {
@@ -103,7 +111,7 @@ public class CleanSiteMojo implements org.apache.maven.api.plugin.Mojo {
         if ("snapshot".equals(siteType)) {
             getLog().info("  Branch:    " + branch);
         }
-        if ("checkpoint".equals(siteType)) {
+        if ("checkpoint".equals(siteType) || "release".equals(siteType)) {
             getLog().info("  Version:   " + siteVersion);
         }
         getLog().info("  Disk path: " + diskPath);
