@@ -223,9 +223,41 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
             ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
         }
 
-        // Generate, stage, and deploy site (to staging dir or direct)
+        // Generate + stage in one mvnw invocation. Site:deploy runs
+        // separately AFTER the gh-pages push because site:deploy with
+        // -Dsite.deploy.url=scpexe://...X.staging creates a local mirror
+        // subdir target/staging/X.staging/ that breaks any subsequent
+        // read of target/staging/ as the rendered content. ike-issues#312.
         ReleaseSupport.exec(gitRoot, getLog(),
-                mvnw.getAbsolutePath(), "site", "site:stage", "site:deploy", "-B",
+                mvnw.getAbsolutePath(), "site", "site:stage", "-B");
+
+        // Publish to GitHub Pages — force-push the staged site to
+        // <repo>/gh-pages while target/staging/ still has the clean
+        // post-site:stage content. Best-effort: failure is logged but
+        // does not block the internal scpexe deploy. ike-issues#312.
+        if ("release".equals(siteType) && publishToGhPages) {
+            String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, "origin");
+            if (remoteUrl == null) {
+                getLog().info("  Skipping gh-pages publish "
+                        + "(no 'origin' remote)");
+            } else {
+                Path stagingDir = gitRoot.toPath()
+                        .resolve("target").resolve("staging");
+                try {
+                    ReleaseSupport.publishProjectSiteToGhPages(
+                            stagingDir, remoteUrl, getLog(),
+                            projectId, siteVersion);
+                } catch (MojoException e) {
+                    getLog().warn("  ⚠ gh-pages publish failed "
+                            + "(non-fatal): " + e.getMessage());
+                }
+            }
+        }
+
+        // Now deploy to the internal scpexe site. This may corrupt
+        // target/staging/ locally — that's why gh-pages went first.
+        ReleaseSupport.exec(gitRoot, getLog(),
+                mvnw.getAbsolutePath(), "site:deploy", "-B",
                 "-Dsite.deploy.url=" + deployUrl);
 
         if (!skipSwap) {
@@ -241,33 +273,6 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
             } catch (MojoException e) {
                 getLog().warn("  ⚠ latest symlink update failed (non-fatal): "
                         + e.getMessage());
-            }
-
-            // Publish to GitHub Pages — force-push the staged site to
-            // <repo>/gh-pages. Best-effort: failure is logged but does
-            // not block the internal scpexe deploy. ike-issues#312.
-            if (publishToGhPages) {
-                String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, "origin");
-                if (remoteUrl == null) {
-                    getLog().info("  Skipping gh-pages publish "
-                            + "(no 'origin' remote)");
-                } else {
-                    Path stagingDir = gitRoot.toPath()
-                            .resolve("target").resolve("staging");
-                    try {
-                        ReleaseSupport.publishProjectSiteToGhPages(
-                                stagingDir, remoteUrl, getLog(),
-                                projectId, siteVersion);
-                    } catch (MojoException e) {
-                        getLog().warn("  ⚠ gh-pages publish failed "
-                                + "(non-fatal): " + e.getMessage());
-                        getLog().warn("    To retry manually: from this "
-                                + "project root with 'origin' configured, "
-                                + "run mvn site site:stage and copy "
-                                + "target/staging/* into a fresh orphan "
-                                + "branch named gh-pages, then push.");
-                    }
-                }
             }
         }
 

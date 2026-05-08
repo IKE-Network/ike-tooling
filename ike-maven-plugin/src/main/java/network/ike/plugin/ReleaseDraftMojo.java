@@ -925,33 +925,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             throws MojoException {
         String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);
 
-        getLog().info("Deploying site to staging...");
-        ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
-        ReleaseSupport.exec(gitRoot, getLog(),
-                mvnw.getAbsolutePath(), "site:deploy", "-B", "-T", "1",
-                "-Dsite.deploy.url=" + stagingUrl);
-        ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
-
-        // Update the `latest` alias to point at this version
-        // (ike-issues#303). Best-effort — log and continue on failure;
-        // the version-prefixed URL is still reachable.
-        try {
-            ReleaseSupport.updateLatestSymlink(gitRoot, getLog(), releaseDisk);
-        } catch (MojoException e) {
-            getLog().warn("  ⚠ latest symlink update failed (non-fatal): "
-                    + e.getMessage());
-            getLog().warn("    To fix manually: ssh proxy 'cd "
-                    + ReleaseSupport.parentDir(releaseDisk)
-                    + " && ln -snf "
-                    + ReleaseSupport.leafName(releaseDisk)
-                    + " latest'");
-        }
-
-        // Publish to GitHub Pages — force-push the staged site to
-        // <repo>/gh-pages so it's served at https://ike.network/<repo>/
-        // via the org's CNAME (ike-issues#312). Best-effort: failure
-        // here is logged but does not block the release; the internal
-        // scpexe site is still up.
+        // Publish to GitHub Pages FIRST while target/staging/ still has
+        // the clean post-site:stage content. site:deploy below with
+        // -Dsite.deploy.url=scpexe://...X.staging creates a local mirror
+        // subdir target/staging/X.staging/, which would corrupt any
+        // subsequent read of target/staging/ as the rendered site.
+        // ike-issues#312.
         if (publishSite) {
             String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, "origin");
             if (remoteUrl == null) {
@@ -974,6 +953,28 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                             + " -DskipBuild=true");
                 }
             }
+        }
+
+        getLog().info("Deploying site to staging...");
+        ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
+        ReleaseSupport.exec(gitRoot, getLog(),
+                mvnw.getAbsolutePath(), "site:deploy", "-B", "-T", "1",
+                "-Dsite.deploy.url=" + stagingUrl);
+        ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
+
+        // Update the `latest` alias to point at this version
+        // (ike-issues#303). Best-effort — log and continue on failure;
+        // the version-prefixed URL is still reachable.
+        try {
+            ReleaseSupport.updateLatestSymlink(gitRoot, getLog(), releaseDisk);
+        } catch (MojoException e) {
+            getLog().warn("  ⚠ latest symlink update failed (non-fatal): "
+                    + e.getMessage());
+            getLog().warn("    To fix manually: ssh proxy 'cd "
+                    + ReleaseSupport.parentDir(releaseDisk)
+                    + " && ln -snf "
+                    + ReleaseSupport.leafName(releaseDisk)
+                    + " latest'");
         }
     }
 
