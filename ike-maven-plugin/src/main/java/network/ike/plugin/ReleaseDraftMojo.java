@@ -242,6 +242,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 getLog().info("[DRAFT] Would update latest symlink: "
                         + "/srv/ike-site/" + projectId + "/latest -> "
                         + releaseVersion);
+                if (publishSite) {
+                    getLog().info("[DRAFT] Would force-push staged site "
+                            + "to gh-pages on origin (best-effort)");
+                    getLog().info("[DRAFT] Would publish at "
+                            + "https://ike.network/" + projectId + "/");
+                }
             }
             getLog().info("[DRAFT] Would push tag and main to origin");
             getLog().info("[DRAFT] Would create GitHub Release");
@@ -588,6 +594,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             sb.append(step++).append(". ").append(verb)
                     .append(" update `latest` symlink -> `")
                     .append(releaseVersion).append("`\n");
+            if (publishSite) {
+                sb.append(step++).append(". ").append(verb)
+                        .append(" force-push site to gh-pages on origin "
+                                + "(serves at `https://ike.network/")
+                        .append(projectId).append("/`)\n");
+            }
         }
         sb.append(step++).append(". ").append(verb)
                 .append(" push tag and main to origin\n");
@@ -935,8 +947,34 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     + " latest'");
         }
 
-        // GitHub Pages publishing is now handled by deploy-site-publish
-        // (the former publish-site goal was merged into deploy-site in v83)
+        // Publish to GitHub Pages — force-push the staged site to
+        // <repo>/gh-pages so it's served at https://ike.network/<repo>/
+        // via the org's CNAME (ike-issues#312). Best-effort: failure
+        // here is logged but does not block the release; the internal
+        // scpexe site is still up.
+        if (publishSite) {
+            String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, "origin");
+            if (remoteUrl == null) {
+                getLog().info("  Skipping gh-pages publish "
+                        + "(no 'origin' remote)");
+            } else {
+                Path stagingDir = gitRoot.toPath()
+                        .resolve("target").resolve("staging");
+                try {
+                    ReleaseSupport.publishProjectSiteToGhPages(
+                            stagingDir, remoteUrl, getLog(),
+                            projectId, version);
+                } catch (MojoException e) {
+                    getLog().warn("  ⚠ gh-pages publish failed (non-fatal): "
+                            + e.getMessage());
+                    getLog().warn("    To retry: from a checkout of v"
+                            + version + " with 'origin' remote, run "
+                            + "mvn ike:deploy-site-publish -DsiteType=release "
+                            + "-DsiteVersion=" + version
+                            + " -DskipBuild=true");
+                }
+            }
+        }
     }
 
     /**

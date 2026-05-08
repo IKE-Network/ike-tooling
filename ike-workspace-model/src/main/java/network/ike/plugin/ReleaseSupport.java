@@ -516,6 +516,24 @@ public class ReleaseSupport {
     }
 
     /**
+     * Return the URL of a named git remote, or null if the remote does
+     * not exist.
+     *
+     * @param workDir    any directory inside the repository
+     * @param remoteName the remote name (typically {@code "origin"})
+     * @return the remote URL, or null if the remote is absent
+     */
+    public static String getRemoteUrl(File workDir, String remoteName) {
+        try {
+            String url = execCapture(workDir,
+                    "git", "remote", "get-url", remoteName);
+            return url.isBlank() ? null : url.trim();
+        } catch (MojoException _) {
+            return null;
+        }
+    }
+
+    /**
      * Derive the release version from a SNAPSHOT version.
      * {@code "2-SNAPSHOT"} becomes {@code "2"};
      * {@code "1.1.0-SNAPSHOT"} becomes {@code "1.1.0"}.
@@ -942,6 +960,107 @@ public class ReleaseSupport {
      */
     public static String siteStagingUrl(String targetUrl) {
         return targetUrl + ".staging";
+    }
+
+    /**
+     * Publish a project's rendered site to its repo's {@code gh-pages}
+     * branch (ike-issues#312).
+     *
+     * <p>Force-pushes a single orphan commit containing the contents of
+     * {@code stagingDir} to {@code gh-pages} on the project's git remote.
+     * Adds a {@code .nojekyll} marker so GitHub Pages skips Jekyll
+     * processing — the content is already rendered HTML and we don't
+     * want underscore-prefixed directories to be stripped.
+     *
+     * <p>Does NOT write a {@code CNAME} file: the org-level
+     * {@code IKE-Network.github.io/CNAME} (set to {@code ike.network})
+     * extends to all project pages under the org automatically. A
+     * per-project CNAME would either be ignored or conflict.
+     *
+     * <p>The stagingDir content is published verbatim — no path
+     * mangling, no version-prefixing. GitHub Pages then serves it at
+     * {@code https://ike.network/<repo>/} via the org's CNAME.
+     *
+     * <p>Patterned on {@link OrgSiteSupport#publishToGhPages} but
+     * generalized to any project's staging dir + remote.
+     *
+     * @param stagingDir directory containing the rendered site
+     *                   (typically {@code target/staging/})
+     * @param repoUrl    git URL of the project repo to push to
+     * @param log        Maven logger
+     * @param projectId  project artifact ID, used in the commit message
+     * @param version    release version, used in the commit message
+     * @throws MojoException if any step fails
+     */
+    public static void publishProjectSiteToGhPages(Path stagingDir,
+                                                    String repoUrl,
+                                                    Log log,
+                                                    String projectId,
+                                                    String version)
+            throws MojoException {
+        if (!Files.isDirectory(stagingDir)) {
+            throw new MojoException(
+                    "Staging directory does not exist: " + stagingDir
+                            + ". Site build may have failed.");
+        }
+
+        log.info("Publishing " + projectId + " site to gh-pages...");
+
+        Path tempDir;
+        try {
+            tempDir = Files.createTempDirectory("ike-project-gh-pages-");
+        } catch (IOException e) {
+            throw new MojoException(
+                    "Could not create temp directory for gh-pages publish", e);
+        }
+
+        try {
+            File tempRoot = tempDir.toFile();
+
+            exec(tempRoot, log, "git", "init");
+            exec(tempRoot, log, "git", "checkout", "--orphan", "gh-pages");
+
+            try {
+                copyDirectory(stagingDir, tempDir);
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to copy staging dir to temp: " + e.getMessage(), e);
+            }
+
+            // .nojekyll — disable Jekyll preprocessing on rendered HTML.
+            Path nojekyll = tempDir.resolve(".nojekyll");
+            try {
+                Files.writeString(nojekyll, "");
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to write .nojekyll marker: " + e.getMessage(), e);
+            }
+
+            // Defensive: never carry a per-repo CNAME — the org CNAME
+            // (IKE-Network.github.io -> ike.network) extends down.
+            // If a stray CNAME ended up in the staging dir, drop it.
+            Path strayCname = tempDir.resolve("CNAME");
+            if (Files.exists(strayCname)) {
+                try {
+                    Files.delete(strayCname);
+                    log.info("  Dropped stray CNAME from staging "
+                            + "(per-project CNAMEs conflict with org CNAME)");
+                } catch (IOException e) {
+                    throw new MojoException(
+                            "Could not delete stray CNAME: " + e.getMessage(), e);
+                }
+            }
+
+            exec(tempRoot, log, "git", "add", "-A");
+            exec(tempRoot, log, "git", "commit", "-m",
+                    "site: publish " + projectId + " " + version);
+            exec(tempRoot, log, "git", "push", "--force",
+                    repoUrl, "gh-pages:gh-pages");
+
+            log.info("  Published: https://ike.network/" + projectId + "/");
+        } finally {
+            deleteDirectory(tempDir);
+        }
     }
 
     /**

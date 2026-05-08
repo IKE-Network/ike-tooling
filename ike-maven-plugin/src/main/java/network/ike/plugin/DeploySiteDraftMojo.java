@@ -6,6 +6,7 @@ import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
+import java.nio.file.Path;
 
 /**
  * Generate and deploy the Maven site to a versioned URL.
@@ -86,6 +87,21 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
      */
     @Parameter(property = "skipSwap", defaultValue = "false")
     private boolean skipSwap;
+
+    /**
+     * Publish the rendered site to GitHub Pages on top of the internal
+     * scpexe deploy. Applies only to {@code siteType=release}.
+     *
+     * <p>Force-pushes a single orphan commit to {@code <repo>/gh-pages}.
+     * GitHub Pages then serves it at
+     * {@code https://<org>.github.io/<repo>/} and — when the org has a
+     * custom-domain CNAME like IKE-Network — also at
+     * {@code https://<custom-domain>/<repo>/}. See ike-issues#312.
+     *
+     * <p>Best-effort: failure is logged but does not block the deploy.
+     */
+    @Parameter(property = "publishToGhPages", defaultValue = "true")
+    private boolean publishToGhPages;
 
     /** Creates this goal instance. */
     public DeploySiteDraftMojo() {}
@@ -180,6 +196,18 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
                 getLog().info("[DRAFT] Would update latest symlink: "
                         + "/srv/ike-site/" + projectId + "/latest -> "
                         + siteVersion);
+                if (publishToGhPages) {
+                    String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, "origin");
+                    if (remoteUrl != null) {
+                        getLog().info("[DRAFT] Would force-push staged site "
+                                + "to gh-pages on " + remoteUrl);
+                        getLog().info("[DRAFT] Would publish at "
+                                + "https://ike.network/" + projectId + "/");
+                    } else {
+                        getLog().info("[DRAFT] Would skip gh-pages publish "
+                                + "(no 'origin' remote)");
+                    }
+                }
             }
             return;
         }
@@ -214,11 +242,42 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
                 getLog().warn("  ⚠ latest symlink update failed (non-fatal): "
                         + e.getMessage());
             }
+
+            // Publish to GitHub Pages — force-push the staged site to
+            // <repo>/gh-pages. Best-effort: failure is logged but does
+            // not block the internal scpexe deploy. ike-issues#312.
+            if (publishToGhPages) {
+                String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, "origin");
+                if (remoteUrl == null) {
+                    getLog().info("  Skipping gh-pages publish "
+                            + "(no 'origin' remote)");
+                } else {
+                    Path stagingDir = gitRoot.toPath()
+                            .resolve("target").resolve("staging");
+                    try {
+                        ReleaseSupport.publishProjectSiteToGhPages(
+                                stagingDir, remoteUrl, getLog(),
+                                projectId, siteVersion);
+                    } catch (MojoException e) {
+                        getLog().warn("  ⚠ gh-pages publish failed "
+                                + "(non-fatal): " + e.getMessage());
+                        getLog().warn("    To retry manually: from this "
+                                + "project root with 'origin' configured, "
+                                + "run mvn site site:stage and copy "
+                                + "target/staging/* into a fresh orphan "
+                                + "branch named gh-pages, then push.");
+                    }
+                }
+            }
         }
 
         String publicUrl = toPublicSiteUrl(targetUrl);
         getLog().info("");
         getLog().info("Site deployed to: " + publicUrl);
+        if ("release".equals(siteType) && publishToGhPages) {
+            getLog().info("GitHub Pages: https://ike.network/"
+                    + projectId + "/");
+        }
     }
 
     // ── URL conversion (pure, static, testable) ─────────────────────
