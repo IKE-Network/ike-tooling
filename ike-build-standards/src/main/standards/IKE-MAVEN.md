@@ -16,9 +16,9 @@ contains the POM with `<artifactId>ike-workspace-model</artifactId>`.
 
 | Concept | Pattern | Example |
 |---------|---------|---------|
-| Aggregator workspace | `{name}-workspace` | `ike-workspace` |
-| Multi-module reactor | Descriptive, no `-reactor` suffix | `ike-pipeline`, `ike-tooling` |
-| Maven plugin | `{prefix}-maven-plugin` (required) | `ike-maven-plugin` |
+| Aggregator workspace | `{name}-ws` or `{name}-workspace` | `ike-example-ws` |
+| Multi-module reactor | Descriptive, no `-reactor` suffix | `ike-tooling`, `ike-platform`, `ike-docs` |
+| Maven plugin | `{prefix}-maven-plugin` (required) | `ike-maven-plugin`, `ike-workspace-maven-plugin`, `ike-doc-maven-plugin` |
 | Library | `{project}-{purpose}` | `ike-workspace-model` |
 | Parent POM | `{project}-parent` | `ike-parent` |
 | BOM | `{project}-bom` | `ike-bom` |
@@ -31,9 +31,11 @@ contains the POM with `<artifactId>ike-workspace-model</artifactId>`.
    If the reactor contains a plugin module named `ike-maven-plugin`, the
    reactor POM cannot also be `ike-maven-plugin`.
 3. **Maven plugins must follow `{prefix}-maven-plugin`** — required for
-   Maven prefix resolution (`mvn ike:release` resolves to `ike-maven-plugin`).
+   Maven prefix resolution (`mvn ike:release-publish` resolves to
+   `ike-maven-plugin`; `mvn ws:overview` resolves to
+   `ike-workspace-maven-plugin`).
 4. **No `-reactor` suffix** — use a meaningful name that describes the
-   project's purpose (`ike-tooling`, `ike-pipeline`).
+   project's purpose (`ike-tooling`, `ike-platform`, `ike-docs`).
 5. **Git repo name should match the most recognizable artifact** — for a
    single-module project, repo = artifactId. For multi-module, the repo
    name may match the primary artifact rather than the reactor artifactId.
@@ -45,9 +47,9 @@ An **aggregator workspace** (`ike-workspace`) is a developer-local project
 that ties multiple independent Git repositories together via `workspace.yaml`
 and file-activated `<subprojects>` profiles. It is not deployed to Nexus.
 
-A **multi-module reactor** (`ike-pipeline`, `ike-tooling`) is a single Git
-repository with tightly coupled modules that share a version and release
-together. It IS deployed to Nexus.
+A **multi-module reactor** (`ike-tooling`, `ike-platform`, `ike-docs`)
+is a single Git repository with tightly coupled modules that share a
+version and release together. It IS deployed to Nexus.
 
 The two serve different purposes: workspaces coordinate across repos,
 reactors coordinate within a repo. A workspace may contain multiple
@@ -72,27 +74,28 @@ Projects with `src/docs/asciidoc/` get the full pipeline automatically.
 Projects without that directory (infrastructure modules, tool modules)
 get only the universal build config (compiler, surefire, enforcer).
 
-## Infrastructure Modules
+## The IKE repo split (post-#216)
 
-Infrastructure modules inherit from `ike-parent` like all other modules,
-but the doc pipeline does not activate (they lack `src/docs/asciidoc/`):
+The pre-#216 monolith `ike-pipeline` was split into three release-cadence
+repos to fix a Maven `<extensions>true</extensions>` reactor-load cycle.
+Modules now live in:
 
-| Module | Purpose | Packaging |
+| Repo | Modules | Role |
 |---|---|---|
-| `ike-build-standards` | Claude instruction files | POM + classified ZIP |
-| `ike-build-tools` | Shared build scripts, release automation | POM + classified ZIP |
-| `ike-doc-resources` | Shared doc build resources (themes, assembly descriptors, configs) | JAR |
-| `minimal-fonts` | Noto font subset for PDF | JAR |
-| `docbook-xsl` | DocBook XSL stylesheets + IKE FO layer | JAR |
-| `koncept-asciidoc-extension` | AsciidoctorJ inline macro + glossary | JAR |
-| `ike-bom` | Auto-generated BOM (via ike:generate-bom) | POM |
+| `ike-tooling` | `ike-build-standards`, `ike-workspace-model`, `ike-maven-plugin-support`, `ike-maven-plugin` | Build tooling: standards, workspace model, `ike:*` Maven plugin |
+| `ike-docs` | `ike-doc-resources`, `minimal-fonts`, `docbook-xsl`, `koncept-asciidoc-extension`, `semantic-linebreak`, `ike-doc-maven-plugin` | AsciiDoc toolchain and doc-pipeline plugin |
+| `ike-platform` | `ike-parent`, `ike-bom`, `ike-workspace-maven-plugin` | Parent POM, BOM, and `ws:*` workspace plugin |
 
-The `ike-maven-plugin` and `ike-workspace-model` are in a separate
-reactor (`ike-tooling`) at `github.com/IKE-Network/ike-tooling`.
-ike-pipeline consumes the plugin as an external build dependency at
-`${ike-tooling.version}`.
+**Release cascade**: `ike-tooling` → `ike-docs` → `ike-platform` →
+downstream consumers. Each upstream repo must be on Nexus before its
+downstream consumers can build, because both `ike-maven-plugin` and
+`ike-doc-maven-plugin` are declared with `<extensions>true</extensions>`
+at literal versions (Maven resolves extension plugins at project-load
+time, before property interpolation).
 
-These are built and installed first in the reactor. The Maven reactor handles build ordering automatically.
+**Maven reactor build ordering** within each repo is automatic.
+Cross-repo ordering is the developer's responsibility (use
+`ws:release-publish` to release the workspace in topological order).
 
 ## pluginManagement Pattern
 

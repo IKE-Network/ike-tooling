@@ -2,7 +2,7 @@
 
 ## Core Principles
 
-- **Declarative over imperative.** Use proper Maven plugins for their intended purpose. Never use `exec-maven-plugin` for tasks that have a dedicated Maven plugin (file copying, resource filtering, dependency management). When imperative logic is unavoidable, use `exec-maven-plugin` with an external bash script from `ike-build-tools` — never `maven-antrun-plugin`.
+- **Declarative over imperative.** Use proper Maven plugins for their intended purpose. Never use `exec-maven-plugin` for tasks that have a dedicated Maven plugin (file copying, resource filtering, dependency management). When imperative logic is unavoidable, write a proper Java mojo in `ike-maven-plugin` rather than embedding shell logic in the POM. The Java-mojo path gives you typed parameters, unit tests, and consistent error reporting; bash scripts inline in POMs do not.
 - **Every artifact must have proper coordinates.** GroupId, artifactId, version, classifier, and type must be explicit. No uncoordinated files floating outside the Maven reactor.
 - **Consumer POM awareness.** Build-time configuration (plugin settings, profiles, properties used only during build) must not leak into the consumer POM. Use `<pluginManagement>` for inherited defaults, `<plugins>` for concrete bindings.
 
@@ -43,37 +43,37 @@ Within the same lifecycle phase, Maven runs plugins in POM declaration order. Wh
 
 ## Prohibited Patterns
 
-- `maven-antrun-plugin` — use `exec-maven-plugin` with an external bash script instead
+- `maven-antrun-plugin` — write a proper Java mojo in `ike-maven-plugin` instead
 - `build-helper-maven-plugin` for multi-execution property chaining — write a proper Maven goal in `ike-maven-plugin` instead. Chaining many timestamp-property and regex-property executions creates fragile, hard-to-test XML that grows with each platform or format variant. A single Mojo with unit tests replaces hundreds of lines of XML.
-- Inline shell commands in POM `<configuration>` blocks — extract to a named script
-- `exec-maven-plugin` for file operations that have dedicated plugins (copying, moving, filtering)
+- Inline shell commands in POM `<configuration>` blocks — write a Java mojo in `ike-maven-plugin` instead
+- `exec-maven-plugin` for file operations that have dedicated plugins (copying, moving, filtering) — or for any logic complex enough to merit a Java mojo
 - Manual file copying instead of resource filtering
 - `<properties>` blocks in profiles that share names across co-activated profiles (last-wins collision)
 - `git add -A` or `git add .` (stage specific files to avoid committing secrets or binaries)
 
-## Shell Scripts in the Build
+## Build-Time Imperative Logic
 
-When the build requires imperative logic (patching files, conditional transforms,
-multi-step operations that no Maven plugin handles), use `exec-maven-plugin` with
-an external bash script. Never embed the logic inline in the POM.
+When the build requires imperative logic that no Maven plugin handles
+out of the box (patching files, multi-step transforms, cross-module
+coordination), write a Java mojo in `ike-maven-plugin` rather than
+inlining shell scripts in POMs.
 
-- **Location**: All shared build scripts live in `ike-build-tools` at
-  `src/main/resources/scripts/`. Consumer modules unpack the `-tools` ZIP
-  to `target/build-tools/` and reference scripts via
-  `${build.tools.directory}/scripts/{script-name}.sh`.
-- **Module-specific scripts**: If a script is only used by one module and
-  has no reuse potential, it may live in that module's
-  `src/main/scripts/` directory. Prefer centralizing in `ike-build-tools`
-  when practical.
-- **Conventions**: Scripts must use `#!/usr/bin/env bash`, `set -euo pipefail`,
-  and accept arguments for paths rather than hard-coding them. Include a
-  usage comment block explaining what the script does and why.
-- **In-place file editing**: Use `perl -pi -e` instead of `sed -i`. The
-  `sed -i` flag is incompatible between macOS (`sed -i ''`) and GNU/Linux
-  (`sed -i`). Perl's `-pi -e` syntax is identical on all platforms. Use
-  `sed` only for non-in-place operations (piping, filtering output).
-- **Phase binding**: Bind the `exec:exec` execution to the correct lifecycle
-  phase per the phase binding table above.
+- **Why Java, not bash**: typed parameters, JUnit-testable, consistent
+  error/log handling via `MojoException` and `Log`, no platform
+  differences (sed -i, perl variations, GNU vs BSD coreutils). The
+  earlier convention of bash scripts shipped via an `ike-build-tools`
+  artifact has been retired in favor of Java mojos.
+- **Where it goes**: in `ike-maven-plugin` if the logic is generic
+  (release orchestration, site deploy, scaffolding), or in
+  `ike-workspace-maven-plugin` if it's workspace-spanning. Reuse the
+  base classes in `ike-maven-plugin-support` (`AbstractGoalMojo`,
+  `GoalReport`, `MojoParamSupport`) for parameter parsing, markdown
+  reports, and goal-name/help integration.
+- **Subprocess calls**: when shelling out is genuinely the right
+  answer (git operations, ssh, native tools), use
+  `ReleaseSupport.exec(workDir, log, args...)` rather than
+  `ProcessBuilder` directly — it handles logging, exit codes, and
+  output capture consistently.
 
 ## Required Patterns
 
@@ -81,7 +81,7 @@ an external bash script. Never embed the logic inline in the POM.
 - `maven-resources-plugin` with filtering for environment-specific config
 - `maven-enforcer-plugin` for prerequisite validation (Java version, Maven version)
 - `maven-dependency-plugin` for artifact unpacking with proper GAV coordinates
-- `exec-maven-plugin` with external bash scripts for imperative build logic
+- Java mojos in `ike-maven-plugin` for imperative build logic
 - Explicit `<version>` on every plugin in `<pluginManagement>`
 
 ## Dependency Management

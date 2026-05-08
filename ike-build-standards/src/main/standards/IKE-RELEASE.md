@@ -54,7 +54,7 @@ component release.
 <component> v<version>
 ```
 
-Examples: `ike-tooling v57`, `ike-pipeline 43`, `tinkar-core 1.80.0`.
+Examples: `ike-tooling v140`, `ike-platform v23`, `ike-docs v2`, `tinkar-core 1.80.0`.
 
 ### Lifecycle
 
@@ -74,8 +74,11 @@ shipping it in a release.
    the fix or feature is code-complete but not yet released.
 3. **Assign milestone** — Set the target release milestone
    (e.g., `ike-tooling v57`).
-4. **Release ships** — Run `ike:release` or `ws:release`. The release
-   process tags, deploys, and bumps the version.
+4. **Release ships** — Run `ike:release-publish` (single repo) or
+   `ws:release-publish` (workspace-wide cascade). The release process
+   tags, deploys to Nexus + komet.sh + GitHub Pages, and bumps the
+   version. Use `ike:release-draft` / `ws:release-draft` to preview
+   without writing.
 5. **Close issues** — After the release, close all issues in the
    milestone. Remove `pending-release` labels.
 6. **Close milestone** — Mark the milestone as closed.
@@ -86,7 +89,7 @@ Release notes are generated from the closed issues in a milestone
 using the `ws:release-notes` goal:
 
 ```bash
-mvn ws:release-notes -Dmilestone="ike-tooling v57"
+mvn ws:release-notes -Dmilestone="ike-tooling v140"
 ```
 
 The output categorizes issues by label:
@@ -101,8 +104,8 @@ category for emphasis.
 The output can be used directly as the body of a GitHub Release:
 
 ```bash
-mvn ws:release-notes -Dmilestone="ike-tooling v57" -Doutput=release-notes.md
-gh release edit v57 --repo kec/ike-tooling --notes-file release-notes.md
+mvn ws:release-notes -Dmilestone="ike-tooling v140" -Doutput=release-notes.md
+gh release edit v140 --repo IKE-Network/ike-tooling --notes-file release-notes.md
 ```
 
 ## Release Cadence
@@ -116,10 +119,13 @@ ensuring that every release contains something meaningful.
 
 ## Release Execution
 
-Single-component releases use `ike:release`. Multi-component coordinated
-releases use `ws:release`. See the Workspace Release Orchestration
-section in `IKE-WORKSPACE.md` for the full workflow, including dry runs,
-cascade updates, and recovery from failures.
+Single-component releases use `ike:release-publish`. Multi-component
+coordinated releases use `ws:release-publish` (the workspace plugin
+fans out across all release-pending subprojects in topological order).
+See the Workspace Release Orchestration section in `IKE-WORKSPACE.md`
+for the full workflow, including draft previews, cascade updates,
+and recovery from failures (`ike:release-status` /
+`ws:release-status`).
 
 ## Issue Tracking Discipline
 
@@ -145,7 +151,7 @@ issue description.
 
 Create the milestone when planning a release or filing the first
 issue for it. Assign every issue as it is committed or triaged.
-Close the milestone after the release ships. `ike:release`
+Close the milestone after the release ships. `ike:release-publish`
 closes the milestone automatically when a matching one is found.
 
 ### Commit Messages

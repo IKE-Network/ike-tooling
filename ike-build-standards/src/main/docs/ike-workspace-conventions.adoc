@@ -7,7 +7,7 @@
 :topic-status: draft
 :topic-keywords: workspace, versioning, Maven 4, defense-in-depth, Swiss cheese, SyncthingOk,
 :topic-scope-note: Rationale and conventions for multi-machine IKE development. \
-  For workspace management, see the ike-maven-plugin goals (ws:init, ws:status, ws:dashboard).
+  For workspace management, see the ike-workspace-maven-plugin goals (ws:init, ws:overview, ws:sync).
 
 [[ike-workspace-conventions]]
 = IKE Workspace Conventions
@@ -353,17 +353,15 @@ version together — is the correct analogy.
 
 === Unified Version Convention
 
-All modules in the IKE pipeline reactor share a single version.
-The version is declared in `ike-parent/pom.xml`
-and propagates to child modules via Maven 4 reactor resolution
-and parent inheritance.
+Each IKE reactor (ike-tooling, ike-docs, ike-platform) has its own
+release cadence and shares a single reactor version across its
+submodules. Versions are declared at the reactor root and propagate
+to submodules via Maven 4 reactor resolution and parent inheritance.
 
-Standalone infrastructure modules
-(`ike-build-standards`, `ike-build-tools`, `ike-doc-resources`,
-`minimal-fonts`, `docbook-xsl`, `koncept-asciidoc-extension`)
-declare the same version explicitly in their own POMs —
-they do not inherit from the parent chain,
-but they release at the same version as the parent.
+The release cascade (ike-tooling -> ike-docs -> ike-platform) means
+each reactor's version moves independently. A workspace release
+coordinates them via the topological ordering in
+`ws:release-publish`.
 
 *Versioning policy:*
 
@@ -413,7 +411,7 @@ mvn ws:init -Dbranch=shield/terminology-mappings -DfromHere
 mvn ws:status
 
 # Show workspace dashboard
-mvn ws:dashboard
+mvn ws:overview
 ----
 
 When `-DfromHere` is used,
@@ -526,8 +524,8 @@ The plugin provides:
 
 * *Discoverability.* Goals appear in the IDE.
   A developer browsing the Maven tool window sees `ws:init`,
-  `ws:status`, `ws:feature-finish`, `ike:release` —
-  clickable, runnable targets.
+  `ws:overview`, `ws:feature-finish-squash-publish`,
+  `ike:release-publish` — clickable, runnable targets.
 * *Transparency.* Release logic lives in `ReleaseSupport.java`,
   a single utility class with clear method boundaries.
 * *Composability.* Goals invoke other goals.
@@ -553,61 +551,86 @@ Key transitions:
   Automated by `mvn ws:init`.
 * *Checkpoint creation:* `1.2.0-shield-terminology-SNAPSHOT`
   → `1.2.0-shield-terminology-checkpoint.20250222.1`.
-  Automated by `mvn ws:checkpoint`.
+  Automated by `mvn ws:checkpoint-publish -Dlabel=...`.
   The SNAPSHOT version is not changed; the checkpoint is a tagged,
   immutable build at a point in time.
 * *Merge to main:* `1.2.0-shield-terminology-SNAPSHOT` → `1.2.0-SNAPSHOT`.
   The branch qualifier is stripped.
-  Automated by `mvn ws:feature-finish`.
+  Automated by `mvn ws:feature-finish-squash-publish`
+  (or `-merge-publish` for no-fast-forward merges).
   PR reviewers should expect this version change in the diff —
   it is structural, not a conflict.
 * *Release:* `1.2.0-SNAPSHOT` → `1.2.0`.
-  Automated by `mvn ike:release`.
+  Automated by `mvn ike:release-publish` (single repo) or
+  `mvn ws:release-publish` (workspace cascade).
 * *Post-release:* `1.2.0` → `1.3.0-SNAPSHOT`.
-  Automated by `mvn ike:release` (integrated into single goal).
+  Automated by `mvn ike:release-publish` (integrated into single goal).
 
 === Goal Inventory
 
-The `ike-maven-plugin` provides:
+The plugins are split: `ike-workspace-maven-plugin` provides workspace-
+spanning `ws:*` goals, `ike-maven-plugin` provides single-repo `ike:*`
+goals. Both follow the draft / publish naming convention — bare goal
+names default to a non-mutating preview.
 
 [cols="2,3"]
 |===
 |Goal |Purpose
 
 |`ws:init`
-|Create a new IKE Workspace (clone, branch, set version)
+|Clone all subprojects declared in `workspace.yaml`
 
-|`ws:status`
-|Show workspace status (branch, version, uncommitted changes)
+|`ws:overview`
+|Consolidated workspace dashboard (manifest + graph + git status + cascade impact)
 
-|`ws:dashboard`
-|Show dashboard of all workspaces
+|`ws:sync`
+|Daily-driver — pull, refresh-main, push across the workspace
 
-|`ws:feature-finish`
-|Strip branch qualifier, merge feature to main, tag
+|`ws:feature-start-publish`
+|Coordinated feature branch across all subprojects
 
-|`ws:checkpoint`
-|Create immutable checkpoint from current branch
+|`ws:feature-finish-squash-publish`
+|Squash-merge feature back to main (recommended)
 
-|`ike:release`
-|Transition from SNAPSHOT to release version, build, tag, deploy, bump to next SNAPSHOT
+|`ws:feature-finish-merge-publish`
+|No-fast-forward merge (preserves feature history)
 
-|`ws:release`
+|`ws:checkpoint-publish`
+|Tag every subproject at HEAD; record snapshot in manifest
+
+|`ws:release-{draft,publish}`
 |Workspace-level release orchestration — scan, filter release-pending, topo-sort, release in dependency order
+
+|`ws:release-status`
+|Read-only diagnostic for any in-flight or partial release
+
+|`ike:release-{draft,publish}`
+|Single-repo release: tag, deploy to Nexus + komet.sh + GitHub Pages, bump to next SNAPSHOT
+
+|`ike:release-status`
+|Read-only diagnostic of any partial single-repo release
+
+|`ike:deploy-site-publish -DsiteType=release`
+|Ad-hoc site re-deploy without re-releasing
 
 |`ike:generate-bom`
 |Auto-generate a standalone BOM POM from `ike-parent` dependency management
 
-|`ws:verify`
-|PR validation
+|`ws:verify` / `ws:lint`
+|Workspace pre-flight gates (manifest consistency / hygiene checks)
 |===
 
-Shared utility logic lives in `ReleaseSupport.java`
-in the `ike-maven-plugin` module.
+Shared utility logic lives in `ReleaseSupport.java` in the
+`ike-workspace-model` module — both plugins consume it.
+
+For the comprehensive 50-goal `ws:*` reference plus narrative tour
+of how the goals connect, see
+https://ike.network/ike-platform/ike-workspace-maven-plugin/[the
+ws plugin documentation].
 
 == Workspace Release Orchestration
 
-The `ws:release` goal automates multi-component releases
+The `ws:release-publish` goal automates multi-component releases
 across a workspace.
 It replaces manual per-component release sequences
 with a single orchestrated workflow
@@ -641,16 +664,15 @@ The goal executes five phases:
 . *Topological sort* -- Order candidates by dependency graph
   so that upstream components release before their dependents.
 . *Release in order* -- For each candidate (in topo order):
-  strip `-SNAPSHOT`, build, verify, tag,
-  optionally push (`-Dpush=true`),
-  bump to next SNAPSHOT.
+  strip `-SNAPSHOT`, build, verify, tag, deploy to Nexus + komet.sh +
+  GitHub Pages, push, bump to next SNAPSHOT.
 . *Update cross-references* -- After each release,
   update parent version references in downstream POMs
   that depend on the just-released component.
 
 The cross-reference update is the key to cascade consistency.
-When `ike-pipeline` releases version 24,
-downstream components that reference `ike-pipeline` as a parent
+When `ike-platform` releases version 24,
+downstream components that reference `ike-platform` as a parent
 are updated to `<version>24</version>` before they build.
 This ensures each component builds against the release version
 of its upstream dependency,
@@ -658,7 +680,7 @@ not the previous SNAPSHOT.
 
 === Pre-Release Checkpoint
 
-By default, `ws:release` creates a checkpoint
+By default, `ws:release-publish` creates a checkpoint
 before the first release to enable recovery.
 Use `-DskipCheckpoint=true` to bypass this.
 
@@ -667,16 +689,16 @@ Use `-DskipCheckpoint=true` to bypass this.
 [source,bash]
 ----
 # Dry run — see what would be released and in what order
-mvn ws:release -DdryRun=true
+mvn ws:release-draft
 
 # Release all release-pending components, push results
-mvn ws:release -Dpush=true
+mvn ws:release-publish
 
-# Release only ike-pipeline and its release-pending dependents
-mvn ws:release -Dcomponent=ike-pipeline -Dpush=true
+# Release only ike-platform and its release-pending dependents
+mvn ws:release-publish -Dsubproject=ike-platform
 
-# Release the "core" group without creating a checkpoint
-mvn ws:release -Dgroup=core -DskipCheckpoint=true -Dpush=true
+# Release without creating a checkpoint
+mvn ws:release-publish -DskipCheckpoint=true
 ----
 
 === Dry Run Output
@@ -686,10 +708,10 @@ A dry run prints the release plan without executing:
 ----
 [INFO] === Workspace Release Plan (DRY RUN) ===
 [INFO] Release-pending components (topo order):
-[INFO]   1. ike-pipeline       24-SNAPSHOT → 24 → 25-SNAPSHOT
+[INFO]   1. ike-platform       24-SNAPSHOT → 24 → 25-SNAPSHOT
 [INFO]   2. tinkar-core         1.80.0-SNAPSHOT → 1.80.0 → 1.81.0-SNAPSHOT
 [INFO] Cross-reference updates:
-[INFO]   tinkar-core: ike-pipeline parent 24-SNAPSHOT → 24
+[INFO]   tinkar-core: ike-platform parent 24-SNAPSHOT → 24
 [INFO] Pre-release checkpoint: checkpoint/pre-release-20260320
 [INFO] === No changes made (dry run) ===
 ----

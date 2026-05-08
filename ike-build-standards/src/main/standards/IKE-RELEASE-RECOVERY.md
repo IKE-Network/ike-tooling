@@ -105,7 +105,7 @@ git log --oneline -5
 git reset --hard <pre-release-sha>
 ```
 
-Re-run `ws:release-status` to confirm **clean**, then `mvn ws:release`
+Re-run `ws:release-status` to confirm **clean**, then `mvn ws:release-publish`
 to retry from a known state.
 
 ### Diverged

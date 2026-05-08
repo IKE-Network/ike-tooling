@@ -94,7 +94,7 @@ faster than invoking per file.
 **Batch — entire directory (recommended):**
 
 ```bash
-# From the ike-pipeline reactor root:
+# From the ike-docs reactor root:
 mvn exec:java -pl semantic-linebreak \
   -Dexec.args="path/to/src/docs/asciidoc"
 ```

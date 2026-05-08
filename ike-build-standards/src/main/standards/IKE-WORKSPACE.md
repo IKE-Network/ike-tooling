@@ -122,9 +122,9 @@ defaults:
   branch: main
 
 subprojects:
-  ike-pipeline:
+  ike-platform:
     type: infrastructure
-    repo: git@github.com:IKE-Community/ike-pipeline.git
+    repo: git@github.com:IKE-Network/ike-platform.git
     version: "24-SNAPSHOT"
     depends-on: []
 
@@ -133,7 +133,7 @@ subprojects:
     repo: git@github.com:ikmdev/tinkar-core.git
     version: "1.80.0-SNAPSHOT"
     depends-on:
-      - subproject: ike-pipeline
+      - subproject: ike-platform
         relationship: build
 ```
 
@@ -170,11 +170,11 @@ directory name on disk). The entry is a map of these fields:
 
 ```yaml
 depends-on:
-  - subproject: ike-pipeline
+  - subproject: ike-platform
     relationship: build      # needs compiled artifacts
   - subproject: tinkar-core
     relationship: content    # references architecture/concepts
-  - subproject: ike-pipeline
+  - subproject: ike-platform
     relationship: tooling    # uses CLI tools or plugins
 ```
 
@@ -270,15 +270,17 @@ Run `ws:help` for the complete auto-discovered list.
 | Option | Applicable Goals | Description |
 |--------|------------------|-------------|
 | `-Dworkspace.manifest=<path>` | All | Path to workspace.yaml (auto-detected) |
-| `-Dsubproject=<name>` | `ws:add`, `ws:remove`, `ws:release` | Restrict to named subproject |
+| `-Dsubproject=<name>` | `ws:add`, `ws:remove`, `ws:release-publish` | Restrict to named subproject |
 | `-Dfeature=<name>` | feature-start, feature-finish, feature-abandon | Feature name |
 | `-DtargetBranch=<name>` | feature-finish, switch | Target branch (default: `main`) |
-| `-Dparent.version=<v>` | set-parent | Target parent version |
-| `-DaddAll=true` | commit | Stage all changes before committing |
-| `-Dpush=true` | commit, release | Push to origin after operation |
-| `-Dmessage=<msg>` | commit, feature-finish | Commit message |
-| `-Dname=<name>` | checkpoint | Checkpoint name (auto-derived) |
-| `-DskipCheckpoint=true` | release | Skip pre-release checkpoint |
+| `-DnewVersion=<v>` | set-parent | Target parent version |
+| `-Dmessage=<msg>` | commit, feature-finish, set-parent | Commit message |
+| `-Dlabel=<name>` | checkpoint | Checkpoint label (auto-derived if omitted) |
+| `-DskipCheckpoint=true` | release-publish | Skip pre-release checkpoint |
+| `-Dforce=true` | feature-abandon, cleanup, remove | Skip confirmation prompt |
+| `-DdeleteRemote=true` | feature-abandon | Also delete remote branches |
+| `-DkeepBranch=true` | feature-finish-squash | Keep the feature branch (only valid when squashing) |
+| `-Dstrategy={merge,rebase}` | update-feature | Strategy for incorporating main into feature |
 
 ### Preflight Validation
 
@@ -396,7 +398,7 @@ checkpoint:
   name: "release-1.0"
   created: "2026-03-20T17:00:00Z"
   subprojects:
-    ike-pipeline:
+    ike-platform:
       sha: "a1b2c3d..."
       short-sha: "a1b2c3d"
       branch: "main"
@@ -408,9 +410,9 @@ Checkpoint files are committed to the workspace repository.
 Optional tagging (`-Dtag=true`) creates `checkpoint/<name>/<subproject>`
 tags in each subproject's repo.
 
-## Workspace Release Orchestration (`ws:release`)
+## Workspace Release Orchestration (`ws:release-publish`)
 
-`ws:release` automates multi-subproject release across a workspace.
+`ws:release-publish` automates multi-subproject release across a workspace.
 It replaces manual per-subproject release sequences with a single
 orchestrated workflow that respects inter-repository dependency order.
 
@@ -444,14 +446,14 @@ The goal executes five phases:
    - Bump to the next SNAPSHOT version
 5. **Update cross-references** — After each release, update parent
    version references in downstream POMs that depend on the just-released
-   subproject. This keeps the cascade self-consistent: when `ike-pipeline`
+   subproject. This keeps the cascade self-consistent: when `ike-platform`
    releases version 24, downstream subprojects that reference
-   `ike-pipeline` as a parent are updated to `<version>24</version>`
+   `ike-platform` as a parent are updated to `<version>24</version>`
    before they build.
 
 ### Pre-Release Checkpoint
 
-By default, `ws:release` creates a checkpoint before the first
+By default, `ws:release-publish` creates a checkpoint before the first
 release to enable recovery. Use `-DskipCheckpoint=true` to bypass this.
 
 ### Options
@@ -467,16 +469,16 @@ release to enable recovery. Use `-DskipCheckpoint=true` to bypass this.
 
 ```bash
 # Dry run — see what would be released and in what order
-mvn ws:release -DdryRun=true
+mvn ws:release-draft
 
 # Release all release-pending subprojects, push results
-mvn ws:release -Dpush=true
+mvn ws:release-publish
 
-# Release only ike-pipeline and its release-pending dependents
-mvn ws:release -Dsubproject=ike-pipeline -Dpush=true
+# Release only ike-platform and its release-pending dependents
+mvn ws:release-publish -Dsubproject=ike-platform
 
 # Release without creating a checkpoint
-mvn ws:release -DskipCheckpoint=true -Dpush=true
+mvn ws:release-publish -DskipCheckpoint=true
 ```
 
 ### Dry Run Output
@@ -486,10 +488,10 @@ A dry run prints the release plan without executing:
 ```
 [INFO] === Workspace Release Plan (DRY RUN) ===
 [INFO] Release-pending subprojects (topo order):
-[INFO]   1. ike-pipeline       24-SNAPSHOT → 24 → 25-SNAPSHOT
+[INFO]   1. ike-platform       24-SNAPSHOT → 24 → 25-SNAPSHOT
 [INFO]   2. tinkar-core         1.80.0-SNAPSHOT → 1.80.0 → 1.81.0-SNAPSHOT
 [INFO] Cross-reference updates:
-[INFO]   tinkar-core: ike-pipeline parent 24-SNAPSHOT → 24
+[INFO]   tinkar-core: ike-platform parent 24-SNAPSHOT → 24
 [INFO] Pre-release checkpoint: checkpoint/pre-release-20260320
 [INFO] === No changes made (dry run) ===
 ```
@@ -574,29 +576,29 @@ cd tinkar-core
 git add -A && git commit -m "feat: add NID index for faster lookups"
 
 # Preview the merge
-mvn ws:feature-finish -Dfeature=add-nid-index -DdryRun=true
+mvn ws:feature-finish-squash-draft -Dfeature=add-nid-index
 # Output:
 #   tinkar-core: merge feature/add-nid-index → main
 #   Version: 1.80.0-add-nid-index-SNAPSHOT → 1.80.0-SNAPSHOT
 #   Tag: tinkar-core-1.80.0-add-nid-index-merge
 
 # Merge and push
-mvn ws:feature-finish -Dfeature=add-nid-index -Dpush=true
+mvn ws:feature-finish-squash-publish -Dfeature=add-nid-index
 ```
 
 ### Multi-Subproject Feature
 
-A feature spanning `ike-pipeline` and `tinkar-core`:
+A feature spanning `ike-platform` and `tinkar-core`:
 
 ```bash
 # Start across all checked-out subprojects
 mvn ws:feature-start -Dfeature=new-renderer
 # Creates feature/new-renderer in both repos
-# ike-pipeline: 24-new-renderer-SNAPSHOT
+# ike-platform: 24-new-renderer-SNAPSHOT
 # tinkar-core:  1.80.0-new-renderer-SNAPSHOT
 
 # Work across both repos, commit in each
-cd ike-pipeline
+cd ike-platform
 # ... edit pipeline code ...
 git add -A && git commit -m "feat: add weasyprint2 renderer support"
 
@@ -605,18 +607,18 @@ cd ../tinkar-core
 git add -A && git commit -m "feat: enable weasyprint2 for tinkar docs"
 
 # Save a checkpoint for team visibility
-mvn ws:checkpoint -Dname=new-renderer-wip
+mvn ws:checkpoint-publish -Dlabel=new-renderer-wip
 
 # Preview the coordinated merge
-mvn ws:feature-finish -Dfeature=new-renderer -DdryRun=true
+mvn ws:feature-finish-squash-draft -Dfeature=new-renderer
 # Output:
-#   ike-pipeline: merge feature/new-renderer → main
+#   ike-platform: merge feature/new-renderer → main
 #     Version: 24-new-renderer-SNAPSHOT → 24-SNAPSHOT
 #   tinkar-core: merge feature/new-renderer → main
 #     Version: 1.80.0-new-renderer-SNAPSHOT → 1.80.0-SNAPSHOT
 
 # Merge and push all
-mvn ws:feature-finish -Dfeature=new-renderer -Dpush=true
+mvn ws:feature-finish-squash-publish -Dfeature=new-renderer
 ```
 
 ### Release After Feature
@@ -625,18 +627,18 @@ After merging a feature, release the affected subprojects:
 
 ```bash
 # See what needs releasing
-mvn ws:release -DdryRun=true
+mvn ws:release-draft
 # Output:
 #   Release-pending subprojects (topo order):
-#     1. ike-pipeline       24-SNAPSHOT → 24 → 25-SNAPSHOT
+#     1. ike-platform       24-SNAPSHOT → 24 → 25-SNAPSHOT
 #     2. tinkar-core         1.80.0-SNAPSHOT → 1.80.0 → 1.81.0-SNAPSHOT
 #   Cross-reference updates:
-#     tinkar-core: ike-pipeline parent 24-SNAPSHOT → 24
+#     tinkar-core: ike-platform parent 24-SNAPSHOT → 24
 
 # Execute the release
-mvn ws:release -Dpush=true
-# Releases ike-pipeline first (upstream), then tinkar-core
-# Tags: ike-pipeline-24, tinkar-core-1.80.0
+mvn ws:release-publish
+# Releases ike-platform first (upstream), then tinkar-core
+# Tags: ike-platform-24, tinkar-core-1.80.0
 # Post-release versions: 25-SNAPSHOT, 1.81.0-SNAPSHOT
 ```
 
@@ -670,18 +672,20 @@ directory and let `ws:init` re-clone.
 
 ### Recovery from Failed `ws-release`
 
-If `ws-release` fails mid-cascade (e.g., build failure in the second
-subproject), the pre-release checkpoint file records the state of every
-subproject before the release started. Re-running `mvn ws:release`
-skips subprojects that were already tagged and released — it resumes
-from the point of failure.
+If `ws:release-publish` fails mid-cascade (e.g., build failure in the
+second subproject), the pre-release checkpoint file records the state
+of every subproject before the release started. Run `mvn ws:release-status`
+first — it's read-only and reports what state each subproject is in plus
+a recommended recovery step. Re-running `mvn ws:release-publish` skips
+subprojects that were already tagged and released — it resumes from
+the point of failure.
 
 ```bash
 # Check the checkpoint to see what was released
 cat checkpoints/checkpoint-pre-release-*.yaml
 
 # Re-run — already-released subprojects are skipped
-mvn ws:release -Dpush=true
+mvn ws:release-publish
 ```
 
 ### Merge Conflicts in `feature-finish`
@@ -696,19 +700,20 @@ git add <resolved-files>
 git commit
 
 # Re-run feature-finish — already-merged subprojects are skipped
-mvn ws:feature-finish -Dfeature=my-feature -Dpush=true
+mvn ws:feature-finish-squash-publish -Dfeature=my-feature
 ```
 
 ### Plugin Prefix Not Resolving
 
-If `mvn ws:status` fails with "No plugin found for prefix 'ws'":
+If `mvn ws:overview` fails with "No plugin found for prefix 'ws'":
 
-1. Verify `~/.m2/settings.xml` contains the plugin group:
+1. Verify `~/.m2/settings.xml` contains the plugin groups:
 
 ```xml
 <pluginGroups>
-  <pluginGroup>network.ike.pipeline</pluginGroup>
   <pluginGroup>network.ike.tooling</pluginGroup>
+  <pluginGroup>network.ike.platform</pluginGroup>
+  <pluginGroup>network.ike.docs</pluginGroup>
 </pluginGroups>
 ```
 
@@ -717,7 +722,7 @@ If `mvn ws:status` fails with "No plugin found for prefix 'ws'":
 3. Verify `ike-workspace-maven-plugin` is installed in the local repository:
 
 ```bash
-mvn install -pl ike-workspace-maven-plugin -f <path-to-ike-pipeline>/pom.xml
+mvn install -pl ike-workspace-maven-plugin -f <path-to-ike-platform>/pom.xml
 ```
 
 ### Subproject Not Found in Manifest

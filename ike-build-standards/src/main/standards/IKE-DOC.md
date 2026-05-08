@@ -2,8 +2,12 @@
 
 ## Parent Selection
 
-- **Doc-only projects**: inherit from `ike-parent`
-- **Java + docs projects**: inherit from `java-parent` (which inherits `ike-parent`)
+All IKE projects inherit from `ike-parent` (the standard parent POM
+in `network.ike.platform`). It provides Java 25 build conventions,
+GPG signing via Bouncy Castle, JaCoCo, the AsciiDoc documentation
+pipeline, dependency version management for the IKE ecosystem, and
+the `extensions=true` declarations for `ike-maven-plugin` and
+`ike-doc-maven-plugin`. There is no separate `java-parent`.
 
 ## Packaging
 
