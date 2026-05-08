@@ -88,7 +88,7 @@ but the doc pipeline does not activate (they lack `src/docs/asciidoc/`):
 | `ike-bom` | Auto-generated BOM (via ike:generate-bom) | POM |
 
 The `ike-maven-plugin` and `ike-workspace-model` are in a separate
-reactor (`ike-tooling`) at `github.com/kec/ike-tooling`.
+reactor (`ike-tooling`) at `github.com/IKE-Network/ike-tooling`.
 ike-pipeline consumes the plugin as an external build dependency at
 `${ike-tooling.version}`.
 
