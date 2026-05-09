@@ -3,7 +3,7 @@
 **Documentation:** https://ike.network/ike-tooling/ike-build-standards/
 
 Multi-classifier ZIP artifact carrying versioned reference material
-for IKE Community projects: AI-assistant instruction files,
+for IKE Network projects: AI-assistant instruction files,
 human-readable convention documents, shared build configuration,
 AsciiDoc IDE-preview config, and the workspace scaffold manifest.
 

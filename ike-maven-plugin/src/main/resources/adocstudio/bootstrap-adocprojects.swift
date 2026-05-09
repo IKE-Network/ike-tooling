@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 // ──────────────────────────────────────────────────────────────
 // bootstrap-adocprojects.swift
-// IKE Community — Adoc Studio sidecar generator
+// IKE Network — Adoc Studio sidecar generator
 //
 // Generates .adocproject files for each assembly module in
 // ike-lab-documents, placing them in a sidecar directory outside

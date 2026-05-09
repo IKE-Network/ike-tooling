@@ -89,7 +89,7 @@ Standard attributes for the master document (`index.adoc`):
 
 ```asciidoc
 = Document Title
-:author: IKE Community
+:author: IKE Network
 :revnumber: {project-version}
 :revdate: {docdate}
 :doctype: book

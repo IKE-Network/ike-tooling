@@ -2,7 +2,7 @@
 
 **Documentation:** https://ike.network/ike-tooling/
 
-Build tooling for the IKE Community: workspace management, release
+Build tooling for the IKE Network: workspace management, release
 orchestration, gitflow workflows, and build-time utilities.
 
 ## Modules

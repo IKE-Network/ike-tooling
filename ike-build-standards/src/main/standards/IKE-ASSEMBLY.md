@@ -43,7 +43,7 @@ topic library.
 ### Compendium
 
 ```asciidoc
-= IKE Community Compendium
+= IKE Network Compendium
 :doctype: book
 :toc: left
 :toclevels: 3
@@ -59,7 +59,7 @@ topic library.
 [preface]
 == About This Document
 
-This compendium contains the complete set of published IKE Community documentation,
+This compendium contains the complete set of published IKE Network documentation,
 organized by domain. It serves as the master reference and is not intended for
 sequential reading.
 
@@ -109,7 +109,7 @@ include::{topicsdir}/topics/terminology/snomed-ct/description-logic-axioms.adoc[
 
 == Introduction
 
-This guide covers the coordinate-based versioning system used across IKE Community
+This guide covers the coordinate-based versioning system used across IKE Network
 projects. It is intended for developers and architects who need to understand how
 component versions are identified, managed, and resolved.
 

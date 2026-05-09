@@ -3,7 +3,7 @@
 **Documentation:** https://ike.network/ike-tooling/ike-maven-plugin/
 
 The `ike:*` plugin — release orchestration, scaffolding, site deploy,
-version upgrades, and build-time utilities for IKE Community projects.
+version upgrades, and build-time utilities for IKE Network projects.
 
 ## Common goals
 
