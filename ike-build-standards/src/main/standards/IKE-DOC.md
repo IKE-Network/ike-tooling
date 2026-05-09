@@ -5,28 +5,59 @@
 All IKE projects inherit from `ike-parent` (the standard parent POM
 in `network.ike.platform`). It provides Java 25 build conventions,
 GPG signing via Bouncy Castle, JaCoCo, the AsciiDoc documentation
-pipeline, dependency version management for the IKE ecosystem, and
-the `extensions=true` declarations for `ike-maven-plugin` and
-`ike-doc-maven-plugin`. There is no separate `java-parent`.
+pipeline, and dependency version management for the IKE ecosystem.
+There is no separate `java-parent`.
+
+## Module shapes
+
+`ike-parent`'s `doc-pipeline` profile auto-activates on
+`<file><exists>src/docs/asciidoc</exists></file>`. The activation
+is path-conditional, *not* packaging-conditional, so the same
+mechanism handles three coherent module shapes:
+
+| Module type | Packaging | Primary artifact | `adoc` classifier | Render classifiers |
+|---|---|---|---|---|
+| Doc-only (assembly, brief, topics) | `pom` | none | yes | yes (when renderers active) |
+| Hybrid (Java + reference docs)     | `jar` | jar  | yes | yes (when renderers active) |
+| Pure code (no `src/docs/asciidoc/`) | `jar` | jar  | no  | no |
+
+The `adoc` classifier is the canonical *source* payload — a zip of
+`src/docs/asciidoc/` attached via `maven-assembly-plugin`. The
+renderer classifiers (`prince`, `fop`, `xep`, `pdf-default`,
+`html-single`, etc.) are the canonical *rendered* payloads. Consumers
+depend on whichever shape they need.
 
 ## Packaging
 
-Doc-only projects **must** use `ike-doc` packaging:
+For **doc-only** modules use `<packaging>pom</packaging>`. The
+`adoc` classifier is the deliverable; there is no primary artifact
+to ship.
 
 ```xml
-<packaging>ike-doc</packaging>
+<packaging>pom</packaging>
 ```
 
-The `ike-doc` lifecycle (provided by `ike-maven-plugin` with `<extensions>true</extensions>`)
-is purpose-built for documentation modules:
+For **hybrid** modules (Java module that also ships reference docs)
+keep `<packaging>jar</packaging>`. The jar is the primary; the
+`adoc` classifier attaches on top.
 
-- **No compile, test, or jar phases** — skips all Java-related lifecycle bindings
-- **Primary artifact is a ZIP** of the AsciiDoc sources (`.zip` extension, not `.jar`)
-- **Rendering** is handled by the inherited `doc-pipeline` profile from `ike-parent`
-- **Classified ZIPs** (html, pdf, asciidoc) are attached by `maven-assembly-plugin`
+```xml
+<packaging>jar</packaging>
+```
 
-Do not use `jar` packaging for doc-only modules — it produces an empty JAR artifact.
-Do not use `pom` packaging — it disables renderers via the `pom-skip-renderers` profile.
+Do **not** use `<packaging>jar</packaging>` for doc-only modules —
+it produces an empty primary jar alongside the classifier, which is
+the kind of inconsistent shape we deliberately avoid.
+
+Do **not** use `<packaging>ike-doc</packaging>` — this custom
+packaging type was retired in `IKE-Network/ike-issues#321`. It
+forced `ike-doc-maven-plugin` and `ike-maven-plugin` to be loaded as
+build extensions (`<extensions>true</extensions>`), which in turn
+forced their `<version>` to be a literal everywhere they were
+declared, which broke property-based version maintenance across the
+release cascade. It also produced a primary `.zip` that no consumer
+actually referenced — every dependency in the workspace was on the
+`adoc` (formerly `asciidoc`) classifier attachment.
 
 ## Required Directory Structure
 
@@ -253,10 +284,12 @@ artifact ID `topics`. The group ID carries project uniqueness. See
 
 - **Directory**: always `topics/`
 - **ArtifactId**: always `topics`
-- **Packaging**: `ike-doc` (renders HTML by default for authoring preview)
+- **Packaging**: `pom` (no primary artifact; the `adoc` classifier
+  is the deliverable)
 - **Source**: `src/docs/asciidoc/topics/` with topic files, plus
   `index.adoc` for a browsable all-topics preview
-- **Artifact**: publishes a `-asciidoc` classified ZIP of all sources
+- **Artifact**: publishes the `adoc` classifier ZIP of all sources
+  (auto-attached by the inherited `doc-pipeline` profile)
 - Does NOT render PDF — that is the assembly module's job
 
 **POM template** (topic library):
@@ -270,14 +303,10 @@ artifact ID `topics`. The group ID carries project uniqueness. See
         <version>1.1.0-SNAPSHOT</version>
     </parent>
     <artifactId>topics</artifactId>
-    <packaging>ike-doc</packaging>
+    <packaging>pom</packaging>
     <version>1.0.0-SNAPSHOT</version>
 
     <name>Topics</name>
-
-    <properties>
-        <ike.skip.asciidoc-zip>false</ike.skip.asciidoc-zip>
-    </properties>
 
     <dependencies>
         <dependency>
@@ -285,32 +314,25 @@ artifact ID `topics`. The group ID carries project uniqueness. See
             <artifactId>minimal-fonts</artifactId>
         </dependency>
     </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.asciidoctor</groupId>
-                <artifactId>asciidoctor-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
 </project>
 ```
+
+The `<build>` block is empty by design — every plugin needed for
+the doc pipeline is in `ike-parent`'s `<pluginManagement>` and
+auto-activates via the path-conditional `doc-pipeline` profile.
+Re-declaring `maven-dependency-plugin` or `asciidoctor-maven-plugin`
+in the module POM is redundant.
 
 ### Assembly Module
 
 An assembly module composes topics from one or more topic libraries
 into a single document:
 
-- **Packaging**: `ike-doc`
+- **Packaging**: `pom`
 - **Source**: `src/docs/asciidoc/` with the assembly `.adoc` file
-- **Dependencies**: one or more topic library `-asciidoc` ZIPs
-- **Unpack**: `ike-parent` automatically unpacks `-asciidoc` ZIPs to
-  `target/generated-sources/asciidoc/{artifactId}-asciidoc/`
+- **Dependencies**: one or more topic library `adoc`-classified ZIPs
+- **Unpack**: `ike-parent` automatically unpacks `adoc`-classified ZIPs to
+  `target/generated-sources/asciidoc/{artifactId}-adoc/`
 - **Includes**: use AsciiDoc attributes to reference unpacked topics
 
 **POM template** (assembly module):
@@ -324,7 +346,7 @@ into a single document:
         <version>1.1.0-SNAPSHOT</version>
     </parent>
     <artifactId>my-compendium</artifactId>
-    <packaging>ike-doc</packaging>
+    <packaging>pom</packaging>
     <version>1.0.0-SNAPSHOT</version>
 
     <properties>
@@ -336,7 +358,7 @@ into a single document:
             <groupId>network.ike</groupId>
             <artifactId>topics</artifactId>
             <version>1.0.0-SNAPSHOT</version>
-            <classifier>asciidoc</classifier>
+            <classifier>adoc</classifier>
             <type>zip</type>
         </dependency>
         <dependency>
@@ -344,21 +366,14 @@ into a single document:
             <artifactId>minimal-fonts</artifactId>
         </dependency>
     </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.asciidoctor</groupId>
-                <artifactId>asciidoctor-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
 </project>
 ```
+
+Hybrid modules (Java code that also ships reference docs) follow
+the same dependency pattern but keep `<packaging>jar</packaging>`
+and add Java sources under `src/main/java/`. The `adoc` classifier
+auto-attaches whenever `src/docs/asciidoc/` exists; the jar primary
+is unchanged.
 
 ### Include Path Resolution
 
@@ -367,7 +382,7 @@ In assembly `.adoc` files, use the `{generated}` attribute (provided by
 topic libraries:
 
 ```asciidoc
-:topics: {generated}/topics-asciidoc
+:topics: {generated}/topics-adoc
 
 == Developer Guide
 include::{topics}/topics/dev/overview.adoc[leveloffset=+2]
@@ -435,8 +450,8 @@ mvn clean verify -pl my-compendium -am -Dike.pdf.prawn
 A future assembly can pull from multiple topic libraries across repos:
 
 ```asciidoc
-:arch-topics: {generated}/arch-topics-asciidoc
-:clinical-topics: {generated}/clinical-topics-asciidoc
+:arch-topics: {generated}/arch-topics-adoc
+:clinical-topics: {generated}/clinical-topics-adoc
 
 include::{arch-topics}/topics/arch/design-lineage.adoc[leveloffset=+1]
 include::{clinical-topics}/topics/clinical/workflow.adoc[leveloffset=+1]
@@ -444,3 +459,55 @@ include::{clinical-topics}/topics/clinical/workflow.adoc[leveloffset=+1]
 
 Each `.asciidoctorconfig` defines the attributes for its own dependencies.
 Attribute names are stable; values are project-local.
+
+## Design rationale — why classifier, not custom packaging
+
+The shape above (path-conditional activation, `pom` packaging for
+doc-only modules, `adoc` classifier as canonical source coordinate)
+is the result of a deliberate architectural decision documented in
+`IKE-Network/ike-issues#321` and the `dev-classifier-canonical-doc-shape`
+topic in `ike-lab-documents/topics/`. Brief summary, since the issue
+will eventually close and this standard is what surviving teams
+will land on:
+
+**Why not `<packaging>ike-doc</packaging>`?** The custom packaging
+type required `ike-doc-maven-plugin` to be loaded as a build
+extension (`<extensions>true</extensions>`). Maven resolves
+extensions at project-load time, before property interpolation,
+which forces the plugin's `<version>` to be a literal string
+everywhere it's declared. Across our cross-repo cascade
+(`ike-tooling` -> `ike-docs` -> `ike-platform` -> consumers) this
+defeated `ws:align-publish` and routine version-property
+maintenance, surfaced as repeated stale-literal failures
+(`#236`), and required a duplicate primary artifact that no
+consumer actually referenced (every dependency was on the
+classifier attachment, not the primary `.zip`).
+
+**Why not Spring's gh-pages model?** Examined point-by-point, the
+Spring rationale (continuous publication, search-driven discovery,
+contributor friction, CDN economics) all have Maven-snapshot-plus-
+post-deploy-rsync solutions. The genuinely Spring-specific
+arguments — Antora as a turnkey product, ASF organizational policy,
+path dependency from a 2003-04 codebase — do not apply to our
+context. Our standing commitment to artifact uniformity (every
+output goes through one pipeline, with consistent signing,
+distribution, build lifecycle, and version control), combined with
+a cross-repo doc-dependency graph and an existing rendering
+pipeline, makes the all-Maven model the rigorous choice. Classifier-
+canonical *is* all-Maven — the artifacts deploy to Nexus, signed
+and versioned, just like every other output of the project. We do
+not want one class of artifact (documentation) operating under
+different rules than another (code).
+
+**Why not custom packaging for doc-only and classifier for
+hybrids?** That introduces two coordinate formats for the same
+conceptual artifact (`<type>ike-doc</type>` vs.
+`<classifier>adoc</classifier>`), forcing consumers to know which
+form to use depending on what kind of module produced it. One
+mechanism that handles both is structurally simpler.
+
+**Why classifier name `adoc`?** Aligns with the `.adoc` file
+extension (the AsciiDoc community's chosen short form), avoids the
+overloaded `doc` (could mean rendered HTML, PDF, asciidoc source,
+DocBook, Markdown, plain text), and reads cleanly alongside the
+renderer classifiers (`prince`, `fop`, `pdf-default`, etc.).

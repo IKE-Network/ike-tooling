@@ -77,8 +77,9 @@ get only the universal build config (compiler, surefire, enforcer).
 ## The IKE repo split (post-#216)
 
 The pre-#216 monolith `ike-pipeline` was split into three release-cadence
-repos to fix a Maven `<extensions>true</extensions>` reactor-load cycle.
-Modules now live in:
+repos to fix a Maven `<extensions>true</extensions>` reactor-load cycle
+that the `<packaging>ike-doc</packaging>` custom type imposed at the
+time. Modules now live in:
 
 | Repo | Modules | Role |
 |---|---|---|
@@ -88,10 +89,15 @@ Modules now live in:
 
 **Release cascade**: `ike-tooling` → `ike-docs` → `ike-platform` →
 downstream consumers. Each upstream repo must be on Nexus before its
-downstream consumers can build, because both `ike-maven-plugin` and
-`ike-doc-maven-plugin` are declared with `<extensions>true</extensions>`
-at literal versions (Maven resolves extension plugins at project-load
-time, before property interpolation).
+downstream consumers can build, because each downstream reactor
+declares the upstream plugins in its `<pluginManagement>` and depends
+on upstream artifacts via regular `<dependency>` and `<dependencyManagement>`
+entries. The cascade is structurally upstream-first; it is not driven
+by extension-realm timing. (Earlier revisions of this standard cited
+extension-realm timing as the cause; that constraint was eliminated
+when `<packaging>ike-doc</packaging>` and the `<extensions>true</extensions>`
+declarations were retired in `IKE-Network/ike-issues#321`. The
+cascade ordering itself is unchanged.)
 
 **Maven reactor build ordering** within each repo is automatic.
 Cross-repo ordering is the developer's responsibility (use

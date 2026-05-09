@@ -25,6 +25,36 @@ in `ike-platform`. The two plugins are deliberately separate — `ike:*`
 is single-repo, `ws:*` fans out across a workspace's checked-out
 subprojects.
 
+== Plugin shape
+
+This is a *regular Maven plugin* — no `<extensions>true</extensions>`,
+no custom `<packaging>` type registered via
+`META-INF/plexus/components.xml`, no participation in the build
+extension realm. Goals look up at execution time, the plugin's
+`<version>` interpolates from `${ike-tooling.version}` like any
+other managed plugin, and consumers inherit the version through
+ordinary `<pluginManagement>` indirection.
+
+This was not always the case. Earlier revisions registered the
+`<packaging>ike-doc</packaging>` custom type here (the stale
+`components.xml` removed per `IKE-Network/ike-issues#320`), which
+forced this plugin to be loaded as a build extension and
+consequently forced its `<version>` to be a literal string
+everywhere it was declared. That constraint was retired alongside
+the migration to a classifier-canonical doc shape — see the
+xref:https://ike.network/ike-tooling/[ike-tooling reactor home]
+for the full design rationale, or `IKE-Network/ike-issues#321` for
+the umbrella tracking issue.
+
+What this means for plugin consumers: nothing changes about how you
+*invoke* `ike:*` goals. What changed is that the plugin no longer
+forces literal-version pins in your POM, and no longer contributes
+`<packaging>ike-doc</packaging>` to your reactor. Doc modules use
+`<packaging>pom</packaging>` (or `<packaging>jar</packaging>` for
+hybrids) plus an `adoc` classifier attachment; the activation is
+path-conditional on `src/docs/asciidoc/` existence in `ike-parent`'s
+`doc-pipeline` profile.
+
 == Goal naming convention
 
 Most state-mutating goals come in a draft / publish pair:
@@ -115,7 +145,7 @@ mvn ike:versions-upgrade-publish
 | <<asciidoc>>                                         | docs       | Render AsciiDoc to HTML / PDF (replaces asciidoctor-maven-plugin)
 | <<adocstudio>>                                       | docs       | Generate Adoc Studio sidecar projects
 | <<render-pdf>>                                       | docs       | Wrap external PDF renderers (Prince, AH, FOP, weasyprint, xep)
-| <<package-doc>>                                     | docs       | Zip src/docs/asciidoc/ as the primary artifact for `ike-doc` packaging
+| <<package-doc>>                                     | docs       | RETIRED — see goal section. Was bound to the now-removed `ike-doc` packaging lifecycle
 | <<copy-docs>>                                       | docs       | Copy rendered HTML + assets to Maven site output
 | <<copy-default-pdf>>                                | docs       | Promote one renderer's PDF as the default
 | <<inject-breadcrumb>>                               | docs       | Inject nav breadcrumbs into JaCoCo HTML reports
@@ -263,8 +293,11 @@ through OpenRewrite (LST), never sed/regex.
 
 == AsciiDoc rendering pipeline
 
-This is the doc-rendering core consumed by every project that uses
-`ike-doc` packaging or has a `src/docs/asciidoc/` directory.
+This is the doc-rendering core consumed by every project that has
+a `src/docs/asciidoc/` directory. Activation is path-conditional in
+`ike-parent`'s `doc-pipeline` profile, so doc-only modules
+(`<packaging>pom</packaging>`) and hybrid Java-plus-docs modules
+(`<packaging>jar</packaging>`) both pick it up automatically.
 
 [#asciidoc]
 === ike:asciidoc
@@ -289,11 +322,27 @@ documentation pipeline. Selects the active renderer per
 `-Dike.pdf.<name>=true` toggles set by the `doc-pipeline` profile.
 
 [#package-doc]
-=== ike:package-doc
+=== ike:package-doc — RETIRED
 
-Zip `src/docs/asciidoc/` as the primary artifact for `ike-doc`
-packaging. Sources travel as a portable archive that downstream
-projects can re-render.
+[WARNING]
+====
+This goal is scheduled for removal in the same release as the
+removal of the stale `ike-doc` `components.xml`
+(`IKE-Network/ike-issues#320`).
+
+Historically it zipped `src/docs/asciidoc/` and assigned the
+result as the primary artifact for `<packaging>ike-doc</packaging>`
+modules. Following the migration to classifier-canonical doc
+artifacts (`IKE-Network/ike-issues#321`), the asciidoc payload is
+attached as `<classifier>adoc</classifier><type>zip</type>` by
+`maven-assembly-plugin` running in `ike-parent`'s `doc-pipeline`
+profile — there is no longer a primary artifact for this mojo to
+populate.
+
+Do not invoke this goal in new code. The mojo, its enum entry in
+`IkeGoal`, and this section will all be deleted as part of Phase 1
+of #321.
+====
 
 [#copy-docs]
 === ike:copy-docs
