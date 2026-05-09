@@ -71,9 +71,6 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
     NOTARIZE("notarize", NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
-    /** {@code ike:package-doc} — package rendered docs as an ike-doc artifact. */
-    PACKAGE_DOC("package-doc", PackageDocMojo.class,
-            "Package rendered docs as an ike-doc artifact."),
     /** {@code ike:patch-docbook} — apply local patches to DocBook XSL output. */
     PATCH_DOCBOOK("patch-docbook", PatchDocbookMojo.class,
             "Apply local patches to the DocBook XSL output."),
