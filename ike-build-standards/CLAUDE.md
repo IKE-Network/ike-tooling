@@ -40,7 +40,7 @@ the concrete artifact version into the lockfile.
 
 ## Key Conventions
 
-- Uses the unified pipeline version (e.g., `1.1.0-SNAPSHOT`)
+- Uses the ike-tooling reactor's single-segment integer version (e.g., `144-SNAPSHOT`)
 - Assembly descriptors live in `src/assembly/`: `claude-standards.xml`,
   `docs.xml`, `config.xml`, `asciidoctorconfig.xml`, `scaffold.xml`,
   `site-theme.xml`. Each maps to one classified ZIP execution in

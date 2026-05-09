@@ -298,10 +298,12 @@ artifact ID `topics`. The group ID carries project uniqueness. See
 <project xmlns="http://maven.apache.org/POM/4.1.0" ...>
     <modelVersion>4.1.0</modelVersion>
     <parent>
-        <groupId>network.ike</groupId>
+        <groupId>network.ike.platform</groupId>
         <artifactId>ike-parent</artifactId>
-        <version>1.1.0-SNAPSHOT</version>
+        <version>26</version>
+        <relativePath/>
     </parent>
+    <groupId>com.example</groupId>
     <artifactId>topics</artifactId>
     <packaging>pom</packaging>
     <version>1.0.0-SNAPSHOT</version>
@@ -310,7 +312,7 @@ artifact ID `topics`. The group ID carries project uniqueness. See
 
     <dependencies>
         <dependency>
-            <groupId>network.ike</groupId>
+            <groupId>network.ike.docs</groupId>
             <artifactId>minimal-fonts</artifactId>
         </dependency>
     </dependencies>
@@ -341,10 +343,12 @@ into a single document:
 <project xmlns="http://maven.apache.org/POM/4.1.0" ...>
     <modelVersion>4.1.0</modelVersion>
     <parent>
-        <groupId>network.ike</groupId>
+        <groupId>network.ike.platform</groupId>
         <artifactId>ike-parent</artifactId>
-        <version>1.1.0-SNAPSHOT</version>
+        <version>26</version>
+        <relativePath/>
     </parent>
+    <groupId>com.example</groupId>
     <artifactId>my-compendium</artifactId>
     <packaging>pom</packaging>
     <version>1.0.0-SNAPSHOT</version>
@@ -355,14 +359,14 @@ into a single document:
 
     <dependencies>
         <dependency>
-            <groupId>network.ike</groupId>
+            <groupId>com.example</groupId>
             <artifactId>topics</artifactId>
             <version>1.0.0-SNAPSHOT</version>
             <classifier>adoc</classifier>
             <type>zip</type>
         </dependency>
         <dependency>
-            <groupId>network.ike</groupId>
+            <groupId>network.ike.docs</groupId>
             <artifactId>minimal-fonts</artifactId>
         </dependency>
     </dependencies>
@@ -416,7 +420,7 @@ The top-level POM uses `pom` packaging and lists subprojects:
 ```xml
 <project xmlns="http://maven.apache.org/POM/4.1.0" ...>
     <modelVersion>4.1.0</modelVersion>
-    <groupId>network.ike</groupId>
+    <groupId>com.example</groupId>
     <artifactId>my-documents</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>

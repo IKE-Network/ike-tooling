@@ -193,9 +193,10 @@ See the IKE Workspace Conventions document for the full rationale.
 
 ### Standards Artifact Versioning
 
-The `ike-build-standards` artifact now uses the unified pipeline version
-(`1.1.0-SNAPSHOT`, etc.) like all other reactor modules. The previous
-monotonic integer scheme (1, 2, 3...) is deprecated.
+The `ike-build-standards` artifact uses the same single-segment
+integer versioning as all other `ike-tooling` reactor modules
+(e.g., `143`, `144-SNAPSHOT`). Versioning is per-reactor; do not
+assume semver shape.
 
 ### Release Process
 

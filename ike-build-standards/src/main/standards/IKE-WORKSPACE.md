@@ -63,30 +63,28 @@ The workspace root must contain a `pom.xml` that declares both plugins:
          (including ike-tooling.version). Use the latest
          released ike-parent version from Nexus. -->
     <parent>
-        <groupId>network.ike</groupId>
+        <groupId>network.ike.platform</groupId>
         <artifactId>ike-parent</artifactId>
         <version>LATEST-RELEASE</version>
         <relativePath/>
     </parent>
 
-    <groupId>network.ike</groupId>
+    <groupId>local.aggregate</groupId>
     <artifactId>ike-workspace</artifactId>
-    <version>1.0.0</version>
+    <version>1-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <build>
         <plugins>
-            <!-- Workspace goals (ws:*) — version managed by ike-parent -->
+            <!-- Workspace goals (ws:*) — managed by ike-parent -->
             <plugin>
-                <groupId>network.ike</groupId>
+                <groupId>network.ike.platform</groupId>
                 <artifactId>ike-workspace-maven-plugin</artifactId>
-                <version>${ike-tooling.version}</version>
             </plugin>
-            <!-- Single-repo goals (ike:*) — version managed by ike-parent -->
+            <!-- Single-repo goals (ike:*) — managed by ike-parent -->
             <plugin>
-                <groupId>network.ike</groupId>
+                <groupId>network.ike.tooling</groupId>
                 <artifactId>ike-maven-plugin</artifactId>
-                <version>${ike-tooling.version}</version>
             </plugin>
         </plugins>
     </build>
@@ -533,9 +531,9 @@ the BOM for version alignment:
 <dependencyManagement>
     <dependencies>
         <dependency>
-            <groupId>network.ike</groupId>
+            <groupId>network.ike.platform</groupId>
             <artifactId>ike-bom</artifactId>
-            <version>24</version>
+            <version>26</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
