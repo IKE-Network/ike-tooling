@@ -515,10 +515,52 @@ class ReleaseSupportTest {
     }
 
     @Test
-    void routeSubprocessLine_plainText_routesToDebug() {
+    void routeSubprocessLine_plainText_routesToInfo() {
+        // ike-issues#329: plain (unprefixed) subprocess output now
+        // routes to info so git/curl/scp output is visible in the
+        // build log. Earlier behavior was log.debug — hid both
+        // successes and unrecognized failures.
         var log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "Just a plain line");
-        assertThat(log.debugs).containsExactly("Just a plain line");
+        assertThat(log.infos).containsExactly("Just a plain line");
+        assertThat(log.debugs).isEmpty();
+    }
+
+    @Test
+    void routeSubprocessLine_gitFatal_routesToError() {
+        // ike-issues#329: git error patterns must be visible.
+        var log = new CapturingLog();
+        ReleaseSupport.routeSubprocessLine(log,
+                "fatal: Could not read from remote repository.");
+        assertThat(log.errors).containsExactly(
+                "fatal: Could not read from remote repository.");
+        assertThat(log.infos).isEmpty();
+    }
+
+    @Test
+    void routeSubprocessLine_gitError_routesToError() {
+        var log = new CapturingLog();
+        ReleaseSupport.routeSubprocessLine(log, "error: failed to push some refs");
+        assertThat(log.errors).containsExactly(
+                "error: failed to push some refs");
+    }
+
+    @Test
+    void routeSubprocessLine_gitRemoteError_routesToError() {
+        var log = new CapturingLog();
+        ReleaseSupport.routeSubprocessLine(log,
+                "remote: error: GH013: Repository rule violations found");
+        assertThat(log.errors).containsExactly(
+                "remote: error: GH013: Repository rule violations found");
+    }
+
+    @Test
+    void routeSubprocessLine_gitRejected_routesToError() {
+        var log = new CapturingLog();
+        ReleaseSupport.routeSubprocessLine(log,
+                "! [rejected] main -> main (fetch first)");
+        assertThat(log.errors).containsExactly(
+                "! [rejected] main -> main (fetch first)");
     }
 
     @Test

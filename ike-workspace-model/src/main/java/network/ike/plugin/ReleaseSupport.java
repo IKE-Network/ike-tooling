@@ -101,6 +101,18 @@ public class ReleaseSupport {
     /**
      * Route a subprocess output line through Maven's logger with a prefix.
      *
+     * <p>Recognized prefixes are stripped and routed to the matching
+     * Maven log level. Unrecognized lines are routed to {@code info}
+     * so that subprocess activity (especially {@code git} operations
+     * during release) is visible in the build log.
+     *
+     * <p>Specific git error patterns ({@code fatal:}, {@code error:},
+     * {@code remote: error:}, {@code ! [rejected]}, {@code ! [remote rejected]})
+     * are detected explicitly and routed to {@code error} so they
+     * cannot be missed in the log. Earlier behavior routed all
+     * unprefixed output to {@code debug}, which silently hid
+     * gh-pages push failures (see {@code IKE-Network/ike-issues#329}).
+     *
      * @param log    Maven logger
      * @param line   raw subprocess output line
      * @param prefix string prepended to each routed line
@@ -120,8 +132,23 @@ public class ReleaseSupport {
         } else if (line.startsWith("ERROR: ")) {
             // JVM-style errors
             log.error(prefix + line.substring(7));
+        } else if (line.startsWith("fatal: ")
+                || line.startsWith("error: ")
+                || line.startsWith("remote: error:")
+                || line.startsWith("remote: fatal:")
+                || line.startsWith("! [rejected]")
+                || line.startsWith("! [remote rejected]")) {
+            // Git error patterns — must be visible. Without these,
+            // a failed `git push` was effectively silent because the
+            // exit-code-only signal got swallowed by the catching
+            // wrapper that logged only e.getMessage().
+            log.error(prefix + line);
         } else {
-            log.debug(prefix + line);
+            // Plain subprocess output (e.g., git push success indicators
+            // "remote: ...", "To <url>", "* [new branch] X -> Y").
+            // Earlier behavior was log.debug — hid both successes and
+            // any unrecognized failures. Route to info for visibility.
+            log.info(prefix + line);
         }
     }
 

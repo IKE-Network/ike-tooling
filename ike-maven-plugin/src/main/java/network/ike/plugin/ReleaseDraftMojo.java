@@ -404,6 +404,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // Site URL info needed for both generation and deploy phases
         String releaseDisk = null;
         String stagingUrl = null;
+        // Track gh-pages publish outcome separately from scpexe site
+        // deploy and Nexus deploy. Used to gate the "GitHub Pages: ..."
+        // line in the release-complete summary so the log does not
+        // falsely claim success when the publish actually failed.
+        // ike-issues#329.
+        boolean ghPagesPublished = !publishSite;  // skipped == "no failure"
         try {
             // ── Site generation (must succeed before Nexus deploy) ────
             // A release without a valid site is incomplete. The tag
@@ -453,11 +459,13 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 // 6. Deploy site + publish (while target/staging/ exists)
                 // Best-effort — failures warn but don't block Nexus deploy.
                 try {
-                    deploySiteAndPublish(gitRoot, mvnw, projectId,
-                            releaseVersion, releaseDisk, stagingUrl);
+                    ghPagesPublished = deploySiteAndPublish(gitRoot, mvnw,
+                            projectId, releaseVersion, releaseDisk,
+                            stagingUrl);
                 } catch (Exception e) {
                     logSiteDeployRetryInstructions(projectId, releaseVersion,
                             e.getMessage());
+                    ghPagesPublished = false;
                 }
             }
 
@@ -518,7 +526,18 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     + projectId + "/latest/");
         }
         if (publishSite && deploySite) {
-            getLog().info("  GitHub Pages: https://ike.network/" + projectId + "/");
+            if (ghPagesPublished) {
+                getLog().info("  GitHub Pages: https://ike.network/"
+                        + projectId + "/");
+            } else {
+                // Don't lie about state. Earlier behavior printed the
+                // success line unconditionally; ike-issues#329.
+                getLog().warn("  GitHub Pages: ❌ publish failed "
+                        + "(see WARNING above)");
+                getLog().warn("    Retry: mvn ike:deploy-site-publish "
+                        + "-DsiteType=release -DsiteVersion=" + releaseVersion
+                        + " -DskipBuild=true");
+            }
         }
         getLog().info("  Merged to main");
         getLog().info("  Next version: " + nextVersion);
@@ -918,12 +937,20 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * <p>Called only after site generation and Nexus deploy have both
      * succeeded. Failures here are caught by the caller and reported
      * as warnings with retry instructions.
+     *
+     * @return {@code true} if the gh-pages publish succeeded (or was
+     *         skipped because no origin remote / publishSite=false);
+     *         {@code false} if the gh-pages publish was attempted and
+     *         failed. Used to gate the {@code GitHub Pages: ...}
+     *         line in the release-complete summary so the log does
+     *         not falsely claim success.
      */
-    private void deploySiteAndPublish(File gitRoot, File mvnw,
-                                       String projectId, String version,
-                                       String releaseDisk, String stagingUrl)
+    private boolean deploySiteAndPublish(File gitRoot, File mvnw,
+                                          String projectId, String version,
+                                          String releaseDisk, String stagingUrl)
             throws MojoException {
         String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);
+        boolean ghPagesPublished = !publishSite;  // skipped == "no failure to report"
 
         // Publish to GitHub Pages FIRST while target/staging/ still has
         // the clean post-site:stage content. site:deploy below with
@@ -936,6 +963,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             if (remoteUrl == null) {
                 getLog().info("  Skipping gh-pages publish "
                         + "(no 'origin' remote)");
+                ghPagesPublished = true;  // intentionally skipped, not failed
             } else {
                 Path stagingDir = gitRoot.toPath()
                         .resolve("target").resolve("staging");
@@ -943,9 +971,22 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     ReleaseSupport.publishProjectSiteToGhPages(
                             stagingDir, remoteUrl, getLog(),
                             projectId, version);
+                    ghPagesPublished = true;
                 } catch (MojoException e) {
+                    // Log the full cause chain — earlier behavior dropped
+                    // it, leaving only the wrapper message visible.
+                    // ike-issues#329.
                     getLog().warn("  ⚠ gh-pages publish failed (non-fatal): "
                             + e.getMessage());
+                    Throwable cause = e.getCause();
+                    while (cause != null) {
+                        getLog().warn("    caused by: "
+                                + cause.getClass().getSimpleName()
+                                + (cause.getMessage() != null
+                                        ? ": " + cause.getMessage()
+                                        : ""));
+                        cause = cause.getCause();
+                    }
                     getLog().warn("    To retry: from a checkout of v"
                             + version + " with 'origin' remote, run "
                             + "mvn ike:deploy-site-publish -DsiteType=release "
@@ -976,6 +1017,8 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     + ReleaseSupport.leafName(releaseDisk)
                     + " latest'");
         }
+
+        return ghPagesPublished;
     }
 
     /**
