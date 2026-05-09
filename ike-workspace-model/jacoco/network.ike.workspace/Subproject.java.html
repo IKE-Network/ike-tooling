@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Subproject.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">Subproject.java</span></div><h1>Subproject.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.util.List;
+
+/**
+ * A workspace subproject — one git repository in the workspace manifest.
+ *
+ * &lt;p&gt;The {@code state}, {@code tag}, and {@code kind} fields express the
+ * subproject's &lt;strong&gt;alignment&lt;/strong&gt; with the workspace's release
+ * cascade (ike-issues#233). The four-state alignment model:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;&lt;b&gt;snapshot-aligned&lt;/b&gt; — {@code state=&quot;snapshot&quot;} (the default
+ *       on legacy manifests). The subproject is in the workspace, tracked
+ *       as a SNAPSHOT, and released by {@code ws:release}.&lt;/li&gt;
+ *   &lt;li&gt;&lt;b&gt;tag-aligned&lt;/b&gt; — {@code state=&quot;tag-aligned&quot;} with
+ *       {@code tag=&quot;&lt;git-tag&gt;&quot;} and {@code kind=&quot;release&quot;} or
+ *       {@code kind=&quot;checkpoint&quot;}. Source on disk for IDE debugging,
+ *       but pinned at a tag and not in the release cascade.&lt;/li&gt;
+ *   &lt;li&gt;&lt;b&gt;external-consumer&lt;/b&gt; — absent from the manifest entirely;
+ *       referenced by released GAV from Nexus.&lt;/li&gt;
+ *   &lt;li&gt;&lt;b&gt;unrelated&lt;/b&gt; — neither in the manifest nor referenced.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;Goals introduced by #233 ({@code ws:attach-snapshot},
+ * {@code ws:attach-release}, {@code ws:attach-checkpoint},
+ * {@code ws:promote}, {@code ws:demote}, {@code ws:detach}) drive
+ * transitions across the lattice; {@code ws:add} / {@code ws:remove}
+ * remain shortcuts for external-consumer ⇄ snapshot-aligned.
+ *
+ * @param name         the subproject identifier (directory name and YAML key)
+ * @param description  human-readable purpose
+ * @param repo         git clone URL
+ * @param branch       the branch to track
+ * @param version      Maven version string, or null if not versioned
+ * @param groupId      Maven groupId
+ * @param dependsOn    inter-repository dependencies
+ * @param notes        free-text migration or status notes
+ * @param mavenVersion Maven version for the wrapper (e.g., &quot;4.0.0-rc-5&quot;),
+ *                     overrides {@link Defaults#mavenVersion()}. Null to inherit.
+ * @param parent       subproject name of the Maven parent POM, or null if the
+ *                     parent is not a workspace subproject. Used by ws:verify
+ *                     and ws:align to enforce parent version alignment.
+ * @param sha          git commit SHA to check out. When present, {@code ws:init}
+ *                     checks out this exact commit instead of branch HEAD.
+ *                     Written by {@code ws:checkpoint-publish}. Null means use
+ *                     branch HEAD.
+ * @param state        alignment state — {@code &quot;snapshot&quot;} (default,
+ *                     in release cascade) or {@code &quot;tag-aligned&quot;} (frozen
+ *                     at a tag, not in release cascade). Schema 1.1+ field
+ *                     (ike-issues#233); legacy manifests default to
+ *                     {@code &quot;snapshot&quot;} on read.
+ * @param tag          git tag this subproject is pinned to when
+ *                     {@code state=&quot;tag-aligned&quot;}; null when
+ *                     {@code state=&quot;snapshot&quot;}.
+ * @param kind         when {@code state=&quot;tag-aligned&quot;}, distinguishes
+ *                     {@code &quot;release&quot;} (artifact is in Nexus) from
+ *                     {@code &quot;checkpoint&quot;} (artifact may need local
+ *                     {@code mvn install}). Null when
+ *                     {@code state=&quot;snapshot&quot;}.
+ */
+<span class="fc" id="L62">public record Subproject(</span>
+        String name,
+        String description,
+        String repo,
+        String branch,
+        String version,
+        String groupId,
+        List&lt;Dependency&gt; dependsOn,
+        String notes,
+        String mavenVersion,
+        String parent,
+        String sha,
+        String state,
+        String tag,
+        String kind
+) {
+
+    /** Sentinel for the snapshot-aligned state — the default alignment. */
+    public static final String STATE_SNAPSHOT = &quot;snapshot&quot;;
+
+    /** Sentinel for the tag-aligned state. */
+    public static final String STATE_TAG_ALIGNED = &quot;tag-aligned&quot;;
+
+    /** Sentinel for the {@code release} sub-kind of tag-aligned. */
+    public static final String KIND_RELEASE = &quot;release&quot;;
+
+    /** Sentinel for the {@code checkpoint} sub-kind of tag-aligned. */
+    public static final String KIND_CHECKPOINT = &quot;checkpoint&quot;;
+
+    /**
+     * Whether this subproject participates in the workspace's release
+     * cascade — {@code true} for snapshot-aligned (the default),
+     * {@code false} for tag-aligned. Convenience over comparing
+     * {@link #state()} to a sentinel.
+     *
+     * @return true if {@link #state()} is {@code &quot;snapshot&quot;} or null
+     *         (legacy manifest default)
+     */
+    public boolean isSnapshotAligned() {
+<span class="pc bpc" id="L101" title="1 of 4 branches missed.">        return state == null || STATE_SNAPSHOT.equals(state);</span>
+    }
+
+    /**
+     * Whether this subproject is pinned to a tag and excluded from the
+     * release cascade.
+     *
+     * @return true if {@link #state()} equals {@code &quot;tag-aligned&quot;}
+     */
+    public boolean isTagAligned() {
+<span class="fc" id="L111">        return STATE_TAG_ALIGNED.equals(state);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

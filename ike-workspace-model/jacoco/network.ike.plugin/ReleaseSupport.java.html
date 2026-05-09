@@ -1,0 +1,1268 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReleaseSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ReleaseSupport.java</span></div><h1>ReleaseSupport.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.Log;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+
+/**
+ * Shared utilities for release mojos.
+ *
+ * &lt;p&gt;All subprocess invocations use {@link ProcessBuilder} — no
+ * library dependencies beyond the JDK and maven-plugin-api.
+ */
+public class ReleaseSupport {
+
+<span class="fc" id="L35">    private static final Pattern VERSION_PATTERN =</span>
+<span class="fc" id="L36">            Pattern.compile(&quot;&lt;version&gt;([^&lt;]+)&lt;/version&gt;&quot;);</span>
+
+    private ReleaseSupport() {}
+
+    /**
+     * Check if the current platform is macOS.
+     *
+     * @return {@code true} if running on macOS or Darwin
+     */
+    public static boolean isMacOS() {
+<span class="nc" id="L46">        String osName = System.getProperty(&quot;os.name&quot;, &quot;&quot;).toLowerCase(java.util.Locale.ROOT);</span>
+<span class="nc bnc" id="L47" title="All 4 branches missed.">        return osName.contains(&quot;mac&quot;) || osName.contains(&quot;darwin&quot;);</span>
+    }
+
+    /**
+     * Run a command, inherit IO so output streams to the Maven console.
+     * Throws on non-zero exit code.
+     *
+     * @param workDir working directory for the subprocess
+     * @param log     Maven logger for output routing
+     * @param command the command and arguments to execute
+     * @throws MojoException if the command exits non-zero or cannot be started
+     */
+    public static void exec(File workDir, Log log, String... command)
+            throws MojoException {
+<span class="fc" id="L61">        log.debug(&quot;» &quot; + String.join(&quot; &quot;, command));</span>
+        try {
+<span class="fc" id="L63">            Process proc = new ProcessBuilder(command)</span>
+<span class="fc" id="L64">                    .directory(workDir)</span>
+<span class="fc" id="L65">                    .redirectErrorStream(true)</span>
+<span class="fc" id="L66">                    .start();</span>
+            // Route subprocess output through Maven's logger, stripping
+            // Maven log prefixes to avoid redundant [INFO] [stdout] [INFO].
+            // Maps subprocess [WARNING]/[ERROR] to the correct parent level.
+<span class="fc" id="L70">            try (var reader = new java.io.BufferedReader(</span>
+<span class="fc" id="L71">                    new java.io.InputStreamReader(proc.getInputStream()))) {</span>
+                String line;
+<span class="fc bfc" id="L73" title="All 2 branches covered.">                while ((line = reader.readLine()) != null) {</span>
+<span class="fc" id="L74">                    routeSubprocessLine(log, line);</span>
+                }
+            }
+<span class="fc" id="L77">            int exit = proc.waitFor();</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">            if (exit != 0) {</span>
+<span class="fc" id="L79">                throw new MojoException(</span>
+                        &quot;Command failed (exit &quot; + exit + &quot;): &quot; +
+<span class="fc" id="L81">                                String.join(&quot; &quot;, command));</span>
+            }
+<span class="nc" id="L83">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L84">            throw new MojoException(</span>
+<span class="nc" id="L85">                    &quot;Failed to execute: &quot; + String.join(&quot; &quot;, command), e);</span>
+<span class="fc" id="L86">        }</span>
+<span class="fc" id="L87">    }</span>
+
+    /**
+     * Route a subprocess output line through Maven's logger at the
+     * correct level. Strips Maven log prefixes ([INFO], [WARNING],
+     * [ERROR]) from the line to avoid redundant nesting.
+     *
+     * @param log  Maven logger
+     * @param line raw subprocess output line
+     */
+    public static void routeSubprocessLine(Log log, String line) {
+<span class="fc" id="L98">        routeSubprocessLine(log, line, &quot;&quot;);</span>
+<span class="fc" id="L99">    }</span>
+
+    /**
+     * Route a subprocess output line through Maven's logger with a prefix.
+     *
+     * &lt;p&gt;Recognized prefixes are stripped and routed to the matching
+     * Maven log level. Unrecognized lines are routed to {@code info}
+     * so that subprocess activity (especially {@code git} operations
+     * during release) is visible in the build log.
+     *
+     * &lt;p&gt;Specific git error patterns ({@code fatal:}, {@code error:},
+     * {@code remote: error:}, {@code ! [rejected]}, {@code ! [remote rejected]})
+     * are detected explicitly and routed to {@code error} so they
+     * cannot be missed in the log. Earlier behavior routed all
+     * unprefixed output to {@code debug}, which silently hid
+     * gh-pages push failures (see {@code IKE-Network/ike-issues#329}).
+     *
+     * @param log    Maven logger
+     * @param line   raw subprocess output line
+     * @param prefix string prepended to each routed line
+     */
+    public static void routeSubprocessLine(Log log, String line, String prefix) {
+<span class="fc bfc" id="L121" title="All 2 branches covered.">        if (line.startsWith(&quot;[ERROR] &quot;)) {</span>
+<span class="fc" id="L122">            log.error(prefix + line.substring(8));</span>
+<span class="fc bfc" id="L123" title="All 2 branches covered.">        } else if (line.startsWith(&quot;[WARNING] &quot;)) {</span>
+<span class="fc" id="L124">            log.warn(prefix + line.substring(10));</span>
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        } else if (line.startsWith(&quot;[INFO] &quot;)) {</span>
+<span class="fc" id="L126">            log.info(prefix + line.substring(7));</span>
+<span class="fc bfc" id="L127" title="All 2 branches covered.">        } else if (line.startsWith(&quot;[DEBUG] &quot;)) {</span>
+<span class="fc" id="L128">            log.debug(prefix + line.substring(8));</span>
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        } else if (line.startsWith(&quot;WARNING: &quot;)) {</span>
+            // JVM-style warnings (e.g., sun.misc.Unsafe deprecation)
+<span class="fc" id="L131">            log.warn(prefix + line.substring(9));</span>
+<span class="fc bfc" id="L132" title="All 2 branches covered.">        } else if (line.startsWith(&quot;ERROR: &quot;)) {</span>
+            // JVM-style errors
+<span class="fc" id="L134">            log.error(prefix + line.substring(7));</span>
+<span class="fc bfc" id="L135" title="All 2 branches covered.">        } else if (line.startsWith(&quot;fatal: &quot;)</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">                || line.startsWith(&quot;error: &quot;)</span>
+<span class="fc bfc" id="L137" title="All 2 branches covered.">                || line.startsWith(&quot;remote: error:&quot;)</span>
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">                || line.startsWith(&quot;remote: fatal:&quot;)</span>
+<span class="fc bfc" id="L139" title="All 2 branches covered.">                || line.startsWith(&quot;! [rejected]&quot;)</span>
+<span class="pc bpc" id="L140" title="1 of 2 branches missed.">                || line.startsWith(&quot;! [remote rejected]&quot;)) {</span>
+            // Git error patterns — must be visible. Without these,
+            // a failed `git push` was effectively silent because the
+            // exit-code-only signal got swallowed by the catching
+            // wrapper that logged only e.getMessage().
+<span class="fc" id="L145">            log.error(prefix + line);</span>
+        } else {
+            // Plain subprocess output (e.g., git push success indicators
+            // &quot;remote: ...&quot;, &quot;To &lt;url&gt;&quot;, &quot;* [new branch] X -&gt; Y&quot;).
+            // Earlier behavior was log.debug — hid both successes and
+            // any unrecognized failures. Route to info for visibility.
+<span class="fc" id="L151">            log.info(prefix + line);</span>
+        }
+<span class="fc" id="L153">    }</span>
+
+    /**
+     * A command paired with a display label for parallel execution.
+     *
+     * @param label   human-readable name shown in log output
+     * @param command the command and arguments to execute
+     */
+<span class="fc" id="L161">    public record LabeledTask(String label, String[] command) {}</span>
+
+    /**
+     * Run multiple commands concurrently, prefixing each line of output
+     * with the task's label (e.g., {@code [nexus] ...}).
+     *
+     * &lt;p&gt;Spawns virtual threads to read stdout/stderr from each process.
+     * All processes run to completion even if one fails — the exception
+     * reports which task(s) failed.
+     *
+     * @param workDir working directory for each subprocess
+     * @param log     Maven logger for output routing
+     * @param tasks   the labeled tasks to run concurrently
+     * @throws MojoException if any task fails or execution is interrupted
+     */
+    public static void execParallel(File workDir, Log log, LabeledTask... tasks)
+            throws MojoException {
+<span class="fc bfc" id="L178" title="All 2 branches covered.">        for (LabeledTask task : tasks) {</span>
+<span class="fc" id="L179">            log.debug(&quot;» [&quot; + task.label() + &quot;] &quot; + String.join(&quot; &quot;, task.command()));</span>
+        }
+
+<span class="fc" id="L182">        List&lt;String&gt; failures = new CopyOnWriteArrayList&lt;&gt;();</span>
+<span class="fc" id="L183">        List&lt;Thread&gt; threads = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L185" title="All 2 branches covered.">        for (LabeledTask task : tasks) {</span>
+<span class="fc" id="L186">            Thread thread = Thread.ofVirtual()</span>
+<span class="fc" id="L187">                    .name(&quot;exec-&quot; + task.label())</span>
+<span class="fc" id="L188">                    .start(() -&gt; {</span>
+                        try {
+<span class="fc" id="L190">                            Process process = new ProcessBuilder(task.command())</span>
+<span class="fc" id="L191">                                    .directory(workDir)</span>
+<span class="fc" id="L192">                                    .redirectErrorStream(true)</span>
+<span class="fc" id="L193">                                    .start();</span>
+
+<span class="fc" id="L195">                            try (BufferedReader reader = new BufferedReader(</span>
+<span class="fc" id="L196">                                    new InputStreamReader(process.getInputStream(),</span>
+                                            StandardCharsets.UTF_8))) {
+                                String line;
+<span class="fc bfc" id="L199" title="All 2 branches covered.">                                while ((line = reader.readLine()) != null) {</span>
+<span class="fc" id="L200">                                    String prefix = &quot;[&quot; + task.label() + &quot;] &quot;;</span>
+<span class="fc" id="L201">                                    synchronized (log) {</span>
+<span class="fc" id="L202">                                        routeSubprocessLine(log, line, prefix);</span>
+<span class="fc" id="L203">                                    }</span>
+<span class="fc" id="L204">                                }</span>
+                            }
+
+<span class="fc" id="L207">                            int exit = process.waitFor();</span>
+<span class="fc bfc" id="L208" title="All 2 branches covered.">                            if (exit != 0) {</span>
+<span class="fc" id="L209">                                failures.add(task.label() + &quot; (exit &quot; + exit + &quot;)&quot;);</span>
+                            }
+<span class="nc" id="L211">                        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L212">                            failures.add(task.label() + &quot; (&quot; + e.getMessage() + &quot;)&quot;);</span>
+<span class="fc" id="L213">                        }</span>
+<span class="fc" id="L214">                    });</span>
+<span class="fc" id="L215">            threads.add(thread);</span>
+        }
+
+        try {
+<span class="fc bfc" id="L219" title="All 2 branches covered.">            for (Thread thread : threads) {</span>
+<span class="fc" id="L220">                thread.join();</span>
+<span class="fc" id="L221">            }</span>
+<span class="nc" id="L222">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L223">            throw new MojoException(&quot;Parallel execution interrupted&quot;, e);</span>
+<span class="fc" id="L224">        }</span>
+
+<span class="fc bfc" id="L226" title="All 2 branches covered.">        if (!failures.isEmpty()) {</span>
+<span class="fc" id="L227">            throw new MojoException(</span>
+<span class="fc" id="L228">                    &quot;Parallel tasks failed: &quot; + String.join(&quot;, &quot;, failures));</span>
+        }
+<span class="fc" id="L230">    }</span>
+
+    /**
+     * Run a command and capture stdout as a trimmed String.
+     * Throws on non-zero exit code.
+     *
+     * @param workDir working directory for the subprocess
+     * @param command the command and arguments to execute
+     * @return trimmed stdout output
+     * @throws MojoException if the command exits non-zero or cannot be started
+     */
+    public static String execCapture(File workDir, String... command)
+            throws MojoException {
+        try {
+<span class="fc" id="L244">            Process process = new ProcessBuilder(command)</span>
+<span class="fc" id="L245">                    .directory(workDir)</span>
+<span class="fc" id="L246">                    .redirectErrorStream(false)</span>
+<span class="fc" id="L247">                    .start();</span>
+            String output;
+<span class="fc" id="L249">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="fc" id="L250">                    new InputStreamReader(process.getInputStream(),</span>
+                            StandardCharsets.UTF_8))) {
+<span class="fc" id="L252">                output = reader.lines().collect(Collectors.joining(&quot;\n&quot;)).trim();</span>
+            }
+<span class="fc" id="L254">            int exit = process.waitFor();</span>
+<span class="fc bfc" id="L255" title="All 2 branches covered.">            if (exit != 0) {</span>
+<span class="fc" id="L256">                throw new MojoException(</span>
+                        &quot;Command failed (exit &quot; + exit + &quot;): &quot; +
+<span class="fc" id="L258">                                String.join(&quot; &quot;, command));</span>
+            }
+<span class="fc" id="L260">            return output;</span>
+<span class="fc" id="L261">        } catch (IOException | InterruptedException e) {</span>
+<span class="fc" id="L262">            throw new MojoException(</span>
+<span class="fc" id="L263">                    &quot;Failed to execute: &quot; + String.join(&quot; &quot;, command), e);</span>
+        }
+    }
+
+    /**
+     * Run a command, streaming output through Maven's logger AND
+     * capturing the full output as a String. Throws on non-zero exit.
+     *
+     * @param workDir working directory for the subprocess
+     * @param log     Maven logger for real-time output
+     * @param command the command and arguments to execute
+     * @return the complete stdout+stderr output as a trimmed string
+     * @throws MojoException if the command exits non-zero
+     */
+    public static String execCaptureAndLog(File workDir, Log log, String... command)
+            throws MojoException {
+<span class="nc" id="L279">        log.debug(&quot;» &quot; + String.join(&quot; &quot;, command));</span>
+        try {
+<span class="nc" id="L281">            Process proc = new ProcessBuilder(command)</span>
+<span class="nc" id="L282">                    .directory(workDir)</span>
+<span class="nc" id="L283">                    .redirectErrorStream(true)</span>
+<span class="nc" id="L284">                    .start();</span>
+<span class="nc" id="L285">            StringBuilder captured = new StringBuilder();</span>
+<span class="nc" id="L286">            try (var reader = new BufferedReader(</span>
+<span class="nc" id="L287">                    new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {</span>
+                String line;
+<span class="nc bnc" id="L289" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
+<span class="nc" id="L290">                    routeSubprocessLine(log, line);</span>
+<span class="nc" id="L291">                    captured.append(line).append('\n');</span>
+                }
+            }
+<span class="nc" id="L294">            int exit = proc.waitFor();</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">            if (exit != 0) {</span>
+<span class="nc" id="L296">                String output = captured.toString().trim();</span>
+<span class="nc bnc" id="L297" title="All 2 branches missed.">                String detail = output.isEmpty()</span>
+<span class="nc" id="L298">                        ? &quot;&quot;</span>
+<span class="nc" id="L299">                        : &quot;\nOutput:\n&quot; + output;</span>
+<span class="nc" id="L300">                throw new MojoException(</span>
+                        &quot;Command failed (exit &quot; + exit + &quot;): &quot;
+<span class="nc" id="L302">                                + String.join(&quot; &quot;, command) + detail);</span>
+            }
+<span class="nc" id="L304">            return captured.toString().trim();</span>
+<span class="nc" id="L305">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L306">            throw new MojoException(</span>
+<span class="nc" id="L307">                    &quot;Failed to execute: &quot; + String.join(&quot; &quot;, command), e);</span>
+        }
+    }
+
+    /**
+     * Read the project's own {@code &lt;version&gt;} from a POM file,
+     * skipping any {@code &lt;version&gt;} inside the {@code &lt;parent&gt;} block.
+     *
+     * @param pomFile the POM file to read
+     * @return the version string
+     * @throws MojoException if the file cannot be read or has no version
+     */
+    public static String readPomVersion(File pomFile) throws MojoException {
+        try {
+<span class="fc" id="L321">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+
+            // Strip the &lt;parent&gt;...&lt;/parent&gt; block so we don't match
+            // the parent version instead of the project version.
+<span class="fc" id="L325">            String stripped = content.replaceFirst(</span>
+                    &quot;(?s)&lt;parent&gt;.*?&lt;/parent&gt;&quot;, &quot;&quot;);
+<span class="fc" id="L327">            Matcher matcher = VERSION_PATTERN.matcher(stripped);</span>
+<span class="fc bfc" id="L328" title="All 2 branches covered.">            if (matcher.find()) {</span>
+<span class="fc" id="L329">                return matcher.group(1);</span>
+            }
+<span class="fc" id="L331">            throw new MojoException(</span>
+                    &quot;Could not extract &lt;version&gt; from &quot; + pomFile);
+<span class="nc" id="L333">        } catch (IOException e) {</span>
+<span class="nc" id="L334">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+        }
+    }
+
+    /**
+     * Stamp {@code &lt;project.build.outputTimestamp&gt;} in the root POM to
+     * {@code newTimestamp}, enabling reproducible builds for the release.
+     *
+     * &lt;p&gt;The property must already exist in the POM (inherited from
+     * ike-parent). If it is absent this method is a no-op with a warning.
+     *
+     * @param pomFile      the root POM to update
+     * @param newTimestamp ISO-8601 UTC timestamp, e.g. {@code 2026-03-30T12:00:00Z}
+     * @param log          Maven log (used for warnings only)
+     * @throws MojoException if the file cannot be read or written
+     */
+    public static void stampOutputTimestamp(File pomFile, String newTimestamp, Log log)
+            throws MojoException {
+        try {
+<span class="nc" id="L353">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L354">            java.util.regex.Pattern pat = java.util.regex.Pattern.compile(</span>
+                    &quot;(&lt;project\\.build\\.outputTimestamp&gt;)[^&lt;]*(&lt;/project\\.build\\.outputTimestamp&gt;)&quot;);
+<span class="nc" id="L356">            java.util.regex.Matcher m = pat.matcher(content);</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">            if (!m.find()) {</span>
+<span class="nc" id="L358">                log.warn(&quot;project.build.outputTimestamp not found in &quot; + pomFile</span>
+                        + &quot; — reproducible build stamp skipped&quot;);
+<span class="nc" id="L360">                return;</span>
+            }
+<span class="nc" id="L362">            String updated = m.replaceFirst(&quot;$1&quot; + newTimestamp + &quot;$2&quot;);</span>
+<span class="nc" id="L363">            Files.writeString(pomFile.toPath(), updated, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L364">        } catch (IOException e) {</span>
+<span class="nc" id="L365">            throw new MojoException(</span>
+                    &quot;Failed to stamp outputTimestamp in &quot; + pomFile, e);
+<span class="nc" id="L367">        }</span>
+<span class="nc" id="L368">    }</span>
+
+    /**
+     * Replace the project's own {@code &lt;version&gt;old&lt;/version&gt;} with
+     * {@code &lt;version&gt;new&lt;/version&gt;}, skipping any version inside
+     * the {@code &lt;parent&gt;} block.
+     *
+     * @param pomFile    the POM file to update
+     * @param oldVersion the current version string to replace
+     * @param newVersion the new version string
+     * @throws MojoException if the version is not found or the file cannot be updated
+     */
+    public static void setPomVersion(File pomFile, String oldVersion, String newVersion)
+            throws MojoException {
+        try {
+<span class="fc" id="L383">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L384">            String oldTag = &quot;&lt;version&gt;&quot; + oldVersion + &quot;&lt;/version&gt;&quot;;</span>
+<span class="fc" id="L385">            String newTag = &quot;&lt;version&gt;&quot; + newVersion + &quot;&lt;/version&gt;&quot;;</span>
+
+            // Find the end of the &lt;parent&gt; block (if any) so we skip it
+<span class="fc" id="L388">            int searchStart = 0;</span>
+<span class="fc" id="L389">            Matcher parentEnd = Pattern.compile(&quot;&lt;/parent&gt;&quot;).matcher(content);</span>
+<span class="fc bfc" id="L390" title="All 2 branches covered.">            if (parentEnd.find()) {</span>
+<span class="fc" id="L391">                searchStart = parentEnd.end();</span>
+            }
+
+<span class="fc" id="L394">            int idx = content.indexOf(oldTag, searchStart);</span>
+<span class="fc bfc" id="L395" title="All 2 branches covered.">            if (idx &lt; 0) {</span>
+<span class="fc" id="L396">                throw new MojoException(</span>
+                        &quot;POM does not contain &quot; + oldTag +
+                                &quot; (outside &lt;parent&gt; block)&quot;);
+            }
+<span class="fc" id="L400">            String updated = content.substring(0, idx) + newTag +</span>
+<span class="fc" id="L401">                    content.substring(idx + oldTag.length());</span>
+<span class="fc" id="L402">            Files.writeString(pomFile.toPath(), updated, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L403">        } catch (IOException e) {</span>
+<span class="nc" id="L404">            throw new MojoException(&quot;Failed to update &quot; + pomFile, e);</span>
+<span class="fc" id="L405">        }</span>
+<span class="fc" id="L406">    }</span>
+
+    /**
+     * Check if the current platform is Windows.
+     *
+     * @return {@code true} if {@code os.name} contains &quot;win&quot;
+     */
+    public static boolean isWindows() {
+<span class="fc" id="L414">        return System.getProperty(&quot;os.name&quot;, &quot;&quot;)</span>
+<span class="fc" id="L415">                .toLowerCase(java.util.Locale.ROOT).contains(&quot;win&quot;);</span>
+    }
+
+    /**
+     * Resolve the Maven executable. Prefers the Maven wrapper
+     * ({@code mvnw} on Unix, {@code mvnw.cmd} on Windows) at the
+     * git root; falls back to system Maven located via {@code which}
+     * on Unix or {@code where} on Windows.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @return the resolved Maven executable
+     * @throws MojoException if neither wrapper nor system Maven is found
+     */
+    public static File resolveMavenWrapper(File gitRoot, Log log) throws MojoException {
+<span class="fc" id="L430">        return resolveMavenWrapperFor(gitRoot, log, isWindows());</span>
+    }
+
+    /**
+     * OS-injected variant of {@link #resolveMavenWrapper(File, Log)} for testing.
+     * Production callers should use the two-argument overload.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @param windows {@code true} to use Windows wrapper/lookup conventions,
+     *                {@code false} for Unix conventions
+     * @return the resolved Maven executable
+     * @throws MojoException if neither wrapper nor system Maven is found
+     */
+    static File resolveMavenWrapperFor(File gitRoot, Log log, boolean windows)
+            throws MojoException {
+<span class="fc bfc" id="L446" title="All 2 branches covered.">        String wrapperName = windows ? &quot;mvnw.cmd&quot; : &quot;mvnw&quot;;</span>
+<span class="fc" id="L447">        File wrapper = new File(gitRoot, wrapperName);</span>
+<span class="fc bfc" id="L448" title="All 2 branches covered.">        if (wrapper.exists()) {</span>
+<span class="fc" id="L449">            return wrapper;</span>
+        }
+        // Fall back to system mvn — resolve via PATH
+<span class="fc bfc" id="L452" title="All 2 branches covered.">        String systemName = windows ? &quot;mvn.cmd&quot; : &quot;mvn&quot;;</span>
+<span class="fc bfc" id="L453" title="All 2 branches covered.">        String lookupTool = windows ? &quot;where&quot; : &quot;which&quot;;</span>
+        try {
+<span class="fc" id="L455">            String output = execCapture(gitRoot, lookupTool, systemName);</span>
+<span class="fc" id="L456">            String path = firstNonEmptyLine(output);</span>
+<span class="fc" id="L457">            log.info(&quot;No Maven wrapper found; using system '&quot; + path + &quot;'&quot;);</span>
+<span class="fc" id="L458">            return new File(path);</span>
+<span class="fc" id="L459">        } catch (MojoException _) {</span>
+<span class="fc" id="L460">            throw new MojoException(</span>
+<span class="fc" id="L461">                    &quot;Neither Maven wrapper (&quot; + wrapper.getAbsolutePath() +</span>
+                            &quot;) nor system '&quot; + systemName + &quot;' found on PATH.&quot;);
+        }
+    }
+
+    /**
+     * Return the first non-empty line of {@code output}, trimmed.
+     * Handles the Windows {@code where} command, which may emit multiple
+     * matches separated by newlines (e.g. {@code mvn.cmd} from a wrapper
+     * shim and from a system install).
+     *
+     * @param output multi-line command output
+     * @return first non-empty line trimmed, or the trimmed full output
+     *         if no non-empty line exists
+     */
+    static String firstNonEmptyLine(String output) {
+<span class="fc" id="L477">        return output.lines()</span>
+<span class="fc" id="L478">                .map(String::trim)</span>
+<span class="fc bfc" id="L479" title="All 2 branches covered.">                .filter(s -&gt; !s.isEmpty())</span>
+<span class="fc" id="L480">                .findFirst()</span>
+<span class="fc" id="L481">                .orElse(output.trim());</span>
+    }
+
+    /**
+     * Get the git repository root directory.
+     *
+     * @param startDir any directory inside the repository
+     * @return the repository root directory
+     * @throws MojoException if git rev-parse fails
+     */
+    public static File gitRoot(File startDir) throws MojoException {
+<span class="fc" id="L492">        String root = execCapture(startDir,</span>
+                &quot;git&quot;, &quot;rev-parse&quot;, &quot;--show-toplevel&quot;);
+<span class="fc" id="L494">        return new File(root);</span>
+    }
+
+    /**
+     * Assert that the git working tree is clean (no staged or unstaged changes).
+     *
+     * @param workDir any directory inside the repository
+     * @throws MojoException if the working tree has uncommitted changes
+     */
+    public static void requireCleanWorktree(File workDir) throws MojoException {
+        try {
+<span class="fc" id="L505">            execCapture(workDir, &quot;git&quot;, &quot;diff&quot;, &quot;--quiet&quot;);</span>
+<span class="fc" id="L506">        } catch (MojoException _) {</span>
+<span class="fc" id="L507">            throw new MojoException(</span>
+                    &quot;Working tree has unstaged changes. Commit or stash before proceeding.&quot;);
+<span class="fc" id="L509">        }</span>
+        try {
+<span class="fc" id="L511">            execCapture(workDir, &quot;git&quot;, &quot;diff&quot;, &quot;--cached&quot;, &quot;--quiet&quot;);</span>
+<span class="fc" id="L512">        } catch (MojoException _) {</span>
+<span class="fc" id="L513">            throw new MojoException(</span>
+                    &quot;Working tree has staged changes. Commit or stash before proceeding.&quot;);
+<span class="fc" id="L515">        }</span>
+<span class="fc" id="L516">    }</span>
+
+    /**
+     * Get the current git branch name.
+     *
+     * @param workDir any directory inside the repository
+     * @return the current branch name
+     * @throws MojoException if git rev-parse fails
+     */
+    public static String currentBranch(File workDir) throws MojoException {
+<span class="fc" id="L526">        return execCapture(workDir, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--abbrev-ref&quot;, &quot;HEAD&quot;);</span>
+    }
+
+    /**
+     * Check whether a named git remote exists.
+     *
+     * @param workDir    any directory inside the repository
+     * @param remoteName the remote name to check (e.g., &quot;origin&quot;)
+     * @return {@code true} if the remote exists
+     */
+    public static boolean hasRemote(File workDir, String remoteName) {
+        try {
+<span class="fc" id="L538">            String remotes = execCapture(workDir, &quot;git&quot;, &quot;remote&quot;);</span>
+<span class="fc" id="L539">            return remotes.lines().anyMatch(line -&gt; line.trim().equals(remoteName));</span>
+<span class="nc" id="L540">        } catch (MojoException _) {</span>
+<span class="nc" id="L541">            return false;</span>
+        }
+    }
+
+    /**
+     * Return the URL of a named git remote, or null if the remote does
+     * not exist.
+     *
+     * @param workDir    any directory inside the repository
+     * @param remoteName the remote name (typically {@code &quot;origin&quot;})
+     * @return the remote URL, or null if the remote is absent
+     */
+    public static String getRemoteUrl(File workDir, String remoteName) {
+        try {
+<span class="nc" id="L555">            String url = execCapture(workDir,</span>
+                    &quot;git&quot;, &quot;remote&quot;, &quot;get-url&quot;, remoteName);
+<span class="nc bnc" id="L557" title="All 2 branches missed.">            return url.isBlank() ? null : url.trim();</span>
+<span class="nc" id="L558">        } catch (MojoException _) {</span>
+<span class="nc" id="L559">            return null;</span>
+        }
+    }
+
+    /**
+     * Derive the release version from a SNAPSHOT version.
+     * {@code &quot;2-SNAPSHOT&quot;} becomes {@code &quot;2&quot;};
+     * {@code &quot;1.1.0-SNAPSHOT&quot;} becomes {@code &quot;1.1.0&quot;}.
+     *
+     * @param snapshotVersion the SNAPSHOT version string
+     * @return the release version without the -SNAPSHOT suffix
+     */
+    public static String deriveReleaseVersion(String snapshotVersion) {
+<span class="fc" id="L572">        return snapshotVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+    }
+
+    /**
+     * Derive the next SNAPSHOT version by incrementing the last numeric
+     * segment. {@code &quot;2&quot;} becomes {@code &quot;3-SNAPSHOT&quot;};
+     * {@code &quot;1.1.0&quot;} becomes {@code &quot;1.1.1-SNAPSHOT&quot;}.
+     *
+     * @param releaseVersion the release version to increment
+     * @return the next SNAPSHOT version
+     */
+    public static String deriveNextSnapshot(String releaseVersion) {
+<span class="fc" id="L584">        String base = releaseVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+<span class="fc" id="L585">        int lastDot = base.lastIndexOf('.');</span>
+<span class="fc bfc" id="L586" title="All 2 branches covered.">        if (lastDot &gt;= 0) {</span>
+<span class="fc" id="L587">            String prefix = base.substring(0, lastDot + 1);</span>
+<span class="fc" id="L588">            String last = base.substring(lastDot + 1);</span>
+<span class="fc" id="L589">            return prefix + (Integer.parseInt(last) + 1) + &quot;-SNAPSHOT&quot;;</span>
+        }
+        // Simple integer version (e.g., &quot;2&quot; -&gt; &quot;3-SNAPSHOT&quot;)
+<span class="fc" id="L592">        return (Integer.parseInt(base) + 1) + &quot;-SNAPSHOT&quot;;</span>
+    }
+
+    /**
+     * Update a named Maven property in POM content.
+     * Replaces {@code &lt;propertyName&gt;oldValue&lt;/propertyName&gt;} with
+     * {@code &lt;propertyName&gt;newVersion&lt;/propertyName&gt;}.
+     *
+     * @param pomContent   the POM file content as a string
+     * @param propertyName the Maven property name (e.g., &quot;ike-bom.version&quot;)
+     * @param newVersion   the new version value
+     * @return the updated POM content (unchanged if property not found)
+     */
+    public static String updateVersionProperty(String pomContent,
+                                         String propertyName,
+                                         String newVersion) {
+<span class="nc" id="L608">        String propPattern = &quot;&lt;&quot; + java.util.regex.Pattern.quote(propertyName)</span>
+<span class="nc" id="L609">                + &quot;&gt;[^&lt;]+&lt;/&quot; + java.util.regex.Pattern.quote(propertyName) + &quot;&gt;&quot;;</span>
+<span class="nc" id="L610">        return pomContent.replaceAll(propPattern,</span>
+                &quot;&lt;&quot; + propertyName + &quot;&gt;&quot; + newVersion + &quot;&lt;/&quot; + propertyName + &quot;&gt;&quot;);
+    }
+
+    private static final String PROJECT_VERSION_EXPR = &quot;${project.version}&quot;;
+    private static final String BACKUP_SUFFIX = &quot;.ike-backup&quot;;
+
+    /**
+     * Find all {@code pom.xml} files under the git root, excluding
+     * {@code target/} directories and the {@code .mvn/} directory.
+     *
+     * @param gitRoot the git repository root directory
+     * @return list of discovered POM files
+     * @throws MojoException if the file tree cannot be walked
+     */
+    public static List&lt;File&gt; findPomFiles(File gitRoot) throws MojoException {
+<span class="fc" id="L626">        try (Stream&lt;Path&gt; walk = Files.walk(gitRoot.toPath())) {</span>
+<span class="fc" id="L627">            return walk</span>
+<span class="fc" id="L628">                    .filter(p -&gt; p.getFileName().toString().equals(&quot;pom.xml&quot;))</span>
+<span class="fc" id="L629">                    .filter(p -&gt; {</span>
+<span class="fc" id="L630">                        String rel = gitRoot.toPath().relativize(p).toString();</span>
+<span class="fc bfc" id="L631" title="All 2 branches covered.">                        return !rel.contains(&quot;target&quot; + File.separator)</span>
+<span class="fc bfc" id="L632" title="All 2 branches covered.">                                &amp;&amp; !rel.startsWith(&quot;.mvn&quot; + File.separator);</span>
+                    })
+<span class="fc" id="L634">                    .map(Path::toFile)</span>
+<span class="fc" id="L635">                    .collect(Collectors.toList());</span>
+<span class="nc" id="L636">        } catch (IOException e) {</span>
+<span class="nc" id="L637">            throw new MojoException(&quot;Failed to scan for POM files&quot;, e);</span>
+        }
+    }
+
+    /**
+     * Replace all occurrences of {@code ${project.version}} with a
+     * literal version string in every POM file under the git root.
+     * Before replacing, each affected file is saved as
+     * {@code pom.xml.ike-backup} so it can be restored later.
+     *
+     * @param gitRoot the git repository root directory
+     * @param version the literal version to substitute
+     * @param log     Maven logger
+     * @return the list of POM files that were modified
+     * @throws MojoException if a file cannot be read or written
+     */
+    public static List&lt;File&gt; replaceProjectVersionRefs(File gitRoot, String version,
+                                                 Log log)
+            throws MojoException {
+<span class="fc" id="L656">        List&lt;File&gt; pomFiles = findPomFiles(gitRoot);</span>
+<span class="fc" id="L657">        List&lt;File&gt; modified = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L659" title="All 2 branches covered.">        for (File pom : pomFiles) {</span>
+            try {
+<span class="fc" id="L661">                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);</span>
+<span class="fc bfc" id="L662" title="All 2 branches covered.">                if (!content.contains(PROJECT_VERSION_EXPR)) {</span>
+<span class="fc" id="L663">                    continue;</span>
+                }
+                // Save backup before modifying
+<span class="fc" id="L666">                Path backup = pom.toPath().resolveSibling(pom.getName() + BACKUP_SUFFIX);</span>
+<span class="fc" id="L667">                Files.copy(pom.toPath(), backup, StandardCopyOption.REPLACE_EXISTING);</span>
+
+                // Replace all occurrences
+<span class="fc" id="L670">                String updated = content.replace(PROJECT_VERSION_EXPR, version);</span>
+<span class="fc" id="L671">                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);</span>
+
+<span class="fc" id="L673">                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();</span>
+<span class="fc" id="L674">                log.info(&quot;  Resolved ${project.version} -&gt; &quot; + version +</span>
+                        &quot; in &quot; + rel);
+<span class="fc" id="L676">                modified.add(pom);</span>
+<span class="nc" id="L677">            } catch (IOException e) {</span>
+<span class="nc" id="L678">                throw new MojoException(</span>
+                        &quot;Failed to process &quot; + pom, e);
+<span class="fc" id="L680">            }</span>
+<span class="fc" id="L681">        }</span>
+<span class="fc" id="L682">        return modified;</span>
+    }
+
+    /**
+     * Restore all POM files from their {@code .ike-backup} copies and
+     * delete the backup files. This reverses
+     * {@link #replaceProjectVersionRefs}.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @return the list of POM files that were restored
+     * @throws MojoException if a backup cannot be restored
+     */
+    public static List&lt;File&gt; restoreBackups(File gitRoot, Log log)
+            throws MojoException {
+<span class="fc" id="L697">        List&lt;File&gt; pomFiles = findPomFiles(gitRoot);</span>
+<span class="fc" id="L698">        List&lt;File&gt; restored = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L700" title="All 2 branches covered.">        for (File pom : pomFiles) {</span>
+<span class="fc" id="L701">            Path backup = pom.toPath().resolveSibling(pom.getName() + BACKUP_SUFFIX);</span>
+<span class="fc bfc" id="L702" title="All 2 branches covered.">            if (!Files.exists(backup)) {</span>
+<span class="fc" id="L703">                continue;</span>
+            }
+            try {
+<span class="fc" id="L706">                Files.copy(backup, pom.toPath(), StandardCopyOption.REPLACE_EXISTING);</span>
+<span class="fc" id="L707">                Files.delete(backup);</span>
+
+<span class="fc" id="L709">                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();</span>
+<span class="fc" id="L710">                log.info(&quot;  Restored ${project.version} in &quot; + rel);</span>
+<span class="fc" id="L711">                restored.add(pom);</span>
+<span class="nc" id="L712">            } catch (IOException e) {</span>
+<span class="nc" id="L713">                throw new MojoException(</span>
+                        &quot;Failed to restore backup for &quot; + pom, e);
+<span class="fc" id="L715">            }</span>
+<span class="fc" id="L716">        }</span>
+<span class="fc" id="L717">        return restored;</span>
+    }
+
+    /**
+     * Stage a list of files with {@code git add}.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @param files   the files to stage
+     * @throws MojoException if the git add command fails
+     */
+    public static void gitAddFiles(File gitRoot, Log log, List&lt;File&gt; files)
+            throws MojoException {
+<span class="fc bfc" id="L730" title="All 2 branches covered.">        if (files.isEmpty()) return;</span>
+<span class="fc" id="L731">        List&lt;String&gt; command = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L732">        command.add(&quot;git&quot;);</span>
+<span class="fc" id="L733">        command.add(&quot;add&quot;);</span>
+<span class="fc bfc" id="L734" title="All 2 branches covered.">        for (File f : files) {</span>
+<span class="fc" id="L735">            command.add(gitRoot.toPath().relativize(f.toPath()).toString());</span>
+<span class="fc" id="L736">        }</span>
+<span class="fc" id="L737">        exec(gitRoot, log, command.toArray(new String[0]));</span>
+<span class="fc" id="L738">    }</span>
+
+<span class="fc" id="L740">    private static final DateTimeFormatter CHECKPOINT_DATE_FMT =</span>
+<span class="fc" id="L741">            DateTimeFormatter.ofPattern(&quot;yyyyMMdd&quot;);</span>
+
+    /**
+     * Derive a checkpoint version from the current POM version.
+     *
+     * &lt;p&gt;Format: {@code {base}-checkpoint.{yyyyMMdd}.{shortSha}} where
+     * {@code base} is the POM version minus {@code -SNAPSHOT}, and
+     * {@code shortSha} is the abbreviated SHA of the current HEAD commit.
+     *
+     * &lt;p&gt;This scheme is fully deterministic — the same commit on any
+     * machine always produces the same version string. No tag-sequence
+     * coordination across machines is required.
+     *
+     * @param pomVersion current POM version (may include -SNAPSHOT)
+     * @param gitRoot    git repository root (for HEAD SHA lookup)
+     * @return the checkpoint version string
+     * @throws MojoException if the HEAD SHA cannot be resolved
+     */
+    public static String deriveCheckpointVersion(String pomVersion, File gitRoot)
+            throws MojoException {
+<span class="fc" id="L761">        String base = pomVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+<span class="fc" id="L762">        String date = LocalDate.now().format(CHECKPOINT_DATE_FMT);</span>
+<span class="fc" id="L763">        String shortSha = execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--short&quot;, &quot;HEAD&quot;);</span>
+<span class="fc" id="L764">        return base + &quot;-checkpoint.&quot; + date + &quot;.&quot; + shortSha;</span>
+    }
+
+    /**
+     * Check whether a git tag exists (locally).
+     *
+     * @param gitRoot the git repository root directory
+     * @param tagName the tag name to check
+     * @return {@code true} if the tag exists locally
+     */
+    public static boolean tagExists(File gitRoot, String tagName) {
+        try {
+<span class="fc" id="L776">            execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--verify&quot;, &quot;refs/tags/&quot; + tagName);</span>
+<span class="fc" id="L777">            return true;</span>
+<span class="fc" id="L778">        } catch (MojoException _) {</span>
+<span class="fc" id="L779">            return false;</span>
+        }
+    }
+
+    /** Base path on the site server. */
+    public static final String SITE_DISK_BASE = &quot;/srv/ike-site/&quot;;
+
+    /** SSH host alias used by wagon-ssh-external. */
+    public static final String SITE_SSH_HOST = &quot;proxy&quot;;
+
+    /**
+     * Remove a directory tree on the site server via SSH.
+     *
+     * &lt;p&gt;Used to clean up snapshot sites after release or feature-finish.
+     *
+     * &lt;p&gt;Safety: validates the path starts with {@link #SITE_DISK_BASE}
+     * and contains at least two path components after the base to
+     * prevent accidental deletion of the entire site root.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath absolute path on the server (e.g.,
+     *                   {@code /srv/ike-site/ike-pipeline/snapshot/main})
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath)
+            throws MojoException {
+<span class="nc" id="L806">        cleanRemoteSiteDir(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L807">    }</span>
+
+    /**
+     * Overload accepting an explicit SSH command prefix — package-private
+     * for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath absolute path on the server to remove
+     * @param sshPrefix  the SSH command tokens (e.g., &quot;ssh&quot;, &quot;-i&quot;, &quot;key&quot;,
+     *                   &quot;-p&quot;, &quot;2222&quot;, &quot;user@localhost&quot;)
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath,
+                                    String... sshPrefix)
+            throws MojoException {
+<span class="nc" id="L823">        validateRemotePath(remotePath);</span>
+<span class="nc" id="L824">        log.debug(&quot;Cleaning remote site: &quot; + remotePath);</span>
+<span class="nc" id="L825">        String[] cmd = new String[sshPrefix.length + 3];</span>
+<span class="nc" id="L826">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="nc" id="L827">        cmd[sshPrefix.length] = &quot;rm&quot;;</span>
+<span class="nc" id="L828">        cmd[sshPrefix.length + 1] = &quot;-rf&quot;;</span>
+<span class="nc" id="L829">        cmd[sshPrefix.length + 2] = remotePath;</span>
+<span class="nc" id="L830">        exec(workDir, log, cmd);</span>
+<span class="nc" id="L831">    }</span>
+
+    /**
+     * Atomically swap a newly deployed site into place on the server.
+     *
+     * &lt;p&gt;The deployment flow is:
+     * &lt;ol&gt;
+     *   &lt;li&gt;SCP deploys to a staging path ({@code &lt;target&gt;.staging})&lt;/li&gt;
+     *   &lt;li&gt;This method renames the old directory to {@code &lt;target&gt;.old}&lt;/li&gt;
+     *   &lt;li&gt;Renames the staging directory to the final target&lt;/li&gt;
+     *   &lt;li&gt;Removes the old directory&lt;/li&gt;
+     * &lt;/ol&gt;
+     *
+     * &lt;p&gt;This avoids a window where the site is missing (rm + deploy)
+     * and ensures the site always serves either the old or new version.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath final target path on the server
+     * @throws MojoException if SSH commands fail
+     */
+    public static void swapRemoteSiteDir(File workDir, Log log, String remotePath)
+            throws MojoException {
+<span class="nc" id="L854">        swapRemoteSiteDir(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L855">    }</span>
+
+    /**
+     * Overload accepting an explicit SSH command prefix — package-private
+     * for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath final target path on the server
+     * @param sshPrefix  the SSH command tokens (e.g., &quot;ssh&quot;, &quot;-i&quot;, &quot;key&quot;,
+     *                   &quot;-p&quot;, &quot;2222&quot;, &quot;user@localhost&quot;)
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void swapRemoteSiteDir(File workDir, Log log, String remotePath,
+                                   String... sshPrefix)
+            throws MojoException {
+<span class="nc" id="L871">        validateRemotePath(remotePath);</span>
+<span class="nc" id="L872">        String staging = remotePath + &quot;.staging&quot;;</span>
+<span class="nc" id="L873">        String old = remotePath + &quot;.old&quot;;</span>
+
+<span class="nc" id="L875">        log.info(&quot;Swapping site: &quot; + staging + &quot; → &quot; + remotePath);</span>
+<span class="nc" id="L876">        String[] cmd = new String[sshPrefix.length + 1];</span>
+<span class="nc" id="L877">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="nc" id="L878">        cmd[sshPrefix.length] = &quot;rm -rf &quot; + old</span>
+                + &quot; &amp;&amp; (mv &quot; + remotePath + &quot; &quot; + old + &quot; 2&gt;/dev/null || true)&quot;
+                + &quot; &amp;&amp; mv &quot; + staging + &quot; &quot; + remotePath
+                + &quot; &amp;&amp; rm -rf &quot; + old;
+<span class="nc" id="L882">        exec(workDir, log, cmd);</span>
+<span class="nc" id="L883">    }</span>
+
+    /**
+     * Return the staging path for a site deploy (final path + &quot;.staging&quot;).
+     *
+     * @param diskPath the final on-disk site path
+     * @return {@code diskPath} with {@code .staging} appended
+     */
+    public static String siteStagingPath(String diskPath) {
+<span class="fc" id="L892">        return diskPath + &quot;.staging&quot;;</span>
+    }
+
+    /**
+     * Update the {@code latest} symlink alongside a version-prefixed
+     * site deploy so that {@code &lt;site-base&gt;/latest/} always points at
+     * the most recent release (ike-issues#303).
+     *
+     * &lt;p&gt;For a release deployed to
+     * {@code /srv/ike-site/ike-platform/17/}, this issues
+     * {@code cd /srv/ike-site/ike-platform &amp;&amp; ln -snf 17 latest} on the
+     * site host. Idempotent — the {@code -f} flag replaces any prior
+     * symlink target.
+     *
+     * &lt;p&gt;Uses the same SSH host as {@link #swapRemoteSiteDir}.
+     * Best-effort: callers should catch {@link MojoException} and
+     * surface as a warning rather than failing the release — the
+     * version-prefixed site is reachable at its own URL even if the
+     * alias update fails.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath the version-prefixed final site path
+     *                   (e.g. {@code /srv/ike-site/ike-platform/17})
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void updateLatestSymlink(File workDir, Log log,
+                                           String remotePath)
+            throws MojoException {
+<span class="nc" id="L921">        updateLatestSymlink(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L922">    }</span>
+
+    /**
+     * Overload accepting an explicit SSH command prefix —
+     * package-private for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath the version-prefixed final site path
+     * @param sshPrefix  the SSH command tokens
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void updateLatestSymlink(File workDir, Log log,
+                                           String remotePath,
+                                           String... sshPrefix)
+            throws MojoException {
+<span class="fc" id="L938">        validateRemotePath(remotePath);</span>
+<span class="fc" id="L939">        String parent = parentDir(remotePath);</span>
+<span class="fc" id="L940">        String leaf = leafName(remotePath);</span>
+<span class="pc bpc" id="L941" title="3 of 6 branches missed.">        if (parent == null || leaf == null || leaf.isEmpty()) {</span>
+<span class="nc" id="L942">            throw new MojoException(</span>
+                    &quot;Cannot derive parent/leaf from site path: &quot; + remotePath);
+        }
+
+<span class="fc" id="L946">        log.info(&quot;Updating latest symlink: &quot; + parent + &quot;/latest -&gt; &quot; + leaf);</span>
+<span class="fc" id="L947">        String[] cmd = new String[sshPrefix.length + 1];</span>
+<span class="fc" id="L948">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="fc" id="L949">        cmd[sshPrefix.length] = &quot;cd &quot; + parent</span>
+                + &quot; &amp;&amp; ln -snf &quot; + leaf + &quot; latest&quot;;
+<span class="fc" id="L951">        exec(workDir, log, cmd);</span>
+<span class="fc" id="L952">    }</span>
+
+    /**
+     * Compute the parent directory of a Unix-style absolute path
+     * without crossing the {@link #SITE_DISK_BASE} boundary. Returns
+     * {@code null} when the input is at or above the base.
+     *
+     * &lt;p&gt;Package-private for testing.
+     */
+    static String parentDir(String absPath) {
+<span class="fc" id="L962">        int lastSlash = absPath.lastIndexOf('/');</span>
+<span class="fc bfc" id="L963" title="All 2 branches covered.">        if (lastSlash &lt;= 0) return null;</span>
+<span class="fc" id="L964">        String parent = absPath.substring(0, lastSlash);</span>
+<span class="fc bfc" id="L965" title="All 2 branches covered.">        return parent.startsWith(SITE_DISK_BASE.replaceAll(&quot;/$&quot;, &quot;&quot;))</span>
+<span class="fc" id="L966">                ? parent : null;</span>
+    }
+
+    /**
+     * Last path segment of a Unix-style absolute path — the basename.
+     * Trailing slashes are tolerated.
+     *
+     * &lt;p&gt;Package-private for testing.
+     */
+    static String leafName(String absPath) {
+<span class="fc bfc" id="L976" title="All 2 branches covered.">        String trimmed = absPath.endsWith(&quot;/&quot;)</span>
+<span class="fc" id="L977">                ? absPath.substring(0, absPath.length() - 1) : absPath;</span>
+<span class="fc" id="L978">        int lastSlash = trimmed.lastIndexOf('/');</span>
+<span class="pc bpc" id="L979" title="1 of 2 branches missed.">        return lastSlash &lt; 0 ? trimmed : trimmed.substring(lastSlash + 1);</span>
+    }
+
+    /**
+     * Return the scpexe URL for the staging directory.
+     *
+     * @param targetUrl the final site URL
+     * @return {@code targetUrl} with {@code .staging} appended
+     */
+    public static String siteStagingUrl(String targetUrl) {
+<span class="fc" id="L989">        return targetUrl + &quot;.staging&quot;;</span>
+    }
+
+    /**
+     * Publish a project's rendered site to its repo's {@code gh-pages}
+     * branch (ike-issues#312).
+     *
+     * &lt;p&gt;Force-pushes a single orphan commit containing the contents of
+     * {@code stagingDir} to {@code gh-pages} on the project's git remote.
+     * Adds a {@code .nojekyll} marker so GitHub Pages skips Jekyll
+     * processing — the content is already rendered HTML and we don't
+     * want underscore-prefixed directories to be stripped.
+     *
+     * &lt;p&gt;Does NOT write a {@code CNAME} file: the org-level
+     * {@code IKE-Network.github.io/CNAME} (set to {@code ike.network})
+     * extends to all project pages under the org automatically. A
+     * per-project CNAME would either be ignored or conflict.
+     *
+     * &lt;p&gt;The stagingDir content is published verbatim — no path
+     * mangling, no version-prefixing. GitHub Pages then serves it at
+     * {@code https://ike.network/&lt;repo&gt;/} via the org's CNAME.
+     *
+     * &lt;p&gt;Patterned on {@code OrgSiteSupport.publishToGhPages} (in
+     * the ike-maven-plugin module) but generalized to any project's
+     * staging dir + remote. ike-workspace-model can't {@code @link}
+     * directly to ike-maven-plugin classes — it sits below in the
+     * dependency stack, so they're not on its javadoc classpath.
+     *
+     * @param stagingDir directory containing the rendered site
+     *                   (typically {@code target/staging/})
+     * @param repoUrl    git URL of the project repo to push to
+     * @param log        Maven logger
+     * @param projectId  project artifact ID, used in the commit message
+     * @param version    release version, used in the commit message
+     * @throws MojoException if any step fails
+     */
+    public static void publishProjectSiteToGhPages(Path stagingDir,
+                                                    String repoUrl,
+                                                    Log log,
+                                                    String projectId,
+                                                    String version)
+            throws MojoException {
+<span class="nc bnc" id="L1031" title="All 2 branches missed.">        if (!Files.isDirectory(stagingDir)) {</span>
+<span class="nc" id="L1032">            throw new MojoException(</span>
+                    &quot;Staging directory does not exist: &quot; + stagingDir
+                            + &quot;. Site build may have failed.&quot;);
+        }
+
+<span class="nc" id="L1037">        log.info(&quot;Publishing &quot; + projectId + &quot; site to gh-pages...&quot;);</span>
+
+        Path tempDir;
+        try {
+<span class="nc" id="L1041">            tempDir = Files.createTempDirectory(&quot;ike-project-gh-pages-&quot;);</span>
+<span class="nc" id="L1042">        } catch (IOException e) {</span>
+<span class="nc" id="L1043">            throw new MojoException(</span>
+                    &quot;Could not create temp directory for gh-pages publish&quot;, e);
+<span class="nc" id="L1045">        }</span>
+
+        try {
+<span class="nc" id="L1048">            File tempRoot = tempDir.toFile();</span>
+
+<span class="nc" id="L1050">            exec(tempRoot, log, &quot;git&quot;, &quot;init&quot;);</span>
+<span class="nc" id="L1051">            exec(tempRoot, log, &quot;git&quot;, &quot;checkout&quot;, &quot;--orphan&quot;, &quot;gh-pages&quot;);</span>
+
+            try {
+<span class="nc" id="L1054">                copyDirectory(stagingDir, tempDir);</span>
+<span class="nc" id="L1055">            } catch (IOException e) {</span>
+<span class="nc" id="L1056">                throw new MojoException(</span>
+<span class="nc" id="L1057">                        &quot;Failed to copy staging dir to temp: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1058">            }</span>
+
+            // .nojekyll — disable Jekyll preprocessing on rendered HTML.
+<span class="nc" id="L1061">            Path nojekyll = tempDir.resolve(&quot;.nojekyll&quot;);</span>
+            try {
+<span class="nc" id="L1063">                Files.writeString(nojekyll, &quot;&quot;);</span>
+<span class="nc" id="L1064">            } catch (IOException e) {</span>
+<span class="nc" id="L1065">                throw new MojoException(</span>
+<span class="nc" id="L1066">                        &quot;Failed to write .nojekyll marker: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1067">            }</span>
+
+            // Defensive: never carry a per-repo CNAME — the org CNAME
+            // (IKE-Network.github.io -&gt; ike.network) extends down.
+            // If a stray CNAME ended up in the staging dir, drop it.
+<span class="nc" id="L1072">            Path strayCname = tempDir.resolve(&quot;CNAME&quot;);</span>
+<span class="nc bnc" id="L1073" title="All 2 branches missed.">            if (Files.exists(strayCname)) {</span>
+                try {
+<span class="nc" id="L1075">                    Files.delete(strayCname);</span>
+<span class="nc" id="L1076">                    log.info(&quot;  Dropped stray CNAME from staging &quot;</span>
+                            + &quot;(per-project CNAMEs conflict with org CNAME)&quot;);
+<span class="nc" id="L1078">                } catch (IOException e) {</span>
+<span class="nc" id="L1079">                    throw new MojoException(</span>
+<span class="nc" id="L1080">                            &quot;Could not delete stray CNAME: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1081">                }</span>
+            }
+
+<span class="nc" id="L1084">            exec(tempRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
+<span class="nc" id="L1085">            exec(tempRoot, log, &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,</span>
+                    &quot;site: publish &quot; + projectId + &quot; &quot; + version);
+<span class="nc" id="L1087">            exec(tempRoot, log, &quot;git&quot;, &quot;push&quot;, &quot;--force&quot;,</span>
+                    repoUrl, &quot;gh-pages:gh-pages&quot;);
+
+<span class="nc" id="L1090">            log.info(&quot;  Published: https://ike.network/&quot; + projectId + &quot;/&quot;);</span>
+        } finally {
+<span class="nc" id="L1092">            deleteDirectory(tempDir);</span>
+        }
+<span class="nc" id="L1094">    }</span>
+
+    /**
+     * Validate that a remote path is safe for deletion operations.
+     *
+     * &lt;p&gt;Ensures the path starts with {@link #SITE_DISK_BASE} and has
+     * sufficient depth to prevent accidental deletion of the site root.
+     *
+     * @param remotePath absolute path on the server
+     * @throws MojoException if the path is unsafe
+     */
+    public static void validateRemotePath(String remotePath)
+            throws MojoException {
+<span class="fc bfc" id="L1107" title="All 2 branches covered.">        if (!remotePath.startsWith(SITE_DISK_BASE)) {</span>
+<span class="fc" id="L1108">            throw new MojoException(</span>
+                    &quot;Refusing to delete — path does not start with &quot;
+                            + SITE_DISK_BASE + &quot;: &quot; + remotePath);
+        }
+<span class="fc" id="L1112">        String relative = remotePath.substring(SITE_DISK_BASE.length());</span>
+<span class="fc bfc" id="L1113" title="All 2 branches covered.">        long depth = relative.chars().filter(c -&gt; c == '/').count();</span>
+<span class="fc bfc" id="L1114" title="All 4 branches covered.">        if (relative.isBlank() || depth &lt; 1) {</span>
+<span class="fc" id="L1115">            throw new MojoException(</span>
+                    &quot;Refusing to delete — path too shallow (need project/type): &quot;
+                            + remotePath);
+        }
+<span class="fc" id="L1119">    }</span>
+
+    /**
+     * Resolve the on-disk site path for a given project, type, and
+     * optional subdirectory.
+     *
+     * @param projectId  Maven artifact ID (e.g., &quot;ike-pipeline&quot;)
+     * @param siteType   &quot;release&quot;, &quot;snapshot&quot;, or &quot;checkpoint&quot;
+     * @param subPath    optional subdirectory (branch name, version);
+     *                   null or blank to omit
+     * @return absolute path on the server
+     */
+    public static String siteDiskPath(String projectId, String siteType,
+                               String subPath) {
+<span class="fc" id="L1133">        String path = SITE_DISK_BASE + projectId + &quot;/&quot; + siteType;</span>
+<span class="fc bfc" id="L1134" title="All 4 branches covered.">        if (subPath != null &amp;&amp; !subPath.isBlank()) {</span>
+<span class="fc" id="L1135">            path += &quot;/&quot; + subPath;</span>
+        }
+<span class="fc" id="L1137">        return path;</span>
+    }
+
+    /**
+     * Convert a git branch name to a safe site path segment.
+     * Replaces {@code /} with {@code /} (keeps hierarchy for
+     * {@code feature/name} structure).
+     *
+     * @param branch git branch name
+     * @return sanitized path segment safe for use in URLs and file paths
+     */
+    public static String branchToSitePath(String branch) {
+        // Keep forward slashes for directory structure (feature/name → feature/name)
+        // but sanitize anything dangerous
+<span class="fc" id="L1151">        return branch.replaceAll(&quot;[^a-zA-Z0-9/_.-]&quot;, &quot;-&quot;);</span>
+    }
+
+<span class="fc" id="L1154">    private static final Pattern ARTIFACT_ID_PATTERN =</span>
+<span class="fc" id="L1155">            Pattern.compile(&quot;&lt;artifactId&gt;([^&lt;]+)&lt;/artifactId&gt;&quot;);</span>
+
+    /**
+     * Read the project's own {@code &lt;artifactId&gt;} from a POM file,
+     * skipping any {@code &lt;artifactId&gt;} inside the {@code &lt;parent&gt;} block.
+     *
+     * @param pomFile the POM file to read
+     * @return the artifact ID string
+     * @throws MojoException if the file cannot be read or has no artifact ID
+     */
+    public static String readPomArtifactId(File pomFile) throws MojoException {
+        try {
+<span class="fc" id="L1167">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L1168">            String stripped = content.replaceFirst(</span>
+                    &quot;(?s)&lt;parent&gt;.*?&lt;/parent&gt;&quot;, &quot;&quot;);
+<span class="fc" id="L1170">            Matcher matcher = ARTIFACT_ID_PATTERN.matcher(stripped);</span>
+<span class="fc bfc" id="L1171" title="All 2 branches covered.">            if (matcher.find()) {</span>
+<span class="fc" id="L1172">                return matcher.group(1);</span>
+            }
+<span class="fc" id="L1174">            throw new MojoException(</span>
+                    &quot;Could not extract &lt;artifactId&gt; from &quot; + pomFile);
+<span class="nc" id="L1176">        } catch (IOException e) {</span>
+<span class="nc" id="L1177">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+        }
+    }
+
+    /**
+     * Recursively delete a directory and all its contents.
+     * Best-effort — failures are silently ignored.
+     *
+     * @param dir the directory to delete
+     */
+    public static void deleteDirectory(Path dir) {
+        try {
+<span class="nc" id="L1189">            Files.walkFileTree(dir, new SimpleFileVisitor&lt;&gt;() {</span>
+                @Override
+                public FileVisitResult visitFile(Path file,
+                        BasicFileAttributes attrs) throws IOException {
+<span class="nc" id="L1193">                    Files.delete(file);</span>
+<span class="nc" id="L1194">                    return FileVisitResult.CONTINUE;</span>
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path d,
+                        IOException exc) throws IOException {
+<span class="nc" id="L1200">                    Files.delete(d);</span>
+<span class="nc" id="L1201">                    return FileVisitResult.CONTINUE;</span>
+                }
+            });
+<span class="nc" id="L1204">        } catch (IOException e) {</span>
+            // Best-effort — log but don't fail
+<span class="nc" id="L1206">        }</span>
+<span class="nc" id="L1207">    }</span>
+
+    /**
+     * Recursively copy a directory tree.
+     *
+     * @param source the source directory to copy from
+     * @param target the target directory to copy to
+     * @throws IOException if a file cannot be copied
+     */
+    public static void copyDirectory(Path source, Path target) throws IOException {
+<span class="nc" id="L1217">        try (Stream&lt;Path&gt; stream = Files.walk(source)) {</span>
+<span class="nc" id="L1218">            stream.forEach(src -&gt; {</span>
+                try {
+<span class="nc" id="L1220">                    Path dest = target.resolve(source.relativize(src));</span>
+<span class="nc bnc" id="L1221" title="All 2 branches missed.">                    if (Files.isDirectory(src)) {</span>
+<span class="nc" id="L1222">                        Files.createDirectories(dest);</span>
+                    } else {
+<span class="nc" id="L1224">                        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);</span>
+                    }
+<span class="nc" id="L1226">                } catch (IOException e) {</span>
+<span class="nc" id="L1227">                    throw new RuntimeException(e);</span>
+<span class="nc" id="L1228">                }</span>
+<span class="nc" id="L1229">            });</span>
+        }
+<span class="nc" id="L1231">    }</span>
+
+    /**
+     * Read the {@code &lt;name&gt;} element from a POM file.
+     *
+     * @param pomFile the POM file to read
+     * @return the name, or null if not present
+     * @throws MojoException if the file cannot be read
+     */
+    public static String readPomName(File pomFile) throws MojoException {
+<span class="nc" id="L1241">        return readPomElement(pomFile, &quot;name&quot;);</span>
+    }
+
+    /**
+     * Read the {@code &lt;description&gt;} element from a POM file.
+     *
+     * @param pomFile the POM file to read
+     * @return the description, or null if not present
+     * @throws MojoException if the file cannot be read
+     */
+    public static String readPomDescription(File pomFile) throws MojoException {
+<span class="nc" id="L1252">        return readPomElement(pomFile, &quot;description&quot;);</span>
+    }
+
+    private static String readPomElement(File pomFile, String element)
+            throws MojoException {
+        try {
+<span class="nc" id="L1258">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L1259">            Pattern pattern = Pattern.compile(</span>
+                    &quot;&lt;&quot; + element + &quot;&gt;([^&lt;]+)&lt;/&quot; + element + &quot;&gt;&quot;);
+<span class="nc" id="L1261">            Matcher matcher = pattern.matcher(content);</span>
+<span class="nc bnc" id="L1262" title="All 2 branches missed.">            return matcher.find() ? matcher.group(1).trim() : null;</span>
+<span class="nc" id="L1263">        } catch (IOException e) {</span>
+<span class="nc" id="L1264">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
