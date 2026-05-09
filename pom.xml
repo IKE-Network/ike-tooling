@@ -150,6 +150,43 @@
                                 <overWriteSnapshots>true</overWriteSnapshots>
                             </configuration>
                         </execution>
+                        <!-- Forest theme site.css + ike-logo.svg from
+                             ike-build-standards (#318, #330). Unpacked at
+                             pre-site into ${project.build.directory}/
+                             generated-site/resources/, which the Maven
+                             Site Plugin merges into target/site at
+                             site:site time. Activated via the
+                             site-resources profile below so only
+                             modules with src/site/ pull it. The
+                             ike-build-standards module itself opts out
+                             (circular) and uses src/main/site-theme as
+                             its own site source.
+
+                             Uses `unpack` (with inline artifactItem)
+                             rather than `unpack-dependencies` so the
+                             reactor pom can self-render its own site
+                             without declaring a dependency on its own
+                             ike-build-standards subproject — that would
+                             create a Maven reactor cycle. -->
+                        <execution>
+                            <id>unpack-site-theme</id>
+                            <phase>pre-site</phase>
+                            <goals><goal>unpack</goal></goals>
+                            <configuration>
+                                <artifactItems>
+                                    <artifactItem>
+                                        <groupId>network.ike.tooling</groupId>
+                                        <artifactId>ike-build-standards</artifactId>
+                                        <version>${project.version}</version>
+                                        <classifier>site-theme</classifier>
+                                        <type>zip</type>
+                                        <outputDirectory>${project.build.directory}/generated-site/resources</outputDirectory>
+                                    </artifactItem>
+                                </artifactItems>
+                                <overWriteReleases>true</overWriteReleases>
+                                <overWriteSnapshots>true</overWriteSnapshots>
+                            </configuration>
+                        </execution>
                     </executions>
                 </plugin>
 
@@ -331,6 +368,39 @@
     </reporting>
 
     <profiles>
+        <!-- ── site-resources ───────────────────────────────────────── -->
+        <!-- Activated when src/site exists. Unpacks the canonical Forest -->
+        <!-- theme site.css + ike-logo.svg from                          -->
+        <!-- ike-build-standards:site-theme:zip into                     -->
+        <!-- target/generated-site/resources/ at pre-site, which Maven   -->
+        <!-- Site merges into target/site at site:site time. See #318,   -->
+        <!-- #330. ike-build-standards itself opts out (circular). The   -->
+        <!-- pluginManagement execution uses `unpack` with inline        -->
+        <!-- artifactItem (not `unpack-dependencies`) so the reactor pom -->
+        <!-- can render its own site without declaring a dependency on   -->
+        <!-- its own subproject (which would cycle the reactor graph).  -->
+        <profile>
+            <id>site-resources</id>
+            <activation>
+                <file><exists>src/site</exists></file>
+            </activation>
+
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>unpack-site-theme</id>
+                                <!-- inherits config from pluginManagement -->
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
         <!-- Activated by ike:release for Nexus deployment -->
         <profile>
             <id>release</id>
