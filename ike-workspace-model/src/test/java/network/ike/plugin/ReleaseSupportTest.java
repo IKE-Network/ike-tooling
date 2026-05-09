@@ -1263,6 +1263,50 @@ class ReleaseSupportTest {
         }
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // gh-pages hybrid structure (#332)
+    // ════════════════════════════════════════════════════════════════
+
+    @Test
+    void isVersionDirName_singleSegmentInteger_returnsTrue() {
+        assertThat(ReleaseSupport.isVersionDirName("145")).isTrue();
+        assertThat(ReleaseSupport.isVersionDirName("1")).isTrue();
+    }
+
+    @Test
+    void isVersionDirName_semverLike_returnsTrue() {
+        assertThat(ReleaseSupport.isVersionDirName("1.2.3")).isTrue();
+        assertThat(ReleaseSupport.isVersionDirName("2.0.0-rc1")).isTrue();
+    }
+
+    @Test
+    void isVersionDirName_dateBased_returnsTrue() {
+        assertThat(ReleaseSupport.isVersionDirName("2026-04-25")).isTrue();
+    }
+
+    @Test
+    void isVersionDirName_assetDirs_returnFalse() {
+        assertThat(ReleaseSupport.isVersionDirName("css")).isFalse();
+        assertThat(ReleaseSupport.isVersionDirName("js")).isFalse();
+        assertThat(ReleaseSupport.isVersionDirName("images")).isFalse();
+        assertThat(ReleaseSupport.isVersionDirName("fonts")).isFalse();
+        assertThat(ReleaseSupport.isVersionDirName("webfonts")).isFalse();
+    }
+
+    @Test
+    void isVersionDirName_latestAlias_returnsFalse() {
+        // 'latest' starts with a letter so it's not preserved as a
+        // version subdir — the gh-pages publish overwrites it on each
+        // release.
+        assertThat(ReleaseSupport.isVersionDirName("latest")).isFalse();
+    }
+
+    @Test
+    void isVersionDirName_emptyOrNull_returnFalse() {
+        assertThat(ReleaseSupport.isVersionDirName("")).isFalse();
+        assertThat(ReleaseSupport.isVersionDirName(null)).isFalse();
+    }
+
     private String execCapture(Path workDir, String... command) throws Exception {
         Process process = new ProcessBuilder(command)
                 .directory(workDir.toFile())

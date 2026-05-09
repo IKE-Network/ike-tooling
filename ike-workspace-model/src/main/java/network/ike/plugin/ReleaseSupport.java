@@ -991,11 +991,34 @@ public class ReleaseSupport {
 
     /**
      * Publish a project's rendered site to its repo's {@code gh-pages}
-     * branch (ike-issues#312).
+     * branch using the hybrid structure (ike-issues#312, #332).
      *
-     * <p>Force-pushes a single orphan commit containing the contents of
-     * {@code stagingDir} to {@code gh-pages} on the project's git remote.
-     * Adds a {@code .nojekyll} marker so GitHub Pages skips Jekyll
+     * <p>Layout produced after each release:
+     * <ul>
+     *   <li>{@code /} — the just-released version's site at the root
+     *       (so {@code https://ike.network/<repo>/} serves the current
+     *       release, the same as before).</li>
+     *   <li>{@code /<version>/} — the just-released version preserved
+     *       under a versioned subdirectory for citations and
+     *       reproducibility.</li>
+     *   <li>{@code /latest/} — a copy of the just-released version
+     *       under the canonical "latest" path. Not a git symlink:
+     *       GitHub Pages doesn't follow them reliably.</li>
+     *   <li>Earlier {@code /<version>/} subdirectories from prior
+     *       releases are preserved unchanged.</li>
+     * </ul>
+     *
+     * <p>Mechanics: the existing {@code gh-pages} branch is cloned
+     * (preserving full history including all prior {@code <version>/}
+     * subdirs); root-level files and non-version root subdirs are
+     * wiped (stale assets from the previous release shouldn't linger);
+     * staging is copied to root, to {@code <version>/}, and to
+     * {@code latest/}; an additive commit is pushed (no
+     * {@code --force}). On first-time publish (no {@code gh-pages}
+     * branch yet) the bootstrap path uses {@code git checkout
+     * --orphan} and force-push.
+     *
+     * <p>Adds a {@code .nojekyll} marker so GitHub Pages skips Jekyll
      * processing — the content is already rendered HTML and we don't
      * want underscore-prefixed directories to be stripped.
      *
@@ -1003,10 +1026,6 @@ public class ReleaseSupport {
      * {@code IKE-Network.github.io/CNAME} (set to {@code ike.network})
      * extends to all project pages under the org automatically. A
      * per-project CNAME would either be ignored or conflict.
-     *
-     * <p>The stagingDir content is published verbatim — no path
-     * mangling, no version-prefixing. GitHub Pages then serves it at
-     * {@code https://ike.network/<repo>/} via the org's CNAME.
      *
      * <p>Patterned on {@code OrgSiteSupport.publishToGhPages} (in
      * the ike-maven-plugin module) but generalized to any project's
@@ -1047,14 +1066,86 @@ public class ReleaseSupport {
         try {
             File tempRoot = tempDir.toFile();
 
-            exec(tempRoot, log, "git", "init");
-            exec(tempRoot, log, "git", "checkout", "--orphan", "gh-pages");
+            // Try cloning the existing gh-pages branch so we preserve
+            // history and any prior <version>/ subdirs. If the branch
+            // doesn't yet exist on the remote (first publish), the
+            // clone fails and we bootstrap with an orphan branch.
+            boolean firstTimeBootstrap = false;
+            try {
+                exec(tempRoot, log, "git", "clone",
+                        "--branch", "gh-pages",
+                        "--single-branch",
+                        repoUrl, ".");
+                log.info("  Cloned existing gh-pages branch (additive publish)");
+            } catch (MojoException cloneFailed) {
+                // Most likely: the branch doesn't exist yet on this repo.
+                // Bootstrap: init + orphan checkout, then force-push at
+                // the end.
+                log.info("  No existing gh-pages branch — bootstrapping "
+                        + "with orphan checkout (first-time publish)");
+                firstTimeBootstrap = true;
+                // Clear any partial state from the failed clone attempt.
+                try (Stream<Path> entries = Files.list(tempDir)) {
+                    entries.forEach(p -> {
+                        if (Files.isDirectory(p)) {
+                            deleteDirectory(p);
+                        } else {
+                            try { Files.delete(p); } catch (IOException ignore) {
+                                // best effort
+                            }
+                        }
+                    });
+                } catch (IOException ignore) {
+                    // best effort
+                }
+                exec(tempRoot, log, "git", "init");
+                exec(tempRoot, log, "git", "checkout", "--orphan", "gh-pages");
+            }
 
+            // Wipe root-level files and non-version subdirs before
+            // overlaying the new release. Preserves .git/, the latest/
+            // alias (which we'll repopulate), and any directory whose
+            // name starts with a digit (a versioned snapshot from a
+            // prior release).
+            try {
+                wipeGhPagesRootForRepublish(tempDir, log);
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to wipe root for republish: " + e.getMessage(), e);
+            }
+
+            // (1) Copy staging to root — current release at /<projectId>/.
             try {
                 copyDirectory(stagingDir, tempDir);
             } catch (IOException e) {
                 throw new MojoException(
-                        "Failed to copy staging dir to temp: " + e.getMessage(), e);
+                        "Failed to copy staging dir to root: " + e.getMessage(), e);
+            }
+
+            // (2) Copy staging to /<version>/ — preserved snapshot.
+            Path versionDir = tempDir.resolve(version);
+            deleteDirectory(versionDir);
+            try {
+                Files.createDirectories(versionDir);
+                copyDirectory(stagingDir, versionDir);
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to copy staging dir to versioned subdir "
+                                + versionDir + ": " + e.getMessage(), e);
+            }
+
+            // (3) Replace /latest/ with the just-released content.
+            //     Directory copy (not symlink) — GitHub Pages does not
+            //     follow git symlinks reliably.
+            Path latestDir = tempDir.resolve("latest");
+            deleteDirectory(latestDir);
+            try {
+                Files.createDirectories(latestDir);
+                copyDirectory(stagingDir, latestDir);
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to copy staging dir to latest/: "
+                                + e.getMessage(), e);
             }
 
             // .nojekyll — disable Jekyll preprocessing on rendered HTML.
@@ -1068,7 +1159,9 @@ public class ReleaseSupport {
 
             // Defensive: never carry a per-repo CNAME — the org CNAME
             // (IKE-Network.github.io -> ike.network) extends down.
-            // If a stray CNAME ended up in the staging dir, drop it.
+            // If a stray CNAME ended up in the staging dir, drop it
+            // (root copy only — versioned subdirs are also free of it
+            // since their source was the same staging dir).
             Path strayCname = tempDir.resolve("CNAME");
             if (Files.exists(strayCname)) {
                 try {
@@ -1084,13 +1177,91 @@ public class ReleaseSupport {
             exec(tempRoot, log, "git", "add", "-A");
             exec(tempRoot, log, "git", "commit", "-m",
                     "site: publish " + projectId + " " + version);
-            exec(tempRoot, log, "git", "push", "--force",
-                    repoUrl, "gh-pages:gh-pages");
+            if (firstTimeBootstrap) {
+                exec(tempRoot, log, "git", "push", "--force",
+                        repoUrl, "gh-pages:gh-pages");
+            } else {
+                exec(tempRoot, log, "git", "push",
+                        repoUrl, "gh-pages:gh-pages");
+            }
 
-            log.info("  Published: https://ike.network/" + projectId + "/");
+            log.info("  Published:");
+            log.info("    Current:   https://ike.network/" + projectId + "/");
+            log.info("    Versioned: https://ike.network/" + projectId
+                    + "/" + version + "/");
+            log.info("    Latest:    https://ike.network/" + projectId + "/latest/");
         } finally {
             deleteDirectory(tempDir);
         }
+    }
+
+    /**
+     * Wipe root-level files and non-version subdirs from a freshly
+     * cloned (or freshly initialized) gh-pages working tree, in
+     * preparation for overlaying a new release.
+     *
+     * <p>Preserves:
+     * <ul>
+     *   <li>{@code .git/} — git internals</li>
+     *   <li>Any directory whose name starts with a digit — assumed to
+     *       be a versioned snapshot from a prior release. Versions in
+     *       IKE projects are numeric (single-segment integers, semver,
+     *       date-based, etc.) so the digit-prefix heuristic catches all
+     *       three. {@code latest/} starts with a letter and is wiped
+     *       (will be repopulated by the caller).</li>
+     * </ul>
+     *
+     * <p>Wipes everything else: stale {@code index.html}, {@code css/},
+     * {@code js/}, {@code images/}, {@code latest/}, etc. The caller
+     * then copies the new staging contents on top.
+     *
+     * @param repoDir the cloned/initialized gh-pages working tree
+     * @param log     Maven logger
+     * @throws IOException if directory listing fails
+     */
+    private static void wipeGhPagesRootForRepublish(Path repoDir, Log log)
+            throws IOException {
+        try (Stream<Path> entries = Files.list(repoDir)) {
+            entries.forEach(entry -> {
+                String name = entry.getFileName().toString();
+                if (".git".equals(name)) {
+                    return;
+                }
+                if (Files.isDirectory(entry) && isVersionDirName(name)) {
+                    log.debug("  Preserving versioned subdir: " + name + "/");
+                    return;
+                }
+                if (Files.isDirectory(entry)) {
+                    deleteDirectory(entry);
+                } else {
+                    try {
+                        Files.delete(entry);
+                    } catch (IOException e) {
+                        log.warn("  Could not delete root file "
+                                + name + ": " + e.getMessage());
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * Heuristic: does this directory name look like a release version?
+     *
+     * <p>IKE versions are not necessarily semver — they may be
+     * single-segment integers (e.g., {@code 145}), semver
+     * ({@code 1.2.3}), or date-based ({@code 2026-04-25}). All three
+     * forms start with a digit, while non-version directories at the
+     * gh-pages root (e.g., {@code css}, {@code js}, {@code images},
+     * {@code latest}) start with a letter.
+     *
+     * @param name the directory name
+     * @return {@code true} if the name looks like a version
+     */
+    static boolean isVersionDirName(String name) {
+        return name != null
+                && !name.isEmpty()
+                && Character.isDigit(name.charAt(0));
     }
 
     /**

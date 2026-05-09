@@ -527,8 +527,15 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         }
         if (publishSite && deploySite) {
             if (ghPagesPublished) {
-                getLog().info("  GitHub Pages: https://ike.network/"
+                // Hybrid structure (#332): current at root, versioned
+                // snapshot, latest alias.
+                getLog().info("  GitHub Pages:");
+                getLog().info("    Current:   https://ike.network/"
                         + projectId + "/");
+                getLog().info("    Versioned: https://ike.network/"
+                        + projectId + "/" + releaseVersion + "/");
+                getLog().info("    Latest:    https://ike.network/"
+                        + projectId + "/latest/");
             } else {
                 // Don't lie about state. Earlier behavior printed the
                 // success line unconditionally; ike-issues#329.
