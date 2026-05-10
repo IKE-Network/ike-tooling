@@ -13,8 +13,8 @@ The following is a list of compile dependencies for this project. These dependen
 | GroupId | ArtifactId | Version | Type | Licenses |
 | --- | --- | --- | --- | --- |
 | network.ike.pipeline | [koncept-asciidoc-extension](https://github.com/IKE-Network/ike-pipeline)[1] | 84 | jar | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
-| network.ike.tooling | [ike-maven-plugin-support](https://ike.network/ike-tooling/ike-maven-plugin-support/)[3] | 148 | jar | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
-| network.ike.tooling | [ike-workspace-model](https://ike.network/ike-tooling/ike-workspace-model/)[4] | 148 | jar | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
+| network.ike.tooling | [ike-maven-plugin-support](https://ike.network/ike-tooling/ike-maven-plugin-support/)[3] | 149 | jar | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
+| network.ike.tooling | [ike-workspace-model](https://ike.network/ike-tooling/ike-workspace-model/)[4] | 149 | jar | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
 | org.asciidoctor | [asciidoctorj](https://github.com/asciidoctor/asciidoctorj)[5] | 3.0.1 | jar | [The Apache Software License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0.txt)[6] |
 | org.asciidoctor | [asciidoctorj-diagram](https://github.com/asciidoctor/asciidoctorj-diagram)[7] | 3.2.1 | jar | [The Apache Software License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0.txt)[6] |
 | org.asciidoctor | [asciidoctorj-pdf](https://github.com/asciidoctor/asciidoctorj-pdf)[8] | 2.3.23 | jar | [The Apache Software License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0.txt)[6] |
@@ -39,7 +39,7 @@ The following is a list of provided dependencies for this project. These depende
 
 | GroupId | ArtifactId | Version | Classifier | Type | Licenses |
 | --- | --- | --- | --- | --- | --- |
-| network.ike.tooling | [ike-build-standards](https://ike.network/ike-tooling/ike-build-standards/)[20] | 148 | claude | zip | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
+| network.ike.tooling | [ike-build-standards](https://ike.network/ike-tooling/ike-build-standards/)[20] | 149 | claude | zip | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
 | org.apache.maven | [maven-api-core](https://maven.apache.org/ref/4.0.0-rc-5/api/maven-api-core/)[21] | 4.0.0-rc-5 | - | jar | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
 | org.apache.maven | [maven-api-di](https://maven.apache.org/ref/4.0.0-rc-5/api/maven-api-di/)[22] | 4.0.0-rc-5 | - | jar | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
 | org.apache.maven | [maven-api-plugin](https://maven.apache.org/ref/4.0.0-rc-5/api/maven-api-plugin/)[23] | 4.0.0-rc-5 | - | jar | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
@@ -157,18 +157,18 @@ The following is a list of test dependencies for this project. These dependencie
 
 ## [Dependency Tree](#dependency-tree)
 
-- network.ike.tooling:ike-maven-plugin:maven-plugin:148 ** 
+- network.ike.tooling:ike-maven-plugin:maven-plugin:149 ** 
   
   | IKE Maven Plugin |
   | --- |
   | **Description: **Cross-platform Maven plugin providing release, documentation rendering, site deployment, and build management goals for IKE projects. Workspace goals are in ike-workspace-maven-plugin (ws: prefix). **URL: **[https://ike.network/ike-tooling/ike-maven-plugin/](https://ike.network/ike-tooling/ike-maven-plugin/)[105] **Project Licenses: **[Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
   
-    - network.ike.tooling:ike-build-standards:zip:claude:148 (provided) ** 
+    - network.ike.tooling:ike-build-standards:zip:claude:149 (provided) ** 
       
       | IKE Build Standards |
       | --- |
       | **Description: **Versioned Claude instruction files for IKE projects. Modular standards (Maven, Java, IKE-specific) distributed as a classified Maven artifact. **URL: **[https://ike.network/ike-tooling/ike-build-standards/](https://ike.network/ike-tooling/ike-build-standards/)[20] **Project Licenses: **[Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
-    - network.ike.tooling:ike-workspace-model:jar:148 (compile) ** 
+    - network.ike.tooling:ike-workspace-model:jar:149 (compile) ** 
       
       | IKE Workspace Model |
       | --- |
@@ -206,7 +206,7 @@ The following is a list of test dependencies for this project. These dependencie
                               | Stax2 API |
                               | --- |
                               | **Description: **Stax2 API is an extension to basic Stax 1.0 API that adds significant new functionality, such as full-featured bi-direction validation interface and high-performance Typed Access API. **URL: **[http://github.com/FasterXML/stax2-api](http://github.com/FasterXML/stax2-api)[57] **Project Licenses: **[The BSD 2-Clause License](http://www.opensource.org/licenses/bsd-license.php)[58] |
-    - network.ike.tooling:ike-maven-plugin-support:jar:148 (compile) ** 
+    - network.ike.tooling:ike-maven-plugin-support:jar:149 (compile) ** 
       
       | IKE Maven Plugin Support |
       | --- |
@@ -809,9 +809,9 @@ The following is a list of test dependencies for this project. These dependencie
 | jna-5.18.1.jar | 2 MB | 191 | 124 | 4 | 1.8 | Yes |
 | jna-platform-5.18.1.jar | 1.4 MB | 1336 | 1288 | 15 | 1.8 | Yes |
 | koncept-asciidoc-extension-84.jar | 27.8 kB | 26 | 11 | 1 | 25 | Yes |
-| ike-build-standards-148-claude.zip | 81 kB | - | - | - | - | - |
-| ike-maven-plugin-support-148.jar | 37.9 kB | 31 | 19 | 2 | 25 | Yes |
-| ike-workspace-model-148.jar | 108.4 kB | 57 | 46 | 2 | 25 | Yes |
+| ike-build-standards-149-claude.zip | 81 kB | - | - | - | - | - |
+| ike-maven-plugin-support-149.jar | 37.9 kB | 31 | 19 | 2 | 25 | Yes |
+| ike-workspace-model-149.jar | 108.4 kB | 57 | 46 | 2 | 25 | Yes |
 | antlr4-runtime-4.13.2.jar | 326.3 kB | 232 | 215 | 7 | 1.8 | Yes |
 | commons-compress-1.28.0.jar | 1.1 MB | 642 | - | - | - | - |
 |    • Root | - | 641 | 589 | 36 | 1.8 | Yes |
