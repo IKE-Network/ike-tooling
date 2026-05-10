@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldApplier.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">ScaffoldApplier.java</span></div><h1>ScaffoldApplier.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Execute a {@link ScaffoldPlan}: write out Write-actions to disk and
+ * compose the updated {@link ScaffoldLockfile}.
+ *
+ * &lt;p&gt;Write actions are executed in order; the applier carefully
+ * creates parent directories and uses
+ * {@link StandardCopyOption#REPLACE_EXISTING} so existing files are
+ * atomically replaced.
+ *
+ * &lt;p&gt;{@link TierAction.Skip} actions are recorded in the returned
+ * lockfile as-is (the existing entry stays put). {@link TierAction.UpToDate}
+ * and {@link TierAction.UserManaged} actions refresh the
+ * {@code standards-version} on model-managed elements but are
+ * otherwise no-ops.
+ */
+public final class ScaffoldApplier {
+
+    private final Clock clock;
+
+    /** Construct with {@link Clock#systemUTC()}. */
+    public ScaffoldApplier() {
+<span class="fc" id="L33">        this(Clock.systemUTC());</span>
+<span class="fc" id="L34">    }</span>
+
+    /**
+     * Construct with an explicit clock. Tests supply a fixed clock so
+     * the {@code generated-at} timestamp recorded in the updated
+     * lockfile is deterministic.
+     *
+     * @param clock clock used for timestamps written into the lockfile
+     */
+<span class="fc" id="L43">    public ScaffoldApplier(Clock clock) {</span>
+<span class="fc" id="L44">        this.clock = clock;</span>
+<span class="fc" id="L45">    }</span>
+
+    /**
+     * Carry out a plan.
+     *
+     * @param plan            the plan to execute
+     * @param currentLockfile the current lockfile (so entries outside
+     *                        the plan's scope are preserved verbatim)
+     * @return the updated lockfile
+     * @throws ScaffoldException if any Write fails
+     */
+    public ScaffoldLockfile apply(
+            ScaffoldPlan plan,
+            ScaffoldLockfile currentLockfile) {
+<span class="fc" id="L59">        Map&lt;String, LockfileEntry&gt; files =</span>
+<span class="fc" id="L60">                new LinkedHashMap&lt;&gt;(currentLockfile.files());</span>
+<span class="fc bfc" id="L61" title="All 2 branches covered.">        for (PlannedEntry pe : plan.entries()) {</span>
+<span class="fc" id="L62">            LockfileEntry updated = applyOne(pe);</span>
+<span class="fc bfc" id="L63" title="All 2 branches covered.">            if (updated != null) {</span>
+<span class="fc" id="L64">                files.put(pe.manifest().dest(), updated);</span>
+            }
+            // Skip actions retain whatever the lockfile already had.
+<span class="fc" id="L67">        }</span>
+<span class="fc" id="L68">        return new ScaffoldLockfile(</span>
+                ScaffoldLockfile.CURRENT_SCHEMA,
+<span class="fc" id="L70">                plan.manifestStandardsVersion(),</span>
+<span class="fc" id="L71">                Instant.now(clock),</span>
+                files);
+    }
+
+    private LockfileEntry applyOne(PlannedEntry pe) {
+<span class="fc" id="L76">        TierAction action = pe.action();</span>
+<span class="fc bfc" id="L77" title="All 2 branches covered.">        if (action instanceof TierAction.Write w) {</span>
+<span class="fc" id="L78">            writeBytes(w.resolvedDest(), w.newContent());</span>
+<span class="fc" id="L79">            return lockfileEntryFor(pe, w.templateSha(), w.appliedSha());</span>
+        }
+<span class="fc bfc" id="L81" title="All 2 branches covered.">        if (action instanceof TierAction.UpToDate u) {</span>
+            // Refresh standards-version in the lockfile entry.
+<span class="fc" id="L83">            return lockfileEntryFor(pe, u.templateSha(), u.appliedSha());</span>
+        }
+<span class="fc bfc" id="L85" title="All 2 branches covered.">        if (action instanceof TierAction.UserManaged m) {</span>
+            // No write; refresh lockfile provenance like UpToDate.
+<span class="fc" id="L87">            return lockfileEntryFor(pe, m.templateSha(), m.appliedSha());</span>
+        }
+        // Skip: leave lockfile unchanged.
+<span class="fc" id="L90">        return null;</span>
+    }
+
+    private static LockfileEntry lockfileEntryFor(
+            PlannedEntry pe,
+            String templateSha,
+            String appliedSha) {
+<span class="fc" id="L97">        ScaffoldTier tier = pe.manifest().tier();</span>
+<span class="fc bfc" id="L98" title="All 3 branches covered.">        return switch (tier) {</span>
+            case TOOL_OWNED -&gt;
+<span class="fc" id="L100">                    LockfileEntry.toolOwned(templateSha);</span>
+            case TRACKED, TRACKED_BLOCK -&gt;
+<span class="fc" id="L102">                    LockfileEntry.tracked(</span>
+                            tier, templateSha, appliedSha);
+            case MODEL_MANAGED -&gt;
+<span class="fc" id="L105">                    LockfileEntry.modelManaged(pe.managedElements());</span>
+        };
+    }
+
+    private static void writeBytes(Path dest, byte[] content) {
+        try {
+<span class="fc" id="L111">            Path parent = dest.getParent();</span>
+<span class="pc bpc" id="L112" title="1 of 2 branches missed.">            if (parent != null) {</span>
+<span class="fc" id="L113">                Files.createDirectories(parent);</span>
+            }
+<span class="fc" id="L115">            Path tmp = Files.createTempFile(</span>
+<span class="pc bpc" id="L116" title="1 of 2 branches missed.">                    parent == null ? dest.toAbsolutePath().getParent()</span>
+<span class="fc" id="L117">                            : parent,</span>
+<span class="fc" id="L118">                    dest.getFileName().toString(), &quot;.tmp&quot;);</span>
+            try {
+<span class="fc" id="L120">                Files.write(tmp, content);</span>
+<span class="fc" id="L121">                Files.move(tmp, dest,</span>
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+<span class="nc" id="L124">            } catch (IOException e) {</span>
+                try {
+<span class="nc" id="L126">                    Files.deleteIfExists(tmp);</span>
+<span class="nc" id="L127">                } catch (IOException ignored) {</span>
+                    // ignore — best-effort cleanup
+<span class="nc" id="L129">                }</span>
+<span class="nc" id="L130">                throw e;</span>
+<span class="fc" id="L131">            }</span>
+<span class="nc" id="L132">        } catch (IOException e) {</span>
+<span class="nc" id="L133">            throw new ScaffoldException(</span>
+                    &quot;cannot write &quot; + dest, e);
+<span class="fc" id="L135">        }</span>
+<span class="fc" id="L136">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldPublishMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ScaffoldPublishMojo.java</span></div><h1>ScaffoldPublishMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.scaffold.DirectoryTemplateSource;
+import network.ike.plugin.scaffold.ModelAdapters;
+import network.ike.plugin.scaffold.PathResolver;
+import network.ike.plugin.scaffold.ScaffoldApplier;
+import network.ike.plugin.scaffold.ScaffoldException;
+import network.ike.plugin.scaffold.ScaffoldLockfile;
+import network.ike.plugin.scaffold.ScaffoldLockfileIo;
+import network.ike.plugin.scaffold.ScaffoldManifest;
+import network.ike.plugin.scaffold.ScaffoldMojoSupport;
+import network.ike.plugin.scaffold.ScaffoldMojoSupport.Counts;
+import network.ike.plugin.scaffold.ScaffoldPlan;
+import network.ike.plugin.scaffold.ScaffoldPlanner;
+import network.ike.plugin.scaffold.ScaffoldScope;
+import network.ike.plugin.scaffold.TemplateSource;
+import network.ike.plugin.scaffold.TierHandlers;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.nio.file.Path;
+
+/**
+ * Apply the scaffold manifest to disk and update the lockfiles.
+ *
+ * &lt;p&gt;Runs {@link ScaffoldPlanner} followed by {@link ScaffoldApplier}
+ * in each applicable scope. Writes the per-file results into:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code {projectRoot}/.ike/scaffold.lock} — commits to the
+ *       project's git history&lt;/li&gt;
+ *   &lt;li&gt;{@code {userHome}/.ike/scaffold.lock} — tracks user-home
+ *       state on this machine&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;Write-actions land atomically (tmp file + move with
+ * {@code ATOMIC_MOVE + REPLACE_EXISTING}). Skip actions — tracked
+ * files the user has edited — are left alone; they are reported
+ * but never overwritten.
+ *
+ * &lt;p&gt;Running with {@code projectRequired = false} means this goal
+ * works both inside a project (project + user scope) and on a fresh
+ * machine (user scope only, for bootstrap of git hooks,
+ * {@code ~/.m2/settings.xml}, etc.).
+ *
+ * &lt;p&gt;Use {@code ike:scaffold-draft} first to preview changes.
+ *
+ * @see ScaffoldDraftMojo
+ * @see ScaffoldRevertMojo
+ */
+@Mojo(name = &quot;scaffold-publish&quot;, projectRequired = false,
+      aggregator = true)
+public class ScaffoldPublishMojo
+        implements org.apache.maven.api.plugin.Mojo {
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Maven 4 session — used to derive the project root from
+     * {@link Session#getTopDirectory()} when {@code projectRoot} is
+     * not supplied. Maven's parameter-default expansion does not
+     * interpolate {@code ${project.basedir}} for goals annotated
+     * {@code projectRequired = false}, so we resolve it here.
+     */
+    @Inject
+    private Session session;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="fc" id="L77">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /**
+     * Path to an unpacked scaffold tree containing
+     * {@code scaffold-manifest.yaml} and the template files it
+     * references.
+     */
+    @Parameter(property = &quot;scaffoldDir&quot;, required = true)
+    String scaffoldDir;
+
+    /**
+     * Explicit override for the project root. When omitted, the goal
+     * uses {@link Session#getTopDirectory()} (the directory Maven was
+     * invoked from); a missing {@code pom.xml} at that location signals
+     * fresh-machine mode and the project scope is skipped.
+     */
+    @Parameter(property = &quot;projectRoot&quot;)
+    String projectRoot;
+
+    /**
+     * Override for the user home.
+     */
+    @Parameter(property = &quot;userHome&quot;,
+               defaultValue = &quot;${user.home}&quot;)
+    String userHome;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L104">    public ScaffoldPublishMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+        try {
+<span class="fc" id="L109">            runPublish();</span>
+<span class="fc" id="L110">        } catch (ScaffoldException e) {</span>
+<span class="fc" id="L111">            throw new MojoException(e.getMessage(), e);</span>
+<span class="fc" id="L112">        }</span>
+<span class="fc" id="L113">    }</span>
+
+    private void runPublish() {
+<span class="fc" id="L116">        Path scaffoldRoot = Path.of(scaffoldDir);</span>
+<span class="fc" id="L117">        ScaffoldManifest manifest =</span>
+<span class="fc" id="L118">                ScaffoldMojoSupport.loadManifest(scaffoldRoot);</span>
+<span class="fc" id="L119">        TemplateSource templates =</span>
+                new DirectoryTemplateSource(scaffoldRoot);
+<span class="fc" id="L121">        Path home = Path.of(userHome);</span>
+<span class="fc" id="L122">        Path projRoot = ScaffoldMojoSupport.resolveProjectRoot(</span>
+                projectRoot, session);
+<span class="fc" id="L124">        PathResolver resolver = new PathResolver(home, projRoot);</span>
+<span class="fc" id="L125">        ScaffoldPlanner planner = new ScaffoldPlanner(</span>
+                new TierHandlers(), new ModelAdapters());
+<span class="fc" id="L127">        ScaffoldApplier applier = new ScaffoldApplier();</span>
+
+<span class="fc" id="L129">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L130">        getLog().info(&quot;ike:scaffold-publish&quot;);</span>
+<span class="fc" id="L131">        getLog().info(&quot;  scaffold dir:      &quot; + scaffoldRoot);</span>
+<span class="fc" id="L132">        getLog().info(&quot;  standards version: &quot;</span>
+<span class="fc" id="L133">                + manifest.standardsVersion());</span>
+<span class="fc" id="L134">        getLog().info(&quot;  user home:         &quot; + home);</span>
+<span class="fc" id="L135">        getLog().info(&quot;  project root:      &quot;</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">                + (projRoot == null ? &quot;(none — fresh machine)&quot;</span>
+<span class="fc" id="L137">                        : projRoot));</span>
+<span class="fc" id="L138">        getLog().info(&quot;&quot;);</span>
+
+        // User scope
+<span class="fc" id="L141">        Path userLock = ScaffoldMojoSupport.userLockfilePath(home);</span>
+<span class="fc" id="L142">        ScaffoldLockfile userLockfile =</span>
+<span class="fc" id="L143">                ScaffoldMojoSupport.loadLockfileOrEmpty(userLock);</span>
+<span class="fc" id="L144">        ScaffoldPlan userPlan = planner.plan(</span>
+                manifest, userLockfile, ScaffoldScope.USER,
+                resolver, templates);
+<span class="fc" id="L147">        ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="fc" id="L148">                ScaffoldMojoSupport.renderPlanReport(</span>
+                        userPlan, ScaffoldScope.USER));
+<span class="fc" id="L150">        ScaffoldLockfile updatedUser = applier.apply(</span>
+                userPlan, userLockfile);
+<span class="fc" id="L152">        ScaffoldLockfileIo.write(updatedUser, userLock);</span>
+<span class="fc" id="L153">        getLog().info(&quot;  → &quot; + userLock);</span>
+
+        // Project scope (only if we have a project)
+<span class="fc" id="L156">        Counts projectCounts = null;</span>
+<span class="fc bfc" id="L157" title="All 2 branches covered.">        if (projRoot != null) {</span>
+<span class="fc" id="L158">            Path projLock =</span>
+<span class="fc" id="L159">                    ScaffoldMojoSupport.projectLockfilePath(projRoot);</span>
+<span class="fc" id="L160">            ScaffoldLockfile projLockfile =</span>
+<span class="fc" id="L161">                    ScaffoldMojoSupport.loadLockfileOrEmpty(projLock);</span>
+<span class="fc" id="L162">            ScaffoldPlan projectPlan = planner.plan(</span>
+                    manifest, projLockfile, ScaffoldScope.PROJECT,
+                    resolver, templates);
+<span class="fc" id="L165">            ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="fc" id="L166">                    ScaffoldMojoSupport.renderPlanReport(</span>
+                            projectPlan, ScaffoldScope.PROJECT));
+<span class="fc" id="L168">            ScaffoldLockfile updatedProj = applier.apply(</span>
+                    projectPlan, projLockfile);
+<span class="fc" id="L170">            ScaffoldLockfileIo.write(updatedProj, projLock);</span>
+<span class="fc" id="L171">            getLog().info(&quot;  → &quot; + projLock);</span>
+<span class="fc" id="L172">            projectCounts = ScaffoldMojoSupport</span>
+<span class="fc" id="L173">                    .countActions(projectPlan);</span>
+        }
+
+<span class="fc" id="L176">        Counts userCounts = ScaffoldMojoSupport.countActions(userPlan);</span>
+<span class="fc" id="L177">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L178">        getLog().info(&quot;Publish summary:&quot;);</span>
+<span class="fc" id="L179">        getLog().info(&quot;  user:    &quot; + userCounts.summary());</span>
+<span class="fc bfc" id="L180" title="All 2 branches covered.">        if (projectCounts != null) {</span>
+<span class="fc" id="L181">            getLog().info(&quot;  project: &quot; + projectCounts.summary());</span>
+        }
+<span class="fc" id="L183">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L184">        int totalSkipped = userCounts.skip()</span>
+<span class="fc bfc" id="L185" title="All 2 branches covered.">                + (projectCounts != null ? projectCounts.skip() : 0);</span>
+<span class="pc bpc" id="L186" title="1 of 2 branches missed.">        if (totalSkipped &gt; 0) {</span>
+<span class="nc" id="L187">            getLog().info(</span>
+                    totalSkipped + &quot; entry(ies) were skipped &quot;
+                            + &quot;(user-edited). &quot;
+                            + &quot;Run ike:scaffold-draft for details.&quot;);
+        }
+<span class="fc" id="L192">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

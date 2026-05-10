@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MavenSettingsAdapter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">MavenSettingsAdapter.java</span></div><h1>MavenSettingsAdapter.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.XMLConstants;
+import java.io.ByteArrayInputStream;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Model adapter for {@code ~/.m2/settings.xml} (Maven Settings 1.2.0).
+ *
+ * &lt;p&gt;Supported {@code ensure} subtree:
+ * &lt;pre&gt;{@code
+ * ensure:
+ *   pluginGroups:
+ *     - network.ike.tooling
+ * }&lt;/pre&gt;
+ *
+ * &lt;p&gt;Semantics:
+ * &lt;ul&gt;
+ *   &lt;li&gt;If the file does not exist, a minimal
+ *       {@code &lt;settings xmlns=&quot;...&quot;&gt;} document is created.&lt;/li&gt;
+ *   &lt;li&gt;Each {@code pluginGroup} in {@code ensure.pluginGroups} that
+ *       is not already present is appended. Existing entries — and any
+ *       unrelated elements (servers, profiles, …) — are left
+ *       untouched.&lt;/li&gt;
+ *   &lt;li&gt;Each installed or re-confirmed {@code pluginGroup} is recorded
+ *       as a {@link ManagedElement} with path
+ *       {@code &quot;/settings/pluginGroups/pluginGroup[text()='G']&quot;}.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;DOM-based so unmanaged content (comments, whitespace outside the
+ * managed region, unrelated child elements) is preserved on round-trip
+ * to the extent the Transformer supports it.
+ */
+public final class MavenSettingsAdapter implements ModelAdapter {
+
+    /** Model name matching {@link ManifestEntry#model()}. */
+    public static final String MODEL_NAME = &quot;maven-settings-4&quot;;
+
+    static final String SETTINGS_NS =
+            &quot;http://maven.apache.org/SETTINGS/1.2.0&quot;;
+
+    /**
+     * Construct a stateless Maven-settings adapter. Instances are safe
+     * to share across planning calls; all per-invocation state lives
+     * on method parameters.
+     */
+<span class="fc" id="L71">    public MavenSettingsAdapter() {</span>
+<span class="fc" id="L72">    }</span>
+
+    @Override
+    public String modelName() {
+<span class="fc" id="L76">        return MODEL_NAME;</span>
+    }
+
+    @Override
+    public ModelPlanResult plan(
+            ManifestEntry entry,
+            Path resolvedDest,
+            byte[] currentContent,
+            LockfileEntry priorEntry,
+            String currentStandardsVersion) {
+
+<span class="fc" id="L87">        List&lt;String&gt; ensuredGroups = readEnsuredPluginGroups(entry);</span>
+
+<span class="pc bpc" id="L89" title="1 of 4 branches missed.">        boolean fresh = currentContent == null</span>
+                || currentContent.length == 0;
+<span class="fc bfc" id="L91" title="All 2 branches covered.">        Document doc = fresh</span>
+<span class="fc" id="L92">                ? newSettingsDocument()</span>
+<span class="fc" id="L93">                : parseXml(currentContent);</span>
+<span class="fc" id="L94">        Element root = doc.getDocumentElement();</span>
+
+<span class="fc" id="L96">        Element pluginGroupsEl = findOrCreateChild(</span>
+                doc, root, &quot;pluginGroups&quot;);
+
+<span class="fc" id="L99">        List&lt;String&gt; existingGroups = readChildValues(</span>
+                pluginGroupsEl, &quot;pluginGroup&quot;);
+<span class="fc" id="L101">        Map&lt;String, ManagedElement&gt; priorByPath =</span>
+<span class="fc" id="L102">                indexByPath(priorEntry);</span>
+
+<span class="fc" id="L104">        boolean changed = fresh;</span>
+<span class="fc" id="L105">        List&lt;ManagedElement&gt; managed = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L106" title="All 2 branches covered.">        for (String group : ensuredGroups) {</span>
+<span class="fc" id="L107">            String path = pluginGroupPath(group);</span>
+<span class="fc bfc" id="L108" title="All 2 branches covered.">            if (!existingGroups.contains(group)) {</span>
+<span class="fc" id="L109">                Element pg = doc.createElementNS(</span>
+                        SETTINGS_NS, &quot;pluginGroup&quot;);
+<span class="fc" id="L111">                pg.setTextContent(group);</span>
+<span class="fc" id="L112">                pluginGroupsEl.appendChild(pg);</span>
+<span class="fc" id="L113">                changed = true;</span>
+<span class="fc" id="L114">                managed.add(new ManagedElement(</span>
+<span class="fc" id="L115">                        path, Instant.now(), currentStandardsVersion));</span>
+<span class="fc" id="L116">            } else {</span>
+<span class="fc" id="L117">                ManagedElement prior = priorByPath.get(path);</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">                managed.add(prior != null</span>
+<span class="fc" id="L119">                        ? prior</span>
+<span class="fc" id="L120">                        : new ManagedElement(</span>
+<span class="fc" id="L121">                                path, Instant.now(),</span>
+                                currentStandardsVersion));
+            }
+<span class="fc" id="L124">        }</span>
+
+<span class="fc bfc" id="L126" title="All 2 branches covered.">        if (!changed) {</span>
+<span class="fc" id="L127">            byte[] currentBytes = currentContent;</span>
+<span class="fc" id="L128">            String currentSha = Sha256.of(currentBytes);</span>
+<span class="fc" id="L129">            return new ModelPlanResult(</span>
+                    new TierAction.UpToDate(
+                            entry, resolvedDest,
+                            currentSha, currentSha,
+                            &quot;up to date&quot;),
+                    managed);
+        }
+
+<span class="fc" id="L137">        byte[] newBytes = serialize(doc);</span>
+<span class="fc" id="L138">        String newSha = Sha256.of(newBytes);</span>
+<span class="fc bfc" id="L139" title="All 2 branches covered.">        TierAction.Write.Kind kind = fresh</span>
+<span class="fc" id="L140">                ? TierAction.Write.Kind.INSTALL</span>
+<span class="fc" id="L141">                : TierAction.Write.Kind.UPDATE;</span>
+<span class="fc" id="L142">        int added = managed.size()</span>
+<span class="pc bpc" id="L143" title="1 of 2 branches missed.">                - (priorEntry == null</span>
+<span class="fc" id="L144">                        ? 0</span>
+<span class="pc" id="L145">                        : priorEntry.managedElements().size());</span>
+<span class="fc bfc" id="L146" title="All 2 branches covered.">        String reason = fresh</span>
+<span class="fc" id="L147">                ? &quot;install settings.xml with &quot; + managed.size()</span>
+<span class="fc" id="L148">                        + &quot; pluginGroup(s)&quot;</span>
+<span class="pc bpc" id="L149" title="1 of 2 branches missed.">                : (added &gt; 0</span>
+<span class="fc" id="L150">                        ? &quot;ensure &quot; + added + &quot; pluginGroup(s)&quot;</span>
+<span class="pc" id="L151">                        : &quot;refresh settings.xml&quot;);</span>
+
+<span class="fc" id="L153">        return new ModelPlanResult(</span>
+                new TierAction.Write(
+                        entry, resolvedDest, newBytes,
+                        newSha, newSha, kind, reason),
+                managed);
+    }
+
+    // ── helpers ────────────────────────────────────────────────────
+
+    private static String pluginGroupPath(String group) {
+<span class="fc" id="L163">        return &quot;/settings/pluginGroups/pluginGroup[text()='&quot;</span>
+                + group + &quot;']&quot;;
+    }
+
+    private static List&lt;String&gt; readEnsuredPluginGroups(
+            ManifestEntry entry) {
+<span class="fc" id="L169">        Object ensure = entry.extras().get(&quot;ensure&quot;);</span>
+<span class="pc bpc" id="L170" title="1 of 2 branches missed.">        if (ensure == null) {</span>
+<span class="nc" id="L171">            return Collections.emptyList();</span>
+        }
+<span class="pc bpc" id="L173" title="1 of 2 branches missed.">        if (!(ensure instanceof Map&lt;?, ?&gt; ensureMap)) {</span>
+<span class="nc" id="L174">            throw new ScaffoldException(</span>
+<span class="nc" id="L175">                    &quot;maven-settings-4 entry '&quot; + entry.dest()</span>
+                            + &quot;': 'ensure' must be a mapping&quot;);
+        }
+<span class="fc" id="L178">        Object groups = ensureMap.get(&quot;pluginGroups&quot;);</span>
+<span class="fc bfc" id="L179" title="All 2 branches covered.">        if (groups == null) {</span>
+<span class="fc" id="L180">            return Collections.emptyList();</span>
+        }
+<span class="fc bfc" id="L182" title="All 2 branches covered.">        if (!(groups instanceof List&lt;?&gt; groupList)) {</span>
+<span class="fc" id="L183">            throw new ScaffoldException(</span>
+<span class="fc" id="L184">                    &quot;maven-settings-4 entry '&quot; + entry.dest()</span>
+                            + &quot;': 'ensure.pluginGroups' must be a list&quot;);
+        }
+<span class="fc" id="L187">        List&lt;String&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L188" title="All 2 branches covered.">        for (Object g : groupList) {</span>
+<span class="pc bpc" id="L189" title="2 of 4 branches missed.">            if (g == null || g.toString().isBlank()) {</span>
+<span class="nc" id="L190">                throw new ScaffoldException(</span>
+<span class="nc" id="L191">                        &quot;maven-settings-4 entry '&quot; + entry.dest()</span>
+                                + &quot;': blank pluginGroup entry&quot;);
+            }
+<span class="fc" id="L194">            out.add(g.toString());</span>
+<span class="fc" id="L195">        }</span>
+<span class="fc" id="L196">        return out;</span>
+    }
+
+    private static Map&lt;String, ManagedElement&gt; indexByPath(
+            LockfileEntry priorEntry) {
+<span class="fc bfc" id="L201" title="All 2 branches covered.">        if (priorEntry == null</span>
+<span class="pc bpc" id="L202" title="1 of 2 branches missed.">                || priorEntry.managedElements().isEmpty()) {</span>
+<span class="fc" id="L203">            return Collections.emptyMap();</span>
+        }
+<span class="fc" id="L205">        Map&lt;String, ManagedElement&gt; out = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L206" title="All 2 branches covered.">        for (ManagedElement e : priorEntry.managedElements()) {</span>
+<span class="fc" id="L207">            out.put(e.path(), e);</span>
+<span class="fc" id="L208">        }</span>
+<span class="fc" id="L209">        return out;</span>
+    }
+
+    private static Document newSettingsDocument() {
+        try {
+<span class="fc" id="L214">            DocumentBuilder builder = newDocumentBuilder();</span>
+<span class="fc" id="L215">            Document doc = builder.newDocument();</span>
+<span class="fc" id="L216">            Element root = doc.createElementNS(</span>
+                    SETTINGS_NS, &quot;settings&quot;);
+<span class="fc" id="L218">            root.setAttributeNS(</span>
+                    XMLConstants.XMLNS_ATTRIBUTE_NS_URI,
+                    &quot;xmlns:xsi&quot;,
+                    &quot;http://www.w3.org/2001/XMLSchema-instance&quot;);
+<span class="fc" id="L222">            root.setAttributeNS(</span>
+                    &quot;http://www.w3.org/2001/XMLSchema-instance&quot;,
+                    &quot;xsi:schemaLocation&quot;,
+                    SETTINGS_NS + &quot; https://maven.apache.org/xsd/&quot;
+                            + &quot;settings-1.2.0.xsd&quot;);
+<span class="fc" id="L227">            doc.appendChild(root);</span>
+<span class="fc" id="L228">            return doc;</span>
+<span class="nc" id="L229">        } catch (ParserConfigurationException e) {</span>
+<span class="nc" id="L230">            throw new ScaffoldException(</span>
+                    &quot;cannot create settings document&quot;, e);
+        }
+    }
+
+    private static Document parseXml(byte[] bytes) {
+        try {
+<span class="fc" id="L237">            DocumentBuilder builder = newDocumentBuilder();</span>
+<span class="fc" id="L238">            return builder.parse(new InputSource(</span>
+                    new StringReader(new String(
+                            bytes, StandardCharsets.UTF_8))));
+<span class="nc" id="L241">        } catch (Exception e) {</span>
+<span class="nc" id="L242">            throw new ScaffoldException(</span>
+<span class="nc" id="L243">                    &quot;cannot parse settings.xml: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    private static DocumentBuilder newDocumentBuilder()
+            throws ParserConfigurationException {
+<span class="fc" id="L249">        DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();</span>
+<span class="fc" id="L250">        f.setNamespaceAware(true);</span>
+<span class="fc" id="L251">        f.setFeature(</span>
+                XMLConstants.FEATURE_SECURE_PROCESSING, true);
+<span class="fc" id="L253">        f.setFeature(</span>
+                &quot;http://apache.org/xml/features/&quot;
+                        + &quot;disallow-doctype-decl&quot;, true);
+<span class="fc" id="L256">        f.setXIncludeAware(false);</span>
+<span class="fc" id="L257">        f.setExpandEntityReferences(false);</span>
+<span class="fc" id="L258">        f.setAttribute(</span>
+                XMLConstants.ACCESS_EXTERNAL_DTD, &quot;&quot;);
+<span class="fc" id="L260">        f.setAttribute(</span>
+                XMLConstants.ACCESS_EXTERNAL_SCHEMA, &quot;&quot;);
+<span class="fc" id="L262">        return f.newDocumentBuilder();</span>
+    }
+
+    private static Element findOrCreateChild(
+            Document doc, Element parent, String localName) {
+<span class="fc" id="L267">        NodeList kids = parent.getChildNodes();</span>
+<span class="fc bfc" id="L268" title="All 2 branches covered.">        for (int i = 0; i &lt; kids.getLength(); i++) {</span>
+<span class="fc" id="L269">            Node n = kids.item(i);</span>
+<span class="fc bfc" id="L270" title="All 2 branches covered.">            if (n.getNodeType() == Node.ELEMENT_NODE</span>
+<span class="fc bfc" id="L271" title="All 2 branches covered.">                    &amp;&amp; localName.equals(n.getLocalName())) {</span>
+<span class="fc" id="L272">                return (Element) n;</span>
+            }
+        }
+<span class="fc" id="L275">        Element created = doc.createElementNS(</span>
+                SETTINGS_NS, localName);
+<span class="fc" id="L277">        parent.appendChild(created);</span>
+<span class="fc" id="L278">        return created;</span>
+    }
+
+    private static List&lt;String&gt; readChildValues(
+            Element parent, String localName) {
+<span class="fc" id="L283">        List&lt;String&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L284">        NodeList kids = parent.getChildNodes();</span>
+<span class="fc bfc" id="L285" title="All 2 branches covered.">        for (int i = 0; i &lt; kids.getLength(); i++) {</span>
+<span class="fc" id="L286">            Node n = kids.item(i);</span>
+<span class="fc bfc" id="L287" title="All 2 branches covered.">            if (n.getNodeType() == Node.ELEMENT_NODE</span>
+<span class="pc bpc" id="L288" title="1 of 2 branches missed.">                    &amp;&amp; localName.equals(n.getLocalName())) {</span>
+<span class="fc" id="L289">                String text = n.getTextContent();</span>
+<span class="pc bpc" id="L290" title="1 of 2 branches missed.">                out.add(text == null ? &quot;&quot; : text.trim());</span>
+            }
+        }
+<span class="fc" id="L293">        return out;</span>
+    }
+
+    private static byte[] serialize(Document doc) {
+        try {
+<span class="fc" id="L298">            Transformer t = TransformerFactory.newInstance()</span>
+<span class="fc" id="L299">                    .newTransformer();</span>
+<span class="fc" id="L300">            t.setOutputProperty(OutputKeys.INDENT, &quot;yes&quot;);</span>
+<span class="fc" id="L301">            t.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, &quot;no&quot;);</span>
+<span class="fc" id="L302">            t.setOutputProperty(</span>
+                    &quot;{http://xml.apache.org/xslt}indent-amount&quot;, &quot;2&quot;);
+<span class="fc" id="L304">            t.setOutputProperty(</span>
+                    OutputKeys.ENCODING, &quot;UTF-8&quot;);
+<span class="fc" id="L306">            StringWriter sw = new StringWriter();</span>
+<span class="fc" id="L307">            t.transform(new DOMSource(doc), new StreamResult(sw));</span>
+<span class="fc" id="L308">            String out = sw.toString();</span>
+<span class="pc bpc" id="L309" title="1 of 2 branches missed.">            if (!out.endsWith(&quot;\n&quot;)) {</span>
+<span class="nc" id="L310">                out = out + &quot;\n&quot;;</span>
+            }
+<span class="fc" id="L312">            return out.getBytes(StandardCharsets.UTF_8);</span>
+<span class="nc" id="L313">        } catch (TransformerException e) {</span>
+<span class="nc" id="L314">            throw new ScaffoldException(</span>
+                    &quot;cannot serialize settings.xml&quot;, e);
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
