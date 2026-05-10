@@ -7,8 +7,9 @@ package network.ike.workspace;
  * {@code workspace.yaml} (schema 1.1+), populated by
  * {@code ws:create -Dgroup=...} and {@code ws:adopt-root} (ike-issues#183,
  * #184). Provides a single source of truth for the aggregator artifact's
- * GAV so downstream goals — {@code ws:release} (#185), {@code ws:align},
- * site deploy (#186) — can reference the workspace root by real
+ * GAV so downstream goals — {@code ws:release-publish} (#185),
+ * {@code ws:align-publish}, site deploy (#186) — can reference the
+ * workspace root by real
  * coordinates rather than the legacy {@code local.aggregate:<name>:1.0.0-SNAPSHOT}
  * placeholder.
  *
