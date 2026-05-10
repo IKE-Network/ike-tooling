@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldRevertMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ScaffoldRevertMojo.java</span></div><h1>ScaffoldRevertMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.scaffold.ModelAdapters;
+import network.ike.plugin.scaffold.PathResolver;
+import network.ike.plugin.scaffold.ScaffoldException;
+import network.ike.plugin.scaffold.ScaffoldLockfile;
+import network.ike.plugin.scaffold.ScaffoldLockfileIo;
+import network.ike.plugin.scaffold.ScaffoldManifest;
+import network.ike.plugin.scaffold.ScaffoldMojoSupport;
+import network.ike.plugin.scaffold.ScaffoldReverter;
+import network.ike.plugin.scaffold.ScaffoldScope;
+import network.ike.plugin.scaffold.TierHandlers;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.nio.file.Path;
+
+/**
+ * Undo a previous {@code ike:scaffold-publish}.
+ *
+ * &lt;p&gt;Reads the scaffold manifest to learn the tier policy for every
+ * entry, then for each entry recorded in the appropriate lockfile:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code tool-owned} / {@code tracked} — delete the file if
+ *       its on-disk hash still matches what was applied; otherwise
+ *       leave it and report a skip.&lt;/li&gt;
+ *   &lt;li&gt;{@code tracked-block} and {@code model-managed} — not yet
+ *       implemented; the goal reports these as skipped so the user
+ *       can clean them up manually.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;Conservative by design — anything the user may have touched is
+ * left alone. The updated lockfiles (with reverted entries removed)
+ * are written back to disk.
+ *
+ * &lt;p&gt;Runs with {@code projectRequired = false} so it can clear
+ * user-scope state on a fresh machine.
+ *
+ * &lt;p&gt;Modelled after ModelAdapters + TierHandlers registries; uses
+ * {@link ScaffoldReverter} under the hood. Template resolution is
+ * not needed for revert (only manifest + lockfile + disk), but the
+ * manifest must still be available so scope and tier information
+ * are known per entry.
+ *
+ * @see ScaffoldDraftMojo
+ * @see ScaffoldPublishMojo
+ */
+@Mojo(name = &quot;scaffold-revert&quot;, projectRequired = false,
+      aggregator = true)
+public class ScaffoldRevertMojo
+        implements org.apache.maven.api.plugin.Mojo {
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Maven 4 session — used to derive the project root from
+     * {@link Session#getTopDirectory()} when {@code projectRoot} is
+     * not supplied. Maven's parameter-default expansion does not
+     * interpolate {@code ${project.basedir}} for goals annotated
+     * {@code projectRequired = false}, so we resolve it here.
+     */
+    @Inject
+    private Session session;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="fc" id="L75">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /**
+     * Path to an unpacked scaffold tree containing
+     * {@code scaffold-manifest.yaml}. Only the manifest is needed
+     * for revert (templates aren't used); the parameter is kept
+     * consistent with {@code ike:scaffold-draft} and
+     * {@code ike:scaffold-publish} for symmetry.
+     *
+     * &lt;p&gt;Defaults to {@code ${project.build.directory}/scaffold},
+     * matching the unpack location wired into {@code ike-parent}'s
+     * {@code unpack-scaffold-templates} execution (#243). Override
+     * with {@code -DscaffoldDir=...} for ad-hoc invocations against
+     * a custom scaffold tree.
+     */
+    @Parameter(property = &quot;scaffoldDir&quot;,
+               defaultValue = &quot;${project.build.directory}/scaffold&quot;)
+    String scaffoldDir;
+
+    /**
+     * Explicit override for the project root. When omitted, the goal
+     * uses {@link Session#getTopDirectory()} (the directory Maven was
+     * invoked from); a missing {@code pom.xml} at that location signals
+     * fresh-machine bootstrap and the project scope is skipped.
+     */
+    @Parameter(property = &quot;projectRoot&quot;)
+    String projectRoot;
+
+    /**
+     * Override for the user home.
+     */
+    @Parameter(property = &quot;userHome&quot;,
+               defaultValue = &quot;${user.home}&quot;)
+    String userHome;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L111">    public ScaffoldRevertMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+        try {
+<span class="fc" id="L116">            runRevert();</span>
+<span class="fc" id="L117">        } catch (ScaffoldException e) {</span>
+<span class="fc" id="L118">            throw new MojoException(e.getMessage(), e);</span>
+<span class="fc" id="L119">        }</span>
+<span class="fc" id="L120">    }</span>
+
+    private void runRevert() {
+<span class="fc" id="L123">        Path scaffoldRoot = Path.of(scaffoldDir);</span>
+<span class="fc" id="L124">        ScaffoldManifest manifest =</span>
+<span class="fc" id="L125">                ScaffoldMojoSupport.loadManifest(scaffoldRoot);</span>
+<span class="fc" id="L126">        Path home = Path.of(userHome);</span>
+<span class="fc" id="L127">        Path projRoot = ScaffoldMojoSupport.resolveProjectRoot(</span>
+                projectRoot, session);
+<span class="fc" id="L129">        PathResolver resolver = new PathResolver(home, projRoot);</span>
+
+        // Instantiate the registries so adapter-specific revert
+        // logic is available when (later) tracked-block and
+        // model-managed revert are implemented.
+        @SuppressWarnings(&quot;unused&quot;)
+<span class="fc" id="L135">        TierHandlers tierHandlers = new TierHandlers();</span>
+        @SuppressWarnings(&quot;unused&quot;)
+<span class="fc" id="L137">        ModelAdapters modelAdapters = new ModelAdapters();</span>
+<span class="fc" id="L138">        ScaffoldReverter reverter = new ScaffoldReverter();</span>
+
+<span class="fc" id="L140">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L141">        getLog().info(&quot;ike:scaffold-revert&quot;);</span>
+<span class="fc" id="L142">        getLog().info(&quot;  scaffold dir:      &quot; + scaffoldRoot);</span>
+<span class="fc" id="L143">        getLog().info(&quot;  standards version: &quot;</span>
+<span class="fc" id="L144">                + manifest.standardsVersion());</span>
+<span class="fc" id="L145">        getLog().info(&quot;  user home:         &quot; + home);</span>
+<span class="fc" id="L146">        getLog().info(&quot;  project root:      &quot;</span>
+<span class="fc bfc" id="L147" title="All 2 branches covered.">                + (projRoot == null ? &quot;(none — fresh machine)&quot;</span>
+<span class="fc" id="L148">                        : projRoot));</span>
+<span class="fc" id="L149">        getLog().info(&quot;&quot;);</span>
+
+        // User scope
+<span class="fc" id="L152">        Path userLock = ScaffoldMojoSupport.userLockfilePath(home);</span>
+<span class="fc" id="L153">        ScaffoldLockfile userLockfile =</span>
+<span class="fc" id="L154">                ScaffoldMojoSupport.loadLockfileOrEmpty(userLock);</span>
+<span class="fc" id="L155">        ScaffoldReverter.RevertResult userResult = reverter.revert(</span>
+                userLockfile, manifest, ScaffoldScope.USER, resolver);
+<span class="fc" id="L157">        ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="fc" id="L158">                ScaffoldMojoSupport.renderRevertReport(</span>
+                        userResult, ScaffoldScope.USER));
+<span class="fc" id="L160">        ScaffoldLockfileIo.write(</span>
+<span class="fc" id="L161">                userResult.updatedLockfile(), userLock);</span>
+<span class="fc" id="L162">        getLog().info(&quot;  → &quot; + userLock);</span>
+
+        // Project scope (only when we have a project)
+<span class="fc" id="L165">        int projectDeleted = 0, projectSkipped = 0;</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">        if (projRoot != null) {</span>
+<span class="fc" id="L167">            Path projLock =</span>
+<span class="fc" id="L168">                    ScaffoldMojoSupport.projectLockfilePath(projRoot);</span>
+<span class="fc" id="L169">            ScaffoldLockfile projLockfile =</span>
+<span class="fc" id="L170">                    ScaffoldMojoSupport.loadLockfileOrEmpty(projLock);</span>
+<span class="fc" id="L171">            ScaffoldReverter.RevertResult projectResult =</span>
+<span class="fc" id="L172">                    reverter.revert(</span>
+                            projLockfile, manifest,
+                            ScaffoldScope.PROJECT, resolver);
+<span class="fc" id="L175">            ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="fc" id="L176">                    ScaffoldMojoSupport.renderRevertReport(</span>
+                            projectResult, ScaffoldScope.PROJECT));
+<span class="fc" id="L178">            ScaffoldLockfileIo.write(</span>
+<span class="fc" id="L179">                    projectResult.updatedLockfile(), projLock);</span>
+<span class="fc" id="L180">            getLog().info(&quot;  → &quot; + projLock);</span>
+            for (ScaffoldReverter.Outcome o
+<span class="fc bfc" id="L182" title="All 2 branches covered.">                    : projectResult.outcomes()) {</span>
+<span class="pc bpc" id="L183" title="1 of 2 branches missed.">                if (o.kind()</span>
+                        == ScaffoldReverter.Outcome.Kind.DELETED) {
+<span class="fc" id="L185">                    projectDeleted++;</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">                } else if (o.kind()</span>
+                        == ScaffoldReverter.Outcome.Kind.SKIPPED) {
+<span class="nc" id="L188">                    projectSkipped++;</span>
+                }
+<span class="fc" id="L190">            }</span>
+        }
+
+<span class="fc" id="L193">        int userDeleted = 0, userSkipped = 0;</span>
+<span class="pc bpc" id="L194" title="1 of 2 branches missed.">        for (ScaffoldReverter.Outcome o : userResult.outcomes()) {</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">            if (o.kind() == ScaffoldReverter.Outcome.Kind.DELETED) {</span>
+<span class="nc" id="L196">                userDeleted++;</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">            } else if (o.kind()</span>
+                    == ScaffoldReverter.Outcome.Kind.SKIPPED) {
+<span class="nc" id="L199">                userSkipped++;</span>
+            }
+<span class="nc" id="L201">        }</span>
+
+<span class="fc" id="L203">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L204">        getLog().info(&quot;Revert summary:&quot;);</span>
+<span class="fc" id="L205">        getLog().info(&quot;  user:    &quot; + userDeleted + &quot; deleted, &quot;</span>
+                + userSkipped + &quot; skipped&quot;);
+<span class="fc bfc" id="L207" title="All 2 branches covered.">        if (projRoot != null) {</span>
+<span class="fc" id="L208">            getLog().info(&quot;  project: &quot; + projectDeleted</span>
+                    + &quot; deleted, &quot; + projectSkipped + &quot; skipped&quot;);
+        }
+<span class="fc" id="L211">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

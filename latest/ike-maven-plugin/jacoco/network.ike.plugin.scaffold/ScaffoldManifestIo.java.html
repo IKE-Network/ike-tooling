@@ -111,34 +111,87 @@ public final class ScaffoldManifestIo {
 <span class="fc" id="L111">            entries.add(parseEntry(o, idx++));</span>
 <span class="fc" id="L112">        }</span>
 
-<span class="fc" id="L114">        return new ScaffoldManifest(schema, standardsVersion, entries);</span>
+        // #345: optional foundation: section. Picking up scaffold
+        // version N gives the consumer the parent + property pins
+        // that ike-tooling N saw as the latest-released at its
+        // release time — a tested-together compatibility snapshot.
+<span class="fc" id="L118">        ScaffoldManifest.Foundation foundation = parseFoundation(</span>
+<span class="fc" id="L119">                root.get(&quot;foundation&quot;));</span>
+
+<span class="fc" id="L121">        return new ScaffoldManifest(schema, standardsVersion,</span>
+                entries, foundation);
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private static ScaffoldManifest.Foundation parseFoundation(Object raw) {
+<span class="fc bfc" id="L127" title="All 2 branches covered.">        if (raw == null) return null;</span>
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">        if (!(raw instanceof Map&lt;?, ?&gt; map)) {</span>
+<span class="nc" id="L129">            throw new ScaffoldException(</span>
+                    &quot;'foundation' must be a YAML mapping&quot;);
+        }
+<span class="fc" id="L132">        Map&lt;String, Object&gt; foundationMap = (Map&lt;String, Object&gt;) map;</span>
+
+<span class="fc" id="L134">        Object parentObj = foundationMap.get(&quot;parent&quot;);</span>
+<span class="fc" id="L135">        ScaffoldManifest.ParentRef parent = null;</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">        if (parentObj != null) {</span>
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">            if (!(parentObj instanceof Map&lt;?, ?&gt; pm)) {</span>
+<span class="nc" id="L138">                throw new ScaffoldException(</span>
+                        &quot;'foundation.parent' must be a YAML mapping&quot;);
+            }
+<span class="fc" id="L141">            Map&lt;String, Object&gt; parentMap = (Map&lt;String, Object&gt;) pm;</span>
+<span class="fc" id="L142">            String g = stringField(parentMap, &quot;groupId&quot;, null);</span>
+<span class="fc" id="L143">            String a = stringField(parentMap, &quot;artifactId&quot;, null);</span>
+<span class="fc" id="L144">            String v = stringField(parentMap, &quot;version&quot;, null);</span>
+<span class="pc bpc" id="L145" title="2 of 6 branches missed.">            if (g == null || a == null || v == null) {</span>
+<span class="fc" id="L146">                throw new ScaffoldException(</span>
+                        &quot;'foundation.parent' requires groupId, &quot;
+                                + &quot;artifactId, and version&quot;);
+            }
+<span class="fc" id="L150">            parent = new ScaffoldManifest.ParentRef(g, a, v);</span>
+        }
+
+<span class="fc" id="L153">        Object propsObj = foundationMap.get(&quot;properties&quot;);</span>
+<span class="fc" id="L154">        Map&lt;String, String&gt; properties = new java.util.LinkedHashMap&lt;&gt;();</span>
+<span class="pc bpc" id="L155" title="1 of 2 branches missed.">        if (propsObj != null) {</span>
+<span class="pc bpc" id="L156" title="1 of 2 branches missed.">            if (!(propsObj instanceof Map&lt;?, ?&gt; pm)) {</span>
+<span class="nc" id="L157">                throw new ScaffoldException(</span>
+                        &quot;'foundation.properties' must be a YAML mapping&quot;);
+            }
+<span class="fc" id="L160">            Map&lt;String, Object&gt; propsMap = (Map&lt;String, Object&gt;) pm;</span>
+<span class="fc bfc" id="L161" title="All 2 branches covered.">            for (Map.Entry&lt;String, Object&gt; e : propsMap.entrySet()) {</span>
+<span class="pc bpc" id="L162" title="1 of 2 branches missed.">                if (e.getValue() == null) continue;</span>
+<span class="fc" id="L163">                properties.put(e.getKey(), e.getValue().toString());</span>
+<span class="fc" id="L164">            }</span>
+        }
+
+<span class="fc" id="L167">        return new ScaffoldManifest.Foundation(parent, properties);</span>
     }
 
     private static ManifestEntry parseEntry(Object raw, int index) {
-<span class="pc bpc" id="L118" title="1 of 2 branches missed.">        if (!(raw instanceof Map&lt;?, ?&gt; entryMap)) {</span>
-<span class="nc" id="L119">            throw new ScaffoldException(</span>
+<span class="pc bpc" id="L171" title="1 of 2 branches missed.">        if (!(raw instanceof Map&lt;?, ?&gt; entryMap)) {</span>
+<span class="nc" id="L172">            throw new ScaffoldException(</span>
                     &quot;files[&quot; + index + &quot;] must be a YAML mapping&quot;);
         }
         @SuppressWarnings(&quot;unchecked&quot;)
-<span class="fc" id="L123">        Map&lt;String, Object&gt; entry = (Map&lt;String, Object&gt;) entryMap;</span>
+<span class="fc" id="L176">        Map&lt;String, Object&gt; entry = (Map&lt;String, Object&gt;) entryMap;</span>
 
-<span class="fc" id="L125">        String dest = stringField(entry, &quot;dest&quot;, null);</span>
-<span class="fc" id="L126">        String scopeStr = stringField(entry, &quot;scope&quot;, null);</span>
-<span class="fc" id="L127">        String tierStr = stringField(entry, &quot;tier&quot;, null);</span>
-<span class="fc" id="L128">        String source = stringField(entry, &quot;source&quot;, null);</span>
-<span class="fc" id="L129">        String model = stringField(entry, &quot;model&quot;, null);</span>
+<span class="fc" id="L178">        String dest = stringField(entry, &quot;dest&quot;, null);</span>
+<span class="fc" id="L179">        String scopeStr = stringField(entry, &quot;scope&quot;, null);</span>
+<span class="fc" id="L180">        String tierStr = stringField(entry, &quot;tier&quot;, null);</span>
+<span class="fc" id="L181">        String source = stringField(entry, &quot;source&quot;, null);</span>
+<span class="fc" id="L182">        String model = stringField(entry, &quot;model&quot;, null);</span>
 
-<span class="fc bfc" id="L131" title="All 2 branches covered.">        if (dest == null) {</span>
-<span class="fc" id="L132">            throw new ScaffoldException(</span>
+<span class="fc bfc" id="L184" title="All 2 branches covered.">        if (dest == null) {</span>
+<span class="fc" id="L185">            throw new ScaffoldException(</span>
                     &quot;files[&quot; + index + &quot;] missing 'dest'&quot;);
         }
-<span class="pc bpc" id="L135" title="1 of 2 branches missed.">        if (scopeStr == null) {</span>
-<span class="nc" id="L136">            throw new ScaffoldException(</span>
+<span class="pc bpc" id="L188" title="1 of 2 branches missed.">        if (scopeStr == null) {</span>
+<span class="nc" id="L189">            throw new ScaffoldException(</span>
                     &quot;files[&quot; + index + &quot;] ('&quot; + dest
                             + &quot;') missing 'scope'&quot;);
         }
-<span class="pc bpc" id="L140" title="1 of 2 branches missed.">        if (tierStr == null) {</span>
-<span class="nc" id="L141">            throw new ScaffoldException(</span>
+<span class="pc bpc" id="L193" title="1 of 2 branches missed.">        if (tierStr == null) {</span>
+<span class="nc" id="L194">            throw new ScaffoldException(</span>
                     &quot;files[&quot; + index + &quot;] ('&quot; + dest
                             + &quot;') missing 'tier'&quot;);
         }
@@ -146,28 +199,28 @@ public final class ScaffoldManifestIo {
         ScaffoldScope scope;
         ScaffoldTier tier;
         try {
-<span class="fc" id="L149">            scope = ScaffoldScope.fromManifestValue(scopeStr);</span>
-<span class="fc" id="L150">            tier = ScaffoldTier.fromManifestValue(tierStr);</span>
-<span class="nc" id="L151">        } catch (IllegalArgumentException e) {</span>
-<span class="nc" id="L152">            throw new ScaffoldException(</span>
+<span class="fc" id="L202">            scope = ScaffoldScope.fromManifestValue(scopeStr);</span>
+<span class="fc" id="L203">            tier = ScaffoldTier.fromManifestValue(tierStr);</span>
+<span class="nc" id="L204">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L205">            throw new ScaffoldException(</span>
                     &quot;files[&quot; + index + &quot;] ('&quot; + dest + &quot;'): &quot;
-<span class="nc" id="L154">                            + e.getMessage(), e);</span>
-<span class="fc" id="L155">        }</span>
+<span class="nc" id="L207">                            + e.getMessage(), e);</span>
+<span class="fc" id="L208">        }</span>
 
-<span class="fc" id="L157">        Map&lt;String, Object&gt; extras = new LinkedHashMap&lt;&gt;();</span>
-<span class="fc bfc" id="L158" title="All 2 branches covered.">        for (Map.Entry&lt;String, Object&gt; e : entry.entrySet()) {</span>
-<span class="fc bfc" id="L159" title="All 2 branches covered.">            if (!CORE_ENTRY_KEYS.contains(e.getKey())) {</span>
-<span class="fc" id="L160">                extras.put(e.getKey(), e.getValue());</span>
+<span class="fc" id="L210">        Map&lt;String, Object&gt; extras = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L211" title="All 2 branches covered.">        for (Map.Entry&lt;String, Object&gt; e : entry.entrySet()) {</span>
+<span class="fc bfc" id="L212" title="All 2 branches covered.">            if (!CORE_ENTRY_KEYS.contains(e.getKey())) {</span>
+<span class="fc" id="L213">                extras.put(e.getKey(), e.getValue());</span>
             }
-<span class="fc" id="L162">        }</span>
+<span class="fc" id="L215">        }</span>
 
         try {
-<span class="fc" id="L165">            return new ManifestEntry(</span>
+<span class="fc" id="L218">            return new ManifestEntry(</span>
                     dest, scope, tier, source, model, extras);
-<span class="fc" id="L167">        } catch (IllegalArgumentException e) {</span>
-<span class="fc" id="L168">            throw new ScaffoldException(</span>
+<span class="fc" id="L220">        } catch (IllegalArgumentException e) {</span>
+<span class="fc" id="L221">            throw new ScaffoldException(</span>
                     &quot;files[&quot; + index + &quot;] ('&quot; + dest + &quot;'): &quot;
-<span class="fc" id="L170">                            + e.getMessage(), e);</span>
+<span class="fc" id="L223">                            + e.getMessage(), e);</span>
         }
     }
 
@@ -175,26 +228,26 @@ public final class ScaffoldManifestIo {
 
     private static String stringField(
             Map&lt;String, Object&gt; map, String key, String fallback) {
-<span class="fc" id="L178">        Object v = map.get(key);</span>
-<span class="fc bfc" id="L179" title="All 2 branches covered.">        if (v == null) {</span>
-<span class="fc" id="L180">            return fallback;</span>
+<span class="fc" id="L231">        Object v = map.get(key);</span>
+<span class="fc bfc" id="L232" title="All 2 branches covered.">        if (v == null) {</span>
+<span class="fc" id="L233">            return fallback;</span>
         }
-<span class="fc" id="L182">        return v.toString();</span>
+<span class="fc" id="L235">        return v.toString();</span>
     }
 
     private static int intField(
             Map&lt;String, Object&gt; map, String key, int fallback) {
-<span class="fc" id="L187">        Object v = map.get(key);</span>
-<span class="pc bpc" id="L188" title="1 of 2 branches missed.">        if (v == null) {</span>
-<span class="nc" id="L189">            return fallback;</span>
+<span class="fc" id="L240">        Object v = map.get(key);</span>
+<span class="pc bpc" id="L241" title="1 of 2 branches missed.">        if (v == null) {</span>
+<span class="nc" id="L242">            return fallback;</span>
         }
-<span class="pc bpc" id="L191" title="1 of 2 branches missed.">        if (v instanceof Number n) {</span>
-<span class="fc" id="L192">            return n.intValue();</span>
+<span class="pc bpc" id="L244" title="1 of 2 branches missed.">        if (v instanceof Number n) {</span>
+<span class="fc" id="L245">            return n.intValue();</span>
         }
         try {
-<span class="nc" id="L195">            return Integer.parseInt(v.toString().trim());</span>
-<span class="nc" id="L196">        } catch (NumberFormatException e) {</span>
-<span class="nc" id="L197">            throw new ScaffoldException(</span>
+<span class="nc" id="L248">            return Integer.parseInt(v.toString().trim());</span>
+<span class="nc" id="L249">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L250">            throw new ScaffoldException(</span>
                     &quot;Expected integer for '&quot; + key + &quot;', got &quot; + v);
         }
     }
