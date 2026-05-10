@@ -96,13 +96,38 @@ public class BuiltWithMojo implements org.apache.maven.api.plugin.Mojo {
     /**
      * Path to the curated narrative supplement YAML file. Default
      * is {@code src/main/built-with/supplement.yaml} at the
-     * current module's basedir; if not found there, the goal walks
-     * up to find one at a parent reactor. Absent everywhere → the
-     * mechanical-only page is rendered (still useful per-module).
+     * current module's basedir. The resolver tries three locations
+     * in order:
+     * <ol>
+     *   <li>This path verbatim (per-project local override).</li>
+     *   <li>Walk up from project basedir looking for the same path
+     *       (per-reactor supplement at the workspace root).</li>
+     *   <li>{@link #unpackedSupplementPath} — fallback to the
+     *       platform-wide supplement unpacked from the
+     *       {@code ike-build-standards:built-with:zip} classifier
+     *       (#340). External consumers get this for free without
+     *       authoring their own supplement.</li>
+     * </ol>
+     * Absent in all three → the mechanical-only page is rendered
+     * (still useful per-module).
      */
     @Parameter(property = "ike.built-with.supplement",
             defaultValue = "${project.basedir}/src/main/built-with/supplement.yaml")
     File supplementPath;
+
+    /**
+     * Path to the platform-wide supplement unpacked from the
+     * {@code ike-build-standards:built-with:zip} classifier (#340).
+     * Used as the third-priority fallback after the per-project and
+     * walk-up locations. Defaults to
+     * {@code target/built-with-supplement.yaml}, matching where
+     * {@code maven-dependency-plugin}'s
+     * {@code unpack-built-with-supplement} execution drops the
+     * unpacked file at pre-site phase.
+     */
+    @Parameter(property = "ike.built-with.unpacked-supplement",
+            defaultValue = "${project.build.directory}/built-with-supplement.yaml")
+    File unpackedSupplementPath;
 
     /**
      * Output AsciiDoc file. Default is the standard generated-site
@@ -219,12 +244,13 @@ public class BuiltWithMojo implements org.apache.maven.api.plugin.Mojo {
      * @return the resolved supplement file, or {@code null} if not found
      */
     private File resolveSupplement() {
+        // (1) Per-project local override.
         if (supplementPath.exists() && supplementPath.isFile()) {
             return supplementPath;
         }
-        // Walk up from project basedir looking for the same relative
-        // path — this is how submodules pick up the reactor's
-        // supplement.yaml without per-module configuration.
+        // (2) Walk up from project basedir looking for the same
+        // relative path — this is how submodules pick up the
+        // reactor's supplement.yaml without per-module configuration.
         Path basedir = project.getBasedir();
         Path relativeFromBasedir = basedir.relativize(supplementPath.toPath());
         Path parent = basedir.getParent();
@@ -234,6 +260,14 @@ public class BuiltWithMojo implements org.apache.maven.api.plugin.Mojo {
                 return candidate.toFile();
             }
             parent = parent.getParent();
+        }
+        // (3) Platform-wide fallback (ike-issues#340): the supplement
+        // unpacked from the ike-build-standards:built-with:zip
+        // classifier. This is what gives external consumers the
+        // Curated narrative section without authoring their own
+        // supplement.yaml.
+        if (unpackedSupplementPath.exists() && unpackedSupplementPath.isFile()) {
+            return unpackedSupplementPath;
         }
         return null;
     }
