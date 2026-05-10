@@ -126,7 +126,7 @@ public class BuiltWithMojo implements org.apache.maven.api.plugin.Mojo {
      * unpacked file at pre-site phase.
      */
     @Parameter(property = "ike.built-with.unpacked-supplement",
-            defaultValue = "${project.build.directory}/built-with-supplement.yaml")
+            defaultValue = "${project.build.directory}/supplement.yaml")
     File unpackedSupplementPath;
 
     /**
