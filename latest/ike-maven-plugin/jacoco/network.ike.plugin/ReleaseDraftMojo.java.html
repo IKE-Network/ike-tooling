@@ -411,149 +411,180 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // falsely claim success when the publish actually failed.
         // ike-issues#329.
 <span class="pc bpc" id="L413" title="1 of 2 branches missed.">        boolean ghPagesPublished = !publishSite;  // skipped == &quot;no failure&quot;</span>
+        // ike-issues#339: track scpexe site-deploy independently so
+        // a successful gh-pages publish isn't masked when scpexe
+        // fails (e.g., wagon-ssh-external missing for external
+        // consumers — tracked in #338).
+<span class="pc bpc" id="L418" title="1 of 2 branches missed.">        boolean scpexeDeployed = !deploySite;</span>
         try {
             // ── Site generation (must succeed before Nexus deploy) ────
             // A release without a valid site is incomplete. The tag
             // checkout wiped target/, so everything is rebuilt here.
-<span class="pc bpc" id="L418" title="1 of 2 branches missed.">            if (deploySite) {</span>
+<span class="pc bpc" id="L423" title="1 of 2 branches missed.">            if (deploySite) {</span>
                 // Site is deployed to a version-prefixed directory
                 // (`/&lt;projectId&gt;/&lt;releaseVersion&gt;/`) and a `latest` symlink
                 // is updated to point at it. ike-issues#303.
-<span class="nc" id="L422">                releaseDisk = ReleaseSupport.siteDiskPath(</span>
+<span class="nc" id="L427">                releaseDisk = ReleaseSupport.siteDiskPath(</span>
                         projectId, releaseVersion, null);
-<span class="nc" id="L424">                String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);</span>
-<span class="nc" id="L425">                String releaseUrl = &quot;scpexe://proxy&quot; + releaseDisk;</span>
-<span class="nc" id="L426">                stagingUrl = ReleaseSupport.siteStagingUrl(releaseUrl);</span>
+<span class="nc" id="L429">                String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);</span>
+<span class="nc" id="L430">                String releaseUrl = &quot;scpexe://proxy&quot; + releaseDisk;</span>
+<span class="nc" id="L431">                stagingUrl = ReleaseSupport.siteStagingUrl(releaseUrl);</span>
 
                 // 1. Verify (generates JaCoCo coverage data)
-<span class="nc" id="L429">                ReleaseSupport.exec(gitRoot, getLog(),</span>
-<span class="nc" id="L430">                        mvnw.getAbsolutePath(), &quot;verify&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);</span>
+<span class="nc" id="L434">                ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="nc" id="L435">                        mvnw.getAbsolutePath(), &quot;verify&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);</span>
 
                 // 2. Generate release history XHTML for site inclusion
                 try {
-<span class="nc" id="L434">                    Path generatedXhtml = gitRoot.toPath()</span>
-<span class="nc" id="L435">                            .resolve(&quot;target&quot;).resolve(&quot;generated-site&quot;).resolve(&quot;xhtml&quot;);</span>
-<span class="nc" id="L436">                    Path xhtmlFile = ReleaseNotesSupport.generateFullHistoryXhtml(</span>
-<span class="nc" id="L437">                            issueRepo, generatedXhtml, getLog());</span>
-<span class="nc bnc" id="L438" title="All 2 branches missed.">                    if (xhtmlFile != null) {</span>
-<span class="nc" id="L439">                        getLog().info(&quot;Generated release history: &quot; + xhtmlFile);</span>
+<span class="nc" id="L439">                    Path generatedXhtml = gitRoot.toPath()</span>
+<span class="nc" id="L440">                            .resolve(&quot;target&quot;).resolve(&quot;generated-site&quot;).resolve(&quot;xhtml&quot;);</span>
+<span class="nc" id="L441">                    Path xhtmlFile = ReleaseNotesSupport.generateFullHistoryXhtml(</span>
+<span class="nc" id="L442">                            issueRepo, generatedXhtml, getLog());</span>
+<span class="nc bnc" id="L443" title="All 2 branches missed.">                    if (xhtmlFile != null) {</span>
+<span class="nc" id="L444">                        getLog().info(&quot;Generated release history: &quot; + xhtmlFile);</span>
                     }
-<span class="nc" id="L441">                } catch (Exception e) {</span>
-<span class="nc" id="L442">                    getLog().warn(&quot;Could not generate site release notes: &quot;</span>
-<span class="nc" id="L443">                            + e.getMessage());</span>
-<span class="nc" id="L444">                }</span>
+<span class="nc" id="L446">                } catch (Exception e) {</span>
+<span class="nc" id="L447">                    getLog().warn(&quot;Could not generate site release notes: &quot;</span>
+<span class="nc" id="L448">                            + e.getMessage());</span>
+<span class="nc" id="L449">                }</span>
 
                 // 3. Build site (generates JaCoCo HTML from jacoco.exec)
-<span class="nc" id="L447">                ReleaseSupport.exec(gitRoot, getLog(),</span>
-<span class="nc" id="L448">                        mvnw.getAbsolutePath(), &quot;site&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);</span>
+<span class="nc" id="L452">                ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="nc" id="L453">                        mvnw.getAbsolutePath(), &quot;site&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);</span>
 
                 // 4. Inject breadcrumbs into JaCoCo reports
-<span class="nc" id="L451">                getLog().info(&quot;Injecting breadcrumbs into JaCoCo reports...&quot;);</span>
-<span class="nc" id="L452">                ReleaseSupport.exec(gitRoot, getLog(),</span>
-<span class="nc" id="L453">                        mvnw.getAbsolutePath(), &quot;network.ike.tooling:ike-maven-plugin:inject-breadcrumb&quot;,</span>
+<span class="nc" id="L456">                getLog().info(&quot;Injecting breadcrumbs into JaCoCo reports...&quot;);</span>
+<span class="nc" id="L457">                ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="nc" id="L458">                        mvnw.getAbsolutePath(), &quot;network.ike.tooling:ike-maven-plugin:inject-breadcrumb&quot;,</span>
                         &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);
 
                 // 5. Stage site (packages for deploy)
-<span class="nc" id="L457">                ReleaseSupport.exec(gitRoot, getLog(),</span>
-<span class="nc" id="L458">                        mvnw.getAbsolutePath(), &quot;site:stage&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);</span>
+<span class="nc" id="L462">                ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="nc" id="L463">                        mvnw.getAbsolutePath(), &quot;site:stage&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);</span>
 
                 // 6. Deploy site + publish (while target/staging/ exists)
                 // Best-effort — failures warn but don't block Nexus deploy.
+                // deploySiteAndPublish now returns flags for both gh-pages
+                // and scpexe so the summary can print each truthfully
+                // (ike-issues#339). The catch handles unexpected
+                // exceptions that bypass the per-step catches inside
+                // deploySiteAndPublish itself; in normal flow a scpexe
+                // failure is caught there and reflected in the result.
                 try {
-<span class="nc" id="L463">                    ghPagesPublished = deploySiteAndPublish(gitRoot, mvnw,</span>
-                            projectId, releaseVersion, releaseDisk,
+<span class="nc" id="L474">                    SiteDeployResult result = deploySiteAndPublish(gitRoot,</span>
+                            mvnw, projectId, releaseVersion, releaseDisk,
                             stagingUrl);
-<span class="nc" id="L466">                } catch (Exception e) {</span>
-<span class="nc" id="L467">                    logSiteDeployRetryInstructions(projectId, releaseVersion,</span>
-<span class="nc" id="L468">                            e.getMessage());</span>
-<span class="nc" id="L469">                    ghPagesPublished = false;</span>
-<span class="nc" id="L470">                }</span>
+<span class="nc" id="L477">                    ghPagesPublished = result.ghPagesPublished();</span>
+<span class="nc" id="L478">                    scpexeDeployed = result.scpexeDeployed();</span>
+<span class="nc" id="L479">                } catch (Exception e) {</span>
+<span class="nc" id="L480">                    logSiteDeployRetryInstructions(projectId, releaseVersion,</span>
+<span class="nc" id="L481">                            e.getMessage());</span>
+<span class="nc" id="L482">                    ghPagesPublished = false;</span>
+<span class="nc" id="L483">                    scpexeDeployed = false;</span>
+<span class="nc" id="L484">                }</span>
             }
 
             // ── Nexus deploy (critical — the actual release) ─────────
             // clean deploy: fresh build ensures artifact integrity.
             // Site was already deployed above (before clean wipes staging).
-<span class="fc" id="L476">            getLog().info(&quot;Deploying to Nexus...&quot;);</span>
-<span class="fc" id="L477">            ReleaseSupport.exec(gitRoot, getLog(),</span>
-<span class="fc" id="L478">                    mvnw.getAbsolutePath(), &quot;clean&quot;, &quot;deploy&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;,</span>
+<span class="fc" id="L490">            getLog().info(&quot;Deploying to Nexus...&quot;);</span>
+<span class="fc" id="L491">            ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="fc" id="L492">                    mvnw.getAbsolutePath(), &quot;clean&quot;, &quot;deploy&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;,</span>
                     &quot;-P&quot;, &quot;release,signArtifacts&quot;);
         } finally {
             // Always return to main, even if deploy fails
-<span class="fc" id="L482">            ReleaseSupport.exec(gitRoot, getLog(), &quot;git&quot;, &quot;checkout&quot;, &quot;main&quot;);</span>
+<span class="fc" id="L496">            ReleaseSupport.exec(gitRoot, getLog(), &quot;git&quot;, &quot;checkout&quot;, &quot;main&quot;);</span>
         }
 
         // Push tag and main
-<span class="pc bpc" id="L486" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
-<span class="nc" id="L487">            ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="pc bpc" id="L500" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
+<span class="nc" id="L501">            ReleaseSupport.exec(gitRoot, getLog(),</span>
                     &quot;git&quot;, &quot;push&quot;, &quot;origin&quot;, &quot;v&quot; + releaseVersion);
-<span class="nc" id="L489">            ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="nc" id="L503">            ReleaseSupport.exec(gitRoot, getLog(),</span>
                     &quot;git&quot;, &quot;push&quot;, &quot;origin&quot;, &quot;main&quot;);
         } else {
-<span class="fc" id="L492">            getLog().info(&quot;No 'origin' remote — skipping push&quot;);</span>
+<span class="fc" id="L506">            getLog().info(&quot;No 'origin' remote — skipping push&quot;);</span>
         }
 
         // Create GitHub Release with milestone-based release notes
-<span class="pc bpc" id="L496" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
-<span class="nc" id="L497">            createGitHubRelease(gitRoot, projectId, releaseVersion);</span>
+<span class="pc bpc" id="L510" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
+<span class="nc" id="L511">            createGitHubRelease(gitRoot, projectId, releaseVersion);</span>
         } else {
-<span class="fc" id="L499">            getLog().info(&quot;No 'origin' remote — skipping GitHub Release&quot;);</span>
+<span class="fc" id="L513">            getLog().info(&quot;No 'origin' remote — skipping GitHub Release&quot;);</span>
         }
 
         // Clean up the main-branch snapshot site — the release site
         // replaces it. Non-fatal if it fails (may not exist).
-<span class="pc bpc" id="L504" title="1 of 2 branches missed.">        if (deploySite) {</span>
-<span class="nc" id="L505">            String snapshotDisk = ReleaseSupport.siteDiskPath(</span>
+<span class="pc bpc" id="L518" title="1 of 2 branches missed.">        if (deploySite) {</span>
+<span class="nc" id="L519">            String snapshotDisk = ReleaseSupport.siteDiskPath(</span>
                     projectId, &quot;snapshot&quot;, &quot;main&quot;);
             try {
-<span class="nc" id="L508">                getLog().info(&quot;Cleaning snapshot/main site...&quot;);</span>
-<span class="nc" id="L509">                ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), snapshotDisk);</span>
-<span class="nc" id="L510">            } catch (Exception e) {</span>
-<span class="nc" id="L511">                getLog().warn(&quot;Could not clean snapshot site (may not exist): &quot;</span>
-<span class="nc" id="L512">                        + e.getMessage());</span>
-<span class="nc" id="L513">            }</span>
+<span class="nc" id="L522">                getLog().info(&quot;Cleaning snapshot/main site...&quot;);</span>
+<span class="nc" id="L523">                ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), snapshotDisk);</span>
+<span class="nc" id="L524">            } catch (Exception e) {</span>
+<span class="nc" id="L525">                getLog().warn(&quot;Could not clean snapshot site (may not exist): &quot;</span>
+<span class="nc" id="L526">                        + e.getMessage());</span>
+<span class="nc" id="L527">            }</span>
         }
 
         // VCS state file now managed by ws:release for workspace-level
         // releases. Single-repo ike:release does not write VCS state.
 
-<span class="fc" id="L519">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L520">        getLog().info(&quot;Release &quot; + releaseVersion + &quot; complete.&quot;);</span>
-<span class="fc" id="L521">        getLog().info(&quot;  Tagged: v&quot; + releaseVersion);</span>
-<span class="fc" id="L522">        getLog().info(&quot;  Deployed to Nexus&quot;);</span>
-<span class="pc bpc" id="L523" title="1 of 2 branches missed.">        if (deploySite) {</span>
-<span class="nc" id="L524">            getLog().info(&quot;  Site: http://ike.komet.sh/&quot; + projectId</span>
-                    + &quot;/&quot; + releaseVersion + &quot;/&quot;);
-<span class="nc" id="L526">            getLog().info(&quot;  Latest alias: http://ike.komet.sh/&quot;</span>
-                    + projectId + &quot;/latest/&quot;);
+<span class="fc" id="L533">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L534">        getLog().info(&quot;Release &quot; + releaseVersion + &quot; complete.&quot;);</span>
+<span class="fc" id="L535">        getLog().info(&quot;  Tagged: v&quot; + releaseVersion);</span>
+<span class="fc" id="L536">        getLog().info(&quot;  Deployed to Nexus&quot;);</span>
+        // Internal scpexe mirror at ike.komet.sh — gated on
+        // scpexeDeployed (ike-issues#339). Earlier behavior printed
+        // the URLs unconditionally on deploySite; if scpexe failed
+        // (e.g., wagon-ssh-external missing per #338) the URLs would
+        // 404. Now we only print success URLs when the deploy
+        // actually succeeded; failure prints retry instructions
+        // instead.
+<span class="pc bpc" id="L544" title="1 of 2 branches missed.">        if (deploySite) {</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">            if (scpexeDeployed) {</span>
+<span class="nc" id="L546">                getLog().info(&quot;  Site: http://ike.komet.sh/&quot; + projectId</span>
+                        + &quot;/&quot; + releaseVersion + &quot;/&quot;);
+<span class="nc" id="L548">                getLog().info(&quot;  Latest alias: http://ike.komet.sh/&quot;</span>
+                        + projectId + &quot;/latest/&quot;);
+            } else {
+<span class="nc" id="L551">                getLog().warn(&quot;  Internal mirror (scpexe): ❌ deploy &quot;</span>
+                        + &quot;failed (see WARNING above)&quot;);
+<span class="nc" id="L553">                getLog().warn(&quot;    Retry: git checkout v&quot; + releaseVersion</span>
+                        + &quot; &amp;&amp; mvn site:deploy -B -T 1 &amp;&amp; git checkout main&quot;);
+            }
         }
-<span class="pc bpc" id="L529" title="3 of 4 branches missed.">        if (publishSite &amp;&amp; deploySite) {</span>
-<span class="nc bnc" id="L530" title="All 2 branches missed.">            if (ghPagesPublished) {</span>
+        // GitHub Pages — independent of scpexe (ike-issues#339).
+        // gh-pages publish runs first and can succeed even when
+        // scpexe later fails; the summary now reflects that.
+<span class="pc bpc" id="L560" title="1 of 2 branches missed.">        if (publishSite) {</span>
+<span class="nc bnc" id="L561" title="All 2 branches missed.">            if (ghPagesPublished) {</span>
                 // Hybrid structure (#332): current at root, versioned
                 // snapshot, latest alias.
-<span class="nc" id="L533">                getLog().info(&quot;  GitHub Pages:&quot;);</span>
-<span class="nc" id="L534">                getLog().info(&quot;    Current:   https://ike.network/&quot;</span>
+<span class="nc" id="L564">                getLog().info(&quot;  GitHub Pages:&quot;);</span>
+<span class="nc" id="L565">                getLog().info(&quot;    Current:   https://ike.network/&quot;</span>
                         + projectId + &quot;/&quot;);
-<span class="nc" id="L536">                getLog().info(&quot;    Versioned: https://ike.network/&quot;</span>
+<span class="nc" id="L567">                getLog().info(&quot;    Versioned: https://ike.network/&quot;</span>
                         + projectId + &quot;/&quot; + releaseVersion + &quot;/&quot;);
-<span class="nc" id="L538">                getLog().info(&quot;    Latest:    https://ike.network/&quot;</span>
+<span class="nc" id="L569">                getLog().info(&quot;    Latest:    https://ike.network/&quot;</span>
                         + projectId + &quot;/latest/&quot;);
             } else {
                 // Don't lie about state. Earlier behavior printed the
                 // success line unconditionally; ike-issues#329.
-<span class="nc" id="L543">                getLog().warn(&quot;  GitHub Pages: ❌ publish failed &quot;</span>
+<span class="nc" id="L574">                getLog().warn(&quot;  GitHub Pages: ❌ publish failed &quot;</span>
                         + &quot;(see WARNING above)&quot;);
-<span class="nc" id="L545">                getLog().warn(&quot;    Retry: mvn ike:deploy-site-publish &quot;</span>
+<span class="nc" id="L576">                getLog().warn(&quot;    Retry: mvn ike:deploy-site-publish &quot;</span>
                         + &quot;-DsiteType=release -DsiteVersion=&quot; + releaseVersion
                         + &quot; -DskipBuild=true&quot;);
             }
         }
-<span class="fc" id="L550">        getLog().info(&quot;  Merged to main&quot;);</span>
-<span class="fc" id="L551">        getLog().info(&quot;  Next version: &quot; + nextVersion);</span>
+<span class="fc" id="L581">        getLog().info(&quot;  Merged to main&quot;);</span>
+<span class="fc" id="L582">        getLog().info(&quot;  Next version: &quot; + nextVersion);</span>
 
-<span class="fc" id="L553">        writeReport(IkeGoal.RELEASE_PUBLISH, startDir.toPath(),</span>
-<span class="fc" id="L554">                buildReleaseReport(false, oldVersion, releaseBranch,</span>
+<span class="fc" id="L584">        writeReport(IkeGoal.RELEASE_PUBLISH, startDir.toPath(),</span>
+<span class="fc" id="L585">                buildReleaseReport(false, oldVersion, releaseBranch,</span>
                         projectId, releaseTimestamp));
-<span class="fc" id="L556">    }</span>
+<span class="fc" id="L587">    }</span>
 
     /**
      * Build the markdown body for an {@code ike:release-*} session report.
@@ -571,69 +602,69 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                                        String releaseBranch,
                                        String projectId,
                                        String releaseTimestamp) {
-<span class="fc" id="L574">        StringBuilder sb = new StringBuilder();</span>
-<span class="fc" id="L575">        sb.append(&quot;**Project:** &quot;).append(projectId).append(&quot;\n&quot;);</span>
-<span class="fc bfc" id="L576" title="All 2 branches covered.">        sb.append(&quot;**Mode:** &quot;).append(draft ? &quot;draft (preview)&quot; : &quot;publish&quot;)</span>
-<span class="fc" id="L577">                .append(&quot;\n&quot;);</span>
-<span class="fc" id="L578">        sb.append(&quot;**Version:** &quot;).append(oldVersion).append(&quot; → &quot;)</span>
-<span class="fc" id="L579">                .append(releaseVersion).append(&quot;\n&quot;);</span>
-<span class="fc" id="L580">        sb.append(&quot;**Next version:** &quot;).append(nextVersion).append(&quot;\n&quot;);</span>
-<span class="fc" id="L581">        sb.append(&quot;**Release branch:** &quot;).append(releaseBranch).append(&quot;\n&quot;);</span>
-<span class="fc" id="L582">        sb.append(&quot;**Tag:** v&quot;).append(releaseVersion).append(&quot;\n&quot;);</span>
-<span class="fc" id="L583">        sb.append(&quot;**Timestamp:** &quot;).append(releaseTimestamp).append(&quot;\n\n&quot;);</span>
+<span class="fc" id="L605">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L606">        sb.append(&quot;**Project:** &quot;).append(projectId).append(&quot;\n&quot;);</span>
+<span class="fc bfc" id="L607" title="All 2 branches covered.">        sb.append(&quot;**Mode:** &quot;).append(draft ? &quot;draft (preview)&quot; : &quot;publish&quot;)</span>
+<span class="fc" id="L608">                .append(&quot;\n&quot;);</span>
+<span class="fc" id="L609">        sb.append(&quot;**Version:** &quot;).append(oldVersion).append(&quot; → &quot;)</span>
+<span class="fc" id="L610">                .append(releaseVersion).append(&quot;\n&quot;);</span>
+<span class="fc" id="L611">        sb.append(&quot;**Next version:** &quot;).append(nextVersion).append(&quot;\n&quot;);</span>
+<span class="fc" id="L612">        sb.append(&quot;**Release branch:** &quot;).append(releaseBranch).append(&quot;\n&quot;);</span>
+<span class="fc" id="L613">        sb.append(&quot;**Tag:** v&quot;).append(releaseVersion).append(&quot;\n&quot;);</span>
+<span class="fc" id="L614">        sb.append(&quot;**Timestamp:** &quot;).append(releaseTimestamp).append(&quot;\n\n&quot;);</span>
 
-<span class="fc bfc" id="L585" title="All 2 branches covered.">        String verb = draft ? &quot;Would&quot; : &quot;Did&quot;;</span>
-<span class="fc" id="L586">        sb.append(&quot;## Local actions\n&quot;);</span>
-<span class="fc" id="L587">        sb.append(&quot;1. &quot;).append(verb)</span>
-<span class="fc" id="L588">                .append(&quot; create branch `&quot;).append(releaseBranch).append(&quot;`\n&quot;);</span>
-<span class="fc" id="L589">        sb.append(&quot;2. &quot;).append(verb)</span>
-<span class="fc" id="L590">                .append(&quot; set version &quot;).append(oldVersion).append(&quot; → &quot;)</span>
-<span class="fc" id="L591">                .append(releaseVersion).append(&quot;\n&quot;);</span>
-<span class="fc" id="L592">        sb.append(&quot;3. &quot;).append(verb)</span>
-<span class="fc" id="L593">                .append(&quot; stamp `project.build.outputTimestamp`\n&quot;);</span>
-<span class="fc" id="L594">        sb.append(&quot;4. &quot;).append(verb)</span>
-<span class="fc" id="L595">                .append(&quot; resolve `${project.version}` in all POMs\n&quot;);</span>
-<span class="fc" id="L596">        sb.append(&quot;5. &quot;).append(verb).append(&quot; run `mvnw clean verify -B`\n&quot;);</span>
-<span class="fc" id="L597">        sb.append(&quot;6. &quot;).append(verb)</span>
-<span class="fc" id="L598">                .append(&quot; commit and tag `v&quot;).append(releaseVersion)</span>
-<span class="fc" id="L599">                .append(&quot;`\n&quot;);</span>
-<span class="fc" id="L600">        sb.append(&quot;7. &quot;).append(verb)</span>
-<span class="fc" id="L601">                .append(&quot; merge `&quot;).append(releaseBranch).append(&quot;` to main\n&quot;);</span>
-<span class="fc" id="L602">        sb.append(&quot;8. &quot;).append(verb)</span>
-<span class="fc" id="L603">                .append(&quot; bump to next version &quot;).append(nextVersion)</span>
-<span class="fc" id="L604">                .append(&quot;\n\n&quot;);</span>
+<span class="fc bfc" id="L616" title="All 2 branches covered.">        String verb = draft ? &quot;Would&quot; : &quot;Did&quot;;</span>
+<span class="fc" id="L617">        sb.append(&quot;## Local actions\n&quot;);</span>
+<span class="fc" id="L618">        sb.append(&quot;1. &quot;).append(verb)</span>
+<span class="fc" id="L619">                .append(&quot; create branch `&quot;).append(releaseBranch).append(&quot;`\n&quot;);</span>
+<span class="fc" id="L620">        sb.append(&quot;2. &quot;).append(verb)</span>
+<span class="fc" id="L621">                .append(&quot; set version &quot;).append(oldVersion).append(&quot; → &quot;)</span>
+<span class="fc" id="L622">                .append(releaseVersion).append(&quot;\n&quot;);</span>
+<span class="fc" id="L623">        sb.append(&quot;3. &quot;).append(verb)</span>
+<span class="fc" id="L624">                .append(&quot; stamp `project.build.outputTimestamp`\n&quot;);</span>
+<span class="fc" id="L625">        sb.append(&quot;4. &quot;).append(verb)</span>
+<span class="fc" id="L626">                .append(&quot; resolve `${project.version}` in all POMs\n&quot;);</span>
+<span class="fc" id="L627">        sb.append(&quot;5. &quot;).append(verb).append(&quot; run `mvnw clean verify -B`\n&quot;);</span>
+<span class="fc" id="L628">        sb.append(&quot;6. &quot;).append(verb)</span>
+<span class="fc" id="L629">                .append(&quot; commit and tag `v&quot;).append(releaseVersion)</span>
+<span class="fc" id="L630">                .append(&quot;`\n&quot;);</span>
+<span class="fc" id="L631">        sb.append(&quot;7. &quot;).append(verb)</span>
+<span class="fc" id="L632">                .append(&quot; merge `&quot;).append(releaseBranch).append(&quot;` to main\n&quot;);</span>
+<span class="fc" id="L633">        sb.append(&quot;8. &quot;).append(verb)</span>
+<span class="fc" id="L634">                .append(&quot; bump to next version &quot;).append(nextVersion)</span>
+<span class="fc" id="L635">                .append(&quot;\n\n&quot;);</span>
 
-<span class="fc" id="L606">        sb.append(&quot;## External actions\n&quot;);</span>
-<span class="fc" id="L607">        int step = 1;</span>
-<span class="fc bfc" id="L608" title="All 2 branches covered.">        if (deploySite) {</span>
-<span class="fc" id="L609">            sb.append(step++).append(&quot;. &quot;).append(verb)</span>
-<span class="fc" id="L610">                    .append(&quot; generate site\n&quot;);</span>
+<span class="fc" id="L637">        sb.append(&quot;## External actions\n&quot;);</span>
+<span class="fc" id="L638">        int step = 1;</span>
+<span class="fc bfc" id="L639" title="All 2 branches covered.">        if (deploySite) {</span>
+<span class="fc" id="L640">            sb.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L641">                    .append(&quot; generate site\n&quot;);</span>
         }
-<span class="fc" id="L612">        sb.append(step++).append(&quot;. &quot;).append(verb)</span>
-<span class="fc" id="L613">                .append(&quot; deploy to Nexus from tag `v&quot;)</span>
-<span class="fc" id="L614">                .append(releaseVersion).append(&quot;`\n&quot;);</span>
-<span class="fc bfc" id="L615" title="All 2 branches covered.">        if (deploySite) {</span>
-<span class="fc" id="L616">            sb.append(step++).append(&quot;. &quot;).append(verb)</span>
-<span class="fc" id="L617">                    .append(&quot; deploy site to &quot;)</span>
-<span class="fc" id="L618">                    .append(&quot;`scpexe://proxy/srv/ike-site/&quot;)</span>
-<span class="fc" id="L619">                    .append(projectId).append(&quot;/&quot;)</span>
-<span class="fc" id="L620">                    .append(releaseVersion).append(&quot;`\n&quot;);</span>
-<span class="fc" id="L621">            sb.append(step++).append(&quot;. &quot;).append(verb)</span>
-<span class="fc" id="L622">                    .append(&quot; update `latest` symlink -&gt; `&quot;)</span>
-<span class="fc" id="L623">                    .append(releaseVersion).append(&quot;`\n&quot;);</span>
-<span class="pc bpc" id="L624" title="1 of 2 branches missed.">            if (publishSite) {</span>
-<span class="nc" id="L625">                sb.append(step++).append(&quot;. &quot;).append(verb)</span>
-<span class="nc" id="L626">                        .append(&quot; force-push site to gh-pages on origin &quot;</span>
+<span class="fc" id="L643">        sb.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L644">                .append(&quot; deploy to Nexus from tag `v&quot;)</span>
+<span class="fc" id="L645">                .append(releaseVersion).append(&quot;`\n&quot;);</span>
+<span class="fc bfc" id="L646" title="All 2 branches covered.">        if (deploySite) {</span>
+<span class="fc" id="L647">            sb.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L648">                    .append(&quot; deploy site to &quot;)</span>
+<span class="fc" id="L649">                    .append(&quot;`scpexe://proxy/srv/ike-site/&quot;)</span>
+<span class="fc" id="L650">                    .append(projectId).append(&quot;/&quot;)</span>
+<span class="fc" id="L651">                    .append(releaseVersion).append(&quot;`\n&quot;);</span>
+<span class="fc" id="L652">            sb.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L653">                    .append(&quot; update `latest` symlink -&gt; `&quot;)</span>
+<span class="fc" id="L654">                    .append(releaseVersion).append(&quot;`\n&quot;);</span>
+<span class="pc bpc" id="L655" title="1 of 2 branches missed.">            if (publishSite) {</span>
+<span class="nc" id="L656">                sb.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="nc" id="L657">                        .append(&quot; force-push site to gh-pages on origin &quot;</span>
                                 + &quot;(serves at `https://ike.network/&quot;)
-<span class="nc" id="L628">                        .append(projectId).append(&quot;/`)\n&quot;);</span>
+<span class="nc" id="L659">                        .append(projectId).append(&quot;/`)\n&quot;);</span>
             }
         }
-<span class="fc" id="L631">        sb.append(step++).append(&quot;. &quot;).append(verb)</span>
-<span class="fc" id="L632">                .append(&quot; push tag and main to origin\n&quot;);</span>
-<span class="fc" id="L633">        sb.append(step).append(&quot;. &quot;).append(verb)</span>
-<span class="fc" id="L634">                .append(&quot; create GitHub Release\n&quot;);</span>
+<span class="fc" id="L662">        sb.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L663">                .append(&quot; push tag and main to origin\n&quot;);</span>
+<span class="fc" id="L664">        sb.append(step).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L665">                .append(&quot; create GitHub Release\n&quot;);</span>
 
-<span class="fc" id="L636">        return sb.toString();</span>
+<span class="fc" id="L667">        return sb.toString();</span>
     }
 
     /**
@@ -650,20 +681,20 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     private String resolveCommitTimestamp(File gitRoot) {
         try {
             // %cI = commit timestamp in strict ISO 8601 format
-<span class="fc" id="L653">            String raw = ReleaseSupport.execCapture(gitRoot,</span>
+<span class="fc" id="L684">            String raw = ReleaseSupport.execCapture(gitRoot,</span>
                     &quot;git&quot;, &quot;log&quot;, &quot;-1&quot;, &quot;--format=%cI&quot;, &quot;HEAD&quot;);
             // Normalise to the yyyy-MM-dd'T'HH:mm:ss'Z' form Maven expects
-<span class="fc" id="L656">            return DateTimeFormatter</span>
-<span class="fc" id="L657">                    .ofPattern(&quot;yyyy-MM-dd'T'HH:mm:ss'Z'&quot;)</span>
-<span class="fc" id="L658">                    .withZone(ZoneOffset.UTC)</span>
-<span class="fc" id="L659">                    .format(java.time.OffsetDateTime.parse(raw).toInstant());</span>
-<span class="nc" id="L660">        } catch (Exception e) {</span>
-<span class="nc" id="L661">            getLog().warn(&quot;Could not read HEAD commit timestamp; falling back to wall-clock: &quot;</span>
-<span class="nc" id="L662">                    + e.getMessage());</span>
-<span class="nc" id="L663">            return DateTimeFormatter</span>
-<span class="nc" id="L664">                    .ofPattern(&quot;yyyy-MM-dd'T'HH:mm:ss'Z'&quot;)</span>
-<span class="nc" id="L665">                    .withZone(ZoneOffset.UTC)</span>
-<span class="nc" id="L666">                    .format(Instant.now());</span>
+<span class="fc" id="L687">            return DateTimeFormatter</span>
+<span class="fc" id="L688">                    .ofPattern(&quot;yyyy-MM-dd'T'HH:mm:ss'Z'&quot;)</span>
+<span class="fc" id="L689">                    .withZone(ZoneOffset.UTC)</span>
+<span class="fc" id="L690">                    .format(java.time.OffsetDateTime.parse(raw).toInstant());</span>
+<span class="nc" id="L691">        } catch (Exception e) {</span>
+<span class="nc" id="L692">            getLog().warn(&quot;Could not read HEAD commit timestamp; falling back to wall-clock: &quot;</span>
+<span class="nc" id="L693">                    + e.getMessage());</span>
+<span class="nc" id="L694">            return DateTimeFormatter</span>
+<span class="nc" id="L695">                    .ofPattern(&quot;yyyy-MM-dd'T'HH:mm:ss'Z'&quot;)</span>
+<span class="nc" id="L696">                    .withZone(ZoneOffset.UTC)</span>
+<span class="nc" id="L697">                    .format(Instant.now());</span>
         }
     }
 
@@ -684,112 +715,112 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     private void preflightChecks(File gitRoot, boolean hasOrigin,
                                   String projectId)
             throws MojoException {
-<span class="fc" id="L687">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L688">        getLog().info(&quot;PREFLIGHT CHECKS&quot;);</span>
-<span class="fc" id="L689">        List&lt;String&gt; warnings = new java.util.ArrayList&lt;&gt;();</span>
+<span class="fc" id="L718">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L719">        getLog().info(&quot;PREFLIGHT CHECKS&quot;);</span>
+<span class="fc" id="L720">        List&lt;String&gt; warnings = new java.util.ArrayList&lt;&gt;();</span>
 
         // 1. Git push auth — draft push (sends nothing, tests auth)
-<span class="pc bpc" id="L692" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
+<span class="pc bpc" id="L723" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
             try {
-<span class="nc" id="L694">                ReleaseSupport.execCapture(gitRoot,</span>
+<span class="nc" id="L725">                ReleaseSupport.execCapture(gitRoot,</span>
                         &quot;git&quot;, &quot;push&quot;, &quot;--dry-run&quot;, &quot;origin&quot;, &quot;main&quot;);
-<span class="nc" id="L696">                getLog().info(&quot;  Git push:    authenticated  ✓&quot;);</span>
-<span class="nc" id="L697">            } catch (Exception e) {</span>
-<span class="nc" id="L698">                throw new MojoException(</span>
+<span class="nc" id="L727">                getLog().info(&quot;  Git push:    authenticated  ✓&quot;);</span>
+<span class="nc" id="L728">            } catch (Exception e) {</span>
+<span class="nc" id="L729">                throw new MojoException(</span>
                         &quot;Cannot push to origin. Fix authentication before &quot;
-<span class="nc" id="L700">                                + &quot;releasing.\n  Error: &quot; + e.getMessage());</span>
-<span class="nc" id="L701">            }</span>
+<span class="nc" id="L731">                                + &quot;releasing.\n  Error: &quot; + e.getMessage());</span>
+<span class="nc" id="L732">            }</span>
         } else {
-<span class="fc" id="L703">            getLog().info(&quot;  Git push:    no origin remote (local-only release)&quot;);</span>
+<span class="fc" id="L734">            getLog().info(&quot;  Git push:    no origin remote (local-only release)&quot;);</span>
         }
 
         // 2. SSH proxy — can we reach the site deploy server?
-<span class="pc bpc" id="L707" title="1 of 2 branches missed.">        if (deploySite) {</span>
+<span class="pc bpc" id="L738" title="1 of 2 branches missed.">        if (deploySite) {</span>
             try {
-<span class="nc" id="L709">                ReleaseSupport.execCapture(gitRoot,</span>
+<span class="nc" id="L740">                ReleaseSupport.execCapture(gitRoot,</span>
                         &quot;ssh&quot;, &quot;-o&quot;, &quot;ConnectTimeout=5&quot;,
                         &quot;-o&quot;, &quot;BatchMode=yes&quot;,
                         &quot;proxy&quot;, &quot;echo&quot;, &quot;ok&quot;);
-<span class="nc" id="L713">                getLog().info(&quot;  SSH proxy:   reachable  ✓&quot;);</span>
-<span class="nc" id="L714">            } catch (Exception e) {</span>
-<span class="nc" id="L715">                warnings.add(&quot;SSH proxy unreachable — site deploy will be &quot;</span>
-<span class="nc" id="L716">                        + &quot;skipped. Error: &quot; + e.getMessage());</span>
-<span class="nc" id="L717">                getLog().warn(&quot;  SSH proxy:   unreachable (site deploy will fail)&quot;);</span>
-<span class="nc" id="L718">            }</span>
+<span class="nc" id="L744">                getLog().info(&quot;  SSH proxy:   reachable  ✓&quot;);</span>
+<span class="nc" id="L745">            } catch (Exception e) {</span>
+<span class="nc" id="L746">                warnings.add(&quot;SSH proxy unreachable — site deploy will be &quot;</span>
+<span class="nc" id="L747">                        + &quot;skipped. Error: &quot; + e.getMessage());</span>
+<span class="nc" id="L748">                getLog().warn(&quot;  SSH proxy:   unreachable (site deploy will fail)&quot;);</span>
+<span class="nc" id="L749">            }</span>
         }
 
         // 3. gh CLI — installed and authenticated?
-<span class="pc bpc" id="L722" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
+<span class="pc bpc" id="L753" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
             try {
-<span class="nc" id="L724">                ReleaseSupport.execCapture(gitRoot, &quot;gh&quot;, &quot;auth&quot;, &quot;status&quot;);</span>
-<span class="nc" id="L725">                getLog().info(&quot;  gh CLI:      authenticated  ✓&quot;);</span>
-<span class="nc" id="L726">            } catch (Exception e) {</span>
-<span class="nc" id="L727">                warnings.add(&quot;gh CLI not available or not authenticated — &quot;</span>
+<span class="nc" id="L755">                ReleaseSupport.execCapture(gitRoot, &quot;gh&quot;, &quot;auth&quot;, &quot;status&quot;);</span>
+<span class="nc" id="L756">                getLog().info(&quot;  gh CLI:      authenticated  ✓&quot;);</span>
+<span class="nc" id="L757">            } catch (Exception e) {</span>
+<span class="nc" id="L758">                warnings.add(&quot;gh CLI not available or not authenticated — &quot;</span>
                         + &quot;GitHub Release will be skipped. &quot;
                         + &quot;Run: gh auth login&quot;);
-<span class="nc" id="L730">                getLog().warn(&quot;  gh CLI:      not available (GitHub Release &quot;</span>
+<span class="nc" id="L761">                getLog().warn(&quot;  gh CLI:      not available (GitHub Release &quot;</span>
                         + &quot;will be skipped)&quot;);
-<span class="nc" id="L732">            }</span>
+<span class="nc" id="L763">            }</span>
         }
 
         // 4. Maven wrapper
         try {
-<span class="fc" id="L737">            ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());</span>
-<span class="fc" id="L738">            getLog().info(&quot;  Maven:       wrapper found  ✓&quot;);</span>
-<span class="nc" id="L739">        } catch (Exception e) {</span>
-<span class="nc" id="L740">            throw new MojoException(</span>
+<span class="fc" id="L768">            ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());</span>
+<span class="fc" id="L769">            getLog().info(&quot;  Maven:       wrapper found  ✓&quot;);</span>
+<span class="nc" id="L770">        } catch (Exception e) {</span>
+<span class="nc" id="L771">            throw new MojoException(</span>
                     &quot;Maven wrapper (mvnw) not found. Run: mvn wrapper:wrapper&quot;);
-<span class="fc" id="L742">        }</span>
+<span class="fc" id="L773">        }</span>
 
-<span class="pc bpc" id="L744" title="1 of 2 branches missed.">        if (!warnings.isEmpty()) {</span>
-<span class="nc" id="L745">            getLog().info(&quot;&quot;);</span>
-<span class="nc bnc" id="L746" title="All 2 branches missed.">            for (String w : warnings) {</span>
-<span class="nc" id="L747">                getLog().warn(&quot;  ⚠ &quot; + w);</span>
-<span class="nc" id="L748">            }</span>
-<span class="nc" id="L749">            getLog().info(&quot;&quot;);</span>
+<span class="pc bpc" id="L775" title="1 of 2 branches missed.">        if (!warnings.isEmpty()) {</span>
+<span class="nc" id="L776">            getLog().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L777" title="All 2 branches missed.">            for (String w : warnings) {</span>
+<span class="nc" id="L778">                getLog().warn(&quot;  ⚠ &quot; + w);</span>
+<span class="nc" id="L779">            }</span>
+<span class="nc" id="L780">            getLog().info(&quot;&quot;);</span>
 
             // In batch mode (-B), log warnings and continue — batch mode
             // means non-interactive, so prompting would hang or abort.
             // In interactive mode, ask the user to confirm.
-<span class="nc bnc" id="L754" title="All 2 branches missed.">            boolean batchMode = System.console() == null</span>
-<span class="nc bnc" id="L755" title="All 2 branches missed.">                    &amp;&amp; System.getProperty(&quot;maven.batch-mode&quot;) != null;</span>
+<span class="nc bnc" id="L785" title="All 2 branches missed.">            boolean batchMode = System.console() == null</span>
+<span class="nc bnc" id="L786" title="All 2 branches missed.">                    &amp;&amp; System.getProperty(&quot;maven.batch-mode&quot;) != null;</span>
             // Also check if stdin is unlikely to be connected (common
             // in CI and Maven subprocess invocations with -B)
-<span class="nc bnc" id="L758" title="All 2 branches missed.">            if (batchMode || java.util.Arrays.asList(</span>
-<span class="nc" id="L759">                    System.getProperty(&quot;sun.java.command&quot;, &quot;&quot;).split(&quot; &quot;))</span>
-<span class="nc bnc" id="L760" title="All 2 branches missed.">                    .contains(&quot;-B&quot;)) {</span>
-<span class="nc" id="L761">                getLog().warn(&quot;  Batch mode (-B): proceeding with &quot;</span>
-<span class="nc" id="L762">                        + warnings.size() + &quot; warning(s).&quot;);</span>
+<span class="nc bnc" id="L789" title="All 2 branches missed.">            if (batchMode || java.util.Arrays.asList(</span>
+<span class="nc" id="L790">                    System.getProperty(&quot;sun.java.command&quot;, &quot;&quot;).split(&quot; &quot;))</span>
+<span class="nc bnc" id="L791" title="All 2 branches missed.">                    .contains(&quot;-B&quot;)) {</span>
+<span class="nc" id="L792">                getLog().warn(&quot;  Batch mode (-B): proceeding with &quot;</span>
+<span class="nc" id="L793">                        + warnings.size() + &quot; warning(s).&quot;);</span>
             } else {
                 // Prompt for confirmation
-<span class="nc" id="L765">                String answer = null;</span>
-<span class="nc" id="L766">                java.io.Console console = System.console();</span>
-<span class="nc bnc" id="L767" title="All 2 branches missed.">                if (console != null) {</span>
-<span class="nc" id="L768">                    answer = console.readLine(</span>
+<span class="nc" id="L796">                String answer = null;</span>
+<span class="nc" id="L797">                java.io.Console console = System.console();</span>
+<span class="nc bnc" id="L798" title="All 2 branches missed.">                if (console != null) {</span>
+<span class="nc" id="L799">                    answer = console.readLine(</span>
                             &quot;  Continue with %d warning(s)? (yes/no): &quot;,
-<span class="nc" id="L770">                            warnings.size());</span>
+<span class="nc" id="L801">                            warnings.size());</span>
                 } else {
-<span class="nc" id="L772">                    System.out.print(&quot;\u001B[33m  Continue with &quot; + warnings.size()</span>
+<span class="nc" id="L803">                    System.out.print(&quot;\u001B[33m  Continue with &quot; + warnings.size()</span>
                             + &quot; warning(s)? (yes/no): \u001B[0m&quot;);
-<span class="nc" id="L774">                    System.out.flush();</span>
+<span class="nc" id="L805">                    System.out.flush();</span>
                     try {
-<span class="nc" id="L776">                        answer = new java.io.BufferedReader(</span>
+<span class="nc" id="L807">                        answer = new java.io.BufferedReader(</span>
                                 new java.io.InputStreamReader(System.in))
-<span class="nc" id="L778">                                .readLine();</span>
-<span class="nc" id="L779">                    } catch (java.io.IOException e) {</span>
+<span class="nc" id="L809">                                .readLine();</span>
+<span class="nc" id="L810">                    } catch (java.io.IOException e) {</span>
                         // Fall through — treat as &quot;no&quot;
-<span class="nc" id="L781">                    }</span>
+<span class="nc" id="L812">                    }</span>
                 }
 
-<span class="nc bnc" id="L784" title="All 2 branches missed.">                if (answer == null</span>
-<span class="nc bnc" id="L785" title="All 2 branches missed.">                        || !answer.trim().equalsIgnoreCase(&quot;yes&quot;)) {</span>
-<span class="nc" id="L786">                    throw new MojoException(</span>
+<span class="nc bnc" id="L815" title="All 2 branches missed.">                if (answer == null</span>
+<span class="nc bnc" id="L816" title="All 2 branches missed.">                        || !answer.trim().equalsIgnoreCase(&quot;yes&quot;)) {</span>
+<span class="nc" id="L817">                    throw new MojoException(</span>
                             &quot;Release aborted. Resolve warnings and retry.&quot;);
                 }
             }
         }
-<span class="fc" id="L791">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L792">    }</span>
+<span class="fc" id="L822">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L823">    }</span>
 
     /**
      * Check that javadoc generation — as the release profile runs it —
@@ -814,31 +845,31 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      */
     private void preflightJavadoc(File gitRoot, boolean publish)
             throws MojoException {
-<span class="pc bpc" id="L817" title="1 of 2 branches missed.">        if (!hasAnyJavaSource(gitRoot)) return;</span>
+<span class="pc bpc" id="L848" title="1 of 2 branches missed.">        if (!hasAnyJavaSource(gitRoot)) return;</span>
 
-<span class="nc" id="L819">        List&lt;String&gt; warnings = collectJavadocWarnings(gitRoot);</span>
-<span class="nc" id="L820">        getLog().info(&quot;&quot;);</span>
-<span class="nc bnc" id="L821" title="All 2 branches missed.">        if (warnings.isEmpty()) {</span>
-<span class="nc" id="L822">            getLog().info(&quot;  Javadoc:     warning-free  ✓&quot;);</span>
-<span class="nc" id="L823">            return;</span>
+<span class="nc" id="L850">        List&lt;String&gt; warnings = collectJavadocWarnings(gitRoot);</span>
+<span class="nc" id="L851">        getLog().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L852" title="All 2 branches missed.">        if (warnings.isEmpty()) {</span>
+<span class="nc" id="L853">            getLog().info(&quot;  Javadoc:     warning-free  ✓&quot;);</span>
+<span class="nc" id="L854">            return;</span>
         }
 
-<span class="nc" id="L826">        getLog().info(&quot;  Javadoc:     &quot; + warnings.size()</span>
+<span class="nc" id="L857">        getLog().info(&quot;  Javadoc:     &quot; + warnings.size()</span>
                 + &quot; warning(s)  ✗&quot;);
-<span class="nc bnc" id="L828" title="All 2 branches missed.">        for (String w : warnings) {</span>
-<span class="nc" id="L829">            getLog().warn(&quot;    &quot; + w);</span>
-<span class="nc" id="L830">        }</span>
+<span class="nc bnc" id="L859" title="All 2 branches missed.">        for (String w : warnings) {</span>
+<span class="nc" id="L860">            getLog().warn(&quot;    &quot; + w);</span>
+<span class="nc" id="L861">        }</span>
 
-<span class="nc bnc" id="L832" title="All 2 branches missed.">        if (publish) {</span>
-<span class="nc" id="L833">            throw new MojoException(</span>
-<span class="nc" id="L834">                    &quot;Javadoc preflight failed: &quot; + warnings.size()</span>
+<span class="nc bnc" id="L863" title="All 2 branches missed.">        if (publish) {</span>
+<span class="nc" id="L864">            throw new MojoException(</span>
+<span class="nc" id="L865">                    &quot;Javadoc preflight failed: &quot; + warnings.size()</span>
                             + &quot; warning(s) must be resolved before publish.\n&quot;
                             + &quot;  Convention: every public method needs&quot;
                             + &quot; complete @param / @return / @throws tags.&quot;);
         }
-<span class="nc" id="L839">        getLog().warn(&quot;  (Draft mode — would block publish.)&quot;);</span>
-<span class="nc" id="L840">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L841">    }</span>
+<span class="nc" id="L870">        getLog().warn(&quot;  (Draft mode — would block publish.)&quot;);</span>
+<span class="nc" id="L871">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L872">    }</span>
 
     /**
      * Return {@code true} if {@code gitRoot} or any direct subdirectory
@@ -849,14 +880,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * @return {@code true} if at least one Java source tree is present
      */
     private boolean hasAnyJavaSource(File gitRoot) {
-<span class="pc bpc" id="L852" title="1 of 2 branches missed.">        if (new File(gitRoot, &quot;src/main/java&quot;).isDirectory()) return true;</span>
-<span class="fc" id="L853">        File[] entries = gitRoot.listFiles();</span>
-<span class="pc bpc" id="L854" title="1 of 2 branches missed.">        if (entries == null) return false;</span>
-<span class="fc bfc" id="L855" title="All 2 branches covered.">        for (File entry : entries) {</span>
-<span class="fc bfc" id="L856" title="All 2 branches covered.">            if (!entry.isDirectory()) continue;</span>
-<span class="pc bpc" id="L857" title="1 of 2 branches missed.">            if (new File(entry, &quot;src/main/java&quot;).isDirectory()) return true;</span>
+<span class="pc bpc" id="L883" title="1 of 2 branches missed.">        if (new File(gitRoot, &quot;src/main/java&quot;).isDirectory()) return true;</span>
+<span class="fc" id="L884">        File[] entries = gitRoot.listFiles();</span>
+<span class="pc bpc" id="L885" title="1 of 2 branches missed.">        if (entries == null) return false;</span>
+<span class="fc bfc" id="L886" title="All 2 branches covered.">        for (File entry : entries) {</span>
+<span class="fc bfc" id="L887" title="All 2 branches covered.">            if (!entry.isDirectory()) continue;</span>
+<span class="pc bpc" id="L888" title="1 of 2 branches missed.">            if (new File(entry, &quot;src/main/java&quot;).isDirectory()) return true;</span>
         }
-<span class="fc" id="L859">        return false;</span>
+<span class="fc" id="L890">        return false;</span>
     }
 
     /**
@@ -873,71 +904,91 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      *         javadoc produced no warnings or the subprocess failed
      */
     private List&lt;String&gt; collectJavadocWarnings(File gitRoot) {
-<span class="nc" id="L876">        List&lt;String&gt; warnings = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L907">        List&lt;String&gt; warnings = new ArrayList&lt;&gt;();</span>
         try {
             // -q stripped the [WARNING] prefix the grep below keys on,
             // letting javadoc &quot;reference not found&quot; warnings slip through
             // preflight (see ike-issues #178). -B keeps output non-interactive.
-<span class="nc" id="L881">            Process proc = new ProcessBuilder(</span>
+<span class="nc" id="L912">            Process proc = new ProcessBuilder(</span>
                     &quot;mvn&quot;, &quot;-B&quot;,
                     &quot;compile&quot;, &quot;javadoc:jar&quot;,
                     &quot;-DskipTests&quot;,
                     &quot;-DfailOnError=false&quot;,
                     &quot;-DfailOnWarnings=false&quot;)
-<span class="nc" id="L887">                    .directory(gitRoot)</span>
-<span class="nc" id="L888">                    .redirectErrorStream(true)</span>
-<span class="nc" id="L889">                    .start();</span>
-<span class="nc" id="L890">            try (BufferedReader reader = new BufferedReader(</span>
-<span class="nc" id="L891">                    new InputStreamReader(proc.getInputStream(),</span>
+<span class="nc" id="L918">                    .directory(gitRoot)</span>
+<span class="nc" id="L919">                    .redirectErrorStream(true)</span>
+<span class="nc" id="L920">                    .start();</span>
+<span class="nc" id="L921">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="nc" id="L922">                    new InputStreamReader(proc.getInputStream(),</span>
                             StandardCharsets.UTF_8))) {
                 String line;
-<span class="nc bnc" id="L894" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
-<span class="nc bnc" id="L895" title="All 2 branches missed.">                    if (!line.contains(&quot;warning:&quot;)) continue;</span>
-<span class="nc" id="L896">                    warnings.add(line.replaceFirst(</span>
-<span class="nc" id="L897">                            &quot;^\\[WARNING\\] &quot;, &quot;&quot;).strip());</span>
+<span class="nc bnc" id="L925" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
+<span class="nc bnc" id="L926" title="All 2 branches missed.">                    if (!line.contains(&quot;warning:&quot;)) continue;</span>
+<span class="nc" id="L927">                    warnings.add(line.replaceFirst(</span>
+<span class="nc" id="L928">                            &quot;^\\[WARNING\\] &quot;, &quot;&quot;).strip());</span>
                 }
             }
-<span class="nc" id="L900">            proc.waitFor();</span>
-<span class="nc" id="L901">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc" id="L902">            getLog().debug(&quot;Javadoc preflight subprocess failed: &quot;</span>
-<span class="nc" id="L903">                    + e.getMessage());</span>
-<span class="nc" id="L904">        }</span>
-<span class="nc" id="L905">        return warnings;</span>
+<span class="nc" id="L931">            proc.waitFor();</span>
+<span class="nc" id="L932">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L933">            getLog().debug(&quot;Javadoc preflight subprocess failed: &quot;</span>
+<span class="nc" id="L934">                    + e.getMessage());</span>
+<span class="nc" id="L935">        }</span>
+<span class="nc" id="L936">        return warnings;</span>
     }
 
     private void logAudit(File gitRoot, File mvnw, String branch,
                           String releaseBranch, String oldVersion,
                           String projectId) throws MojoException {
-<span class="fc" id="L911">        String gitCommit = ReleaseSupport.execCapture(gitRoot,</span>
+<span class="fc" id="L942">        String gitCommit = ReleaseSupport.execCapture(gitRoot,</span>
                 &quot;git&quot;, &quot;rev-parse&quot;, &quot;--short&quot;, &quot;HEAD&quot;);
-<span class="fc" id="L913">        String mavenVersion = ReleaseSupport.execCapture(gitRoot,</span>
-<span class="fc" id="L914">                mvnw.getAbsolutePath(), &quot;--version&quot;);</span>
-<span class="fc" id="L915">        String javaVersion = System.getProperty(&quot;java.version&quot;, &quot;unknown&quot;);</span>
+<span class="fc" id="L944">        String mavenVersion = ReleaseSupport.execCapture(gitRoot,</span>
+<span class="fc" id="L945">                mvnw.getAbsolutePath(), &quot;--version&quot;);</span>
+<span class="fc" id="L946">        String javaVersion = System.getProperty(&quot;java.version&quot;, &quot;unknown&quot;);</span>
 
-<span class="fc" id="L917">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L918">        getLog().info(&quot;RELEASE PARAMETERS&quot;);</span>
-<span class="fc" id="L919">        getLog().info(&quot;  Version:        &quot; + oldVersion + &quot; -&gt; &quot; + releaseVersion);</span>
-<span class="fc" id="L920">        getLog().info(&quot;  Next version:   &quot; + nextVersion);</span>
-<span class="fc" id="L921">        getLog().info(&quot;  Source branch:  &quot; + branch);</span>
-<span class="fc" id="L922">        getLog().info(&quot;  Release branch: &quot; + releaseBranch);</span>
-<span class="fc" id="L923">        getLog().info(&quot;  Tag:            v&quot; + releaseVersion);</span>
-<span class="fc" id="L924">        getLog().info(&quot;  Project:        &quot; + projectId);</span>
-<span class="fc" id="L925">        getLog().info(&quot;  Deploy site:    &quot; + deploySite);</span>
-<span class="fc" id="L926">        getLog().info(&quot;  Publish site:   &quot; + publishSite);</span>
-<span class="fc" id="L927">        getLog().info(&quot;  Skip verify:    &quot; + skipVerify);</span>
-<span class="fc" id="L928">        getLog().info(&quot;  Publish:           &quot;+ publish);</span>
-<span class="fc" id="L929">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L930">        getLog().info(&quot;BUILD ENVIRONMENT&quot;);</span>
-<span class="fc" id="L931">        getLog().info(&quot;  Date:           &quot; + Instant.now());</span>
-<span class="fc" id="L932">        getLog().info(&quot;  User:           &quot; + System.getProperty(&quot;user.name&quot;, &quot;unknown&quot;));</span>
-<span class="fc" id="L933">        getLog().info(&quot;  Git commit:     &quot; + gitCommit);</span>
-<span class="fc" id="L934">        getLog().info(&quot;  Git root:       &quot; + gitRoot.getAbsolutePath());</span>
-<span class="fc" id="L935">        getLog().info(&quot;  Maven:          &quot; + mavenVersion.lines().findFirst().orElse(&quot;unknown&quot;));</span>
-<span class="fc" id="L936">        getLog().info(&quot;  Java version:   &quot; + javaVersion);</span>
-<span class="fc" id="L937">        getLog().info(&quot;  OS:             &quot; + System.getProperty(&quot;os.name&quot;) + &quot; &quot; +</span>
-<span class="fc" id="L938">                System.getProperty(&quot;os.arch&quot;));</span>
-<span class="fc" id="L939">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L940">    }</span>
+<span class="fc" id="L948">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L949">        getLog().info(&quot;RELEASE PARAMETERS&quot;);</span>
+<span class="fc" id="L950">        getLog().info(&quot;  Version:        &quot; + oldVersion + &quot; -&gt; &quot; + releaseVersion);</span>
+<span class="fc" id="L951">        getLog().info(&quot;  Next version:   &quot; + nextVersion);</span>
+<span class="fc" id="L952">        getLog().info(&quot;  Source branch:  &quot; + branch);</span>
+<span class="fc" id="L953">        getLog().info(&quot;  Release branch: &quot; + releaseBranch);</span>
+<span class="fc" id="L954">        getLog().info(&quot;  Tag:            v&quot; + releaseVersion);</span>
+<span class="fc" id="L955">        getLog().info(&quot;  Project:        &quot; + projectId);</span>
+<span class="fc" id="L956">        getLog().info(&quot;  Deploy site:    &quot; + deploySite);</span>
+<span class="fc" id="L957">        getLog().info(&quot;  Publish site:   &quot; + publishSite);</span>
+<span class="fc" id="L958">        getLog().info(&quot;  Skip verify:    &quot; + skipVerify);</span>
+<span class="fc" id="L959">        getLog().info(&quot;  Publish:           &quot;+ publish);</span>
+<span class="fc" id="L960">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L961">        getLog().info(&quot;BUILD ENVIRONMENT&quot;);</span>
+<span class="fc" id="L962">        getLog().info(&quot;  Date:           &quot; + Instant.now());</span>
+<span class="fc" id="L963">        getLog().info(&quot;  User:           &quot; + System.getProperty(&quot;user.name&quot;, &quot;unknown&quot;));</span>
+<span class="fc" id="L964">        getLog().info(&quot;  Git commit:     &quot; + gitCommit);</span>
+<span class="fc" id="L965">        getLog().info(&quot;  Git root:       &quot; + gitRoot.getAbsolutePath());</span>
+<span class="fc" id="L966">        getLog().info(&quot;  Maven:          &quot; + mavenVersion.lines().findFirst().orElse(&quot;unknown&quot;));</span>
+<span class="fc" id="L967">        getLog().info(&quot;  Java version:   &quot; + javaVersion);</span>
+<span class="fc" id="L968">        getLog().info(&quot;  OS:             &quot; + System.getProperty(&quot;os.name&quot;) + &quot; &quot; +</span>
+<span class="fc" id="L969">                System.getProperty(&quot;os.arch&quot;));</span>
+<span class="fc" id="L970">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L971">    }</span>
+
+    /**
+     * Result of {@link #deploySiteAndPublish}: tracks the gh-pages
+     * publish and the scpexe site-deploy independently so the
+     * release summary can report each truthfully (ike-issues#339).
+     *
+     * &lt;p&gt;Earlier behavior conflated the two into a single boolean,
+     * which caused the summary to print
+     * {@code &quot;GitHub Pages: ❌ publish failed&quot;} when scpexe failed
+     * but gh-pages had already succeeded — confusing and wrong.
+     *
+     * @param ghPagesPublished {@code true} if gh-pages publish
+     *                         succeeded or was skipped;
+     *                         {@code false} if attempted and failed
+     * @param scpexeDeployed   {@code true} if scpexe site-deploy
+     *                         succeeded or was skipped;
+     *                         {@code false} if attempted and failed
+     */
+<span class="nc" id="L990">    private record SiteDeployResult(boolean ghPagesPublished,</span>
+                                    boolean scpexeDeployed) { }
 
     /**
      * Deploy the staged site and publish to GitHub Pages.
@@ -946,19 +997,21 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * succeeded. Failures here are caught by the caller and reported
      * as warnings with retry instructions.
      *
-     * @return {@code true} if the gh-pages publish succeeded (or was
-     *         skipped because no origin remote / publishSite=false);
-     *         {@code false} if the gh-pages publish was attempted and
-     *         failed. Used to gate the {@code GitHub Pages: ...}
-     *         line in the release-complete summary so the log does
-     *         not falsely claim success.
+     * @return a {@link SiteDeployResult} with separate flags for
+     *         gh-pages and scpexe success. Each is {@code true} if
+     *         the corresponding step succeeded or was skipped, and
+     *         {@code false} if attempted and failed. The release
+     *         summary prints each independently so a successful
+     *         gh-pages publish is not masked by a failed scpexe
+     *         deploy.
      */
-    private boolean deploySiteAndPublish(File gitRoot, File mvnw,
+    private SiteDeployResult deploySiteAndPublish(File gitRoot, File mvnw,
                                           String projectId, String version,
                                           String releaseDisk, String stagingUrl)
             throws MojoException {
-<span class="nc" id="L960">        String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);</span>
-<span class="nc bnc" id="L961" title="All 2 branches missed.">        boolean ghPagesPublished = !publishSite;  // skipped == &quot;no failure to report&quot;</span>
+<span class="nc" id="L1012">        String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);</span>
+<span class="nc bnc" id="L1013" title="All 2 branches missed.">        boolean ghPagesPublished = !publishSite;  // skipped == &quot;no failure to report&quot;</span>
+<span class="nc bnc" id="L1014" title="All 2 branches missed.">        boolean scpexeDeployed = !deploySite;     // skipped == &quot;no failure to report&quot;</span>
 
         // Publish to GitHub Pages FIRST while target/staging/ still has
         // the clean post-site:stage content. site:deploy below with
@@ -966,17 +1019,17 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // subdir target/staging/X.staging/, which would corrupt any
         // subsequent read of target/staging/ as the rendered site.
         // ike-issues#312.
-<span class="nc bnc" id="L969" title="All 2 branches missed.">        if (publishSite) {</span>
-<span class="nc" id="L970">            String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, &quot;origin&quot;);</span>
-<span class="nc bnc" id="L971" title="All 2 branches missed.">            if (remoteUrl == null) {</span>
-<span class="nc" id="L972">                getLog().info(&quot;  Skipping gh-pages publish &quot;</span>
+<span class="nc bnc" id="L1022" title="All 2 branches missed.">        if (publishSite) {</span>
+<span class="nc" id="L1023">            String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, &quot;origin&quot;);</span>
+<span class="nc bnc" id="L1024" title="All 2 branches missed.">            if (remoteUrl == null) {</span>
+<span class="nc" id="L1025">                getLog().info(&quot;  Skipping gh-pages publish &quot;</span>
                         + &quot;(no 'origin' remote)&quot;);
-<span class="nc" id="L974">                ghPagesPublished = true;  // intentionally skipped, not failed</span>
+<span class="nc" id="L1027">                ghPagesPublished = true;  // intentionally skipped, not failed</span>
             } else {
-<span class="nc" id="L976">                Path stagingDir = gitRoot.toPath()</span>
-<span class="nc" id="L977">                        .resolve(&quot;target&quot;).resolve(&quot;staging&quot;);</span>
-<span class="nc" id="L978">                Path siteDir = gitRoot.toPath()</span>
-<span class="nc" id="L979">                        .resolve(&quot;target&quot;).resolve(&quot;site&quot;);</span>
+<span class="nc" id="L1029">                Path stagingDir = gitRoot.toPath()</span>
+<span class="nc" id="L1030">                        .resolve(&quot;target&quot;).resolve(&quot;staging&quot;);</span>
+<span class="nc" id="L1031">                Path siteDir = gitRoot.toPath()</span>
+<span class="nc" id="L1032">                        .resolve(&quot;target&quot;).resolve(&quot;site&quot;);</span>
 
                 // Empty-staging fallback (ike-issues#334). mvn site:stage
                 // is a no-op for single-module projects (it's designed
@@ -987,78 +1040,103 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 // gh-pages tree, producing a .nojekyll-only branch and
                 // a 404 at https://ike.network/&lt;projectId&gt;/. This block
                 // detects that case and substitutes target/site/.
-<span class="nc" id="L990">                Path publishSource = stagingDir;</span>
+<span class="nc" id="L1043">                Path publishSource = stagingDir;</span>
                 try {
-<span class="nc bnc" id="L992" title="All 2 branches missed.">                    if (Files.isDirectory(stagingDir)</span>
-<span class="nc bnc" id="L993" title="All 2 branches missed.">                            &amp;&amp; ReleaseSupport.isEmptyDirectory(stagingDir)</span>
-<span class="nc bnc" id="L994" title="All 2 branches missed.">                            &amp;&amp; Files.isDirectory(siteDir)</span>
-<span class="nc bnc" id="L995" title="All 2 branches missed.">                            &amp;&amp; !ReleaseSupport.isEmptyDirectory(siteDir)) {</span>
-<span class="nc" id="L996">                        getLog().info(&quot;  target/staging/ is empty — &quot;</span>
+<span class="nc bnc" id="L1045" title="All 2 branches missed.">                    if (Files.isDirectory(stagingDir)</span>
+<span class="nc bnc" id="L1046" title="All 2 branches missed.">                            &amp;&amp; ReleaseSupport.isEmptyDirectory(stagingDir)</span>
+<span class="nc bnc" id="L1047" title="All 2 branches missed.">                            &amp;&amp; Files.isDirectory(siteDir)</span>
+<span class="nc bnc" id="L1048" title="All 2 branches missed.">                            &amp;&amp; !ReleaseSupport.isEmptyDirectory(siteDir)) {</span>
+<span class="nc" id="L1049">                        getLog().info(&quot;  target/staging/ is empty — &quot;</span>
                                 + &quot;publishing target/site/ instead &quot;
                                 + &quot;(single-module project; site:stage &quot;
                                 + &quot;has no children to aggregate). &quot;
                                 + &quot;ike-issues#334.&quot;);
-<span class="nc" id="L1001">                        publishSource = siteDir;</span>
+<span class="nc" id="L1054">                        publishSource = siteDir;</span>
                     }
-<span class="nc" id="L1003">                } catch (MojoException emptyCheckFailed) {</span>
+<span class="nc" id="L1056">                } catch (MojoException emptyCheckFailed) {</span>
                     // Fall through with stagingDir; the publish call
                     // will produce a clearer error.
-<span class="nc" id="L1006">                    getLog().debug(&quot;  Could not inspect staging/site &quot;</span>
-<span class="nc" id="L1007">                            + &quot;directories: &quot; + emptyCheckFailed.getMessage());</span>
-<span class="nc" id="L1008">                }</span>
+<span class="nc" id="L1059">                    getLog().debug(&quot;  Could not inspect staging/site &quot;</span>
+<span class="nc" id="L1060">                            + &quot;directories: &quot; + emptyCheckFailed.getMessage());</span>
+<span class="nc" id="L1061">                }</span>
 
                 try {
-<span class="nc" id="L1011">                    ReleaseSupport.publishProjectSiteToGhPages(</span>
-<span class="nc" id="L1012">                            publishSource, remoteUrl, getLog(),</span>
+<span class="nc" id="L1064">                    ReleaseSupport.publishProjectSiteToGhPages(</span>
+<span class="nc" id="L1065">                            publishSource, remoteUrl, getLog(),</span>
                             projectId, version);
-<span class="nc" id="L1014">                    ghPagesPublished = true;</span>
-<span class="nc" id="L1015">                } catch (MojoException e) {</span>
+<span class="nc" id="L1067">                    ghPagesPublished = true;</span>
+<span class="nc" id="L1068">                } catch (MojoException e) {</span>
                     // Log the full cause chain — earlier behavior dropped
                     // it, leaving only the wrapper message visible.
                     // ike-issues#329.
-<span class="nc" id="L1019">                    getLog().warn(&quot;  ⚠ gh-pages publish failed (non-fatal): &quot;</span>
-<span class="nc" id="L1020">                            + e.getMessage());</span>
-<span class="nc" id="L1021">                    Throwable cause = e.getCause();</span>
-<span class="nc bnc" id="L1022" title="All 2 branches missed.">                    while (cause != null) {</span>
-<span class="nc" id="L1023">                        getLog().warn(&quot;    caused by: &quot;</span>
-<span class="nc" id="L1024">                                + cause.getClass().getSimpleName()</span>
-<span class="nc bnc" id="L1025" title="All 2 branches missed.">                                + (cause.getMessage() != null</span>
-<span class="nc" id="L1026">                                        ? &quot;: &quot; + cause.getMessage()</span>
-<span class="nc" id="L1027">                                        : &quot;&quot;));</span>
-<span class="nc" id="L1028">                        cause = cause.getCause();</span>
+<span class="nc" id="L1072">                    getLog().warn(&quot;  ⚠ gh-pages publish failed (non-fatal): &quot;</span>
+<span class="nc" id="L1073">                            + e.getMessage());</span>
+<span class="nc" id="L1074">                    Throwable cause = e.getCause();</span>
+<span class="nc bnc" id="L1075" title="All 2 branches missed.">                    while (cause != null) {</span>
+<span class="nc" id="L1076">                        getLog().warn(&quot;    caused by: &quot;</span>
+<span class="nc" id="L1077">                                + cause.getClass().getSimpleName()</span>
+<span class="nc bnc" id="L1078" title="All 2 branches missed.">                                + (cause.getMessage() != null</span>
+<span class="nc" id="L1079">                                        ? &quot;: &quot; + cause.getMessage()</span>
+<span class="nc" id="L1080">                                        : &quot;&quot;));</span>
+<span class="nc" id="L1081">                        cause = cause.getCause();</span>
                     }
-<span class="nc" id="L1030">                    getLog().warn(&quot;    To retry: from a checkout of v&quot;</span>
+<span class="nc" id="L1083">                    getLog().warn(&quot;    To retry: from a checkout of v&quot;</span>
                             + version + &quot; with 'origin' remote, run &quot;
                             + &quot;mvn ike:deploy-site-publish -DsiteType=release &quot;
                             + &quot;-DsiteVersion=&quot; + version
                             + &quot; -DskipBuild=true&quot;);
-<span class="nc" id="L1035">                }</span>
+<span class="nc" id="L1088">                }</span>
             }
         }
 
-<span class="nc" id="L1039">        getLog().info(&quot;Deploying site to staging...&quot;);</span>
-<span class="nc" id="L1040">        ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);</span>
-<span class="nc" id="L1041">        ReleaseSupport.exec(gitRoot, getLog(),</span>
-<span class="nc" id="L1042">                mvnw.getAbsolutePath(), &quot;site:deploy&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;,</span>
-                &quot;-Dsite.deploy.url=&quot; + stagingUrl);
-<span class="nc" id="L1044">        ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);</span>
+<span class="nc bnc" id="L1092" title="All 2 branches missed.">        if (deploySite) {</span>
+            // scpexe site:deploy is best-effort — failure here doesn't
+            // invalidate a successful gh-pages publish (ike-issues#339).
+            // The catch swallows the exception, sets scpexeDeployed=false,
+            // and lets the caller's summary print the truth: gh-pages
+            // ✓, scpexe ❌. Retry instructions printed independently in
+            // the summary.
+            try {
+<span class="nc" id="L1100">                getLog().info(&quot;Deploying site to staging...&quot;);</span>
+<span class="nc" id="L1101">                ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);</span>
+<span class="nc" id="L1102">                ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="nc" id="L1103">                        mvnw.getAbsolutePath(), &quot;site:deploy&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;,</span>
+                        &quot;-Dsite.deploy.url=&quot; + stagingUrl);
+<span class="nc" id="L1105">                ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);</span>
 
-        // Update the `latest` alias to point at this version
-        // (ike-issues#303). Best-effort — log and continue on failure;
-        // the version-prefixed URL is still reachable.
-        try {
-<span class="nc" id="L1050">            ReleaseSupport.updateLatestSymlink(gitRoot, getLog(), releaseDisk);</span>
-<span class="nc" id="L1051">        } catch (MojoException e) {</span>
-<span class="nc" id="L1052">            getLog().warn(&quot;  ⚠ latest symlink update failed (non-fatal): &quot;</span>
-<span class="nc" id="L1053">                    + e.getMessage());</span>
-<span class="nc" id="L1054">            getLog().warn(&quot;    To fix manually: ssh proxy 'cd &quot;</span>
-<span class="nc" id="L1055">                    + ReleaseSupport.parentDir(releaseDisk)</span>
-                    + &quot; &amp;&amp; ln -snf &quot;
-<span class="nc" id="L1057">                    + ReleaseSupport.leafName(releaseDisk)</span>
-                    + &quot; latest'&quot;);
-<span class="nc" id="L1059">        }</span>
+                // Update the `latest` alias to point at this version
+                // (ike-issues#303). Best-effort — log and continue on
+                // failure; the version-prefixed URL is still reachable.
+                try {
+<span class="nc" id="L1111">                    ReleaseSupport.updateLatestSymlink(gitRoot, getLog(),</span>
+                            releaseDisk);
+<span class="nc" id="L1113">                } catch (MojoException e) {</span>
+<span class="nc" id="L1114">                    getLog().warn(&quot;  ⚠ latest symlink update failed (non-fatal): &quot;</span>
+<span class="nc" id="L1115">                            + e.getMessage());</span>
+<span class="nc" id="L1116">                    getLog().warn(&quot;    To fix manually: ssh proxy 'cd &quot;</span>
+<span class="nc" id="L1117">                            + ReleaseSupport.parentDir(releaseDisk)</span>
+                            + &quot; &amp;&amp; ln -snf &quot;
+<span class="nc" id="L1119">                            + ReleaseSupport.leafName(releaseDisk)</span>
+                            + &quot; latest'&quot;);
+<span class="nc" id="L1121">                }</span>
+<span class="nc" id="L1122">                scpexeDeployed = true;</span>
+<span class="nc" id="L1123">            } catch (MojoException e) {</span>
+<span class="nc" id="L1124">                getLog().warn(&quot;  ⚠ scpexe site:deploy failed (non-fatal): &quot;</span>
+<span class="nc" id="L1125">                        + e.getMessage());</span>
+<span class="nc" id="L1126">                Throwable cause = e.getCause();</span>
+<span class="nc bnc" id="L1127" title="All 2 branches missed.">                while (cause != null) {</span>
+<span class="nc" id="L1128">                    getLog().warn(&quot;    caused by: &quot;</span>
+<span class="nc" id="L1129">                            + cause.getClass().getSimpleName()</span>
+<span class="nc bnc" id="L1130" title="All 2 branches missed.">                            + (cause.getMessage() != null</span>
+<span class="nc" id="L1131">                                    ? &quot;: &quot; + cause.getMessage()</span>
+<span class="nc" id="L1132">                                    : &quot;&quot;));</span>
+<span class="nc" id="L1133">                    cause = cause.getCause();</span>
+                }
+<span class="nc" id="L1135">                scpexeDeployed = false;</span>
+<span class="nc" id="L1136">            }</span>
+        }
 
-<span class="nc" id="L1061">        return ghPagesPublished;</span>
+<span class="nc" id="L1139">        return new SiteDeployResult(ghPagesPublished, scpexeDeployed);</span>
     }
 
     /**
@@ -1068,15 +1146,15 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     private void logSiteDeployRetryInstructions(String projectId,
                                                  String version,
                                                  String errorMessage) {
-<span class="nc" id="L1071">        getLog().warn(&quot;&quot;);</span>
-<span class="nc" id="L1072">        getLog().warn(&quot;Site deploy/publish failed: &quot; + errorMessage);</span>
-<span class="nc" id="L1073">        getLog().warn(&quot;Nexus deploy succeeded — artifacts are published.&quot;);</span>
-<span class="nc" id="L1074">        getLog().warn(&quot;To retry site deploy manually:&quot;);</span>
-<span class="nc" id="L1075">        getLog().warn(&quot;  git checkout v&quot; + version);</span>
-<span class="nc" id="L1076">        getLog().warn(&quot;  mvn site:deploy -B -T 1&quot;);</span>
-<span class="nc" id="L1077">        getLog().warn(&quot;  git checkout main&quot;);</span>
-<span class="nc" id="L1078">        getLog().warn(&quot;&quot;);</span>
-<span class="nc" id="L1079">    }</span>
+<span class="nc" id="L1149">        getLog().warn(&quot;&quot;);</span>
+<span class="nc" id="L1150">        getLog().warn(&quot;Site deploy/publish failed: &quot; + errorMessage);</span>
+<span class="nc" id="L1151">        getLog().warn(&quot;Nexus deploy succeeded — artifacts are published.&quot;);</span>
+<span class="nc" id="L1152">        getLog().warn(&quot;To retry site deploy manually:&quot;);</span>
+<span class="nc" id="L1153">        getLog().warn(&quot;  git checkout v&quot; + version);</span>
+<span class="nc" id="L1154">        getLog().warn(&quot;  mvn site:deploy -B -T 1&quot;);</span>
+<span class="nc" id="L1155">        getLog().warn(&quot;  git checkout main&quot;);</span>
+<span class="nc" id="L1156">        getLog().warn(&quot;&quot;);</span>
+<span class="nc" id="L1157">    }</span>
 
     /**
      * Create a GitHub Release with milestone-based release notes.
@@ -1089,48 +1167,48 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     private void createGitHubRelease(File gitRoot, String projectId,
                                       String version)
             throws MojoException {
-<span class="nc" id="L1092">        String milestoneName = projectId + &quot; v&quot; + version;</span>
+<span class="nc" id="L1170">        String milestoneName = projectId + &quot; v&quot; + version;</span>
 
         // Try milestone-based notes first
-<span class="nc" id="L1095">        Path notesFile = ReleaseNotesSupport.generateToFile(</span>
-<span class="nc" id="L1096">                issueRepo, milestoneName, getLog());</span>
+<span class="nc" id="L1173">        Path notesFile = ReleaseNotesSupport.generateToFile(</span>
+<span class="nc" id="L1174">                issueRepo, milestoneName, getLog());</span>
 
         try {
-<span class="nc bnc" id="L1099" title="All 2 branches missed.">            if (notesFile != null) {</span>
-<span class="nc" id="L1100">                getLog().info(&quot;Release notes generated from milestone: &quot;</span>
+<span class="nc bnc" id="L1177" title="All 2 branches missed.">            if (notesFile != null) {</span>
+<span class="nc" id="L1178">                getLog().info(&quot;Release notes generated from milestone: &quot;</span>
                         + milestoneName);
-<span class="nc" id="L1102">                ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="nc" id="L1180">                ReleaseSupport.exec(gitRoot, getLog(),</span>
                         &quot;gh&quot;, &quot;release&quot;, &quot;create&quot;, &quot;v&quot; + version,
                         &quot;--title&quot;, version,
-<span class="nc" id="L1105">                        &quot;--notes-file&quot;, notesFile.toString(),</span>
+<span class="nc" id="L1183">                        &quot;--notes-file&quot;, notesFile.toString(),</span>
                         &quot;--verify-tag&quot;);
             } else {
-<span class="nc" id="L1108">                getLog().info(&quot;No milestone \&quot;&quot; + milestoneName</span>
+<span class="nc" id="L1186">                getLog().info(&quot;No milestone \&quot;&quot; + milestoneName</span>
                         + &quot;\&quot; found — using auto-generated notes&quot;);
-<span class="nc" id="L1110">                ReleaseSupport.exec(gitRoot, getLog(),</span>
+<span class="nc" id="L1188">                ReleaseSupport.exec(gitRoot, getLog(),</span>
                         &quot;gh&quot;, &quot;release&quot;, &quot;create&quot;, &quot;v&quot; + version,
                         &quot;--title&quot;, version,
                         &quot;--generate-notes&quot;, &quot;--verify-tag&quot;);
             }
-<span class="nc" id="L1115">        } catch (Exception e) {</span>
-<span class="nc" id="L1116">            getLog().warn(&quot;GitHub Release creation failed &quot;</span>
-<span class="nc" id="L1117">                    + &quot;(gh CLI may not be installed): &quot; + e.getMessage());</span>
-<span class="nc" id="L1118">            getLog().warn(&quot;Run manually: gh release create v&quot; + version</span>
+<span class="nc" id="L1193">        } catch (Exception e) {</span>
+<span class="nc" id="L1194">            getLog().warn(&quot;GitHub Release creation failed &quot;</span>
+<span class="nc" id="L1195">                    + &quot;(gh CLI may not be installed): &quot; + e.getMessage());</span>
+<span class="nc" id="L1196">            getLog().warn(&quot;Run manually: gh release create v&quot; + version</span>
                     + &quot; --title &quot; + version + &quot; --generate-notes&quot;);
-<span class="nc" id="L1120">        }</span>
+<span class="nc" id="L1198">        }</span>
 
         // Close the milestone now that the release has shipped.
         // Non-fatal — the release is already done at this point.
-<span class="nc bnc" id="L1124" title="All 2 branches missed.">        if (notesFile != null) {</span>
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">        if (notesFile != null) {</span>
             try {
-<span class="nc" id="L1126">                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, getLog());</span>
-<span class="nc" id="L1127">            } catch (Exception e) {</span>
-<span class="nc" id="L1128">                getLog().warn(&quot;Could not close milestone (release succeeded): &quot;</span>
-<span class="nc" id="L1129">                        + e.getMessage());</span>
-<span class="nc" id="L1130">                getLog().warn(&quot;Close manually: gh api repos/&quot; + issueRepo</span>
+<span class="nc" id="L1204">                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, getLog());</span>
+<span class="nc" id="L1205">            } catch (Exception e) {</span>
+<span class="nc" id="L1206">                getLog().warn(&quot;Could not close milestone (release succeeded): &quot;</span>
+<span class="nc" id="L1207">                        + e.getMessage());</span>
+<span class="nc" id="L1208">                getLog().warn(&quot;Close manually: gh api repos/&quot; + issueRepo</span>
                         + &quot;/milestones/1 -X PATCH -f state=closed&quot;);
-<span class="nc" id="L1132">            }</span>
+<span class="nc" id="L1210">            }</span>
         }
-<span class="nc" id="L1134">    }</span>
+<span class="nc" id="L1212">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

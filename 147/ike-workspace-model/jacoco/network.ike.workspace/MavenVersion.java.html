@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MavenVersion.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">MavenVersion.java</span></div><h1>MavenVersion.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.util.Objects;
+import java.util.regex.Pattern;
+
+/**
+ * Validated Maven version value — the {@code &lt;version&gt;} string for
+ * any Maven coordinate, including workspace-root, subproject, and
+ * parent versions (ike-issues#295).
+ *
+ * &lt;p&gt;Per {@code feedback_no_semver_assumption}, this type does NOT
+ * enforce semver. IKE versions are most commonly single-segment
+ * monotonic ({@code 1}, {@code 133}, {@code 133-SNAPSHOT}); some
+ * downstream artifacts use semver-like ({@code 1.0.0-SNAPSHOT},
+ * {@code 1.127.2-feature-x-SNAPSHOT}); calendar-based versions
+ * ({@code 20240315-SNAPSHOT}) are also valid. The validator accepts
+ * any of these.
+ *
+ * &lt;p&gt;Validation rules:
+ * &lt;ul&gt;
+ *   &lt;li&gt;Non-empty&lt;/li&gt;
+ *   &lt;li&gt;Starts with a letter or digit&lt;/li&gt;
+ *   &lt;li&gt;Allowed characters: ASCII letters, digits,
+ *       {@code .}, {@code -}, {@code _}, {@code +}&lt;/li&gt;
+ *   &lt;li&gt;No whitespace or shell-metacharacter hazards
+ *       ({@code &lt;}, {@code &gt;}, {@code &quot;}, {@code '}, {@code $},
+ *       backtick, etc.) — those would be dangerous to interpolate
+ *       into a POM.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;Single typed entry point so every consumer of a version
+ * argument ({@code ws:create -Dversion=…},
+ * {@code ws:adopt-root -Dversion=…},
+ * {@code ws:set-parent -Dparent.version=…},
+ * {@code ws:release -DreleaseVersion=…},
+ * {@code ws:post-release -DnextVersion=…}) gets identical validation.
+ */
+public final class MavenVersion {
+
+    /**
+     * Syntactic validator. Permissive enough to accept every Maven
+     * version style the IKE ecosystem uses (single-segment monotonic,
+     * semver, calendar, branch-qualified) while excluding XML and
+     * shell hazards.
+     */
+<span class="fc" id="L46">    private static final Pattern VALID =</span>
+<span class="fc" id="L47">            Pattern.compile(&quot;[A-Za-z0-9][A-Za-z0-9._+-]*&quot;);</span>
+
+    private final String value;
+
+<span class="fc" id="L51">    private MavenVersion(String value) {</span>
+<span class="fc" id="L52">        this.value = value;</span>
+<span class="fc" id="L53">    }</span>
+
+    /**
+     * Validate {@code raw} and wrap it as a {@code MavenVersion}.
+     *
+     * @param raw the candidate version string (typically from a
+     *            {@code -Dversion=…} or {@code -D&lt;x&gt;.version=…}
+     *            command-line argument, or a {@code workspace.yaml}
+     *            field)
+     * @return a validated {@code MavenVersion}
+     * @throws IllegalArgumentException if {@code raw} is null, empty,
+     *                                  or violates any documented rule
+     */
+    public static MavenVersion of(String raw) {
+<span class="fc bfc" id="L67" title="All 4 branches covered.">        if (raw == null || raw.isEmpty()) {</span>
+<span class="fc" id="L68">            throw new IllegalArgumentException(</span>
+                    &quot;Maven version must be non-empty.&quot;);
+        }
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        if (!VALID.matcher(raw).matches()) {</span>
+<span class="fc" id="L72">            throw new IllegalArgumentException(</span>
+                    &quot;Maven version '&quot; + raw + &quot;' contains invalid characters. &quot;
+                            + &quot;Allowed: ASCII letters, digits, '.', '-', '_', '+'; &quot;
+                            + &quot;must start with a letter or digit; no whitespace &quot;
+                            + &quot;or shell metacharacters.&quot;);
+        }
+<span class="fc" id="L78">        return new MavenVersion(raw);</span>
+    }
+
+    /**
+     * The validated version as a string.
+     *
+     * @return the raw value (never null or empty)
+     */
+    public String value() {
+<span class="fc" id="L87">        return value;</span>
+    }
+
+    /**
+     * Whether this version ends in {@code -SNAPSHOT} — the standard
+     * Maven SNAPSHOT marker.
+     *
+     * @return true iff the version is a SNAPSHOT
+     */
+    public boolean isSnapshot() {
+<span class="fc" id="L97">        return value.endsWith(&quot;-SNAPSHOT&quot;);</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="fc bfc" id="L102" title="All 4 branches covered.">        return (o instanceof MavenVersion other) &amp;&amp; value.equals(other.value);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="fc" id="L107">        return Objects.hash(value);</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L112">        return value;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
