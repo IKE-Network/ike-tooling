@@ -92,6 +92,15 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:rename} — rename output files to a canonical pattern. */
     RENAME("rename", RenameMojo.class,
             "Rename output files to a canonical pattern."),
+    /** {@code ike:built-with} — generate a Built With page from the SBOM and a curated supplement (#336). */
+    BUILT_WITH("built-with", BuiltWithMojo.class,
+            "Generate a curated Built-With page from the CycloneDX "
+                    + "SBOM and an optional project-wide supplement "
+                    + "YAML. Replaces the legacy 'Third-Party Notices' "
+                    + "naming with a friendlier scannable label and "
+                    + "supports per-module rendering by walking up "
+                    + "the filesystem to find the reactor's "
+                    + "supplement.yaml."),
     /** {@code ike:render-pdf} — render AsciiDoc to PDF via a configured renderer. */
     RENDER_PDF("render-pdf", RenderPdfMojo.class,
             "Render AsciiDoc to PDF via a configured renderer."),
