@@ -1,22 +1,31 @@
 # Third-Party Notices — IKE Tooling
 
-The canonical, rendered version of this document lives at:
+Three layers of attribution ship with each release:
 
-- **Current release:** https://ike.network/ike-tooling/THIRD_PARTY_NOTICES.html
-- **Versioned:** https://ike.network/ike-tooling/<version>/THIRD_PARTY_NOTICES.html
-- **Latest:** https://ike.network/ike-tooling/latest/THIRD_PARTY_NOTICES.html
+1. **Software Bill of Materials (CycloneDX, machine-readable):**
+   - https://ike.network/ike-tooling/bom.json
+   - https://ike.network/ike-tooling/bom.xml
+   - Full transitive dependency graph, SPDX-normalized licenses, artifact hashes.
+   - Also reachable as a Maven artifact with `<classifier>cyclonedx</classifier>`.
 
-The source AsciiDoc lives at
-[`src/site/asciidoc/THIRD_PARTY_NOTICES.adoc`](src/site/asciidoc/THIRD_PARTY_NOTICES.adoc).
+2. **Maven Site dependency report (HTML, human-browseable):**
+   - https://ike.network/ike-tooling/dependencies.html
+   - https://ike.network/ike-tooling/licenses.html
+   - Declared dependencies with verbatim per-license POM text.
+
+3. **Curated Third-Party Notices (this document):**
+   - **Current release:** https://ike.network/ike-tooling/THIRD_PARTY_NOTICES.html
+   - **Versioned:** https://ike.network/ike-tooling/&lt;version&gt;/THIRD_PARTY_NOTICES.html
+   - **Latest:** https://ike.network/ike-tooling/latest/THIRD_PARTY_NOTICES.html
+   - The source AsciiDoc lives at [`src/site/asciidoc/THIRD_PARTY_NOTICES.adoc`](src/site/asciidoc/THIRD_PARTY_NOTICES.adoc).
 
 ## What's covered
 
-This document acknowledges third-party open-source software that
-`ike-tooling` depends on, links against, or relies on at build time.
-The Maven `licenses.html` and `dependencies.html` reports cover
-declared `<dependencies>` mechanically; the curated document covers
-the rest — Maven core machinery, plugins, the site skin, and
-build-time signing.
+The curated document acknowledges third-party open-source software
+that mechanical reports either don't reach (Maven Site skin,
+build-time signing engine, plugin transitive deps) or report
+verbatim per-POM-string in `licenses.html` (which is noisy across
+the same license declared a dozen ways in the wild).
 
 For corresponding notices in the rest of the IKE platform see:
 
