@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.scaffold.DirectoryTemplateSource;
+import network.ike.plugin.scaffold.FoundationDriftChecker;
 import network.ike.plugin.scaffold.ModelAdapters;
 import network.ike.plugin.scaffold.PathResolver;
 import network.ike.plugin.scaffold.ScaffoldException;
@@ -182,9 +183,72 @@ public class ScaffoldDraftMojo
         if (projectCounts != null) {
             getLog().info("  project: " + projectCounts.summary());
         }
+
+        // #345: report IKE-foundation drift when the manifest carries
+        // a foundation: section AND we're in a project context. The
+        // scaffold zip's foundation pins represent the tested-together
+        // compatibility snapshot of ike-parent + standard properties
+        // at the moment this ike-tooling version was released.
+        if (projRoot != null && manifest.foundation() != null) {
+            reportFoundationDrift(projRoot, manifest.foundation());
+        }
+
         getLog().info("");
         getLog().info(
                 "Run ike:scaffold-publish to apply these changes.");
+    }
+
+    /**
+     * Compute and log foundation drift for the project at
+     * {@code projRoot}.
+     *
+     * @param projRoot   the project root
+     * @param foundation manifest's foundation section
+     */
+    private void reportFoundationDrift(
+            Path projRoot,
+            ScaffoldManifest.Foundation foundation) {
+        java.util.List<FoundationDriftChecker.Entry> entries;
+        try {
+            entries = FoundationDriftChecker.checkPomFile(
+                    projRoot.resolve("pom.xml"), foundation);
+        } catch (java.io.IOException e) {
+            getLog().debug("Could not check foundation drift: " + e.getMessage());
+            return;
+        }
+        if (entries.isEmpty()) return;
+
+        long drifted = entries.stream()
+                .filter(FoundationDriftChecker.Entry::isDrifted)
+                .count();
+
+        getLog().info("");
+        getLog().info("IKE Foundation Drift:");
+        for (FoundationDriftChecker.Entry e : entries) {
+            String label = e.kind() == FoundationDriftChecker.Kind.PARENT
+                    ? "<parent> " + e.name()
+                    : "${" + e.name() + "}";
+            String line;
+            switch (e.state()) {
+                case ALIGNED -> line = "  ✓ " + label + ": " + e.actual();
+                case ABSENT -> line = "  · " + label + ": (absent) → "
+                        + e.expected() + "  [inherited from parent?]";
+                case DIFFERS -> line = "  ✗ " + label + ": " + e.actual()
+                        + " → " + e.expected();
+                default -> line = "  ? " + label;
+            }
+            getLog().info(line);
+        }
+        if (drifted > 0) {
+            getLog().info("");
+            getLog().info("  " + drifted + " value(s) behind the "
+                    + "compatibility snapshot baked into "
+                    + "ike-build-standards " + foundation.parent());
+            getLog().info("  Foundation apply is not yet wired into "
+                    + "ike:scaffold-publish (#345 follow-up); for now,");
+            getLog().info("  update these values via "
+                    + "ws:versions-upgrade-publish or manual edit.");
+        }
     }
 
     private void logPlan(ScaffoldPlan plan, ScaffoldScope scope) {

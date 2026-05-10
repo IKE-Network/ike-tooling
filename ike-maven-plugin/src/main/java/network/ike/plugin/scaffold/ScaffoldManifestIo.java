@@ -111,7 +111,60 @@ public final class ScaffoldManifestIo {
             entries.add(parseEntry(o, idx++));
         }
 
-        return new ScaffoldManifest(schema, standardsVersion, entries);
+        // #345: optional foundation: section. Picking up scaffold
+        // version N gives the consumer the parent + property pins
+        // that ike-tooling N saw as the latest-released at its
+        // release time — a tested-together compatibility snapshot.
+        ScaffoldManifest.Foundation foundation = parseFoundation(
+                root.get("foundation"));
+
+        return new ScaffoldManifest(schema, standardsVersion,
+                entries, foundation);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ScaffoldManifest.Foundation parseFoundation(Object raw) {
+        if (raw == null) return null;
+        if (!(raw instanceof Map<?, ?> map)) {
+            throw new ScaffoldException(
+                    "'foundation' must be a YAML mapping");
+        }
+        Map<String, Object> foundationMap = (Map<String, Object>) map;
+
+        Object parentObj = foundationMap.get("parent");
+        ScaffoldManifest.ParentRef parent = null;
+        if (parentObj != null) {
+            if (!(parentObj instanceof Map<?, ?> pm)) {
+                throw new ScaffoldException(
+                        "'foundation.parent' must be a YAML mapping");
+            }
+            Map<String, Object> parentMap = (Map<String, Object>) pm;
+            String g = stringField(parentMap, "groupId", null);
+            String a = stringField(parentMap, "artifactId", null);
+            String v = stringField(parentMap, "version", null);
+            if (g == null || a == null || v == null) {
+                throw new ScaffoldException(
+                        "'foundation.parent' requires groupId, "
+                                + "artifactId, and version");
+            }
+            parent = new ScaffoldManifest.ParentRef(g, a, v);
+        }
+
+        Object propsObj = foundationMap.get("properties");
+        Map<String, String> properties = new java.util.LinkedHashMap<>();
+        if (propsObj != null) {
+            if (!(propsObj instanceof Map<?, ?> pm)) {
+                throw new ScaffoldException(
+                        "'foundation.properties' must be a YAML mapping");
+            }
+            Map<String, Object> propsMap = (Map<String, Object>) pm;
+            for (Map.Entry<String, Object> e : propsMap.entrySet()) {
+                if (e.getValue() == null) continue;
+                properties.put(e.getKey(), e.getValue().toString());
+            }
+        }
+
+        return new ScaffoldManifest.Foundation(parent, properties);
     }
 
     private static ManifestEntry parseEntry(Object raw, int index) {

@@ -206,4 +206,90 @@ class ScaffoldManifestIoTest {
                 .isInstanceOf(ScaffoldException.class)
                 .hasMessageContaining("model");
     }
+
+    // ── Foundation section (#345) ───────────────────────────────────
+
+    @Test
+    void absentFoundationSection_returnsNullFoundation() {
+        String yaml = """
+                schema: 1
+                standards-version: "7"
+                files: []
+                """;
+        ScaffoldManifest manifest =
+                ScaffoldManifestIo.read(new StringReader(yaml));
+        assertThat(manifest.foundation()).isNull();
+    }
+
+    @Test
+    void fullFoundationSection_parsesParentAndProperties() {
+        String yaml = """
+                schema: 1
+                standards-version: "152"
+                foundation:
+                  parent:
+                    groupId: network.ike.platform
+                    artifactId: ike-parent
+                    version: "35"
+                  properties:
+                    ike-tooling.version: "152"
+                    ike-docs.version: "13"
+                    ike-platform.version: "35"
+                files: []
+                """;
+        ScaffoldManifest manifest =
+                ScaffoldManifestIo.read(new StringReader(yaml));
+
+        assertThat(manifest.foundation()).isNotNull();
+        assertThat(manifest.foundation().parent()).isNotNull();
+        assertThat(manifest.foundation().parent().groupId())
+                .isEqualTo("network.ike.platform");
+        assertThat(manifest.foundation().parent().artifactId())
+                .isEqualTo("ike-parent");
+        assertThat(manifest.foundation().parent().version())
+                .isEqualTo("35");
+        assertThat(manifest.foundation().properties())
+                .containsEntry("ike-tooling.version", "152")
+                .containsEntry("ike-docs.version", "13")
+                .containsEntry("ike-platform.version", "35");
+    }
+
+    @Test
+    void foundationPropertiesOnly_noParent() {
+        // A scaffold could conceivably ship property pins without
+        // parent pins (or vice versa). Parser should accept either.
+        String yaml = """
+                schema: 1
+                standards-version: "152"
+                foundation:
+                  properties:
+                    ike-tooling.version: "152"
+                files: []
+                """;
+        ScaffoldManifest manifest =
+                ScaffoldManifestIo.read(new StringReader(yaml));
+
+        assertThat(manifest.foundation()).isNotNull();
+        assertThat(manifest.foundation().parent()).isNull();
+        assertThat(manifest.foundation().properties())
+                .containsEntry("ike-tooling.version", "152");
+    }
+
+    @Test
+    void foundationParentMissingField_rejected() {
+        String yaml = """
+                schema: 1
+                standards-version: "152"
+                foundation:
+                  parent:
+                    groupId: network.ike.platform
+                    artifactId: ike-parent
+                files: []
+                """;
+        assertThatThrownBy(() ->
+                ScaffoldManifestIo.read(new StringReader(yaml)))
+                .isInstanceOf(ScaffoldException.class)
+                .hasMessageContaining("foundation.parent")
+                .hasMessageContaining("version");
+    }
 }
