@@ -1053,6 +1053,28 @@ public class ReleaseSupport {
                             + ". Site build may have failed.");
         }
 
+        // Empty-staging guard (ike-issues#334). Earlier behavior: an
+        // empty-but-existing dir passed isDirectory() and shipped a
+        // .nojekyll-only tree to gh-pages — silent publication of an
+        // empty site. Now we fail loud so the caller (or an upstream
+        // fallback to target/site/) gets a clear signal.
+        if (isEmptyDirectory(stagingDir)) {
+            throw new MojoException(
+                    "Staging directory is empty: " + stagingDir
+                            + ". Site build produced no content. "
+                            + "For single-module projects, mvn site:stage "
+                            + "is a no-op (it's designed to aggregate "
+                            + "child module sites in a multi-module "
+                            + "reactor); the rendered content lives at "
+                            + "target/site/. The release flow's empty-"
+                            + "staging fallback (ReleaseDraftMojo) should "
+                            + "have detected this and substituted "
+                            + "target/site/ before reaching this point. "
+                            + "If you're calling publishProjectSiteToGhPages "
+                            + "directly, pass target/site/ instead of "
+                            + "target/staging/ for single-module projects.");
+        }
+
         log.info("Publishing " + projectId + " site to gh-pages...");
 
         Path tempDir;
@@ -1346,6 +1368,31 @@ public class ReleaseSupport {
                     "Could not extract <artifactId> from " + pomFile);
         } catch (IOException e) {
             throw new MojoException("Failed to read " + pomFile, e);
+        }
+    }
+
+    /**
+     * Check whether a directory has no entries. Returns {@code true}
+     * if the path is a directory with zero entries; {@code false} if
+     * it has at least one entry. Throws if the path is not a
+     * readable directory.
+     *
+     * <p>Used by the gh-pages publish flow (ike-issues#334) to
+     * distinguish "directory exists but is empty" (e.g., {@code
+     * mvn site:stage} produced nothing for a single-module project)
+     * from "directory exists and has content" (the normal case).
+     *
+     * @param dir the directory to inspect
+     * @return {@code true} if the directory contains no entries
+     * @throws MojoException if the directory cannot be listed
+     */
+    public static boolean isEmptyDirectory(Path dir) throws MojoException {
+        try (Stream<Path> entries = Files.list(dir)) {
+            return entries.findAny().isEmpty();
+        } catch (IOException e) {
+            throw new MojoException(
+                    "Could not list directory " + dir + ": " + e.getMessage(),
+                    e);
         }
     }
 

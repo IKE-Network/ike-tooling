@@ -1307,6 +1307,68 @@ class ReleaseSupportTest {
         assertThat(ReleaseSupport.isVersionDirName(null)).isFalse();
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // isEmptyDirectory + empty-staging guard (#334)
+    // ════════════════════════════════════════════════════════════════
+
+    @Test
+    void isEmptyDirectory_emptyDir_returnsTrue() throws Exception {
+        Path empty = Files.createTempDirectory("ike-test-empty-");
+        try {
+            assertThat(ReleaseSupport.isEmptyDirectory(empty)).isTrue();
+        } finally {
+            Files.deleteIfExists(empty);
+        }
+    }
+
+    @Test
+    void isEmptyDirectory_nonEmptyDir_returnsFalse() throws Exception {
+        Path dir = Files.createTempDirectory("ike-test-nonempty-");
+        try {
+            Files.writeString(dir.resolve("file.txt"), "content");
+            assertThat(ReleaseSupport.isEmptyDirectory(dir)).isFalse();
+        } finally {
+            ReleaseSupport.deleteDirectory(dir);
+        }
+    }
+
+    @Test
+    void isEmptyDirectory_dirWithSubdir_returnsFalse() throws Exception {
+        // A directory containing only a subdirectory still counts as
+        // non-empty — the entries-listing API doesn't care whether the
+        // entry is a file or directory.
+        Path dir = Files.createTempDirectory("ike-test-subdir-");
+        try {
+            Files.createDirectory(dir.resolve("sub"));
+            assertThat(ReleaseSupport.isEmptyDirectory(dir)).isFalse();
+        } finally {
+            ReleaseSupport.deleteDirectory(dir);
+        }
+    }
+
+    @Test
+    void publishProjectSiteToGhPages_emptyStagingDir_throwsLoud() throws Exception {
+        // The bug pattern from #334: an empty-but-existing target/staging/
+        // directory used to silently produce a .nojekyll-only gh-pages
+        // tree. Now it fails fast with a message that points at the
+        // single-module / target/site/ fallback.
+        Path emptyStaging = Files.createTempDirectory("ike-test-empty-staging-");
+        try {
+            assertThatThrownBy(() ->
+                    ReleaseSupport.publishProjectSiteToGhPages(
+                            emptyStaging,
+                            "git@github.com:fake/fake.git",
+                            new TestLog(),
+                            "fake-project",
+                            "1"))
+                    .isInstanceOf(MojoException.class)
+                    .hasMessageContaining("Staging directory is empty")
+                    .hasMessageContaining("target/site/");
+        } finally {
+            Files.deleteIfExists(emptyStaging);
+        }
+    }
+
     private String execCapture(Path workDir, String... command) throws Exception {
         Process process = new ProcessBuilder(command)
                 .directory(workDir.toFile())

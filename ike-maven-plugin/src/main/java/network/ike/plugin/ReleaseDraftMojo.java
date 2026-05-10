@@ -10,6 +10,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -974,9 +975,41 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             } else {
                 Path stagingDir = gitRoot.toPath()
                         .resolve("target").resolve("staging");
+                Path siteDir = gitRoot.toPath()
+                        .resolve("target").resolve("site");
+
+                // Empty-staging fallback (ike-issues#334). mvn site:stage
+                // is a no-op for single-module projects (it's designed
+                // to aggregate child sites in a multi-module reactor).
+                // For single-module projects target/staging/ is created
+                // empty and target/site/ has the rendered content.
+                // Earlier behavior shipped the empty staging dir as the
+                // gh-pages tree, producing a .nojekyll-only branch and
+                // a 404 at https://ike.network/<projectId>/. This block
+                // detects that case and substitutes target/site/.
+                Path publishSource = stagingDir;
+                try {
+                    if (Files.isDirectory(stagingDir)
+                            && ReleaseSupport.isEmptyDirectory(stagingDir)
+                            && Files.isDirectory(siteDir)
+                            && !ReleaseSupport.isEmptyDirectory(siteDir)) {
+                        getLog().info("  target/staging/ is empty — "
+                                + "publishing target/site/ instead "
+                                + "(single-module project; site:stage "
+                                + "has no children to aggregate). "
+                                + "ike-issues#334.");
+                        publishSource = siteDir;
+                    }
+                } catch (MojoException emptyCheckFailed) {
+                    // Fall through with stagingDir; the publish call
+                    // will produce a clearer error.
+                    getLog().debug("  Could not inspect staging/site "
+                            + "directories: " + emptyCheckFailed.getMessage());
+                }
+
                 try {
                     ReleaseSupport.publishProjectSiteToGhPages(
-                            stagingDir, remoteUrl, getLog(),
+                            publishSource, remoteUrl, getLog(),
                             projectId, version);
                     ghPagesPublished = true;
                 } catch (MojoException e) {
