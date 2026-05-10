@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -1343,6 +1344,88 @@ class ReleaseSupportTest {
             assertThat(ReleaseSupport.isEmptyDirectory(dir)).isFalse();
         } finally {
             ReleaseSupport.deleteDirectory(dir);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // copyDirectoryExcludingTopLevelVersionDirs (#337)
+    // ════════════════════════════════════════════════════════════════
+
+    @Test
+    void copyDirectoryExcludingTopLevelVersionDirs_skipsTopLevelVersionDirs() throws Exception {
+        Path src = Files.createTempDirectory("ike-test-filter-src-");
+        Path dst = Files.createTempDirectory("ike-test-filter-dst-");
+        try {
+            // Top-level version dirs (should be skipped)
+            Files.createDirectory(src.resolve("25"));
+            Files.writeString(src.resolve("25").resolve("file.txt"), "v25 content");
+            Files.createDirectory(src.resolve("28"));
+            Files.writeString(src.resolve("28").resolve("file.txt"), "v28 content");
+
+            // Top-level non-version dirs (should be copied)
+            Files.createDirectory(src.resolve("css"));
+            Files.writeString(src.resolve("css").resolve("site.css"), "/* css */");
+            Files.createDirectory(src.resolve("ike-bom"));
+            Files.writeString(src.resolve("ike-bom").resolve("index.html"), "<html/>");
+
+            // Top-level files (should be copied)
+            Files.writeString(src.resolve("index.html"), "<html/>");
+            Files.writeString(src.resolve("bom.json"), "{}");
+
+            ReleaseSupport.copyDirectoryExcludingTopLevelVersionDirs(src, dst);
+
+            // Version dirs filtered
+            assertThat(Files.exists(dst.resolve("25"))).isFalse();
+            assertThat(Files.exists(dst.resolve("28"))).isFalse();
+
+            // Non-version dirs copied (with contents)
+            assertThat(Files.exists(dst.resolve("css").resolve("site.css"))).isTrue();
+            assertThat(Files.exists(dst.resolve("ike-bom").resolve("index.html"))).isTrue();
+
+            // Files copied
+            assertThat(Files.exists(dst.resolve("index.html"))).isTrue();
+            assertThat(Files.exists(dst.resolve("bom.json"))).isTrue();
+        } finally {
+            ReleaseSupport.deleteDirectory(src);
+            ReleaseSupport.deleteDirectory(dst);
+        }
+    }
+
+    @Test
+    void copyDirectoryExcludingTopLevelVersionDirs_doesNotFilterAtDepth() throws Exception {
+        // Version-named subdirs at depth >0 are legitimate content
+        // (e.g., a docs section listing release notes per version);
+        // the filter applies only at the top level.
+        Path src = Files.createTempDirectory("ike-test-filter-depth-src-");
+        Path dst = Files.createTempDirectory("ike-test-filter-depth-dst-");
+        try {
+            Files.createDirectories(src.resolve("docs").resolve("changelog").resolve("1.2.3"));
+            Files.writeString(src.resolve("docs").resolve("changelog").resolve("1.2.3").resolve("notes.html"),
+                    "<html/>");
+
+            ReleaseSupport.copyDirectoryExcludingTopLevelVersionDirs(src, dst);
+
+            assertThat(Files.exists(dst.resolve("docs").resolve("changelog").resolve("1.2.3").resolve("notes.html")))
+                    .isTrue();
+        } finally {
+            ReleaseSupport.deleteDirectory(src);
+            ReleaseSupport.deleteDirectory(dst);
+        }
+    }
+
+    @Test
+    void copyDirectoryExcludingTopLevelVersionDirs_emptySource_succeedsNoOp() throws Exception {
+        Path src = Files.createTempDirectory("ike-test-empty-src-");
+        Path dst = Files.createTempDirectory("ike-test-empty-dst-");
+        try {
+            ReleaseSupport.copyDirectoryExcludingTopLevelVersionDirs(src, dst);
+            // No exception, dst is empty.
+            try (Stream<Path> entries = Files.list(dst)) {
+                assertThat(entries.findAny()).isEmpty();
+            }
+        } finally {
+            ReleaseSupport.deleteDirectory(src);
+            ReleaseSupport.deleteDirectory(dst);
         }
     }
 

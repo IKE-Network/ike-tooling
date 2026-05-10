@@ -1075,6 +1075,33 @@ public class ReleaseSupport {
                             + "target/staging/ for single-module projects.");
         }
 
+        // Detect version-nested staging (ike-issues#337). When a
+        // project's site.deploy.url contains the version segment
+        // (e.g., scpexe://...//ike-platform/${project.version}/),
+        // mvn site:stage produces target/staging/<version>/<actual
+        // content> rather than target/staging/<actual content>.
+        // Unwrap if detected.
+        Path effectiveStagingSource = stagingDir;
+        Path nestedVersionDir = stagingDir.resolve(version);
+        if (Files.isDirectory(nestedVersionDir)) {
+            try (Stream<Path> entries = Files.list(stagingDir)) {
+                long topLevelCount = entries.count();
+                if (topLevelCount == 1) {
+                    log.info("  Detected version-nested staging at "
+                            + nestedVersionDir
+                            + " — using it as the gh-pages source. "
+                            + "(Project's site.deploy.url contains the "
+                            + "version segment so site:stage nested "
+                            + "content under it; ike-issues#337.)");
+                    effectiveStagingSource = nestedVersionDir;
+                }
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Could not inspect stagingDir for version-nested "
+                                + "pattern: " + e.getMessage(), e);
+            }
+        }
+
         log.info("Publishing " + projectId + " site to gh-pages...");
 
         Path tempDir;
@@ -1137,19 +1164,31 @@ public class ReleaseSupport {
             }
 
             // (1) Copy staging to root — current release at /<projectId>/.
+            //     Filter top-level version-prefixed entries (#337):
+            //     they're either pollution from earlier release cycles
+            //     preserved by maven-clean's exclude-staging rule, or
+            //     the same content already preserved at root by the
+            //     wipe step above. In either case we don't want them
+            //     coming through staging — version subdirs are managed
+            //     explicitly by the caller (steps 2 and 3 below).
             try {
-                copyDirectory(stagingDir, tempDir);
+                copyDirectoryExcludingTopLevelVersionDirs(
+                        effectiveStagingSource, tempDir);
             } catch (IOException e) {
                 throw new MojoException(
                         "Failed to copy staging dir to root: " + e.getMessage(), e);
             }
 
             // (2) Copy staging to /<version>/ — preserved snapshot.
+            //     Same filter: don't recursively nest prior version
+            //     subdirs inside this release's versioned snapshot
+            //     (the bug surfaced by ike-issues#337).
             Path versionDir = tempDir.resolve(version);
             deleteDirectory(versionDir);
             try {
                 Files.createDirectories(versionDir);
-                copyDirectory(stagingDir, versionDir);
+                copyDirectoryExcludingTopLevelVersionDirs(
+                        effectiveStagingSource, versionDir);
             } catch (IOException e) {
                 throw new MojoException(
                         "Failed to copy staging dir to versioned subdir "
@@ -1158,12 +1197,14 @@ public class ReleaseSupport {
 
             // (3) Replace /latest/ with the just-released content.
             //     Directory copy (not symlink) — GitHub Pages does not
-            //     follow git symlinks reliably.
+            //     follow git symlinks reliably. Same version-dir
+            //     filter as above.
             Path latestDir = tempDir.resolve("latest");
             deleteDirectory(latestDir);
             try {
                 Files.createDirectories(latestDir);
-                copyDirectory(stagingDir, latestDir);
+                copyDirectoryExcludingTopLevelVersionDirs(
+                        effectiveStagingSource, latestDir);
             } catch (IOException e) {
                 throw new MojoException(
                         "Failed to copy staging dir to latest/: "
@@ -1445,6 +1486,64 @@ public class ReleaseSupport {
                     throw new RuntimeException(e);
                 }
             });
+        }
+    }
+
+    /**
+     * Recursively copy a directory tree, excluding top-level
+     * subdirectories whose names look like release versions.
+     * Files at the top level and non-version subdirectories at the
+     * top level are copied normally. Inside any non-filtered
+     * subdirectory, all entries are copied without further filtering
+     * — the exclusion applies only at depth 0.
+     *
+     * <p>Used by {@link #publishProjectSiteToGhPages} to keep the
+     * gh-pages source clean of staging-pollution. Three causes of
+     * top-level version-prefixed entries in the source:
+     * <ol>
+     *   <li><strong>Stale local mirrors</strong>: when a project's
+     *       {@code site.deploy.url} contains the version segment
+     *       and {@code maven-clean-plugin} preserves
+     *       {@code target/staging/}, prior releases'
+     *       {@code <version>/} subdirs accumulate there.</li>
+     *   <li><strong>Self-nesting</strong>: copying staging that
+     *       already has a {@code <currentVersion>/} subdir into
+     *       a version subdir would produce
+     *       {@code <currentVersion>/<currentVersion>/...}.</li>
+     *   <li><strong>Race with the wipe step</strong>: the wipe
+     *       preserved version dirs in the gh-pages clone; if
+     *       staging happens to also contain those names, the copy
+     *       would clobber the preserved content with potentially
+     *       stale mirror copies.</li>
+     * </ol>
+     *
+     * <p>The filter applies the same digit-prefix heuristic as
+     * {@link #isVersionDirName}: top-level dirs whose names start
+     * with a digit are skipped.
+     *
+     * @param source the source directory to copy from
+     * @param target the target directory to copy to
+     * @throws IOException if a file cannot be copied
+     * @see #publishProjectSiteToGhPages
+     * @see #isVersionDirName
+     */
+    public static void copyDirectoryExcludingTopLevelVersionDirs(
+            Path source, Path target) throws IOException {
+        try (Stream<Path> entries = Files.list(source)) {
+            for (Path entry : (Iterable<Path>) entries::iterator) {
+                String name = entry.getFileName().toString();
+                if (Files.isDirectory(entry) && isVersionDirName(name)) {
+                    continue;
+                }
+                Path dest = target.resolve(name);
+                if (Files.isDirectory(entry)) {
+                    Files.createDirectories(dest);
+                    copyDirectory(entry, dest);
+                } else {
+                    Files.copy(entry, dest,
+                            StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
         }
     }
 
