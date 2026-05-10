@@ -1414,6 +1414,34 @@ class ReleaseSupportTest {
     }
 
     @Test
+    void copyDirectoryExcludingTopLevelVersionDirs_preservesNonVersionDirAtTopLevel() throws Exception {
+        // Regression for the v30 ike-platform recovery: when
+        // staging has a mix of version dirs and (legitimate)
+        // non-version dirs at the top level, only the version
+        // dirs are filtered.
+        Path src = Files.createTempDirectory("ike-test-mix-src-");
+        Path dst = Files.createTempDirectory("ike-test-mix-dst-");
+        try {
+            Files.createDirectory(src.resolve("29"));
+            Files.writeString(src.resolve("29").resolve("stale.txt"), "stale");
+            Files.createDirectory(src.resolve("apidocs"));
+            Files.writeString(src.resolve("apidocs").resolve("index.html"),
+                    "<html/>");
+            Files.writeString(src.resolve("index.html"), "<html/>");
+
+            ReleaseSupport.copyDirectoryExcludingTopLevelVersionDirs(src, dst);
+
+            assertThat(Files.exists(dst.resolve("29"))).isFalse();
+            assertThat(Files.exists(dst.resolve("apidocs").resolve("index.html")))
+                    .isTrue();
+            assertThat(Files.exists(dst.resolve("index.html"))).isTrue();
+        } finally {
+            ReleaseSupport.deleteDirectory(src);
+            ReleaseSupport.deleteDirectory(dst);
+        }
+    }
+
+    @Test
     void copyDirectoryExcludingTopLevelVersionDirs_emptySource_succeedsNoOp() throws Exception {
         Path src = Files.createTempDirectory("ike-test-empty-src-");
         Path dst = Files.createTempDirectory("ike-test-empty-dst-");

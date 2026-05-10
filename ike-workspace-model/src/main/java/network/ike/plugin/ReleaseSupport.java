@@ -1080,26 +1080,29 @@ public class ReleaseSupport {
         // (e.g., scpexe://...//ike-platform/${project.version}/),
         // mvn site:stage produces target/staging/<version>/<actual
         // content> rather than target/staging/<actual content>.
-        // Unwrap if detected.
+        // Unwrap whenever the version subdir exists, regardless of
+        // whether the staging dir has stale prior-release subdirs
+        // (which it usually does on ike-platform because
+        // maven-clean-plugin preserves target/staging across clean).
+        // Earlier behavior required exactly-one-entry, which failed
+        // the second time the same project released (count >1 due
+        // to leftovers); the over-narrow check stripped both the
+        // current version and the stale ones via the
+        // copyDirectoryExcludingTopLevelVersionDirs filter, leaving
+        // the gh-pages /<version>/ subdir empty. The fix here is
+        // simpler: if the per-version subdir exists, that's
+        // unambiguously the source.
         Path effectiveStagingSource = stagingDir;
         Path nestedVersionDir = stagingDir.resolve(version);
-        if (Files.isDirectory(nestedVersionDir)) {
-            try (Stream<Path> entries = Files.list(stagingDir)) {
-                long topLevelCount = entries.count();
-                if (topLevelCount == 1) {
-                    log.info("  Detected version-nested staging at "
-                            + nestedVersionDir
-                            + " — using it as the gh-pages source. "
-                            + "(Project's site.deploy.url contains the "
-                            + "version segment so site:stage nested "
-                            + "content under it; ike-issues#337.)");
-                    effectiveStagingSource = nestedVersionDir;
-                }
-            } catch (IOException e) {
-                throw new MojoException(
-                        "Could not inspect stagingDir for version-nested "
-                                + "pattern: " + e.getMessage(), e);
-            }
+        if (Files.isDirectory(nestedVersionDir)
+                && !isEmptyDirectory(nestedVersionDir)) {
+            log.info("  Detected version-nested staging at "
+                    + nestedVersionDir
+                    + " — using it as the gh-pages source. "
+                    + "(Project's site.deploy.url contains the "
+                    + "version segment so site:stage nested "
+                    + "content under it; ike-issues#337.)");
+            effectiveStagingSource = nestedVersionDir;
         }
 
         log.info("Publishing " + projectId + " site to gh-pages...");
