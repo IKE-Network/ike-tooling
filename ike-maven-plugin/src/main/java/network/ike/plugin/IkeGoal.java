@@ -104,6 +104,13 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:render-pdf} — render AsciiDoc to PDF via a configured renderer. */
     RENDER_PDF("render-pdf", RenderPdfMojo.class,
             "Render AsciiDoc to PDF via a configured renderer."),
+    /** {@code ike:render-sbom-viewer} — generate dependencies.adoc from the CycloneDX SBOM (#341). */
+    RENDER_SBOM_VIEWER("render-sbom-viewer", RenderSbomViewerMojo.class,
+            "Generate a Web-friendly dependencies.adoc page from "
+                    + "the CycloneDX SBOM with a sortable component "
+                    + "table. Maven Site renders it to "
+                    + "dependencies.html, replacing the auto-"
+                    + "generated dependency report."),
     /** {@code ike:render-spdx-licenses} — generate licenses.adoc from the CycloneDX SBOM (#335). */
     RENDER_SPDX_LICENSES("render-spdx-licenses", RenderSpdxLicensesMojo.class,
             "Generate an SPDX-grouped licenses.adoc page from the "
