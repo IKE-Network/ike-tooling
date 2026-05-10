@@ -80,8 +80,15 @@ public class ScaffoldPublishMojo
      * Path to an unpacked scaffold tree containing
      * {@code scaffold-manifest.yaml} and the template files it
      * references.
+     *
+     * <p>Defaults to {@code ${project.build.directory}/scaffold},
+     * matching the unpack location wired into {@code ike-parent}'s
+     * {@code unpack-scaffold-templates} execution (#243). Override
+     * with {@code -DscaffoldDir=...} for ad-hoc invocations against
+     * a custom scaffold tree.
      */
-    @Parameter(property = "scaffoldDir", required = true)
+    @Parameter(property = "scaffoldDir",
+               defaultValue = "${project.build.directory}/scaffold")
     String scaffoldDir;
 
     /**

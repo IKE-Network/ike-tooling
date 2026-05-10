@@ -80,8 +80,15 @@ public class ScaffoldRevertMojo
      * for revert (templates aren't used); the parameter is kept
      * consistent with {@code ike:scaffold-draft} and
      * {@code ike:scaffold-publish} for symmetry.
+     *
+     * <p>Defaults to {@code ${project.build.directory}/scaffold},
+     * matching the unpack location wired into {@code ike-parent}'s
+     * {@code unpack-scaffold-templates} execution (#243). Override
+     * with {@code -DscaffoldDir=...} for ad-hoc invocations against
+     * a custom scaffold tree.
      */
-    @Parameter(property = "scaffoldDir", required = true)
+    @Parameter(property = "scaffoldDir",
+               defaultValue = "${project.build.directory}/scaffold")
     String scaffoldDir;
 
     /**

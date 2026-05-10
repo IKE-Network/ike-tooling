@@ -1105,6 +1105,30 @@ public class ReleaseSupport {
             effectiveStagingSource = nestedVersionDir;
         }
 
+        // Detect parent-artifactId staging nesting (ike-issues#342).
+        // When a project has a <parent> block, maven-site-plugin's
+        // site:stage derives the staging directory from the parent
+        // artifactId, producing target/staging/<parentArtifactId>/
+        // <projectId>/<actual content>. This is orthogonal to the
+        // version-nested case above (#337) — they can compound, but
+        // the version-nested unwrap runs first; this check is then
+        // applied to whatever effective source survived.
+        // Detection: effective staging has exactly one entry that's
+        // a directory, and that directory contains a non-empty
+        // subdirectory whose name matches projectId. Unwrap to
+        // <singleEntry>/<projectId>/.
+        Path parentArtifactUnwrap =
+                detectParentArtifactNesting(effectiveStagingSource, projectId);
+        if (parentArtifactUnwrap != null) {
+            log.info("  Detected parent-artifactId staging nesting at "
+                    + parentArtifactUnwrap
+                    + " — using it as the gh-pages source. (Project "
+                    + "has a <parent> block so site:stage nested "
+                    + "content under <parentArtifactId>/<artifactId>/; "
+                    + "ike-issues#342.)");
+            effectiveStagingSource = parentArtifactUnwrap;
+        }
+
         log.info("Publishing " + projectId + " site to gh-pages...");
 
         Path tempDir;
@@ -1437,6 +1461,70 @@ public class ReleaseSupport {
             throw new MojoException(
                     "Could not list directory " + dir + ": " + e.getMessage(),
                     e);
+        }
+    }
+
+    /**
+     * Detect parent-artifactId staging nesting (ike-issues#342).
+     *
+     * <p>When a Maven project has a {@code <parent>} block,
+     * {@code maven-site-plugin}'s {@code site:stage} writes content
+     * to {@code target/staging/<parentArtifactId>/<projectId>/}
+     * rather than {@code target/staging/}. The hybrid gh-pages
+     * publish path treats {@code stagingDir} as the source of
+     * truth, so the published tree ends up double-nested at
+     * {@code /<repo>/<version>/<parentArtifactId>/<projectId>/}
+     * when it should be at {@code /<repo>/<version>/}.
+     *
+     * <p>This helper detects that wrap by checking:
+     * <ol>
+     *   <li>{@code source} contains exactly one entry that is itself
+     *       a directory, and</li>
+     *   <li>that single directory contains a non-empty subdirectory
+     *       whose name equals {@code projectId}.</li>
+     * </ol>
+     *
+     * <p>Returns the path to {@code <single-entry>/<projectId>}
+     * when both conditions hold; otherwise returns {@code null}
+     * to indicate no unwrap is needed.
+     *
+     * <p>The check is intentionally conservative — it requires a
+     * single top-level entry so it does not mis-fire on staging
+     * trees that legitimately have multiple top-level dirs (the
+     * normal aggregated-reactor case where each module's site
+     * lives under its own subdirectory).
+     *
+     * @param source    the post-#337-unwrap effective staging source
+     * @param projectId the project's own artifactId
+     * @return the unwrapped path, or {@code null} if no nesting
+     *         was detected
+     * @throws MojoException if the directory cannot be inspected
+     */
+    public static Path detectParentArtifactNesting(Path source,
+                                                    String projectId)
+            throws MojoException {
+        if (!Files.isDirectory(source)) {
+            return null;
+        }
+        try (Stream<Path> entries = Files.list(source)) {
+            List<Path> topLevel = entries.toList();
+            if (topLevel.size() != 1) {
+                return null;
+            }
+            Path single = topLevel.get(0);
+            if (!Files.isDirectory(single)) {
+                return null;
+            }
+            Path inner = single.resolve(projectId);
+            if (!Files.isDirectory(inner) || isEmptyDirectory(inner)) {
+                return null;
+            }
+            return inner;
+        } catch (IOException e) {
+            throw new MojoException(
+                    "Could not inspect " + source
+                            + " for parent-artifactId nesting: "
+                            + e.getMessage(), e);
         }
     }
 

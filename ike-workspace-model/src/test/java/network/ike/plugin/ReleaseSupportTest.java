@@ -1457,6 +1457,90 @@ class ReleaseSupportTest {
         }
     }
 
+    // ──────────────────────────────────────────────────────────────────
+    // detectParentArtifactNesting (#342)
+    // ──────────────────────────────────────────────────────────────────
+
+    @Test
+    void detectParentArtifactNesting_typicalNesting_returnsInnerPath(@TempDir Path tmpDir)
+            throws Exception {
+        // Reproduce the v150 ike-example-ws layout:
+        //   target/staging/ike-parent/ike-example-ws/index.html
+        Path staging = tmpDir.resolve("staging");
+        Path parentDir = staging.resolve("ike-parent");
+        Path inner = parentDir.resolve("ike-example-ws");
+        Files.createDirectories(inner);
+        Files.writeString(inner.resolve("index.html"), "<html/>");
+
+        Path result = ReleaseSupport.detectParentArtifactNesting(
+                staging, "ike-example-ws");
+
+        assertThat(result).isEqualTo(inner);
+    }
+
+    @Test
+    void detectParentArtifactNesting_noNesting_returnsNull(@TempDir Path tmpDir)
+            throws Exception {
+        // Flat staging — content directly under stagingDir, no
+        // parent-artifactId wrap.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging);
+        Files.writeString(staging.resolve("index.html"), "<html/>");
+        Files.writeString(staging.resolve("bom.json"), "{}");
+
+        assertThat(ReleaseSupport.detectParentArtifactNesting(
+                staging, "ike-example-ws")).isNull();
+    }
+
+    @Test
+    void detectParentArtifactNesting_multipleTopLevel_returnsNull(@TempDir Path tmpDir)
+            throws Exception {
+        // Aggregator with multiple module subdirs — legitimately
+        // multi-top-level. Don't unwrap.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging.resolve("ike-parent").resolve("ike-example-ws"));
+        Files.createDirectories(staging.resolve("other-dir"));
+
+        assertThat(ReleaseSupport.detectParentArtifactNesting(
+                staging, "ike-example-ws")).isNull();
+    }
+
+    @Test
+    void detectParentArtifactNesting_innerDoesNotMatchProjectId_returnsNull(@TempDir Path tmpDir)
+            throws Exception {
+        // Single top-level dir but its inner subdir is NOT named
+        // projectId — could be coincidental layout, don't unwrap.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging.resolve("some-wrap").resolve("totally-different"));
+
+        assertThat(ReleaseSupport.detectParentArtifactNesting(
+                staging, "ike-example-ws")).isNull();
+    }
+
+    @Test
+    void detectParentArtifactNesting_innerEmpty_returnsNull(@TempDir Path tmpDir)
+            throws Exception {
+        // Inner projectId dir exists but is empty — nothing to
+        // publish from it; don't unwrap.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging.resolve("ike-parent").resolve("ike-example-ws"));
+
+        assertThat(ReleaseSupport.detectParentArtifactNesting(
+                staging, "ike-example-ws")).isNull();
+    }
+
+    @Test
+    void detectParentArtifactNesting_singleEntryIsFile_returnsNull(@TempDir Path tmpDir)
+            throws Exception {
+        // Single top-level entry but it's a file, not a dir.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging);
+        Files.writeString(staging.resolve("index.html"), "<html/>");
+
+        assertThat(ReleaseSupport.detectParentArtifactNesting(
+                staging, "ike-example-ws")).isNull();
+    }
+
     @Test
     void publishProjectSiteToGhPages_emptyStagingDir_throwsLoud() throws Exception {
         // The bug pattern from #334: an empty-but-existing target/staging/
