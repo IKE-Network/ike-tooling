@@ -82,6 +82,24 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     boolean publishSite;
 
     /**
+     * Run {@code site} and {@code site:stage} non-recursively
+     * ({@code -N}). Set this to {@code true} when releasing a multi-
+     * module aggregator (workspace root) whose subprojects inherit a
+     * per-artifactId {@code <site>} URL: with the full reactor active,
+     * sibling modules' site:stage runs all target the same staging
+     * root and the last-built module overwrites the workspace's own
+     * staged site, so {@code publishProjectSiteToGhPages} ships a
+     * subproject's content as the workspace's gh-pages root.
+     * ike-issues#356.
+     *
+     * <p>Default {@code false}: standalone subproject releases need
+     * the full reactor for their own site (single-module reactors
+     * don't collide).
+     */
+    @Parameter(property = "nonRecursiveSite", defaultValue = "false")
+    boolean nonRecursiveSite;
+
+    /**
      * GitHub repository for issue tracking, used to look up a milestone
      * named {@code <artifactId> v<version>} for release notes generation.
      * If the milestone exists, its closed issues are formatted as the
@@ -314,10 +332,21 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // Build site (catches javadoc errors before any commits/tags).
         // -T 1 overrides .mvn/maven.config parallelism: maven-site-plugin
         // is not @ThreadSafe and emits a warning in parallel sessions.
+        // -N (non-recursive) when releasing an aggregator whose
+        // subproject sites would otherwise collide at the staging
+        // root (ike-issues#356).
         if (publishSite) {
             getLog().info("Building site (pre-flight check)...");
+            List<String> siteArgs = new ArrayList<>();
+            siteArgs.add(mvnw.getAbsolutePath());
+            siteArgs.add("site");
+            siteArgs.add("site:stage");
+            siteArgs.add("-B");
+            siteArgs.add("-T");
+            siteArgs.add("1");
+            if (nonRecursiveSite) siteArgs.add("-N");
             ReleaseSupport.exec(gitRoot, getLog(),
-                    mvnw.getAbsolutePath(), "site", "site:stage", "-B", "-T", "1");
+                    siteArgs.toArray(new String[0]));
         }
 
         // Commit
@@ -420,8 +449,15 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 }
 
                 // 3. Build site (generates JaCoCo HTML from jacoco.exec)
+                List<String> buildArgs = new ArrayList<>();
+                buildArgs.add(mvnw.getAbsolutePath());
+                buildArgs.add("site");
+                buildArgs.add("-B");
+                buildArgs.add("-T");
+                buildArgs.add("1");
+                if (nonRecursiveSite) buildArgs.add("-N");
                 ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(), "site", "-B", "-T", "1");
+                        buildArgs.toArray(new String[0]));
 
                 // 4. Inject breadcrumbs into JaCoCo reports
                 getLog().info("Injecting breadcrumbs into JaCoCo reports...");
@@ -444,8 +480,15 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                             + "before site:stage (#351)...");
                     ReleaseSupport.deleteDirectory(stagingDirToClean);
                 }
+                List<String> stageArgs = new ArrayList<>();
+                stageArgs.add(mvnw.getAbsolutePath());
+                stageArgs.add("site:stage");
+                stageArgs.add("-B");
+                stageArgs.add("-T");
+                stageArgs.add("1");
+                if (nonRecursiveSite) stageArgs.add("-N");
                 ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(), "site:stage", "-B", "-T", "1");
+                        stageArgs.toArray(new String[0]));
 
                 // 6. Publish to gh-pages (while target/staging/ exists).
                 // Best-effort — failures warn but don't block Nexus

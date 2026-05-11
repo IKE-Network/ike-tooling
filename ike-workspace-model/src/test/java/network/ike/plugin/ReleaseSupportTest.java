@@ -767,6 +767,18 @@ class ReleaseSupportTest {
                 .isEqualTo(tmpDir.toFile().getCanonicalPath());
     }
 
+    @Test
+    void gitRoot_notARepo_throwsRemediationMessage(@TempDir Path tmpDir) {
+        // No initGitRepo — tmpDir is just a bare directory.
+        // ike-issues#357: error must explain the workaround instead
+        // of the bare "Command failed (exit 128)" the user saw before.
+        assertThatThrownBy(() -> ReleaseSupport.gitRoot(tmpDir.toFile()))
+                .isInstanceOf(MojoException.class)
+                .hasMessageContaining(tmpDir.toFile().getAbsolutePath())
+                .hasMessageContaining("_git-init.sh")
+                .hasMessageContaining("ike-issues#357");
+    }
+
     // ── tagExists ───────────────────────────────────────────────────
 
     @Test
@@ -1654,6 +1666,110 @@ class ReleaseSupportTest {
 
         assertThat(ReleaseSupport.detectAggregatedStaging(
                 staging, "ike-example-ws")).isNull();
+    }
+
+    // ── detectHttpsUrlStaging (ike-issues#359) ──────────────────────
+
+    @Test
+    void detectHttpsUrlStaging_ikeToolingShape_returnsProjectDir(
+            @TempDir Path tmpDir) throws Exception {
+        // ike-tooling: <site><url>https://ike.network/ike-tooling/
+        // → staging/https:/ike.network/ike-tooling/<content>
+        Path staging = tmpDir.resolve("staging");
+        Path projectDir = staging.resolve("https:")
+                .resolve("ike.network").resolve("ike-tooling");
+        Files.createDirectories(projectDir);
+        Files.writeString(projectDir.resolve("index.html"), "<html/>");
+
+        Path result = ReleaseSupport.detectHttpsUrlStaging(
+                staging, "ike-tooling");
+        assertThat(result).isEqualTo(projectDir);
+    }
+
+    @Test
+    void detectHttpsUrlStaging_ikePlatformShape_returnsProjectDir(
+            @TempDir Path tmpDir) throws Exception {
+        // ike-platform: <site><url>https://ike.network/ike-platform/<version>/
+        // → staging/https:/ike.network/ike-platform/<version>/<content>.
+        // The unwrap returns the projectId-level dir; the version-
+        // nested unwrap (#337) then descends one more level.
+        Path staging = tmpDir.resolve("staging");
+        Path versioned = staging.resolve("https:")
+                .resolve("ike.network").resolve("ike-platform")
+                .resolve("40");
+        Files.createDirectories(versioned);
+        Files.writeString(versioned.resolve("index.html"), "<html/>");
+
+        Path result = ReleaseSupport.detectHttpsUrlStaging(
+                staging, "ike-platform");
+        assertThat(result).isEqualTo(staging.resolve("https:")
+                .resolve("ike.network").resolve("ike-platform"));
+    }
+
+    @Test
+    void detectHttpsUrlStaging_ikeDocsShape_returnsProjectDirIgnoringSiblings(
+            @TempDir Path tmpDir) throws Exception {
+        // ike-docs: workspace's own staged content lives under
+        // staging/https:/ike.network/ike-docs/; reactor siblings
+        // (ike-doc-resources, minimal-fonts, etc.) live as
+        // siblings to https: directly under staging/. The unwrap
+        // must reach into the workspace's own subtree.
+        Path staging = tmpDir.resolve("staging");
+        Path projectDir = staging.resolve("https:")
+                .resolve("ike.network").resolve("ike-docs");
+        Files.createDirectories(projectDir);
+        Files.writeString(projectDir.resolve("index.html"), "<html/>");
+        // Sibling reactor modules at staging root
+        Files.createDirectories(staging.resolve("ike-doc-resources"));
+        Files.createDirectories(staging.resolve("minimal-fonts"));
+
+        Path result = ReleaseSupport.detectHttpsUrlStaging(
+                staging, "ike-docs");
+        assertThat(result).isEqualTo(projectDir);
+    }
+
+    @Test
+    void detectHttpsUrlStaging_noHttpsDir_returnsNull(
+            @TempDir Path tmpDir) throws Exception {
+        // Single-module project or scpexe URL staging — no https:
+        // dir present. Conservative null so downstream unwraps run.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging);
+        Files.writeString(staging.resolve("index.html"), "<html/>");
+
+        assertThat(ReleaseSupport.detectHttpsUrlStaging(
+                staging, "ike-tooling")).isNull();
+    }
+
+    @Test
+    void detectHttpsUrlStaging_multipleHosts_returnsNull(
+            @TempDir Path tmpDir) throws Exception {
+        // Unusual configuration — multiple hosts under https:.
+        // Stay conservative; let downstream handle it.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging.resolve("https:")
+                .resolve("ike.network").resolve("ike-tooling")
+                .resolve("dummy"));
+        Files.createDirectories(staging.resolve("https:")
+                .resolve("example.com").resolve("ike-tooling")
+                .resolve("dummy"));
+
+        assertThat(ReleaseSupport.detectHttpsUrlStaging(
+                staging, "ike-tooling")).isNull();
+    }
+
+    @Test
+    void detectHttpsUrlStaging_projectDirEmpty_returnsNull(
+            @TempDir Path tmpDir) throws Exception {
+        // Defensive: if the project's own subdir under https:/<host>/
+        // exists but is empty, the publish path has nothing useful
+        // to copy. Don't return an empty source.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging.resolve("https:")
+                .resolve("ike.network").resolve("ike-tooling"));
+
+        assertThat(ReleaseSupport.detectHttpsUrlStaging(
+                staging, "ike-tooling")).isNull();
     }
 
     @Test
