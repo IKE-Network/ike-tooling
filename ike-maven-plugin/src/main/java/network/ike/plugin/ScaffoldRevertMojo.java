@@ -16,6 +16,9 @@ import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -207,6 +210,44 @@ public class ScaffoldRevertMojo
         if (projRoot != null) {
             getLog().info("  project: " + projectDeleted
                     + " deleted, " + projectSkipped + " skipped");
+        }
+
+        // #349: restore POM from foundation-apply backup, if present.
+        // scaffold-publish wrote .ike/foundation-revert.pom.xml with
+        // the pre-apply content; replaying it restores the parent
+        // version + standard properties that were rewritten.
+        if (projRoot != null) {
+            restoreFoundationBackup(projRoot);
+        }
+    }
+
+    /**
+     * Restore the project's {@code pom.xml} from the foundation
+     * backup written by the last {@code ike:scaffold-publish} apply
+     * (#349). One-shot — the backup is deleted on successful restore
+     * so a second {@code scaffold-revert} is a no-op.
+     *
+     * @param projRoot the project root
+     */
+    private void restoreFoundationBackup(Path projRoot) {
+        Path backup = projRoot.resolve(".ike")
+                .resolve("foundation-revert.pom.xml");
+        if (!Files.isRegularFile(backup)) return;
+
+        Path pomPath = projRoot.resolve("pom.xml");
+        try {
+            String content = Files.readString(backup,
+                    StandardCharsets.UTF_8);
+            Files.writeString(pomPath, content,
+                    StandardCharsets.UTF_8);
+            Files.delete(backup);
+            getLog().info("");
+            getLog().info("Foundation: restored " + pomPath
+                    + " from backup");
+            getLog().info("  → removed " + backup);
+        } catch (IOException e) {
+            getLog().warn("Could not restore foundation backup: "
+                    + e.getMessage());
         }
     }
 }

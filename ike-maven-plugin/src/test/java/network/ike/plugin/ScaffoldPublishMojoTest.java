@@ -290,6 +290,66 @@ class ScaffoldPublishMojoTest {
     }
 
     @Test
+    void foundationApply_writesBackupForRevert(@TempDir Path tmp)
+            throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files: []
+                        foundation:
+                          parent:
+                            groupId: network.ike.platform
+                            artifactId: ike-parent
+                            version: "36"
+                          properties: {}
+                        """);
+        String originalPom = """
+                <?xml version="1.0"?>
+                <project>
+                    <parent>
+                        <groupId>network.ike.platform</groupId>
+                        <artifactId>ike-parent</artifactId>
+                        <version>35</version>
+                    </parent>
+                    <artifactId>some-consumer</artifactId>
+                    <version>1-SNAPSHOT</version>
+                </project>
+                """;
+        Files.writeString(project.resolve("pom.xml"), originalPom);
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+        inject(mojo, "applyFoundation", true);
+
+        mojo.execute();
+
+        // Backup exists at .ike/foundation-revert.pom.xml with the
+        // pre-apply content (so scaffold-revert can restore).
+        Path backup = project.resolve(".ike")
+                .resolve("foundation-revert.pom.xml");
+        assertThat(backup).exists();
+        assertThat(Files.readString(backup)).isEqualTo(originalPom);
+        // POM was actually rewritten.
+        assertThat(Files.readString(project.resolve("pom.xml")))
+                .contains("<version>36</version>")
+                .doesNotContain("<version>35</version>");
+        assertThat(log.infos).anyMatch(
+                s -> s.contains("backup:"));
+    }
+
+    @Test
     void foundationApply_noFoundationSection_skipsEntirely(
             @TempDir Path tmp) throws Exception {
         Path scaffold = tmp.resolve("scaffold");

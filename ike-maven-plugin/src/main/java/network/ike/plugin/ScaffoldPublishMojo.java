@@ -326,6 +326,22 @@ public class ScaffoldPublishMojo
                     + "matched at the LST level)");
             return;
         }
+        // #349: capture pre-apply POM as a backup so
+        // ike:scaffold-revert can restore. One-shot — the next
+        // foundation apply overwrites this, and revert deletes
+        // it on success.
+        Path backup = projRoot.resolve(".ike")
+                .resolve("foundation-revert.pom.xml");
+        try {
+            Files.createDirectories(backup.getParent());
+            Files.writeString(backup, content, StandardCharsets.UTF_8);
+            getLog().info("  → backup: " + backup);
+        } catch (IOException e) {
+            getLog().warn("Could not write foundation revert backup: "
+                    + e.getMessage());
+            // Still attempt the apply — losing revert capability is
+            // worse than no foundation update.
+        }
         try {
             Files.writeString(pomPath, updated, StandardCharsets.UTF_8);
             getLog().info("  → wrote " + pomPath);

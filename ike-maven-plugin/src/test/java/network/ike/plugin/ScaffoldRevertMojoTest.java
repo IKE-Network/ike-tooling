@@ -127,4 +127,94 @@ class ScaffoldRevertMojoTest {
                 .isInstanceOf(
                         org.apache.maven.api.plugin.MojoException.class);
     }
+
+    // ─── #349: foundation-apply backup restore ─────────────────────
+
+    @Test
+    void foundationRevert_restoresPomFromBackup(@TempDir Path tmp)
+            throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files: []
+                        """);
+
+        // Apply already happened: pom.xml has the post-apply content;
+        // .ike/foundation-revert.pom.xml has the pre-apply content.
+        String preApply = """
+                <?xml version="1.0"?>
+                <project>
+                    <parent>
+                        <version>35</version>
+                    </parent>
+                    <artifactId>x</artifactId>
+                </project>
+                """;
+        String postApply = preApply.replace("35", "36");
+        Files.writeString(project.resolve("pom.xml"), postApply);
+        Files.createDirectories(project.resolve(".ike"));
+        Path backup = project.resolve(".ike")
+                .resolve("foundation-revert.pom.xml");
+        Files.writeString(backup, preApply);
+
+        ScaffoldRevertMojo mojo = new ScaffoldRevertMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+
+        mojo.execute();
+
+        // POM restored to pre-apply content.
+        assertThat(Files.readString(project.resolve("pom.xml")))
+                .isEqualTo(preApply);
+        // Backup deleted (one-shot revert).
+        assertThat(backup).doesNotExist();
+        assertThat(log.infos).anyMatch(
+                s -> s.contains("Foundation: restored"));
+    }
+
+    @Test
+    void foundationRevert_noBackupPresent_isNoOp(@TempDir Path tmp)
+            throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files: []
+                        """);
+        String pom = "<project><artifactId>x</artifactId></project>";
+        Files.writeString(project.resolve("pom.xml"), pom);
+
+        ScaffoldRevertMojo mojo = new ScaffoldRevertMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+
+        mojo.execute();
+
+        // POM unchanged.
+        assertThat(Files.readString(project.resolve("pom.xml")))
+                .isEqualTo(pom);
+        assertThat(log.infos).noneMatch(
+                s -> s.contains("Foundation: restored"));
+    }
 }
