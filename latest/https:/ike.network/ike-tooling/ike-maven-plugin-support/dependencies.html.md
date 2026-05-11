@@ -12,7 +12,7 @@ The following is a list of compile dependencies for this project. These dependen
 
 | GroupId | ArtifactId | Version | Type | Licenses |
 | --- | --- | --- | --- | --- |
-| network.ike.tooling | [ike-workspace-model](https://ike.network/ike-tooling/ike-workspace-model/)[1] | 154 | jar | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
+| network.ike.tooling | [ike-workspace-model](https://ike.network/ike-tooling/ike-workspace-model/)[1] | 155 | jar | [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
 
 ## [test](#test)
 
@@ -115,13 +115,13 @@ The following is a list of provided dependencies for this project. These depende
 
 ## [Dependency Tree](#dependency-tree)
 
-- network.ike.tooling:ike-maven-plugin-support:jar:154 ** 
+- network.ike.tooling:ike-maven-plugin-support:jar:155 ** 
   
   | IKE Maven Plugin Support |
   | --- |
   | **Description: **Shared library for IKE Maven plugins: goal identifier interface, base Mojo with per-goal report writing, self-healing gitignore, and interactive parameter resolution helpers. **URL: **[https://ike.network/ike-tooling/ike-maven-plugin-support/](https://ike.network/ike-tooling/ike-maven-plugin-support/)[59] **Project Licenses: **[Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)[2] |
   
-    - network.ike.tooling:ike-workspace-model:jar:154 (compile) ** 
+    - network.ike.tooling:ike-workspace-model:jar:155 (compile) ** 
       
       | IKE Workspace Model |
       | --- |
@@ -503,7 +503,7 @@ The following is a list of provided dependencies for this project. These depende
 |    • Versioned | - | 2940 | 2898 | 39 | 1.8 | Yes |
 | jna-5.18.1.jar | 2 MB | 191 | 124 | 4 | 1.8 | Yes |
 | jna-platform-5.18.1.jar | 1.4 MB | 1336 | 1288 | 15 | 1.8 | Yes |
-| ike-workspace-model-154.jar | 118.7 kB | 64 | 53 | 2 | 25 | Yes |
+| ike-workspace-model-155.jar | 119 kB | 64 | 53 | 2 | 25 | Yes |
 | antlr4-runtime-4.13.2.jar | 326.3 kB | 232 | 215 | 7 | 1.8 | Yes |
 | commons-lang3-3.20.0.jar | 713.9 kB | 454 | - | - | - | - |
 |    • Root | - | 452 | 421 | 18 | 1.8 | Yes |
