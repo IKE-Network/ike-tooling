@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.scaffold.DirectoryTemplateSource;
+import network.ike.plugin.scaffold.FoundationDriftChecker;
 import network.ike.plugin.scaffold.ModelAdapters;
 import network.ike.plugin.scaffold.PathResolver;
 import network.ike.plugin.scaffold.ScaffoldApplier;
@@ -21,7 +22,12 @@ import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Apply the scaffold manifest to disk and update the lockfiles.
@@ -106,6 +112,20 @@ public class ScaffoldPublishMojo
     @Parameter(property = "userHome",
                defaultValue = "${user.home}")
     String userHome;
+
+    /**
+     * When {@code true}, apply foundation-drift bumps to the project's
+     * {@code pom.xml} (parent version + standard properties baked
+     * into the scaffold manifest's {@code foundation:} section). When
+     * {@code false} (default for this initial v153 ship), the
+     * foundation drift is reported only — same as
+     * {@code ike:scaffold-draft}. Opt-in so the apply behavior can
+     * be validated over a few cascade cycles before flipping the
+     * default. See {@code IKE-Network/ike-issues#348}.
+     */
+    @Parameter(property = "ike.scaffold.apply-foundation",
+               defaultValue = "false")
+    boolean applyFoundation;
 
     /** Creates this goal instance. */
     public ScaffoldPublishMojo() {}
@@ -195,6 +215,123 @@ public class ScaffoldPublishMojo
                     totalSkipped + " entry(ies) were skipped "
                             + "(user-edited). "
                             + "Run ike:scaffold-draft for details.");
+        }
+
+        // #348: foundation-drift apply. Detection landed in #345's
+        // scaffold-draft; this is the matching apply step. Opt-in via
+        // -Dike.scaffold.apply-foundation=true for the initial v153
+        // ship. The scaffold zip's foundation pins represent the
+        // tested-together compatibility snapshot of ike-parent +
+        // standard properties at the moment this ike-tooling version
+        // was released, so applying them is a single-command "bump
+        // foundation to current" operation that subsumes the routine
+        // use case of ws:set-parent-publish + ws:versions-upgrade.
+        if (projRoot != null && manifest.foundation() != null) {
+            applyFoundationDrift(projRoot, manifest.foundation());
+        }
+    }
+
+    /**
+     * Apply foundation-drift bumps to the project's {@code pom.xml}.
+     *
+     * <p>Reads the POM, computes drift via
+     * {@link FoundationDriftChecker}, and for each
+     * {@link FoundationDriftChecker.State#DIFFERS} entry, rewrites
+     * the POM via {@link PomRewriter}:
+     * <ul>
+     *   <li>{@link FoundationDriftChecker.Kind#PARENT} —
+     *       {@code PomRewriter.updateParentVersion}</li>
+     *   <li>{@link FoundationDriftChecker.Kind#PROPERTY} —
+     *       {@code PomRewriter.updateProperty}</li>
+     * </ul>
+     *
+     * <p>{@code ABSENT} entries are left alone — the project inherits
+     * the value from a parent POM (or simply doesn't carry it), and
+     * force-declaring it here would change the structural shape of
+     * the consumer's POM beyond a drift bump. {@code ALIGNED}
+     * entries are no-ops.
+     *
+     * <p>When {@code applyFoundation} is {@code false} (the default),
+     * this method just logs what would be applied without mutating
+     * the POM — matching {@code ike:scaffold-draft}'s report.
+     *
+     * @param projRoot   the project root directory
+     * @param foundation the scaffold manifest's foundation pins
+     */
+    private void applyFoundationDrift(
+            Path projRoot,
+            ScaffoldManifest.Foundation foundation) {
+        Path pomPath = projRoot.resolve("pom.xml");
+        List<FoundationDriftChecker.Entry> entries;
+        try {
+            entries = FoundationDriftChecker.checkPomFile(
+                    pomPath, foundation);
+        } catch (IOException e) {
+            getLog().warn("Could not read POM for foundation drift "
+                    + "apply: " + e.getMessage());
+            return;
+        }
+
+        List<FoundationDriftChecker.Entry> toApply = new ArrayList<>();
+        for (FoundationDriftChecker.Entry e : entries) {
+            if (e.state() == FoundationDriftChecker.State.DIFFERS) {
+                toApply.add(e);
+            }
+        }
+        if (toApply.isEmpty()) {
+            getLog().info("");
+            getLog().info("Foundation: aligned with scaffold "
+                    + "(no drift to apply).");
+            return;
+        }
+
+        getLog().info("");
+        getLog().info("IKE Foundation Apply:");
+        if (!applyFoundation) {
+            getLog().info("  (dry-run — pass -Dike.scaffold.apply-foundation=true to apply)");
+        }
+        String content;
+        try {
+            content = Files.readString(pomPath, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            getLog().warn("Could not read " + pomPath + ": "
+                    + e.getMessage());
+            return;
+        }
+
+        String updated = content;
+        for (FoundationDriftChecker.Entry e : toApply) {
+            String label;
+            if (e.kind() == FoundationDriftChecker.Kind.PARENT) {
+                String[] ga = e.name().split(":", 2);
+                if (ga.length == 2) {
+                    updated = PomRewriter.updateParentVersion(
+                            updated, ga[0], ga[1], e.expected());
+                }
+                label = "<parent> " + e.name();
+            } else {
+                updated = PomRewriter.updateProperty(
+                        updated, e.name(), e.expected());
+                label = "${" + e.name() + "}";
+            }
+            getLog().info("  " + (applyFoundation ? "✓ " : "→ ")
+                    + label + ": " + e.actual() + " → " + e.expected());
+        }
+
+        if (!applyFoundation) {
+            return;
+        }
+        if (updated.equals(content)) {
+            getLog().info("  (no textual change — values already "
+                    + "matched at the LST level)");
+            return;
+        }
+        try {
+            Files.writeString(pomPath, updated, StandardCharsets.UTF_8);
+            getLog().info("  → wrote " + pomPath);
+        } catch (IOException e) {
+            getLog().warn("Could not write updated POM: "
+                    + e.getMessage());
         }
     }
 }

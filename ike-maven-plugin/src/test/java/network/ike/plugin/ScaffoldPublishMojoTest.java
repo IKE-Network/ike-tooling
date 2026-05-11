@@ -111,4 +111,215 @@ class ScaffoldPublishMojoTest {
                 .isInstanceOf(
                         org.apache.maven.api.plugin.MojoException.class);
     }
+
+    // ─── #348 foundation-drift apply ──────────────────────────────
+
+    @Test
+    void foundationApply_optInTrue_rewritesParentAndProperty(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files: []
+                        foundation:
+                          parent:
+                            groupId: network.ike.platform
+                            artifactId: ike-parent
+                            version: "36"
+                          properties:
+                            ike-tooling.version: "152"
+                            ike-docs.version: "14"
+                        """);
+        Files.writeString(project.resolve("pom.xml"),
+                """
+                        <?xml version="1.0"?>
+                        <project>
+                            <parent>
+                                <groupId>network.ike.platform</groupId>
+                                <artifactId>ike-parent</artifactId>
+                                <version>35</version>
+                            </parent>
+                            <artifactId>some-consumer</artifactId>
+                            <version>1-SNAPSHOT</version>
+                            <properties>
+                                <ike-tooling.version>151</ike-tooling.version>
+                                <ike-docs.version>13</ike-docs.version>
+                            </properties>
+                        </project>
+                        """);
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+        inject(mojo, "applyFoundation", true);
+
+        mojo.execute();
+
+        String updated = Files.readString(project.resolve("pom.xml"));
+        assertThat(updated)
+                .contains("<version>36</version>")
+                .doesNotContain("<version>35</version>")
+                .contains("<ike-tooling.version>152</ike-tooling.version>")
+                .doesNotContain("<ike-tooling.version>151</ike-tooling.version>")
+                .contains("<ike-docs.version>14</ike-docs.version>")
+                .doesNotContain("<ike-docs.version>13</ike-docs.version>");
+        assertThat(log.infos)
+                .anyMatch(s -> s.contains("IKE Foundation Apply"))
+                .anyMatch(s -> s.contains("wrote"));
+    }
+
+    @Test
+    void foundationApply_dryRunByDefault_doesNotMutatePom(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files: []
+                        foundation:
+                          parent:
+                            groupId: network.ike.platform
+                            artifactId: ike-parent
+                            version: "36"
+                          properties: {}
+                        """);
+        String originalPom = """
+                <?xml version="1.0"?>
+                <project>
+                    <parent>
+                        <groupId>network.ike.platform</groupId>
+                        <artifactId>ike-parent</artifactId>
+                        <version>35</version>
+                    </parent>
+                    <artifactId>some-consumer</artifactId>
+                    <version>1-SNAPSHOT</version>
+                </project>
+                """;
+        Files.writeString(project.resolve("pom.xml"), originalPom);
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+        // applyFoundation defaults to false — leave unset
+
+        mojo.execute();
+
+        String after = Files.readString(project.resolve("pom.xml"));
+        assertThat(after).isEqualTo(originalPom);
+        assertThat(log.infos)
+                .anyMatch(s -> s.contains("IKE Foundation Apply"))
+                .anyMatch(s -> s.contains("dry-run"))
+                .noneMatch(s -> s.contains("wrote"));
+    }
+
+    @Test
+    void foundationApply_aligned_logsAlignedAndNoOp(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files: []
+                        foundation:
+                          parent:
+                            groupId: network.ike.platform
+                            artifactId: ike-parent
+                            version: "36"
+                          properties:
+                            ike-tooling.version: "152"
+                        """);
+        String pom = """
+                <?xml version="1.0"?>
+                <project>
+                    <parent>
+                        <groupId>network.ike.platform</groupId>
+                        <artifactId>ike-parent</artifactId>
+                        <version>36</version>
+                    </parent>
+                    <artifactId>some-consumer</artifactId>
+                    <version>1-SNAPSHOT</version>
+                    <properties>
+                        <ike-tooling.version>152</ike-tooling.version>
+                    </properties>
+                </project>
+                """;
+        Files.writeString(project.resolve("pom.xml"), pom);
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+        inject(mojo, "applyFoundation", true);
+
+        mojo.execute();
+
+        assertThat(Files.readString(project.resolve("pom.xml")))
+                .isEqualTo(pom);
+        assertThat(log.infos)
+                .anyMatch(s -> s.contains("Foundation: aligned"));
+    }
+
+    @Test
+    void foundationApply_noFoundationSection_skipsEntirely(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        // Manifest has no foundation: section.
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files: []
+                        """);
+        Files.writeString(project.resolve("pom.xml"),
+                "<project><artifactId>x</artifactId></project>");
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+        inject(mojo, "applyFoundation", true);
+
+        mojo.execute();
+
+        assertThat(log.infos)
+                .noneMatch(s -> s.contains("IKE Foundation"));
+    }
 }
