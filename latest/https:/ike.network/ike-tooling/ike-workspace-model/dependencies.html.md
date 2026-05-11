@@ -121,7 +121,7 @@ The following is a list of provided dependencies for this project. These depende
 
 ## [Dependency Tree](#dependency-tree)
 
-- network.ike.tooling:ike-workspace-model:jar:155 ** 
+- network.ike.tooling:ike-workspace-model:jar:156 ** 
   
   | IKE Workspace Model |
   | --- |
