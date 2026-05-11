@@ -41,7 +41,6 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         mojo.execute();
 
@@ -66,7 +65,6 @@ class ReleaseIntegrationTest {
 
         ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
-        mojo.deploySite = false;
         mojo.skipVerify = true;
 
         assertThatThrownBy(mojo::execute)
@@ -83,7 +81,6 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.allowBranch = "develop";
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         // The branch check should pass. The mojo will proceed into
         // the release workflow and may fail later (e.g., no remote,
@@ -104,7 +101,6 @@ class ReleaseIntegrationTest {
         ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
-        mojo.deploySite = false;
         mojo.publish = true;
 
         // The local phase should complete: branch, version, tag, merge, bump.
@@ -141,7 +137,6 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.releaseVersion = "1.0.0-SNAPSHOT";
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         assertThatThrownBy(mojo::execute)
                 .isInstanceOf(MojoException.class)
@@ -159,7 +154,6 @@ class ReleaseIntegrationTest {
         mojo.releaseVersion = "1.0.0";
         mojo.nextVersion = "1.0.1";  // missing -SNAPSHOT
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         assertThatThrownBy(mojo::execute)
                 .isInstanceOf(MojoException.class)
@@ -178,7 +172,6 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.releaseVersion = "1.0.0";
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         assertThatThrownBy(mojo::execute)
                 .isInstanceOf(MojoException.class)
@@ -195,7 +188,6 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         mojo.execute();
 
@@ -214,7 +206,6 @@ class ReleaseIntegrationTest {
         mojo.publish = false;
         mojo.releaseVersion = "42";
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         mojo.execute();
 
@@ -235,7 +226,6 @@ class ReleaseIntegrationTest {
         ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         assertThatThrownBy(mojo::execute)
                 .isInstanceOf(MojoException.class)
@@ -252,7 +242,6 @@ class ReleaseIntegrationTest {
         ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
-        mojo.deploySite = false;
 
         try {
             mojo.execute();
@@ -268,20 +257,20 @@ class ReleaseIntegrationTest {
         assertThat(subPom).contains("${project.version}");
     }
 
-    // ── Dry-run: deploySite=true logs site URL ─────────────────────
+    // ── Dry-run: publishSite=true logs site URL ────────────────────
+    // (deploySite param retired in #304 along with the scpexe path.)
 
     @Test
-    void release_dryRun_deploySiteTrue_logsSiteUrl() throws Exception {
+    void release_dryRun_publishSiteTrue_logsSiteUrl() throws Exception {
         createReleaseProject(tempDir);
 
         ReleaseDraftMojo mojo = createMojo();
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
-        mojo.deploySite = true;
 
-        // Should complete without error and cover the deploySite=true
-        // branch inside the draft path (L145-147)
+        // Should complete without error and cover the publishSite=true
+        // branch inside the draft path.
         mojo.execute();
 
         // Verify the version was derived correctly (same as other draft tests)
@@ -298,7 +287,6 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
-        mojo.deploySite = false;
         mojo.releaseVersion = "   ";  // blank — should be treated as unset
 
         mojo.execute();
@@ -314,7 +302,6 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.publish = false;
         mojo.skipVerify = true;
-        mojo.deploySite = false;
         mojo.releaseVersion = "1.0.0";
         mojo.nextVersion = "   ";  // blank — should be treated as unset
 

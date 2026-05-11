@@ -73,9 +73,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     @Parameter(property = "allowBranch")
     String allowBranch;
 
-    @Parameter(property = "deploySite", defaultValue = "true")
-    boolean deploySite;
-
     /**
      * Publish the site to GitHub Pages after internal site deploy.
      * Uses {@code ike:publish-site} to force-push an orphan commit
@@ -231,24 +228,16 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             getLog().info("[DRAFT] Would merge " + releaseBranch + " to main");
             getLog().info("[DRAFT] Would bump to next version: " + nextVersion);
             getLog().info("[DRAFT] --- all local work above, external below ---");
-            if (deploySite) {
+            if (publishSite) {
                 getLog().info("[DRAFT] Would generate site (must succeed)");
             }
             getLog().info("[DRAFT] Would deploy to Nexus from tag v" +
                     releaseVersion + " (critical)");
-            if (deploySite) {
-                getLog().info("[DRAFT] Would deploy site to: " +
-                        "scpexe://proxy/srv/ike-site/" + projectId + "/"
-                        + releaseVersion + " (best-effort)");
-                getLog().info("[DRAFT] Would update latest symlink: "
-                        + "/srv/ike-site/" + projectId + "/latest -> "
-                        + releaseVersion);
-                if (publishSite) {
-                    getLog().info("[DRAFT] Would force-push staged site "
-                            + "to gh-pages on origin (best-effort)");
-                    getLog().info("[DRAFT] Would publish at "
-                            + "https://ike.network/" + projectId + "/");
-                }
+            if (publishSite) {
+                getLog().info("[DRAFT] Would force-push staged site "
+                        + "to gh-pages on origin (best-effort)");
+                getLog().info("[DRAFT] Would publish at "
+                        + "https://ike.network/" + projectId + "/");
             }
             getLog().info("[DRAFT] Would push tag and main to origin");
             getLog().info("[DRAFT] Would create GitHub Release");
@@ -325,7 +314,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // Build site (catches javadoc errors before any commits/tags).
         // -T 1 overrides .mvn/maven.config parallelism: maven-site-plugin
         // is not @ThreadSafe and emits a warning in parallel sessions.
-        if (deploySite) {
+        if (publishSite) {
             getLog().info("Building site (pre-flight check)...");
             ReleaseSupport.exec(gitRoot, getLog(),
                     mvnw.getAbsolutePath(), "site", "site:stage", "-B", "-T", "1");
@@ -402,34 +391,16 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         ReleaseSupport.exec(gitRoot, getLog(),
                 "git", "checkout", "v" + releaseVersion);
 
-        // Site URL info needed for both generation and deploy phases
-        String releaseDisk = null;
-        String stagingUrl = null;
-        // Track gh-pages publish outcome separately from scpexe site
-        // deploy and Nexus deploy. Used to gate the "GitHub Pages: ..."
-        // line in the release-complete summary so the log does not
-        // falsely claim success when the publish actually failed.
-        // ike-issues#329.
+        // Track gh-pages publish outcome separately from Nexus deploy.
+        // Used to gate the "GitHub Pages: ..." line in the release-
+        // complete summary so the log does not falsely claim success
+        // when the publish actually failed. ike-issues#329.
         boolean ghPagesPublished = !publishSite;  // skipped == "no failure"
-        // ike-issues#339: track scpexe site-deploy independently so
-        // a successful gh-pages publish isn't masked when scpexe
-        // fails (e.g., wagon-ssh-external missing for external
-        // consumers — tracked in #338).
-        boolean scpexeDeployed = !deploySite;
         try {
             // ── Site generation (must succeed before Nexus deploy) ────
             // A release without a valid site is incomplete. The tag
             // checkout wiped target/, so everything is rebuilt here.
-            if (deploySite) {
-                // Site is deployed to a version-prefixed directory
-                // (`/<projectId>/<releaseVersion>/`) and a `latest` symlink
-                // is updated to point at it. ike-issues#303.
-                releaseDisk = ReleaseSupport.siteDiskPath(
-                        projectId, releaseVersion, null);
-                String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);
-                String releaseUrl = "scpexe://proxy" + releaseDisk;
-                stagingUrl = ReleaseSupport.siteStagingUrl(releaseUrl);
-
+            if (publishSite) {
                 // 1. Verify (generates JaCoCo coverage data)
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "verify", "-B", "-T", "1");
@@ -462,25 +433,21 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "site:stage", "-B", "-T", "1");
 
-                // 6. Deploy site + publish (while target/staging/ exists)
-                // Best-effort — failures warn but don't block Nexus deploy.
-                // deploySiteAndPublish now returns flags for both gh-pages
-                // and scpexe so the summary can print each truthfully
-                // (ike-issues#339). The catch handles unexpected
-                // exceptions that bypass the per-step catches inside
-                // deploySiteAndPublish itself; in normal flow a scpexe
-                // failure is caught there and reflected in the result.
+                // 6. Publish to gh-pages (while target/staging/ exists).
+                // Best-effort — failures warn but don't block Nexus
+                // deploy. Pre-#304 this step also did scpexe://proxy
+                // site-deploy; that path was retired since the
+                // gh-pages publish (public, HTTPS, no LAN/WireGuard
+                // dependency) is the canonical site distribution
+                // channel.
                 try {
                     SiteDeployResult result = deploySiteAndPublish(gitRoot,
-                            mvnw, projectId, releaseVersion, releaseDisk,
-                            stagingUrl);
+                            mvnw, projectId, releaseVersion);
                     ghPagesPublished = result.ghPagesPublished();
-                    scpexeDeployed = result.scpexeDeployed();
                 } catch (Exception e) {
                     logSiteDeployRetryInstructions(projectId, releaseVersion,
                             e.getMessage());
                     ghPagesPublished = false;
-                    scpexeDeployed = false;
                 }
             }
 
@@ -513,19 +480,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             getLog().info("No 'origin' remote — skipping GitHub Release");
         }
 
-        // Clean up the main-branch snapshot site — the release site
-        // replaces it. Non-fatal if it fails (may not exist).
-        if (deploySite) {
-            String snapshotDisk = ReleaseSupport.siteDiskPath(
-                    projectId, "snapshot", "main");
-            try {
-                getLog().info("Cleaning snapshot/main site...");
-                ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), snapshotDisk);
-            } catch (Exception e) {
-                getLog().warn("Could not clean snapshot site (may not exist): "
-                        + e.getMessage());
-            }
-        }
+        // Pre-#304: this block called cleanRemoteSiteDir to ssh-delete
+        // the main-branch snapshot mirror on scpexe://proxy. With the
+        // scpexe path retired, there's no remote dir to clean.
 
         // VCS state file now managed by ws:release for workspace-level
         // releases. Single-repo ike:release does not write VCS state.
@@ -534,29 +491,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().info("Release " + releaseVersion + " complete.");
         getLog().info("  Tagged: v" + releaseVersion);
         getLog().info("  Deployed to Nexus");
-        // Internal scpexe mirror at ike.komet.sh — gated on
-        // scpexeDeployed (ike-issues#339). Earlier behavior printed
-        // the URLs unconditionally on deploySite; if scpexe failed
-        // (e.g., wagon-ssh-external missing per #338) the URLs would
-        // 404. Now we only print success URLs when the deploy
-        // actually succeeded; failure prints retry instructions
-        // instead.
-        if (deploySite) {
-            if (scpexeDeployed) {
-                getLog().info("  Site: http://ike.komet.sh/" + projectId
-                        + "/" + releaseVersion + "/");
-                getLog().info("  Latest alias: http://ike.komet.sh/"
-                        + projectId + "/latest/");
-            } else {
-                getLog().warn("  Internal mirror (scpexe): ❌ deploy "
-                        + "failed (see WARNING above)");
-                getLog().warn("    Retry: git checkout v" + releaseVersion
-                        + " && mvn site:deploy -B -T 1 && git checkout main");
-            }
-        }
-        // GitHub Pages — independent of scpexe (ike-issues#339).
-        // gh-pages publish runs first and can succeed even when
-        // scpexe later fails; the summary now reflects that.
+        // GitHub Pages publish (the canonical site distribution post-#304).
+        // Earlier revisions also printed scpexe://proxy URLs (internal
+        // mirror at ike.komet.sh); that path was retired in #304 since
+        // gh-pages is public, HTTPS, and doesn't depend on
+        // LAN/WireGuard reachability.
         if (publishSite) {
             if (ghPagesPublished) {
                 // Hybrid structure (#332): current at root, versioned
@@ -636,28 +575,18 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
 
         sb.append("## External actions\n");
         int step = 1;
-        if (deploySite) {
+        if (publishSite) {
             sb.append(step++).append(". ").append(verb)
                     .append(" generate site\n");
         }
         sb.append(step++).append(". ").append(verb)
                 .append(" deploy to Nexus from tag `v")
                 .append(releaseVersion).append("`\n");
-        if (deploySite) {
+        if (publishSite) {
             sb.append(step++).append(". ").append(verb)
-                    .append(" deploy site to ")
-                    .append("`scpexe://proxy/srv/ike-site/")
-                    .append(projectId).append("/")
-                    .append(releaseVersion).append("`\n");
-            sb.append(step++).append(". ").append(verb)
-                    .append(" update `latest` symlink -> `")
-                    .append(releaseVersion).append("`\n");
-            if (publishSite) {
-                sb.append(step++).append(". ").append(verb)
-                        .append(" force-push site to gh-pages on origin "
-                                + "(serves at `https://ike.network/")
-                        .append(projectId).append("/`)\n");
-            }
+                    .append(" force-push site to gh-pages on origin "
+                            + "(serves at `https://ike.network/")
+                    .append(projectId).append("/`)\n");
         }
         sb.append(step++).append(". ").append(verb)
                 .append(" push tag and main to origin\n");
@@ -735,19 +664,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         }
 
         // 2. SSH proxy — can we reach the site deploy server?
-        if (deploySite) {
-            try {
-                ReleaseSupport.execCapture(gitRoot,
-                        "ssh", "-o", "ConnectTimeout=5",
-                        "-o", "BatchMode=yes",
-                        "proxy", "echo", "ok");
-                getLog().info("  SSH proxy:   reachable  ✓");
-            } catch (Exception e) {
-                warnings.add("SSH proxy unreachable — site deploy will be "
-                        + "skipped. Error: " + e.getMessage());
-                getLog().warn("  SSH proxy:   unreachable (site deploy will fail)");
-            }
-        }
+        // SSH proxy check removed in #304 (scpexe site-deploy retired).
 
         // 3. gh CLI — installed and authenticated?
         if (hasOrigin) {
@@ -953,7 +870,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().info("  Release branch: " + releaseBranch);
         getLog().info("  Tag:            v" + releaseVersion);
         getLog().info("  Project:        " + projectId);
-        getLog().info("  Deploy site:    " + deploySite);
         getLog().info("  Publish site:   " + publishSite);
         getLog().info("  Skip verify:    " + skipVerify);
         getLog().info("  Publish:           "+ publish);
@@ -971,24 +887,15 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     }
 
     /**
-     * Result of {@link #deploySiteAndPublish}: tracks the gh-pages
-     * publish and the scpexe site-deploy independently so the
-     * release summary can report each truthfully (ike-issues#339).
-     *
-     * <p>Earlier behavior conflated the two into a single boolean,
-     * which caused the summary to print
-     * {@code "GitHub Pages: ❌ publish failed"} when scpexe failed
-     * but gh-pages had already succeeded — confusing and wrong.
+     * Result of {@link #deploySiteAndPublish}: tracks gh-pages publish
+     * outcome. Pre-#304 also tracked scpexe site-deploy independently
+     * (ike-issues#339) but the scpexe path was retired with #304.
      *
      * @param ghPagesPublished {@code true} if gh-pages publish
      *                         succeeded or was skipped;
      *                         {@code false} if attempted and failed
-     * @param scpexeDeployed   {@code true} if scpexe site-deploy
-     *                         succeeded or was skipped;
-     *                         {@code false} if attempted and failed
      */
-    private record SiteDeployResult(boolean ghPagesPublished,
-                                    boolean scpexeDeployed) { }
+    private record SiteDeployResult(boolean ghPagesPublished) { }
 
     /**
      * Deploy the staged site and publish to GitHub Pages.
@@ -997,28 +904,21 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * succeeded. Failures here are caught by the caller and reported
      * as warnings with retry instructions.
      *
-     * @return a {@link SiteDeployResult} with separate flags for
-     *         gh-pages and scpexe success. Each is {@code true} if
-     *         the corresponding step succeeded or was skipped, and
-     *         {@code false} if attempted and failed. The release
-     *         summary prints each independently so a successful
-     *         gh-pages publish is not masked by a failed scpexe
-     *         deploy.
+     * @return a {@link SiteDeployResult} carrying the gh-pages publish
+     *         flag — {@code true} if the publish succeeded or was
+     *         skipped, {@code false} if attempted and failed. Pre-#304
+     *         the result also tracked scpexe site-deploy independently
+     *         (ike-issues#339); that path is retired.
      */
     private SiteDeployResult deploySiteAndPublish(File gitRoot, File mvnw,
-                                          String projectId, String version,
-                                          String releaseDisk, String stagingUrl)
+                                          String projectId, String version)
             throws MojoException {
-        String stagingDisk = ReleaseSupport.siteStagingPath(releaseDisk);
         boolean ghPagesPublished = !publishSite;  // skipped == "no failure to report"
-        boolean scpexeDeployed = !deploySite;     // skipped == "no failure to report"
 
-        // Publish to GitHub Pages FIRST while target/staging/ still has
-        // the clean post-site:stage content. site:deploy below with
-        // -Dsite.deploy.url=scpexe://...X.staging creates a local mirror
-        // subdir target/staging/X.staging/, which would corrupt any
-        // subsequent read of target/staging/ as the rendered site.
-        // ike-issues#312.
+        // Publish to GitHub Pages. Pre-#304 this came before the
+        // scpexe site:deploy step (so the deploy's staging-mirror
+        // wouldn't corrupt target/staging/, per ike-issues#312); now
+        // it's the only publish target.
         if (publishSite) {
             String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, "origin");
             if (remoteUrl == null) {
@@ -1089,54 +989,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
         }
 
-        if (deploySite) {
-            // scpexe site:deploy is best-effort — failure here doesn't
-            // invalidate a successful gh-pages publish (ike-issues#339).
-            // The catch swallows the exception, sets scpexeDeployed=false,
-            // and lets the caller's summary print the truth: gh-pages
-            // ✓, scpexe ❌. Retry instructions printed independently in
-            // the summary.
-            try {
-                getLog().info("Deploying site to staging...");
-                ReleaseSupport.cleanRemoteSiteDir(gitRoot, getLog(), stagingDisk);
-                ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(), "site:deploy", "-B", "-T", "1",
-                        "-Dsite.deploy.url=" + stagingUrl);
-                ReleaseSupport.swapRemoteSiteDir(gitRoot, getLog(), releaseDisk);
+        // Pre-#304: scpexe site-deploy ran here. Retired with #304;
+        // gh-pages publish above is the canonical site distribution.
 
-                // Update the `latest` alias to point at this version
-                // (ike-issues#303). Best-effort — log and continue on
-                // failure; the version-prefixed URL is still reachable.
-                try {
-                    ReleaseSupport.updateLatestSymlink(gitRoot, getLog(),
-                            releaseDisk);
-                } catch (MojoException e) {
-                    getLog().warn("  ⚠ latest symlink update failed (non-fatal): "
-                            + e.getMessage());
-                    getLog().warn("    To fix manually: ssh proxy 'cd "
-                            + ReleaseSupport.parentDir(releaseDisk)
-                            + " && ln -snf "
-                            + ReleaseSupport.leafName(releaseDisk)
-                            + " latest'");
-                }
-                scpexeDeployed = true;
-            } catch (MojoException e) {
-                getLog().warn("  ⚠ scpexe site:deploy failed (non-fatal): "
-                        + e.getMessage());
-                Throwable cause = e.getCause();
-                while (cause != null) {
-                    getLog().warn("    caused by: "
-                            + cause.getClass().getSimpleName()
-                            + (cause.getMessage() != null
-                                    ? ": " + cause.getMessage()
-                                    : ""));
-                    cause = cause.getCause();
-                }
-                scpexeDeployed = false;
-            }
-        }
-
-        return new SiteDeployResult(ghPagesPublished, scpexeDeployed);
+        return new SiteDeployResult(ghPagesPublished);
     }
 
     /**
