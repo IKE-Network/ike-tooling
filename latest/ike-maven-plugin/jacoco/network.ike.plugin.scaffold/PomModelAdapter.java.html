@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PomModelAdapter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">PomModelAdapter.java</span></div><h1>PomModelAdapter.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import org.openrewrite.Tree;
+import org.openrewrite.xml.XmlParser;
+import org.openrewrite.xml.XmlVisitor;
+import org.openrewrite.xml.tree.Xml;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * Model adapter for {@code pom.xml} via OpenRewrite's XML LST.
+ *
+ * &lt;p&gt;POM writes always go through OpenRewrite (not regex, not the
+ * Maven 4 model API) so formatting, comments, and whitespace survive
+ * round-trips.
+ *
+ * &lt;p&gt;Supported {@code ensure} subtree:
+ * &lt;pre&gt;{@code
+ * ensure:
+ *   pluginManagement:
+ *     - groupId: network.ike.tooling
+ *       artifactId: ike-maven-plugin
+ *       version: 127-SNAPSHOT
+ * }&lt;/pre&gt;
+ *
+ * &lt;p&gt;Semantics:
+ * &lt;ul&gt;
+ *   &lt;li&gt;If the destination POM is missing, publish skips with an
+ *       informational message — creating a POM from scratch is
+ *       outside scaffold's responsibility.&lt;/li&gt;
+ *   &lt;li&gt;For each ensured plugin, the adapter checks whether a matching
+ *       {@code &lt;plugin&gt;} with the same {@code groupId + artifactId}
+ *       exists anywhere under {@code /project/build/pluginManagement/plugins}.
+ *       If absent it is appended (the whole {@code pluginManagement}
+ *       scaffold is also created if missing). If present, the version
+ *       is &lt;em&gt;not&lt;/em&gt; changed — that is the job of
+ *       {@code ws:align-publish}, not scaffold.&lt;/li&gt;
+ *   &lt;li&gt;Each ensured plugin is recorded as a {@link ManagedElement}
+ *       with path
+ *       {@code &quot;/project/build/pluginManagement/plugins/plugin[groupId='G' and artifactId='A']&quot;}.&lt;/li&gt;
+ * &lt;/ul&gt;
+ */
+public final class PomModelAdapter implements ModelAdapter {
+
+    /** Model name matching {@link ManifestEntry#model()}. */
+    public static final String MODEL_NAME = &quot;pom-openrewrite&quot;;
+
+<span class="fc" id="L56">    private static final XmlParser PARSER = new XmlParser();</span>
+
+    /**
+     * Construct a stateless POM adapter. Instances are safe to share
+     * across planning calls; the underlying OpenRewrite parser is held
+     * in a {@code static final} field.
+     */
+<span class="fc" id="L63">    public PomModelAdapter() {</span>
+<span class="fc" id="L64">    }</span>
+
+    @Override
+    public String modelName() {
+<span class="fc" id="L68">        return MODEL_NAME;</span>
+    }
+
+    @Override
+    public ModelPlanResult plan(
+            ManifestEntry entry,
+            Path resolvedDest,
+            byte[] currentContent,
+            LockfileEntry priorEntry,
+            String currentStandardsVersion) {
+
+<span class="fc" id="L79">        List&lt;PluginEnsure&gt; ensured = readEnsuredPlugins(entry);</span>
+
+<span class="pc bpc" id="L81" title="1 of 4 branches missed.">        if (currentContent == null || currentContent.length == 0) {</span>
+            // Creating a POM from scratch is not in scope.
+<span class="fc" id="L83">            return new ModelPlanResult(</span>
+                    new TierAction.Skip(
+                            entry, resolvedDest,
+                            &quot;POM does not exist; scaffold will not &quot;
+                                    + &quot;create a pom.xml&quot;,
+                            &quot;&quot;),
+<span class="fc" id="L89">                    List.of());</span>
+        }
+
+<span class="fc" id="L92">        String pomText = new String(</span>
+                currentContent, StandardCharsets.UTF_8);
+<span class="fc" id="L94">        Xml.Document doc = parse(pomText);</span>
+<span class="pc bpc" id="L95" title="1 of 2 branches missed.">        if (doc == null) {</span>
+<span class="nc" id="L96">            throw new ScaffoldException(</span>
+                    &quot;Cannot parse POM at &quot; + resolvedDest);
+        }
+
+<span class="fc" id="L100">        List&lt;String&gt; currentlyPresent =</span>
+<span class="fc" id="L101">                collectPluginCoordinates(doc);</span>
+<span class="fc" id="L102">        Map&lt;String, ManagedElement&gt; priorByPath =</span>
+<span class="fc" id="L103">                indexByPath(priorEntry);</span>
+
+<span class="fc" id="L105">        boolean changed = false;</span>
+<span class="fc" id="L106">        List&lt;ManagedElement&gt; managed = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L107">        Xml.Document updated = doc;</span>
+<span class="fc bfc" id="L108" title="All 2 branches covered.">        for (PluginEnsure p : ensured) {</span>
+<span class="fc" id="L109">            String coord = p.groupId() + &quot;:&quot; + p.artifactId();</span>
+<span class="fc" id="L110">            String path = pluginPath(p);</span>
+<span class="fc bfc" id="L111" title="All 2 branches covered.">            if (!currentlyPresent.contains(coord)) {</span>
+<span class="fc" id="L112">                updated = addPluginToPluginManagement(updated, p);</span>
+<span class="fc" id="L113">                changed = true;</span>
+<span class="fc" id="L114">                managed.add(new ManagedElement(</span>
+<span class="fc" id="L115">                        path, Instant.now(),</span>
+                        currentStandardsVersion));
+            } else {
+<span class="fc" id="L118">                ManagedElement prior = priorByPath.get(path);</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">                managed.add(prior != null</span>
+<span class="nc" id="L120">                        ? prior</span>
+<span class="fc" id="L121">                        : new ManagedElement(</span>
+<span class="fc" id="L122">                                path, Instant.now(),</span>
+                                currentStandardsVersion));
+            }
+<span class="fc" id="L125">        }</span>
+
+<span class="fc bfc" id="L127" title="All 2 branches covered.">        if (!changed) {</span>
+<span class="fc" id="L128">            String sha = Sha256.of(currentContent);</span>
+<span class="fc" id="L129">            return new ModelPlanResult(</span>
+                    new TierAction.UpToDate(
+                            entry, resolvedDest, sha, sha,
+                            &quot;up to date&quot;),
+                    managed);
+        }
+
+<span class="fc" id="L136">        byte[] newBytes = updated.printAll()</span>
+<span class="fc" id="L137">                .getBytes(StandardCharsets.UTF_8);</span>
+<span class="fc" id="L138">        String sha = Sha256.of(newBytes);</span>
+<span class="pc bpc" id="L139" title="1 of 2 branches missed.">        int priorCount = priorEntry == null</span>
+<span class="fc" id="L140">                ? 0</span>
+<span class="pc" id="L141">                : priorEntry.managedElements().size();</span>
+<span class="fc" id="L142">        int added = managed.size() - priorCount;</span>
+<span class="fc" id="L143">        return new ModelPlanResult(</span>
+                new TierAction.Write(
+                        entry, resolvedDest, newBytes,
+                        sha, sha,
+                        TierAction.Write.Kind.UPDATE,
+<span class="fc" id="L148">                        &quot;ensure &quot; + Math.max(added, 0)</span>
+                                + &quot; plugin(s) in pluginManagement&quot;),
+                managed);
+    }
+
+    // ── helpers ────────────────────────────────────────────────────
+
+<span class="fc" id="L155">    private record PluginEnsure(</span>
+            String groupId, String artifactId, String version) {
+    }
+
+    private static String pluginPath(PluginEnsure p) {
+<span class="fc" id="L160">        return &quot;/project/build/pluginManagement/plugins/&quot;</span>
+<span class="fc" id="L161">                + &quot;plugin[groupId='&quot; + p.groupId()</span>
+<span class="fc" id="L162">                + &quot;' and artifactId='&quot; + p.artifactId() + &quot;']&quot;;</span>
+    }
+
+    private static Map&lt;String, ManagedElement&gt; indexByPath(
+            LockfileEntry priorEntry) {
+<span class="pc bpc" id="L167" title="1 of 2 branches missed.">        if (priorEntry == null</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">                || priorEntry.managedElements().isEmpty()) {</span>
+<span class="fc" id="L169">            return Collections.emptyMap();</span>
+        }
+<span class="nc" id="L171">        Map&lt;String, ManagedElement&gt; out = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        for (ManagedElement e : priorEntry.managedElements()) {</span>
+<span class="nc" id="L173">            out.put(e.path(), e);</span>
+<span class="nc" id="L174">        }</span>
+<span class="nc" id="L175">        return out;</span>
+    }
+
+    private static List&lt;PluginEnsure&gt; readEnsuredPlugins(
+            ManifestEntry entry) {
+<span class="fc" id="L180">        Object ensure = entry.extras().get(&quot;ensure&quot;);</span>
+<span class="pc bpc" id="L181" title="1 of 2 branches missed.">        if (ensure == null) {</span>
+<span class="nc" id="L182">            return Collections.emptyList();</span>
+        }
+<span class="pc bpc" id="L184" title="1 of 2 branches missed.">        if (!(ensure instanceof Map&lt;?, ?&gt; ensureMap)) {</span>
+<span class="nc" id="L185">            throw new ScaffoldException(</span>
+<span class="nc" id="L186">                    &quot;pom-openrewrite entry '&quot; + entry.dest()</span>
+                            + &quot;': 'ensure' must be a mapping&quot;);
+        }
+<span class="fc" id="L189">        Object pm = ensureMap.get(&quot;pluginManagement&quot;);</span>
+<span class="pc bpc" id="L190" title="1 of 2 branches missed.">        if (pm == null) {</span>
+<span class="nc" id="L191">            return Collections.emptyList();</span>
+        }
+<span class="pc bpc" id="L193" title="1 of 2 branches missed.">        if (!(pm instanceof List&lt;?&gt; pmList)) {</span>
+<span class="nc" id="L194">            throw new ScaffoldException(</span>
+<span class="nc" id="L195">                    &quot;pom-openrewrite entry '&quot; + entry.dest()</span>
+                            + &quot;': 'ensure.pluginManagement' must be &quot;
+                            + &quot;a list&quot;);
+        }
+<span class="fc" id="L199">        List&lt;PluginEnsure&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L200">        int idx = 0;</span>
+<span class="fc bfc" id="L201" title="All 2 branches covered.">        for (Object o : pmList) {</span>
+<span class="pc bpc" id="L202" title="1 of 2 branches missed.">            if (!(o instanceof Map&lt;?, ?&gt; m)) {</span>
+<span class="nc" id="L203">                throw new ScaffoldException(</span>
+<span class="nc" id="L204">                        &quot;pom-openrewrite entry '&quot; + entry.dest()</span>
+                                + &quot;': ensure.pluginManagement[&quot;
+                                + idx + &quot;] must be a mapping&quot;);
+            }
+<span class="fc" id="L208">            String g = stringVal(m, &quot;groupId&quot;);</span>
+<span class="fc" id="L209">            String a = stringVal(m, &quot;artifactId&quot;);</span>
+<span class="fc" id="L210">            String v = stringVal(m, &quot;version&quot;);</span>
+<span class="pc bpc" id="L211" title="2 of 4 branches missed.">            if (g == null || a == null) {</span>
+<span class="nc" id="L212">                throw new ScaffoldException(</span>
+<span class="nc" id="L213">                        &quot;pom-openrewrite entry '&quot; + entry.dest()</span>
+                                + &quot;': ensure.pluginManagement[&quot;
+                                + idx + &quot;] missing groupId/artifactId&quot;);
+            }
+<span class="pc bpc" id="L217" title="1 of 2 branches missed.">            out.add(new PluginEnsure(g, a, v == null ? &quot;&quot; : v));</span>
+<span class="fc" id="L218">            idx++;</span>
+<span class="fc" id="L219">        }</span>
+<span class="fc" id="L220">        return out;</span>
+    }
+
+    private static String stringVal(Map&lt;?, ?&gt; m, String k) {
+<span class="fc" id="L224">        Object v = m.get(k);</span>
+<span class="pc bpc" id="L225" title="1 of 2 branches missed.">        return v == null ? null : v.toString();</span>
+    }
+
+    private static Xml.Document parse(String text) {
+<span class="fc" id="L229">        return PARSER.parse(text)</span>
+<span class="fc" id="L230">                .findFirst()</span>
+<span class="fc" id="L231">                .map(t -&gt; (Xml.Document) t)</span>
+<span class="fc" id="L232">                .orElse(null);</span>
+    }
+
+    private static List&lt;String&gt; collectPluginCoordinates(
+            Xml.Document doc) {
+<span class="fc" id="L237">        List&lt;String&gt; found = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L238">        new XmlVisitor&lt;List&lt;String&gt;&gt;() {</span>
+            @Override
+            public Xml visitTag(Xml.Tag tag, List&lt;String&gt; ctx) {
+<span class="fc" id="L241">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="fc bfc" id="L242" title="All 2 branches covered.">                if (!&quot;plugin&quot;.equals(t.getName())) {</span>
+<span class="fc" id="L243">                    return t;</span>
+                }
+<span class="fc" id="L245">                Optional&lt;String&gt; g = t.getChildValue(&quot;groupId&quot;);</span>
+<span class="fc" id="L246">                Optional&lt;String&gt; a = t.getChildValue(&quot;artifactId&quot;);</span>
+<span class="fc" id="L247">                g.ifPresent(gid -&gt; a.ifPresent(aid -&gt;</span>
+<span class="fc" id="L248">                        ctx.add(gid + &quot;:&quot; + aid)));</span>
+<span class="fc" id="L249">                return t;</span>
+            }
+<span class="fc" id="L251">        }.visit(doc, found);</span>
+<span class="fc" id="L252">        return found;</span>
+    }
+
+    /**
+     * Append a {@code &lt;plugin&gt;} entry under
+     * {@code /project/build/pluginManagement/plugins}, creating any
+     * missing ancestor tags.
+     */
+    private static Xml.Document addPluginToPluginManagement(
+            Xml.Document doc, PluginEnsure p) {
+<span class="fc" id="L262">        Xml.Tag pluginTag = buildPluginTag(p);</span>
+
+<span class="fc" id="L264">        return (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
+            @Override
+            public Xml visitTag(Xml.Tag tag, Integer ctx) {
+<span class="fc" id="L267">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="fc bfc" id="L268" title="All 2 branches covered.">                if (!&quot;project&quot;.equals(t.getName())) {</span>
+<span class="fc" id="L269">                    return t;</span>
+                }
+<span class="fc" id="L271">                Xml.Tag build = childOrCreate(t, &quot;build&quot;);</span>
+<span class="fc" id="L272">                Xml.Tag pluginManagement =</span>
+<span class="fc" id="L273">                        childOrCreate(build, &quot;pluginManagement&quot;);</span>
+<span class="fc" id="L274">                Xml.Tag plugins =</span>
+<span class="fc" id="L275">                        childOrCreate(pluginManagement, &quot;plugins&quot;);</span>
+<span class="fc" id="L276">                Xml.Tag appendedPlugins = appendChild(</span>
+                        plugins, pluginTag);
+<span class="fc" id="L278">                Xml.Tag newPluginManagement = replaceChild(</span>
+                        pluginManagement, plugins, appendedPlugins);
+<span class="fc" id="L280">                Xml.Tag newBuild = replaceChild(</span>
+                        build, pluginManagement, newPluginManagement);
+<span class="fc" id="L282">                return replaceChild(t, build, newBuild);</span>
+            }
+<span class="fc" id="L284">        }.visitNonNull(doc, 0);</span>
+    }
+
+    private static Xml.Tag buildPluginTag(PluginEnsure p) {
+<span class="fc" id="L288">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L289">        sb.append(&quot;&lt;plugin&gt;\n&quot;);</span>
+<span class="fc" id="L290">        sb.append(&quot;    &lt;groupId&gt;&quot;).append(p.groupId())</span>
+<span class="fc" id="L291">                .append(&quot;&lt;/groupId&gt;\n&quot;);</span>
+<span class="fc" id="L292">        sb.append(&quot;    &lt;artifactId&gt;&quot;).append(p.artifactId())</span>
+<span class="fc" id="L293">                .append(&quot;&lt;/artifactId&gt;\n&quot;);</span>
+<span class="pc bpc" id="L294" title="1 of 2 branches missed.">        if (!p.version().isBlank()) {</span>
+<span class="fc" id="L295">            sb.append(&quot;    &lt;version&gt;&quot;).append(p.version())</span>
+<span class="fc" id="L296">                    .append(&quot;&lt;/version&gt;\n&quot;);</span>
+        }
+<span class="fc" id="L298">        sb.append(&quot;&lt;/plugin&gt;&quot;);</span>
+<span class="fc" id="L299">        Xml.Document frag = PARSER.parse(sb.toString())</span>
+<span class="fc" id="L300">                .findFirst()</span>
+<span class="fc" id="L301">                .map(t -&gt; (Xml.Document) t)</span>
+<span class="pc" id="L302">                .orElseThrow(() -&gt; new ScaffoldException(</span>
+                        &quot;cannot build &lt;plugin&gt; fragment&quot;));
+<span class="fc" id="L304">        return frag.getRoot();</span>
+    }
+
+    private static Xml.Tag childOrCreate(
+            Xml.Tag parent, String name) {
+<span class="fc" id="L309">        return parent.getChild(name)</span>
+<span class="pc" id="L310">                .orElseGet(() -&gt; emptyTag(name));</span>
+    }
+
+    private static Xml.Tag emptyTag(String name) {
+<span class="nc" id="L314">        Xml.Document frag = PARSER.parse(</span>
+<span class="nc" id="L315">                &quot;&lt;&quot; + name + &quot;/&gt;&quot;).findFirst()</span>
+<span class="nc" id="L316">                .map(t -&gt; (Xml.Document) t)</span>
+<span class="nc" id="L317">                .orElseThrow(() -&gt; new ScaffoldException(</span>
+                        &quot;cannot build empty &lt;&quot; + name + &quot;/&gt; tag&quot;));
+<span class="nc" id="L319">        return frag.getRoot();</span>
+    }
+
+    private static Xml.Tag appendChild(Xml.Tag parent, Xml.Tag child) {
+<span class="fc" id="L323">        List&lt;org.openrewrite.xml.tree.Content&gt; content =</span>
+                new ArrayList&lt;&gt;();
+<span class="pc bpc" id="L325" title="1 of 2 branches missed.">        if (parent.getContent() != null) {</span>
+<span class="fc" id="L326">            content.addAll(parent.getContent());</span>
+        }
+<span class="fc" id="L328">        content.add(child);</span>
+<span class="fc" id="L329">        return parent.withContent(content);</span>
+    }
+
+    private static Xml.Tag replaceChild(
+            Xml.Tag parent,
+            Xml.Tag oldChild,
+            Xml.Tag newChild) {
+<span class="pc bpc" id="L336" title="1 of 2 branches missed.">        if (oldChild == newChild) {</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">            if (parent.getContent() == null</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">                    || !parent.getContent().contains(oldChild)) {</span>
+<span class="nc" id="L339">                return appendChild(parent, newChild);</span>
+            }
+<span class="nc" id="L341">            return parent;</span>
+        }
+        List&lt;? extends org.openrewrite.xml.tree.Content&gt; oldContent =
+<span class="pc bpc" id="L344" title="1 of 2 branches missed.">                parent.getContent() == null</span>
+<span class="nc" id="L345">                        ? List.of()</span>
+<span class="fc" id="L346">                        : parent.getContent();</span>
+<span class="pc bpc" id="L347" title="1 of 2 branches missed.">        if (!oldContent.contains(oldChild)) {</span>
+<span class="nc" id="L348">            return appendChild(parent, newChild);</span>
+        }
+<span class="fc" id="L350">        List&lt;org.openrewrite.xml.tree.Content&gt; newContent =</span>
+<span class="fc" id="L351">                new ArrayList&lt;&gt;(oldContent.size());</span>
+<span class="fc bfc" id="L352" title="All 2 branches covered.">        for (org.openrewrite.xml.tree.Content c : oldContent) {</span>
+<span class="fc bfc" id="L353" title="All 2 branches covered.">            newContent.add(c == oldChild ? newChild : c);</span>
+<span class="fc" id="L354">        }</span>
+<span class="fc" id="L355">        return parent.withContent(newContent);</span>
+    }
+
+    /** Unused reference to silence analyzers. */
+    @SuppressWarnings(&quot;unused&quot;)
+<span class="fc" id="L360">    private static final Class&lt;?&gt; TREE_REF = Tree.class;</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

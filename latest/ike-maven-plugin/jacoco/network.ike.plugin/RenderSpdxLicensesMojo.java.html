@@ -1,0 +1,451 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RenderSpdxLicensesMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">RenderSpdxLicensesMojo.java</span></div><h1>RenderSpdxLicensesMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+/**
+ * Render an SPDX-grouped {@code licenses.adoc} from the CycloneDX
+ * SBOM (ike-issues#335).
+ *
+ * &lt;p&gt;Reads {@code target/bom.json} (produced by
+ * {@code cyclonedx-maven-plugin} at {@code package} phase per
+ * ike-issues#333), groups every component by its SPDX license
+ * identifier or expression, and writes
+ * {@code target/generated-site/asciidoc/licenses.adoc}. The Maven
+ * Site Plugin then renders that AsciiDoc to
+ * {@code target/site/licenses.html} with the same Forest-theme
+ * chrome as every other site page — no manual HTML / skin-chrome
+ * duplication.
+ *
+ * &lt;p&gt;Components with multiple {@code licenses} array entries (the
+ * JRuby case: GPL-2.0 + LGPL-2.1 + EPL-2.0) are collapsed into a
+ * single SPDX OR-expression with deterministic alphabetical
+ * ordering, so the same combination always groups under the same
+ * heading. Components carrying a CycloneDX
+ * {@code license.expression} field use that verbatim.
+ *
+ * &lt;p&gt;The auto-generated {@code licenses.html} from
+ * {@code maven-project-info-reports-plugin} should be disabled in
+ * the reactor's {@code &lt;reportSets&gt;} configuration so the only
+ * {@code licenses.html} produced is the SPDX-grouped one. Without
+ * that disable step both reports race for the same target file
+ * and the winner depends on plugin ordering.
+ *
+ * &lt;p&gt;Skip with {@code -Dike.skip.spdx-licenses=true} to fall back
+ * to whatever the auto-generated {@code licenses} report would
+ * produce (assuming it's still enabled in {@code &lt;reportSets&gt;}).
+ *
+ * &lt;pre&gt;{@code
+ * mvn package                              # produces bom.json
+ * mvn ike:render-spdx-licenses             # produces licenses.adoc
+ * mvn site                                 # renders licenses.html
+ * }&lt;/pre&gt;
+ *
+ * @see GenerateBomMojo
+ */
+@Mojo(name = &quot;render-spdx-licenses&quot;, defaultPhase = &quot;pre-site&quot;)
+public class RenderSpdxLicensesMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L71">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /**
+     * Path to the CycloneDX SBOM produced by
+     * {@code cyclonedx-maven-plugin} at {@code package} phase
+     * (ike-issues#333). If the file is missing, this goal logs a
+     * warning and exits cleanly — typically because the caller
+     * skipped {@code package} or pre-condition phases haven't run
+     * yet.
+     */
+    @Parameter(property = &quot;ike.bom.path&quot;,
+            defaultValue = &quot;${project.build.directory}/bom.json&quot;)
+    File bomPath;
+
+    /**
+     * Output AsciiDoc file. Default is the standard generated-site
+     * location which Maven Site picks up at site:site time and
+     * renders to {@code target/site/licenses.html} with the
+     * project's skin chrome.
+     */
+    @Parameter(property = &quot;ike.spdx-licenses.output&quot;,
+            defaultValue = &quot;${project.build.directory}/generated-site/asciidoc/licenses.adoc&quot;)
+    File outputPath;
+
+    /**
+     * Skip generation. The auto-generated
+     * {@code maven-project-info-reports-plugin} licenses report
+     * remains as the licenses page if its reportSet still includes
+     * {@code licenses}.
+     */
+    @Parameter(property = &quot;ike.skip.spdx-licenses&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /** Project artifact ID, used in the rendered page title. */
+    @Parameter(defaultValue = &quot;${project.artifactId}&quot;, readonly = true)
+    String projectArtifactId;
+
+    /** Project version, used in the rendered page title. */
+    @Parameter(defaultValue = &quot;${project.version}&quot;, readonly = true)
+    String projectVersion;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L113">    public RenderSpdxLicensesMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L118">            getLog().info(&quot;ike:render-spdx-licenses skipped &quot;</span>
+                    + &quot;(-Dike.skip.spdx-licenses=true)&quot;);
+<span class="nc" id="L120">            return;</span>
+        }
+
+<span class="nc bnc" id="L123" title="All 2 branches missed.">        if (!bomPath.exists()) {</span>
+<span class="nc" id="L124">            getLog().warn(&quot;Skipping ike:render-spdx-licenses: SBOM not &quot;</span>
+                    + &quot;found at &quot; + bomPath + &quot;. Run 'mvn package' first &quot;
+                    + &quot;to produce the SBOM (ike-issues#333). Falling &quot;
+                    + &quot;back to the auto-generated licenses.html if &quot;
+                    + &quot;maven-project-info-reports-plugin's licenses &quot;
+                    + &quot;report is still enabled.&quot;);
+<span class="nc" id="L130">            return;</span>
+        }
+
+        Map&lt;String, List&lt;Component&gt;&gt; grouped;
+        try {
+<span class="nc" id="L135">            grouped = parseAndGroup(bomPath);</span>
+<span class="nc" id="L136">        } catch (IOException e) {</span>
+<span class="nc" id="L137">            throw new MojoException(</span>
+                    &quot;Could not parse SBOM at &quot; + bomPath + &quot;: &quot;
+<span class="nc" id="L139">                            + e.getMessage(), e);</span>
+<span class="nc" id="L140">        }</span>
+
+<span class="nc" id="L142">        String adoc = renderAdoc(grouped);</span>
+
+<span class="nc" id="L144">        File parent = outputPath.getParentFile();</span>
+<span class="nc bnc" id="L145" title="All 6 branches missed.">        if (parent != null &amp;&amp; !parent.isDirectory() &amp;&amp; !parent.mkdirs()) {</span>
+<span class="nc" id="L146">            throw new MojoException(</span>
+                    &quot;Could not create output directory: &quot; + parent);
+        }
+
+        try {
+<span class="nc" id="L151">            Files.writeString(outputPath.toPath(), adoc,</span>
+                    StandardCharsets.UTF_8);
+<span class="nc" id="L153">        } catch (IOException e) {</span>
+<span class="nc" id="L154">            throw new MojoException(</span>
+<span class="nc" id="L155">                    &quot;Could not write &quot; + outputPath + &quot;: &quot; + e.getMessage(),</span>
+                    e);
+<span class="nc" id="L157">        }</span>
+
+<span class="nc" id="L159">        int totalComponents = grouped.values().stream()</span>
+<span class="nc" id="L160">                .mapToInt(List::size).sum();</span>
+<span class="nc" id="L161">        getLog().info(&quot;Wrote SPDX licenses page: &quot; + outputPath);</span>
+<span class="nc" id="L162">        getLog().info(&quot;  Groups: &quot; + grouped.size()</span>
+                + &quot; distinct license expressions&quot;);
+<span class="nc" id="L164">        getLog().info(&quot;  Components: &quot; + totalComponents);</span>
+<span class="nc" id="L165">    }</span>
+
+    /**
+     * Parse the SBOM JSON and group components by SPDX expression.
+     *
+     * &lt;p&gt;JSON is parsed via snakeyaml (JSON is a valid YAML 1.1
+     * subset) so we don't need to add Jackson as a plugin
+     * dependency — snakeyaml is already on the workspace-model
+     * classpath.
+     *
+     * @param bom path to {@code bom.json}
+     * @return map from SPDX expression to component list, ordered
+     *         alphabetically by expression
+     * @throws IOException if the file cannot be read or parsed
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private Map&lt;String, List&lt;Component&gt;&gt; parseAndGroup(File bom)
+            throws IOException {
+<span class="nc" id="L183">        Yaml yaml = new Yaml();</span>
+        Map&lt;String, Object&gt; root;
+<span class="nc" id="L185">        try (Reader reader = Files.newBufferedReader(bom.toPath(),</span>
+                StandardCharsets.UTF_8)) {
+<span class="nc" id="L187">            root = (Map&lt;String, Object&gt;) yaml.load(reader);</span>
+        }
+
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        if (root == null) {</span>
+<span class="nc" id="L191">            return new TreeMap&lt;&gt;();</span>
+        }
+
+<span class="nc" id="L194">        List&lt;Map&lt;String, Object&gt;&gt; components =</span>
+<span class="nc" id="L195">                (List&lt;Map&lt;String, Object&gt;&gt;) root.get(&quot;components&quot;);</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">        if (components == null) {</span>
+<span class="nc" id="L197">            return new TreeMap&lt;&gt;();</span>
+        }
+
+<span class="nc" id="L200">        Map&lt;String, List&lt;Component&gt;&gt; grouped = new TreeMap&lt;&gt;();</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        for (Map&lt;String, Object&gt; c : components) {</span>
+<span class="nc" id="L202">            String name    = stringOrEmpty(c.get(&quot;name&quot;));</span>
+<span class="nc" id="L203">            String group   = stringOrEmpty(c.get(&quot;group&quot;));</span>
+<span class="nc" id="L204">            String version = stringOrEmpty(c.get(&quot;version&quot;));</span>
+<span class="nc" id="L205">            String purl    = stringOrEmpty(c.get(&quot;purl&quot;));</span>
+<span class="nc" id="L206">            String spdx    = extractSpdxExpression(c);</span>
+<span class="nc" id="L207">            grouped.computeIfAbsent(spdx, k -&gt; new ArrayList&lt;&gt;())</span>
+<span class="nc" id="L208">                    .add(new Component(group, name, version, purl));</span>
+<span class="nc" id="L209">        }</span>
+
+        // Sort components within each group by group:name:version.
+<span class="nc" id="L212">        Comparator&lt;Component&gt; byCoord = Comparator</span>
+<span class="nc" id="L213">                .comparing((Component cm) -&gt; cm.group)</span>
+<span class="nc" id="L214">                .thenComparing(cm -&gt; cm.name)</span>
+<span class="nc" id="L215">                .thenComparing(cm -&gt; cm.version);</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">        for (List&lt;Component&gt; list : grouped.values()) {</span>
+<span class="nc" id="L217">            list.sort(byCoord);</span>
+<span class="nc" id="L218">        }</span>
+<span class="nc" id="L219">        return grouped;</span>
+    }
+
+    /**
+     * Extract the SPDX license expression for a component.
+     *
+     * &lt;p&gt;Three CycloneDX shapes are handled, in priority order:
+     * &lt;ol&gt;
+     *   &lt;li&gt;A single license entry with {@code expression} set —
+     *       used verbatim. This is how CycloneDX represents
+     *       SPDX expressions like {@code Apache-2.0 OR MIT}.&lt;/li&gt;
+     *   &lt;li&gt;Multiple license entries with {@code id} fields —
+     *       collapsed into a single OR-expression with
+     *       alphabetical ordering for determinism. This is the
+     *       JRuby case where the upstream POM declared three
+     *       independent {@code &lt;license&gt;} blocks.&lt;/li&gt;
+     *   &lt;li&gt;A single license entry with {@code id} or {@code name}
+     *       — used verbatim. Falls back to {@code name} for
+     *       components whose POM declares a non-SPDX string.&lt;/li&gt;
+     * &lt;/ol&gt;
+     *
+     * &lt;p&gt;Components with no license metadata are grouped under the
+     * pseudo-identifier {@code (no license declared)} so they
+     * surface visibly rather than silently disappearing.
+     *
+     * @param c the component map from the SBOM
+     * @return the SPDX expression for grouping
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private String extractSpdxExpression(Map&lt;String, Object&gt; c) {
+<span class="nc" id="L249">        Object licensesObj = c.get(&quot;licenses&quot;);</span>
+<span class="nc bnc" id="L250" title="All 4 branches missed.">        if (!(licensesObj instanceof List&lt;?&gt; raw) || raw.isEmpty()) {</span>
+<span class="nc" id="L251">            return &quot;(no license declared)&quot;;</span>
+        }
+<span class="nc" id="L253">        List&lt;Map&lt;String, Object&gt;&gt; entries = (List&lt;Map&lt;String, Object&gt;&gt;) raw;</span>
+
+        // Shape (1): single entry with a top-level expression.
+<span class="nc bnc" id="L256" title="All 2 branches missed.">        if (entries.size() == 1) {</span>
+<span class="nc" id="L257">            Object exp = entries.get(0).get(&quot;expression&quot;);</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">            if (exp != null) {</span>
+<span class="nc" id="L259">                return exp.toString();</span>
+            }
+        }
+
+        // Collect SPDX IDs (or names) from each entry.
+<span class="nc" id="L264">        List&lt;String&gt; ids = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        for (Map&lt;String, Object&gt; entry : entries) {</span>
+<span class="nc" id="L266">            Map&lt;String, Object&gt; license =</span>
+<span class="nc" id="L267">                    (Map&lt;String, Object&gt;) entry.get(&quot;license&quot;);</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">            if (license == null) continue;</span>
+<span class="nc" id="L269">            Object id   = license.get(&quot;id&quot;);</span>
+<span class="nc" id="L270">            Object name = license.get(&quot;name&quot;);</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            if (id != null) {</span>
+<span class="nc" id="L272">                ids.add(id.toString());</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">            } else if (name != null) {</span>
+<span class="nc" id="L274">                ids.add(name.toString());</span>
+            }
+<span class="nc" id="L276">        }</span>
+
+<span class="nc bnc" id="L278" title="All 2 branches missed.">        if (ids.isEmpty()) {</span>
+<span class="nc" id="L279">            return &quot;(no license declared)&quot;;</span>
+        }
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        if (ids.size() == 1) {</span>
+<span class="nc" id="L282">            return ids.get(0);</span>
+        }
+
+        // Shape (2): synthesize OR-expression. Alphabetical
+        // ordering keeps the same component-license combination
+        // grouped under the same heading on every build.
+<span class="nc" id="L288">        ids.sort(Comparator.naturalOrder());</span>
+<span class="nc" id="L289">        return String.join(&quot; OR &quot;, ids);</span>
+    }
+
+    /**
+     * Render the grouped components to AsciiDoc.
+     *
+     * @param grouped components keyed by SPDX expression
+     * @return AsciiDoc page source
+     */
+    private String renderAdoc(Map&lt;String, List&lt;Component&gt;&gt; grouped) {
+<span class="nc" id="L299">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L300">        sb.append(&quot;= Licenses (SPDX)\n&quot;);</span>
+<span class="nc" id="L301">        sb.append(&quot;:icons: font\n&quot;);</span>
+<span class="nc" id="L302">        sb.append(&quot;:source-highlighter: coderay\n&quot;);</span>
+<span class="nc" id="L303">        sb.append(&quot;:toc: preamble\n&quot;);</span>
+<span class="nc" id="L304">        sb.append(&quot;:toclevels: 2\n\n&quot;);</span>
+<span class="nc" id="L305">        sb.append(&quot;Licenses for declared dependencies of `&quot;)</span>
+<span class="nc" id="L306">                .append(projectArtifactId)</span>
+<span class="nc" id="L307">                .append(&quot;` &quot;)</span>
+<span class="nc" id="L308">                .append(projectVersion)</span>
+<span class="nc" id="L309">                .append(&quot;, grouped by SPDX expression. &quot;);</span>
+<span class="nc" id="L310">        sb.append(&quot;Rendered from `link:bom.json[bom.json]` &quot;)</span>
+<span class="nc" id="L311">                .append(&quot;(CycloneDX) at `pre-site` phase by &quot;)</span>
+<span class="nc" id="L312">                .append(&quot;`ike:render-spdx-licenses` &quot;)</span>
+<span class="nc" id="L313">                .append(&quot;(ike-issues#335).\n\n&quot;);</span>
+
+<span class="nc bnc" id="L315" title="All 2 branches missed.">        if (grouped.isEmpty()) {</span>
+<span class="nc" id="L316">            sb.append(&quot;No declared dependencies in this module's &quot;</span>
+                    + &quot;SBOM — nothing to list.\n&quot;);
+<span class="nc" id="L318">            return sb.toString();</span>
+        }
+
+        // Summary table: one row per SPDX expression with the
+        // component count.
+<span class="nc" id="L323">        sb.append(&quot;== Summary\n\n&quot;);</span>
+<span class="nc" id="L324">        sb.append(&quot;|===\n&quot;);</span>
+<span class="nc" id="L325">        sb.append(&quot;| SPDX Expression | Components\n\n&quot;);</span>
+<span class="nc" id="L326">        int totalComponents = 0;</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">        for (Map.Entry&lt;String, List&lt;Component&gt;&gt; g : grouped.entrySet()) {</span>
+<span class="nc" id="L328">            sb.append(&quot;| &quot;);</span>
+<span class="nc" id="L329">            sb.append(formatLicenseHeader(g.getKey()));</span>
+<span class="nc" id="L330">            sb.append(&quot;\n| &quot;).append(g.getValue().size()).append(&quot;\n\n&quot;);</span>
+<span class="nc" id="L331">            totalComponents += g.getValue().size();</span>
+<span class="nc" id="L332">        }</span>
+<span class="nc" id="L333">        sb.append(&quot;| *Total* | *&quot;).append(totalComponents).append(&quot;*\n&quot;);</span>
+<span class="nc" id="L334">        sb.append(&quot;|===\n\n&quot;);</span>
+
+        // Per-license sections.
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        for (Map.Entry&lt;String, List&lt;Component&gt;&gt; g : grouped.entrySet()) {</span>
+<span class="nc" id="L338">            String spdx = g.getKey();</span>
+<span class="nc" id="L339">            sb.append(&quot;== &quot;).append(spdx).append(&quot;\n\n&quot;);</span>
+
+<span class="nc" id="L341">            String spdxUrl = spdxUrl(spdx);</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">            if (spdxUrl != null) {</span>
+<span class="nc" id="L343">                sb.append(&quot;Reference: &quot;).append(spdxUrl).append(&quot;[&quot;)</span>
+<span class="nc" id="L344">                        .append(spdx).append(&quot; on spdx.org]\n\n&quot;);</span>
+            }
+
+<span class="nc" id="L347">            sb.append(&quot;|===\n&quot;);</span>
+<span class="nc" id="L348">            sb.append(&quot;| Group | Artifact | Version\n\n&quot;);</span>
+<span class="nc bnc" id="L349" title="All 2 branches missed.">            for (Component c : g.getValue()) {</span>
+<span class="nc" id="L350">                sb.append(&quot;| `&quot;).append(escapeAdoc(c.group)).append(&quot;`\n&quot;);</span>
+<span class="nc" id="L351">                sb.append(&quot;| `&quot;).append(escapeAdoc(c.name)).append(&quot;`\n&quot;);</span>
+<span class="nc" id="L352">                sb.append(&quot;| `&quot;).append(escapeAdoc(c.version)).append(&quot;`\n\n&quot;);</span>
+<span class="nc" id="L353">            }</span>
+<span class="nc" id="L354">            sb.append(&quot;|===\n\n&quot;);</span>
+<span class="nc" id="L355">        }</span>
+
+<span class="nc" id="L357">        sb.append(&quot;== See also\n\n&quot;);</span>
+<span class="nc" id="L358">        sb.append(&quot;* link:bom.json[Software Bill of Materials (CycloneDX)] — &quot;</span>
+                + &quot;the canonical machine-readable inventory this page &quot;
+                + &quot;is derived from.\n&quot;);
+<span class="nc" id="L361">        sb.append(&quot;* link:THIRD_PARTY_NOTICES.html[Third-Party Notices] — &quot;</span>
+                + &quot;curated companion that covers components mechanical &quot;
+                + &quot;reports can't see (Maven Site skin, external &quot;
+                + &quot;services, fonts inside artifacts).\n&quot;);
+<span class="nc" id="L365">        sb.append(&quot;* link:dependency-info.html[Dependency Info] — &quot;</span>
+                + &quot;consumption snippet for this module.\n&quot;);
+<span class="nc" id="L367">        return sb.toString();</span>
+    }
+
+    /**
+     * Format an SPDX expression for display in a table cell.
+     *
+     * &lt;p&gt;Wraps in backticks so AsciiDoc renders it as inline code
+     * (visually distinct from prose). The pseudo-id
+     * {@code (no license declared)} is rendered as italics
+     * instead, since it isn't really a code identifier.
+     *
+     * @param spdx the SPDX expression
+     * @return rendered cell content
+     */
+    private String formatLicenseHeader(String spdx) {
+<span class="nc bnc" id="L382" title="All 4 branches missed.">        if (spdx.startsWith(&quot;(&quot;) &amp;&amp; spdx.endsWith(&quot;)&quot;)) {</span>
+<span class="nc" id="L383">            return &quot;_&quot; + spdx + &quot;_&quot;;</span>
+        }
+<span class="nc" id="L385">        return &quot;`&quot; + spdx + &quot;`&quot;;</span>
+    }
+
+    /**
+     * Build an spdx.org URL for a single SPDX identifier.
+     *
+     * &lt;p&gt;Returns {@code null} for compound expressions
+     * ({@code OR} / {@code AND} / {@code WITH}) and the
+     * {@code (no license declared)} pseudo-id, since those don't
+     * resolve to a single SPDX entry.
+     *
+     * @param spdx the SPDX expression
+     * @return the URL, or {@code null} if not a single identifier
+     */
+    private String spdxUrl(String spdx) {
+<span class="nc bnc" id="L400" title="All 2 branches missed.">        if (spdx == null</span>
+<span class="nc bnc" id="L401" title="All 2 branches missed.">                || spdx.isBlank()</span>
+<span class="nc bnc" id="L402" title="All 2 branches missed.">                || spdx.startsWith(&quot;(&quot;)</span>
+<span class="nc bnc" id="L403" title="All 2 branches missed.">                || spdx.contains(&quot; OR &quot;)</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">                || spdx.contains(&quot; AND &quot;)</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">                || spdx.contains(&quot; WITH &quot;)) {</span>
+<span class="nc" id="L406">            return null;</span>
+        }
+<span class="nc" id="L408">        return &quot;https://spdx.org/licenses/&quot; + spdx + &quot;.html&quot;;</span>
+    }
+
+    /**
+     * Escape a string for safe AsciiDoc inline-code use.
+     *
+     * &lt;p&gt;Backticks are the only character that can break out of
+     * inline code spans. Everything else (including HTML special
+     * characters) is fine inside {@code `…`}.
+     *
+     * @param s the input string
+     * @return the escaped string
+     */
+    private String escapeAdoc(String s) {
+<span class="nc bnc" id="L422" title="All 2 branches missed.">        if (s == null) return &quot;&quot;;</span>
+<span class="nc" id="L423">        return s.replace(&quot;`&quot;, &quot;\\`&quot;);</span>
+    }
+
+    /**
+     * Coerce a possibly-null map value to a non-null string.
+     *
+     * @param o the value
+     * @return the string value, or empty if null
+     */
+    private static String stringOrEmpty(Object o) {
+<span class="nc bnc" id="L433" title="All 2 branches missed.">        return o == null ? &quot;&quot; : o.toString();</span>
+    }
+
+    /** A single component projected from the SBOM. */
+    private static final class Component {
+        final String group;
+        final String name;
+        final String version;
+        final String purl;
+
+<span class="nc" id="L443">        Component(String group, String name, String version, String purl) {</span>
+<span class="nc" id="L444">            this.group = group;</span>
+<span class="nc" id="L445">            this.name = name;</span>
+<span class="nc" id="L446">            this.version = version;</span>
+<span class="nc" id="L447">            this.purl = purl;</span>
+<span class="nc" id="L448">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

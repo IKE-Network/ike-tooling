@@ -1,0 +1,321 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VersionsUpgradePublishMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">VersionsUpgradePublishMojo.java</span></div><h1>VersionsUpgradePublishMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.upgrade.VersionUpgradeApplyException;
+import network.ike.plugin.support.upgrade.VersionUpgradePlanApplier;
+import network.ike.plugin.support.upgrade.VersionUpgradePlanBuilder;
+import network.ike.workspace.LiteralVersionUpgrade;
+import network.ike.workspace.NodeVersionUpgrade;
+import network.ike.workspace.ParentVersionUpgrade;
+import network.ike.workspace.PropertyVersionUpgrade;
+import network.ike.workspace.VersionUpgradePlan;
+import network.ike.workspace.VersionUpgradePlanException;
+import network.ike.workspace.VersionUpgradePlanReader;
+import network.ike.workspace.VersionUpgradeScope;
+import network.ike.workspace.VersionUpgradeStatus;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+/**
+ * Apply a previously drafted {@code versions-upgrade-plan.yaml} to the
+ * current module's POM.
+ *
+ * &lt;p&gt;Reads the plan, locates the entry whose node name matches the
+ * current project's {@code artifactId}, and rewrites
+ * {@code &lt;parent&gt;&lt;version&gt;}, {@code &lt;properties&gt;} entries, and literal
+ * plugin/dependency versions to the targets recorded in the plan.
+ * Edits are performed via OpenRewrite's XML LST so comments and
+ * formatting round-trip cleanly. Entries whose status is not
+ * {@code READY} are skipped — {@code BLOCKED} and
+ * {@code PENDING_UPSTREAM} are diagnostic markers, not actions.
+ *
+ * &lt;p&gt;&lt;strong&gt;Staleness check.&lt;/strong&gt; Before any edit, the publish
+ * recomputes the {@code pomFingerprint} of the current POM and compares
+ * to the one stamped into the plan at draft time. If they differ, the
+ * publish aborts with a &quot;regenerate the plan&quot; hint — staleness is
+ * never silently absorbed. Pass {@code -DforceStale=true} to skip the
+ * check (intended for scripted recovery; the plan applier still
+ * re-validates each {@code from-version} per entry).
+ *
+ * &lt;p&gt;On success the plan file is deleted — the goal completes its
+ * effect rather than leaving a transient artifact in the working
+ * tree. Re-run {@code ike:versions-upgrade-draft} to regenerate it.
+ * The markdown report written via {@code writeReport(...)} is the
+ * durable record of what was applied.
+ *
+ * &lt;p&gt;&lt;strong&gt;Missing plan is a clean no-op.&lt;/strong&gt; When the
+ * configured {@code planFile} does not exist on disk, the goal logs
+ * {@code &quot;no plan for &lt;module&gt;&quot;} at info level and returns success.
+ * This matters during a reactor cascade where a sibling module had
+ * nothing to upgrade in the prior {@code -draft} run (or where the
+ * prior publish already consumed and deleted its plan): a missing
+ * plan is indistinguishable from &quot;nothing to do&quot; and should not
+ * fail the cascade.
+ *
+ * @see VersionsUpgradeDraftMojo
+ */
+@Mojo(name = &quot;versions-upgrade-publish&quot;, projectRequired = true)
+public class VersionsUpgradePublishMojo extends AbstractGoalMojo {
+
+    /** The current Maven project — provides the POM path and artifactId. */
+    @Inject
+    private Project project;
+
+    /**
+     * Path to the plan file written by
+     * {@code ike:versions-upgrade-draft}. Defaults to
+     * {@code versions-upgrade-plan.yaml} in the project root.
+     */
+    @Parameter(property = &quot;planFile&quot;,
+               defaultValue = &quot;${project.basedir}/versions-upgrade-plan.yaml&quot;)
+    String planFile;
+
+    /**
+     * If true, skip the POM fingerprint staleness check. The per-entry
+     * {@code from-version} validation in {@link VersionUpgradePlanApplier}
+     * still runs, so mismatches still abort — this only bypasses the
+     * top-level fingerprint guard.
+     */
+    @Parameter(property = &quot;forceStale&quot;, defaultValue = &quot;false&quot;)
+    boolean forceStale;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L91">    public VersionsUpgradePublishMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="fc" id="L95">        Path projectRoot = project.getBasedir();</span>
+<span class="fc" id="L96">        Path pomPath = project.getPomPath();</span>
+<span class="fc" id="L97">        Path planPath = Path.of(planFile);</span>
+<span class="fc" id="L98">        String nodeName = project.getArtifactId();</span>
+
+<span class="pc bpc" id="L100" title="1 of 2 branches missed.">        if (!Files.isRegularFile(planPath)) {</span>
+<span class="fc" id="L101">            getLog().info(&quot;no plan for &quot; + nodeName</span>
+                    + &quot; (&quot; + planPath + &quot;) — nothing to publish.&quot;);
+<span class="fc" id="L103">            return;</span>
+        }
+
+<span class="nc" id="L106">        VersionUpgradePlan plan = readPlan(planPath);</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        if (plan.scope() != VersionUpgradeScope.MODULE) {</span>
+<span class="nc" id="L108">            throw new MojoException(</span>
+<span class="nc" id="L109">                    &quot;Plan scope is &quot; + plan.scope()</span>
+                            + &quot; — ike:versions-upgrade-publish only handles&quot;
+                            + &quot; module-scope plans. Use the workspace&quot;
+                            + &quot; plugin's ws:versions-upgrade-publish for&quot;
+                            + &quot; workspace-scope plans.&quot;);
+        }
+
+<span class="nc" id="L116">        verifyFingerprint(plan, pomPath, planPath);</span>
+
+<span class="nc" id="L118">        NodeVersionUpgrade node = plan.nodes().get(nodeName);</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        if (node == null) {</span>
+<span class="nc" id="L120">            throw new MojoException(</span>
+                    &quot;Plan has no entry for node '&quot; + nodeName + &quot;'.&quot;
+<span class="nc" id="L122">                            + &quot; Plan covers: &quot; + plan.nodes().keySet());</span>
+        }
+
+<span class="nc" id="L125">        int edits = applyPlan(pomPath, node);</span>
+
+        try {
+<span class="nc" id="L128">            Files.deleteIfExists(planPath);</span>
+<span class="nc" id="L129">            getLog().info(&quot;Removed plan file: &quot; + planPath);</span>
+<span class="nc" id="L130">        } catch (IOException e) {</span>
+<span class="nc" id="L131">            getLog().warn(&quot;Could not delete plan &quot; + planPath</span>
+<span class="nc" id="L132">                    + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L133">        }</span>
+
+<span class="nc" id="L135">        logSummary(node, edits, planPath);</span>
+
+<span class="nc" id="L137">        writeReport(IkeGoal.VERSIONS_UPGRADE_PUBLISH, projectRoot,</span>
+<span class="nc" id="L138">                buildReport(plan, node, edits, planPath));</span>
+<span class="nc" id="L139">    }</span>
+
+    private VersionUpgradePlan readPlan(Path planPath) {
+        try {
+<span class="nc" id="L143">            return VersionUpgradePlanReader.read(planPath);</span>
+<span class="nc" id="L144">        } catch (VersionUpgradePlanException e) {</span>
+<span class="nc" id="L145">            throw new MojoException(</span>
+<span class="nc" id="L146">                    &quot;Cannot read plan &quot; + planPath + &quot;: &quot; + e.getMessage(),</span>
+                    e);
+        }
+    }
+
+    private void verifyFingerprint(VersionUpgradePlan plan, Path pomPath,
+                                   Path planPath) {
+<span class="nc" id="L153">        String stamped = plan.pomFingerprint();</span>
+<span class="nc bnc" id="L154" title="All 4 branches missed.">        if (stamped == null || stamped.isBlank()) {</span>
+<span class="nc" id="L155">            getLog().warn(&quot;Plan has no pom-fingerprint — staleness check&quot;</span>
+                    + &quot; skipped. The applier's per-entry from-version&quot;
+                    + &quot; checks remain in force.&quot;);
+<span class="nc" id="L158">            return;</span>
+        }
+<span class="nc" id="L160">        String current = VersionUpgradePlanBuilder.fingerprint(</span>
+<span class="nc" id="L161">                List.of(pomPath));</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        if (stamped.equals(current)) {</span>
+<span class="nc" id="L163">            return;</span>
+        }
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        if (forceStale) {</span>
+<span class="nc" id="L166">            getLog().warn(&quot;POM fingerprint differs from plan (&quot;</span>
+                    + &quot;current=&quot; + current + &quot;, plan=&quot; + stamped
+                    + &quot;) — proceeding because -DforceStale=true.&quot;);
+<span class="nc" id="L169">            return;</span>
+        }
+<span class="nc" id="L171">        throw new MojoException(</span>
+                &quot;POM fingerprint differs from the plan.&quot;
+                        + &quot;\n  Plan:    &quot; + stamped
+                        + &quot;\n  Current: &quot; + current
+                        + &quot;\n  The POM has been edited since&quot;
+                        + &quot; ike:versions-upgrade-draft was run.&quot;
+                        + &quot; Regenerate the plan and re-publish.&quot;
+                        + &quot;\n  Plan file: &quot; + planPath
+                        + &quot;\n  Bypass: -DforceStale=true (per-entry&quot;
+                        + &quot; checks still apply).&quot;);
+    }
+
+    private int applyPlan(Path pomPath, NodeVersionUpgrade node) {
+        try {
+<span class="nc" id="L185">            return VersionUpgradePlanApplier.apply(pomPath, node);</span>
+<span class="nc" id="L186">        } catch (VersionUpgradeApplyException e) {</span>
+<span class="nc" id="L187">            throw new MojoException(</span>
+<span class="nc" id="L188">                    &quot;Cannot apply plan: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    private void logSummary(NodeVersionUpgrade node, int edits,
+                             Path planPath) {
+<span class="nc" id="L194">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L195">        getLog().info(&quot;ike:versions-upgrade-publish&quot;);</span>
+<span class="nc" id="L196">        getLog().info(&quot;  plan:    &quot; + planPath);</span>
+<span class="nc" id="L197">        getLog().info(&quot;  node:    &quot; + node.nodeName());</span>
+<span class="nc" id="L198">        getLog().info(&quot;  edits:   &quot; + edits);</span>
+<span class="nc" id="L199">        getLog().info(&quot;&quot;);</span>
+
+<span class="nc" id="L201">        int blocked = countSkipped(node);</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (blocked &gt; 0) {</span>
+<span class="nc" id="L203">            getLog().info(&quot;  &quot; + blocked + &quot; non-ready entry/entries&quot;</span>
+                    + &quot; skipped (blocked or pending-upstream).&quot;);
+        }
+<span class="nc bnc" id="L206" title="All 2 branches missed.">        if (edits == 0) {</span>
+<span class="nc" id="L207">            getLog().info(&quot;  No changes applied.&quot;);</span>
+        } else {
+<span class="nc" id="L209">            getLog().info(&quot;  Applied &quot; + edits + &quot; upgrade(s).&quot;);</span>
+        }
+<span class="nc" id="L211">    }</span>
+
+    private static int countSkipped(NodeVersionUpgrade node) {
+<span class="nc" id="L214">        int skipped = 0;</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        if (node.parent() != null</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">                &amp;&amp; node.parent().status() != VersionUpgradeStatus.READY) {</span>
+<span class="nc" id="L217">            skipped++;</span>
+        }
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        for (PropertyVersionUpgrade p : node.properties()) {</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (p.status() != VersionUpgradeStatus.READY) skipped++;</span>
+<span class="nc" id="L221">        }</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">        for (LiteralVersionUpgrade l : node.literals()) {</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">            if (l.status() != VersionUpgradeStatus.READY) skipped++;</span>
+<span class="nc" id="L224">        }</span>
+<span class="nc" id="L225">        return skipped;</span>
+    }
+
+    private String buildReport(VersionUpgradePlan plan,
+                                NodeVersionUpgrade node, int edits,
+                                Path planPath) {
+<span class="nc" id="L231">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L232">        sb.append(&quot;**Project:** &quot;).append(project.getArtifactId())</span>
+<span class="nc" id="L233">                .append(&quot;\n&quot;);</span>
+<span class="nc" id="L234">        sb.append(&quot;**Plan:** `&quot;).append(planPath).append(&quot;`\n&quot;);</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">        if (plan.planHash() != null) {</span>
+<span class="nc" id="L236">            sb.append(&quot;**Plan hash:** `&quot;).append(plan.planHash())</span>
+<span class="nc" id="L237">                    .append(&quot;`\n&quot;);</span>
+        }
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (plan.ikeToolingVersion() != null) {</span>
+<span class="nc" id="L240">            sb.append(&quot;**ike-tooling.version:** `&quot;)</span>
+<span class="nc" id="L241">                    .append(plan.ikeToolingVersion()).append(&quot;`\n&quot;);</span>
+        }
+<span class="nc" id="L243">        sb.append(&quot;**Edits applied:** &quot;).append(edits).append(&quot;\n\n&quot;);</span>
+
+<span class="nc" id="L245">        sb.append(&quot;## Applied\n&quot;);</span>
+<span class="nc" id="L246">        appendApplied(sb, node);</span>
+<span class="nc" id="L247">        int skipped = countSkipped(node);</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        if (skipped &gt; 0) {</span>
+<span class="nc" id="L249">            sb.append(&quot;\n## Skipped (non-ready)\n&quot;);</span>
+<span class="nc" id="L250">            appendSkipped(sb, node);</span>
+        }
+<span class="nc" id="L252">        return sb.toString();</span>
+    }
+
+    private static void appendApplied(StringBuilder sb,
+                                       NodeVersionUpgrade node) {
+<span class="nc" id="L257">        boolean any = false;</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">        if (node.parent() != null</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">                &amp;&amp; node.parent().status() == VersionUpgradeStatus.READY) {</span>
+<span class="nc" id="L260">            ParentVersionUpgrade p = node.parent();</span>
+<span class="nc" id="L261">            sb.append(&quot;- parent `&quot;).append(p.groupId()).append(&quot;:&quot;)</span>
+<span class="nc" id="L262">                    .append(p.artifactId()).append(&quot;`: &quot;)</span>
+<span class="nc" id="L263">                    .append(p.fromVersion()).append(&quot; → &quot;)</span>
+<span class="nc" id="L264">                    .append(p.toVersion()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L265">            any = true;</span>
+        }
+<span class="nc bnc" id="L267" title="All 2 branches missed.">        for (PropertyVersionUpgrade prop : node.properties()) {</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">            if (prop.status() != VersionUpgradeStatus.READY) continue;</span>
+<span class="nc" id="L269">            sb.append(&quot;- property `${&quot;).append(prop.propertyName())</span>
+<span class="nc" id="L270">                    .append(&quot;}`: &quot;).append(prop.fromVersion())</span>
+<span class="nc" id="L271">                    .append(&quot; → &quot;).append(prop.toVersion()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L272">            any = true;</span>
+<span class="nc" id="L273">        }</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">        for (LiteralVersionUpgrade lit : node.literals()) {</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">            if (lit.status() != VersionUpgradeStatus.READY) continue;</span>
+<span class="nc" id="L276">            sb.append(&quot;- literal `&quot;).append(lit.groupId()).append(&quot;:&quot;)</span>
+<span class="nc" id="L277">                    .append(lit.artifactId()).append(&quot;`: &quot;)</span>
+<span class="nc" id="L278">                    .append(lit.fromVersion()).append(&quot; → &quot;)</span>
+<span class="nc" id="L279">                    .append(lit.toVersion()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L280">            any = true;</span>
+<span class="nc" id="L281">        }</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">        if (!any) {</span>
+<span class="nc" id="L283">            sb.append(&quot;- _no ready upgrades_\n&quot;);</span>
+        }
+<span class="nc" id="L285">    }</span>
+
+    private static void appendSkipped(StringBuilder sb,
+                                       NodeVersionUpgrade node) {
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (node.parent() != null</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">                &amp;&amp; node.parent().status() != VersionUpgradeStatus.READY) {</span>
+<span class="nc" id="L291">            ParentVersionUpgrade p = node.parent();</span>
+<span class="nc" id="L292">            sb.append(&quot;- parent `&quot;).append(p.groupId()).append(&quot;:&quot;)</span>
+<span class="nc" id="L293">                    .append(p.artifactId()).append(&quot;` [&quot;)</span>
+<span class="nc" id="L294">                    .append(statusLabel(p.status())).append(&quot;]&quot;)</span>
+<span class="nc" id="L295">                    .append(reasonSuffix(p.reason())).append(&quot;\n&quot;);</span>
+        }
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        for (PropertyVersionUpgrade prop : node.properties()) {</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">            if (prop.status() == VersionUpgradeStatus.READY) continue;</span>
+<span class="nc" id="L299">            sb.append(&quot;- property `${&quot;).append(prop.propertyName())</span>
+<span class="nc" id="L300">                    .append(&quot;}` [&quot;).append(statusLabel(prop.status()))</span>
+<span class="nc" id="L301">                    .append(&quot;]&quot;).append(reasonSuffix(prop.reason()))</span>
+<span class="nc" id="L302">                    .append(&quot;\n&quot;);</span>
+<span class="nc" id="L303">        }</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        for (LiteralVersionUpgrade lit : node.literals()) {</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">            if (lit.status() == VersionUpgradeStatus.READY) continue;</span>
+<span class="nc" id="L306">            sb.append(&quot;- literal `&quot;).append(lit.groupId()).append(&quot;:&quot;)</span>
+<span class="nc" id="L307">                    .append(lit.artifactId()).append(&quot;` [&quot;)</span>
+<span class="nc" id="L308">                    .append(statusLabel(lit.status())).append(&quot;]&quot;)</span>
+<span class="nc" id="L309">                    .append(reasonSuffix(lit.reason())).append(&quot;\n&quot;);</span>
+<span class="nc" id="L310">        }</span>
+<span class="nc" id="L311">    }</span>
+
+    private static String statusLabel(VersionUpgradeStatus status) {
+<span class="nc" id="L314">        return status.name().toLowerCase().replace('_', '-');</span>
+    }
+
+    private static String reasonSuffix(String reason) {
+<span class="nc bnc" id="L318" title="All 2 branches missed.">        return reason == null ? &quot;&quot; : &quot; — &quot; + reason;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

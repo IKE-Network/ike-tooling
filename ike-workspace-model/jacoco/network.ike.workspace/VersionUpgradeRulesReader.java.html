@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VersionUpgradeRulesReader.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">VersionUpgradeRulesReader.java</span></div><h1>VersionUpgradeRulesReader.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * Reads a {@code versions-upgrade-rules.yaml} file into a typed
+ * {@link VersionUpgradeRules}.
+ *
+ * &lt;p&gt;Mirrors {@link VersionUpgradePlanReader} in style: static factory
+ * methods, fail-fast on malformed input with
+ * {@link VersionUpgradeRulesException}, no silent tolerance for
+ * unknown fields.
+ *
+ * &lt;p&gt;The {@code match} field combines groupId and artifactId as
+ * {@code &quot;groupIdPattern:artifactIdPattern&quot;}. A bare pattern with no
+ * colon is treated as the groupId pattern and {@code &quot;*&quot;} is used for
+ * artifactId. This keeps the common case (allow a whole group) terse.
+ */
+public final class VersionUpgradeRulesReader {
+
+    private VersionUpgradeRulesReader() {}
+
+    /**
+     * Read a ruleset from a YAML file.
+     *
+     * @param path path to {@code versions-upgrade-rules.yaml}
+     * @return the parsed ruleset
+     * @throws VersionUpgradeRulesException if the file cannot be read or
+     *                                      has invalid structure
+     */
+    public static VersionUpgradeRules read(Path path) {
+<span class="nc" id="L41">        try (Reader reader = Files.newBufferedReader(path)) {</span>
+<span class="nc" id="L42">            return read(reader);</span>
+<span class="nc" id="L43">        } catch (IOException e) {</span>
+<span class="nc" id="L44">            throw new VersionUpgradeRulesException(</span>
+                    &quot;Cannot read &quot; + path, e);
+        }
+    }
+
+    /**
+     * Read a ruleset from a YAML source.
+     *
+     * @param reader YAML source
+     * @return the parsed ruleset
+     * @throws VersionUpgradeRulesException if the YAML has invalid
+     *                                      structure
+     */
+    public static VersionUpgradeRules read(Reader reader) {
+<span class="fc" id="L58">        Yaml yaml = new Yaml();</span>
+<span class="fc" id="L59">        Map&lt;String, Object&gt; root = yaml.load(reader);</span>
+<span class="fc bfc" id="L60" title="All 2 branches covered.">        if (root == null) {</span>
+<span class="fc" id="L61">            throw new VersionUpgradeRulesException(&quot;Empty ruleset&quot;);</span>
+        }
+<span class="fc" id="L63">        return parseRules(root);</span>
+    }
+
+    private static VersionUpgradeRules parseRules(Map&lt;String, Object&gt; root) {
+<span class="fc" id="L67">        String schemaVersion = stringField(root, &quot;schema-version&quot;, &quot;1.0&quot;);</span>
+<span class="fc" id="L68">        VersionUpgradeRule.Action defaultAction = parseAction(</span>
+<span class="fc" id="L69">                stringField(root, &quot;default-action&quot;, &quot;block&quot;));</span>
+<span class="fc" id="L70">        List&lt;VersionUpgradeRule&gt; rules = parseRuleList(</span>
+<span class="fc" id="L71">                listOfMaps(root, &quot;rules&quot;));</span>
+<span class="fc" id="L72">        return new VersionUpgradeRules(schemaVersion, defaultAction, rules);</span>
+    }
+
+    private static List&lt;VersionUpgradeRule&gt; parseRuleList(
+            List&lt;Map&lt;String, Object&gt;&gt; raw) {
+<span class="pc bpc" id="L77" title="1 of 4 branches missed.">        if (raw == null || raw.isEmpty()) {</span>
+<span class="fc" id="L78">            return List.of();</span>
+        }
+<span class="fc" id="L80">        List&lt;VersionUpgradeRule&gt; result = new ArrayList&lt;&gt;(raw.size());</span>
+<span class="fc" id="L81">        int index = 0;</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">        for (Map&lt;String, Object&gt; entry : raw) {</span>
+<span class="fc" id="L83">            result.add(parseRule(entry, index));</span>
+<span class="fc" id="L84">            index++;</span>
+<span class="fc" id="L85">        }</span>
+<span class="fc" id="L86">        return result;</span>
+    }
+
+    private static VersionUpgradeRule parseRule(
+            Map&lt;String, Object&gt; entry, int index) {
+<span class="fc" id="L91">        String match = requireString(entry, &quot;match&quot;,</span>
+                &quot;rule[&quot; + index + &quot;]&quot;);
+<span class="fc" id="L93">        String[] split = splitMatch(match, index);</span>
+<span class="fc" id="L94">        String groupIdPattern = split[0];</span>
+<span class="fc" id="L95">        String artifactIdPattern = split[1];</span>
+<span class="fc" id="L96">        VersionUpgradeRule.Action action = parseAction(</span>
+<span class="fc" id="L97">                requireString(entry, &quot;action&quot;, &quot;rule[&quot; + index + &quot;]&quot;));</span>
+<span class="fc" id="L98">        String pinnedVersion = stringField(entry, &quot;version&quot;, null);</span>
+<span class="fc" id="L99">        String reason = stringField(entry, &quot;reason&quot;, null);</span>
+<span class="fc bfc" id="L100" title="All 4 branches covered.">        if (action == VersionUpgradeRule.Action.PIN</span>
+<span class="pc bpc" id="L101" title="1 of 2 branches missed.">                &amp;&amp; (pinnedVersion == null || pinnedVersion.isBlank())) {</span>
+<span class="fc" id="L102">            throw new VersionUpgradeRulesException(</span>
+                    &quot;rule[&quot; + index + &quot;] action 'pin' requires a &quot;
+                            + &quot;'version' field&quot;);
+        }
+<span class="fc" id="L106">        return new VersionUpgradeRule(groupIdPattern, artifactIdPattern,</span>
+                action, pinnedVersion, reason);
+    }
+
+    private static String[] splitMatch(String match, int index) {
+<span class="fc" id="L111">        int colon = match.indexOf(':');</span>
+<span class="fc bfc" id="L112" title="All 2 branches covered.">        if (colon &lt; 0) {</span>
+<span class="fc" id="L113">            return new String[]{match, &quot;*&quot;};</span>
+        }
+<span class="fc bfc" id="L115" title="All 2 branches covered.">        if (match.indexOf(':', colon + 1) &gt;= 0) {</span>
+<span class="fc" id="L116">            throw new VersionUpgradeRulesException(</span>
+                    &quot;rule[&quot; + index + &quot;] match '&quot; + match + &quot;' has more &quot;
+                            + &quot;than one ':'; expected &quot;
+                            + &quot;'groupIdPattern:artifactIdPattern'&quot;);
+        }
+<span class="fc" id="L121">        String groupIdPattern = match.substring(0, colon);</span>
+<span class="fc" id="L122">        String artifactIdPattern = match.substring(colon + 1);</span>
+<span class="pc bpc" id="L123" title="1 of 4 branches missed.">        if (groupIdPattern.isEmpty() || artifactIdPattern.isEmpty()) {</span>
+<span class="fc" id="L124">            throw new VersionUpgradeRulesException(</span>
+                    &quot;rule[&quot; + index + &quot;] match '&quot; + match + &quot;' must have &quot;
+                            + &quot;non-empty groupIdPattern and &quot;
+                            + &quot;artifactIdPattern&quot;);
+        }
+<span class="fc" id="L129">        return new String[]{groupIdPattern, artifactIdPattern};</span>
+    }
+
+    private static VersionUpgradeRule.Action parseAction(String raw) {
+<span class="pc bpc" id="L133" title="1 of 2 branches missed.">        if (raw == null) {</span>
+<span class="nc" id="L134">            throw new VersionUpgradeRulesException(</span>
+                    &quot;Missing required field: action&quot;);
+        }
+<span class="fc" id="L137">        String canon = raw.trim().toUpperCase(Locale.ROOT);</span>
+        try {
+<span class="fc" id="L139">            return VersionUpgradeRule.Action.valueOf(canon);</span>
+<span class="fc" id="L140">        } catch (IllegalArgumentException e) {</span>
+<span class="fc" id="L141">            throw new VersionUpgradeRulesException(</span>
+                    &quot;Unknown action '&quot; + raw + &quot;' — expected 'allow', &quot;
+                            + &quot;'block', or 'pin'&quot;, e);
+        }
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private static List&lt;Map&lt;String, Object&gt;&gt; listOfMaps(
+            Map&lt;String, Object&gt; map, String key) {
+<span class="fc" id="L150">        Object value = map.get(key);</span>
+<span class="pc bpc" id="L151" title="1 of 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L152">            return null;</span>
+        }
+<span class="pc bpc" id="L154" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
+<span class="nc" id="L155">            throw new VersionUpgradeRulesException(</span>
+                    &quot;Expected a list for '&quot; + key + &quot;' but got &quot;
+<span class="nc" id="L157">                            + value.getClass().getSimpleName());</span>
+        }
+<span class="fc" id="L159">        return (List&lt;Map&lt;String, Object&gt;&gt;) value;</span>
+    }
+
+    private static String stringField(Map&lt;String, Object&gt; map, String key,
+                                      String defaultValue) {
+<span class="fc" id="L164">        Object value = map.get(key);</span>
+<span class="fc bfc" id="L165" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L166">            return defaultValue;</span>
+        }
+<span class="fc" id="L168">        return value.toString();</span>
+    }
+
+    private static String requireString(Map&lt;String, Object&gt; map,
+                                        String key, String context) {
+<span class="fc" id="L173">        Object value = map.get(key);</span>
+<span class="fc bfc" id="L174" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L175">            throw new VersionUpgradeRulesException(</span>
+                    context + &quot; missing required field: &quot; + key);
+        }
+<span class="fc" id="L178">        return value.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

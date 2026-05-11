@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LockfileEntry.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">LockfileEntry.java</span></div><h1>LockfileEntry.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * One file's entry in a scaffold lockfile.
+ *
+ * &lt;p&gt;The shape depends on the {@link #tier tier}:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@link ScaffoldTier#TOOL_OWNED TOOL_OWNED}: only
+ *       {@link #templateSha templateSha} is populated
+ *       ({@code appliedSha} is the same as templateSha by policy — we
+ *       always overwrite — and {@code managedElements} is empty).&lt;/li&gt;
+ *   &lt;li&gt;{@link ScaffoldTier#TRACKED TRACKED} /
+ *       {@link ScaffoldTier#TRACKED_BLOCK TRACKED_BLOCK}: both
+ *       {@code templateSha} (last template applied) and
+ *       {@code appliedSha} (whole-file hash the last publish produced
+ *       on disk) are populated; {@code managedElements} is empty.&lt;/li&gt;
+ *   &lt;li&gt;{@link ScaffoldTier#MODEL_MANAGED MODEL_MANAGED}:
+ *       {@code templateSha} and {@code appliedSha} are null;
+ *       {@code managedElements} lists per-element provenance.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;Hash values are stored in the form
+ * {@code &quot;sha256:&quot; + hex-digest} so future hash algorithms can be
+ * added without ambiguity.
+ *
+ * @param tier             the ownership tier for this file; never
+ *                         {@code null}
+ * @param templateSha      hash of the template last applied; may be
+ *                         {@code null} for {@link ScaffoldTier#MODEL_MANAGED}
+ * @param appliedSha       hash of the file on disk at last publish;
+ *                         may be {@code null} for
+ *                         {@link ScaffoldTier#TOOL_OWNED} and
+ *                         {@link ScaffoldTier#MODEL_MANAGED}
+ * @param managedElements  per-element provenance for
+ *                         {@link ScaffoldTier#MODEL_MANAGED};
+ *                         never {@code null} (use empty list for
+ *                         whole-file tiers). The stored list is
+ *                         unmodifiable.
+ */
+public record LockfileEntry(
+        ScaffoldTier tier,
+        String templateSha,
+        String appliedSha,
+        List&lt;ManagedElement&gt; managedElements) {
+
+    /**
+     * Canonical constructor with validation and defensive copying.
+     */
+<span class="fc" id="L54">    public LockfileEntry {</span>
+<span class="fc" id="L55">        Objects.requireNonNull(tier, &quot;tier&quot;);</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">        managedElements = managedElements == null</span>
+<span class="nc" id="L57">                ? List.of()</span>
+<span class="fc" id="L58">                : List.copyOf(managedElements);</span>
+
+<span class="pc bpc" id="L60" title="1 of 3 branches missed.">        switch (tier) {</span>
+            case MODEL_MANAGED -&gt; {
+<span class="pc bpc" id="L62" title="1 of 4 branches missed.">                if (templateSha != null || appliedSha != null) {</span>
+<span class="fc" id="L63">                    throw new IllegalArgumentException(</span>
+                            &quot;MODEL_MANAGED entries must not carry &quot;
+                                    + &quot;templateSha/appliedSha &quot;
+                                    + &quot;(per-element provenance goes &quot;
+                                    + &quot;in managedElements)&quot;);
+                }
+            }
+            case TOOL_OWNED, TRACKED, TRACKED_BLOCK -&gt; {
+<span class="fc bfc" id="L71" title="All 2 branches covered.">                if (!managedElements.isEmpty()) {</span>
+<span class="fc" id="L72">                    throw new IllegalArgumentException(</span>
+<span class="fc" id="L73">                            tier.manifestValue()</span>
+                                    + &quot; entries must not carry &quot;
+                                    + &quot;managedElements&quot;);
+                }
+<span class="pc bpc" id="L77" title="1 of 2 branches missed.">                if (templateSha == null) {</span>
+<span class="nc" id="L78">                    throw new IllegalArgumentException(</span>
+<span class="nc" id="L79">                            tier.manifestValue()</span>
+                                    + &quot; entries require templateSha&quot;);
+                }
+<span class="fc bfc" id="L82" title="All 4 branches covered.">                if (tier != ScaffoldTier.TOOL_OWNED</span>
+                        &amp;&amp; appliedSha == null) {
+<span class="fc" id="L84">                    throw new IllegalArgumentException(</span>
+<span class="fc" id="L85">                            tier.manifestValue()</span>
+                                    + &quot; entries require appliedSha&quot;);
+                }
+            }
+        }
+<span class="fc" id="L90">    }</span>
+
+    /**
+     * Convenience factory for a tool-owned entry (only templateSha
+     * matters; divergence is reported but never blocks publish).
+     *
+     * @param templateSha hash of the template last applied
+     * @return a TOOL_OWNED entry
+     */
+    public static LockfileEntry toolOwned(String templateSha) {
+<span class="fc" id="L100">        return new LockfileEntry(</span>
+                ScaffoldTier.TOOL_OWNED,
+                templateSha,
+                null,
+<span class="fc" id="L104">                Collections.emptyList());</span>
+    }
+
+    /**
+     * Convenience factory for a tracked or tracked-block entry.
+     *
+     * @param tier        one of {@link ScaffoldTier#TRACKED} or
+     *                    {@link ScaffoldTier#TRACKED_BLOCK}
+     * @param templateSha hash of the template last applied
+     * @param appliedSha  hash of the file on disk after last publish
+     * @return the entry
+     */
+    public static LockfileEntry tracked(
+            ScaffoldTier tier,
+            String templateSha,
+            String appliedSha) {
+<span class="fc bfc" id="L120" title="All 4 branches covered.">        if (tier != ScaffoldTier.TRACKED</span>
+                &amp;&amp; tier != ScaffoldTier.TRACKED_BLOCK) {
+<span class="fc" id="L122">            throw new IllegalArgumentException(</span>
+                    &quot;tracked() requires TRACKED or TRACKED_BLOCK, &quot;
+                            + &quot;got &quot; + tier);
+        }
+<span class="fc" id="L126">        return new LockfileEntry(tier, templateSha, appliedSha,</span>
+<span class="fc" id="L127">                Collections.emptyList());</span>
+    }
+
+    /**
+     * Convenience factory for a model-managed entry.
+     *
+     * @param elements per-element provenance; may be empty (the file
+     *                 is model-managed but currently no elements are
+     *                 installed)
+     * @return the entry
+     */
+    public static LockfileEntry modelManaged(
+            List&lt;ManagedElement&gt; elements) {
+<span class="fc" id="L140">        return new LockfileEntry(</span>
+                ScaffoldTier.MODEL_MANAGED, null, null, elements);
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

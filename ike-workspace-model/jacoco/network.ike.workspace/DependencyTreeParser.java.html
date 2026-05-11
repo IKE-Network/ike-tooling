@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DependencyTreeParser.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">DependencyTreeParser.java</span></div><h1>DependencyTreeParser.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Parse the text output of {@code mvn dependency:tree} into structured
+ * records.
+ *
+ * &lt;p&gt;The parser handles the tree-drawing characters used by Maven's
+ * dependency plugin ({@code +- }, {@code \- }, {@code |  }, spaces)
+ * and extracts the GAV coordinate, type, scope, and nesting depth
+ * from each line.
+ *
+ * &lt;p&gt;Example input:
+ * &lt;pre&gt;{@code
+ * dev.ikm.tinkar:tinkar-core:pom:1.127.0-SNAPSHOT
+ * +- dev.ikm.tinkar:collection:jar:1.127.0-SNAPSHOT:compile
+ * |  +- org.eclipse.collections:eclipse-collections-api:jar:11.1.0:compile
+ * |  \- org.eclipse.collections:eclipse-collections:jar:11.1.0:compile
+ * \- dev.ikm.tinkar:common:jar:1.127.0-SNAPSHOT:compile
+ *    +- io.activej:activej-common:jar:6.0-rc2:compile
+ *    \- org.slf4j:slf4j-api:jar:2.0.16:compile
+ * }&lt;/pre&gt;
+ */
+public final class DependencyTreeParser {
+
+    // Matches: groupId:artifactId:type:version[:classifier]:scope
+    // or the root: groupId:artifactId:type:version
+<span class="fc" id="L32">    private static final Pattern GAV_PATTERN = Pattern.compile(</span>
+            &quot;([^:]+):([^:]+):([^:]+):([^:]+?)(?::([^:]+))?(?::([^:]+))?$&quot;);
+
+    private DependencyTreeParser() {}
+
+    /**
+     * A single resolved dependency from a dependency tree.
+     *
+     * @param groupId    the Maven groupId
+     * @param artifactId the Maven artifactId
+     * @param type       the artifact type (jar, pom, etc.)
+     * @param version    the resolved version
+     * @param scope      the dependency scope (compile, runtime, test, etc.),
+     *                   or empty string for the root artifact
+     * @param depth      nesting depth (0 = root project)
+     */
+<span class="fc" id="L48">    public record ResolvedDependency(</span>
+            String groupId, String artifactId, String type,
+            String version, String scope, int depth) {}
+
+    /**
+     * Parse dependency tree text output into a list of resolved
+     * dependencies.
+     *
+     * &lt;p&gt;Skips blank lines and lines that don't match the expected
+     * Maven coordinate format (e.g. informational headers).
+     *
+     * @param treeOutput the raw text from {@code mvn dependency:tree}
+     * @return ordered list of resolved dependencies
+     */
+    public static List&lt;ResolvedDependency&gt; parse(String treeOutput) {
+<span class="fc" id="L63">        List&lt;ResolvedDependency&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L64" title="All 2 branches covered.">        for (String line : treeOutput.lines().toList()) {</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">            if (line.isBlank()) continue;</span>
+
+<span class="fc" id="L67">            int depth = measureDepth(line);</span>
+<span class="fc" id="L68">            String coordinate = stripTreeChars(line);</span>
+<span class="pc bpc" id="L69" title="1 of 2 branches missed.">            if (coordinate.isEmpty()) continue;</span>
+
+<span class="fc" id="L71">            Matcher m = GAV_PATTERN.matcher(coordinate);</span>
+<span class="fc bfc" id="L72" title="All 2 branches covered.">            if (!m.matches()) continue;</span>
+
+<span class="fc" id="L74">            String groupId = m.group(1);</span>
+<span class="fc" id="L75">            String artifactId = m.group(2);</span>
+<span class="fc" id="L76">            String type = m.group(3);</span>
+<span class="fc" id="L77">            String versionOrClassifier = m.group(4);</span>
+<span class="fc" id="L78">            String group5 = m.group(5);</span>
+<span class="fc" id="L79">            String group6 = m.group(6);</span>
+
+            // Maven coordinate formats:
+            //   g:a:type:version                     (root, no scope)
+            //   g:a:type:version:scope               (normal dep)
+            //   g:a:type:classifier:version:scope    (classified dep)
+            String version;
+            String scope;
+<span class="fc bfc" id="L87" title="All 2 branches covered.">            if (group6 != null) {</span>
+                // g:a:type:classifier:version:scope
+<span class="fc" id="L89">                version = group5;</span>
+<span class="fc" id="L90">                scope = group6;</span>
+<span class="fc bfc" id="L91" title="All 2 branches covered.">            } else if (group5 != null) {</span>
+                // g:a:type:version:scope
+<span class="fc" id="L93">                version = versionOrClassifier;</span>
+<span class="fc" id="L94">                scope = group5;</span>
+            } else {
+                // g:a:type:version (root)
+<span class="fc" id="L97">                version = versionOrClassifier;</span>
+<span class="fc" id="L98">                scope = &quot;&quot;;</span>
+            }
+
+<span class="fc" id="L101">            result.add(new ResolvedDependency(</span>
+                    groupId, artifactId, type, version, scope, depth));
+<span class="fc" id="L103">        }</span>
+<span class="fc" id="L104">        return result;</span>
+    }
+
+    /**
+     * Measure the nesting depth from tree-drawing characters.
+     * Each level is 3 characters wide in Maven's output.
+     */
+    static int measureDepth(String line) {
+<span class="fc" id="L112">        int i = 0;</span>
+<span class="fc" id="L113">        int depth = 0;</span>
+<span class="pc bpc" id="L114" title="1 of 2 branches missed.">        while (i &lt; line.length()) {</span>
+<span class="fc" id="L115">            char c = line.charAt(i);</span>
+<span class="fc bfc" id="L116" title="All 8 branches covered.">            if (c == '|' || c == '+' || c == '\\' || c == ' ') {</span>
+<span class="fc" id="L117">                i++;</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">            } else if (c == '-') {</span>
+<span class="fc" id="L119">                i++;</span>
+<span class="fc" id="L120">                depth++;</span>
+                // Skip trailing space after '-'
+<span class="pc bpc" id="L122" title="2 of 4 branches missed.">                if (i &lt; line.length() &amp;&amp; line.charAt(i) == ' ') i++;</span>
+                break;
+            } else {
+                break;
+            }
+<span class="fc" id="L127">        }</span>
+        // Count leading tree segments: each &quot;|  &quot; or &quot;   &quot; is one level
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        if (depth &gt; 0) {</span>
+            // The prefix before &quot;+- &quot; or &quot;\- &quot; consists of 3-char segments
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">            String prefix = line.substring(0, Math.max(0, line.indexOf(depth &gt; 0 ? '+' : '|')));</span>
+            // Simpler: count by position of the +/\ character
+<span class="fc" id="L133">            int markerPos = findMarkerPosition(line);</span>
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">            if (markerPos &gt;= 0) {</span>
+<span class="fc" id="L135">                depth = (markerPos / 3) + 1;</span>
+            }
+        }
+<span class="fc" id="L138">        return depth;</span>
+    }
+
+    private static int findMarkerPosition(String line) {
+<span class="pc bpc" id="L142" title="1 of 2 branches missed.">        for (int i = 0; i &lt; line.length(); i++) {</span>
+<span class="fc" id="L143">            char c = line.charAt(i);</span>
+<span class="fc bfc" id="L144" title="All 4 branches covered.">            if (c == '+' || c == '\\') return i;</span>
+        }
+<span class="nc" id="L146">        return -1;</span>
+    }
+
+    /**
+     * Strip tree-drawing characters from a dependency line,
+     * returning just the Maven coordinate string.
+     */
+    static String stripTreeChars(String line) {
+        // Remove all leading tree chars: |, +, \, -, space
+<span class="fc" id="L155">        int i = 0;</span>
+<span class="pc bpc" id="L156" title="1 of 2 branches missed.">        while (i &lt; line.length()) {</span>
+<span class="fc" id="L157">            char c = line.charAt(i);</span>
+<span class="fc bfc" id="L158" title="All 10 branches covered.">            if (c == '|' || c == '+' || c == '\\' || c == '-' || c == ' ') {</span>
+<span class="fc" id="L159">                i++;</span>
+            } else {
+                break;
+            }
+<span class="fc" id="L163">        }</span>
+<span class="fc" id="L164">        return line.substring(i).trim();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VersionUpgradeRule.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">VersionUpgradeRule.java</span></div><h1>VersionUpgradeRule.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+/**
+ * A single rule in a {@link VersionUpgradeRules} ruleset.
+ *
+ * &lt;p&gt;Each rule matches coordinates on a {@code groupId} and
+ * {@code artifactId} pattern (glob-style: {@code *} matches any
+ * sequence of characters within a single segment-of-id, no
+ * cross-segment surprises). Patterns are matched literally with
+ * {@code *} as a wildcard; there is no regex escaping for callers
+ * to learn.
+ *
+ * &lt;p&gt;The {@link #action()} controls what {@code versions-upgrade-draft}
+ * proposes for a matched coordinate:
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@link Action#ALLOW} — propose the highest non-SNAPSHOT
+ *       candidate returned by the resolver&lt;/li&gt;
+ *   &lt;li&gt;{@link Action#BLOCK} — never propose an upgrade; existing
+ *       version stays. {@code reason} is surfaced in the plan as
+ *       {@code BLOCKED}.&lt;/li&gt;
+ *   &lt;li&gt;{@link Action#PIN} — propose {@link #pinnedVersion()}
+ *       regardless of what the resolver returns. Used to hold a
+ *       coordinate at a known-good version.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * @param groupIdPattern    glob pattern matched against the candidate's
+ *                          groupId; {@code &quot;*&quot;} matches everything
+ * @param artifactIdPattern glob pattern matched against the candidate's
+ *                          artifactId; {@code &quot;*&quot;} matches everything
+ * @param action            what to do when this rule matches
+ * @param pinnedVersion     version to pin to, when {@code action} is
+ *                          {@link Action#PIN}; otherwise null
+ * @param reason            optional human-readable explanation, surfaced
+ *                          in the plan for non-{@link Action#ALLOW}
+ *                          outcomes
+ */
+<span class="fc" id="L37">public record VersionUpgradeRule(</span>
+        String groupIdPattern,
+        String artifactIdPattern,
+        Action action,
+        String pinnedVersion,
+        String reason
+) {
+
+    /**
+     * What a matching rule should do for a candidate coordinate.
+     */
+<span class="fc" id="L48">    public enum Action {</span>
+        /** Propose the highest non-SNAPSHOT candidate. */
+<span class="fc" id="L50">        ALLOW,</span>
+        /** Never upgrade; keep the existing version. */
+<span class="fc" id="L52">        BLOCK,</span>
+        /** Force the version to {@link VersionUpgradeRule#pinnedVersion()}. */
+<span class="fc" id="L54">        PIN</span>
+    }
+
+    /**
+     * Test whether this rule matches a {@code groupId:artifactId}
+     * coordinate.
+     *
+     * @param groupId    the candidate coordinate's groupId
+     * @param artifactId the candidate coordinate's artifactId
+     * @return true if both patterns match
+     */
+    public boolean matches(String groupId, String artifactId) {
+<span class="fc bfc" id="L66" title="All 2 branches covered.">        return globMatch(groupIdPattern, groupId)</span>
+<span class="fc bfc" id="L67" title="All 2 branches covered.">                &amp;&amp; globMatch(artifactIdPattern, artifactId);</span>
+    }
+
+    /**
+     * Glob match: {@code *} matches any sequence of any characters
+     * (including dots), every other character matches literally. Case
+     * sensitive. Used for both groupId and artifactId patterns.
+     *
+     * &lt;p&gt;Implementation is a hand-rolled two-pointer scan rather than
+     * regex translation — the patterns we accept are tiny and we want
+     * predictable semantics, not full regex.
+     *
+     * @param pattern   the glob pattern (e.g. {@code &quot;network.ike.*&quot;})
+     * @param candidate the string to test
+     * @return true if {@code candidate} matches {@code pattern}
+     */
+    public static boolean globMatch(String pattern, String candidate) {
+<span class="fc bfc" id="L84" title="All 4 branches covered.">        if (pattern == null || candidate == null) {</span>
+<span class="fc" id="L85">            return false;</span>
+        }
+<span class="fc" id="L87">        int p = 0;</span>
+<span class="fc" id="L88">        int c = 0;</span>
+<span class="fc" id="L89">        int starP = -1;</span>
+<span class="fc" id="L90">        int starC = 0;</span>
+<span class="fc bfc" id="L91" title="All 2 branches covered.">        while (c &lt; candidate.length()) {</span>
+<span class="fc bfc" id="L92" title="All 4 branches covered.">            if (p &lt; pattern.length() &amp;&amp; pattern.charAt(p) == '*') {</span>
+<span class="fc" id="L93">                starP = p;</span>
+<span class="fc" id="L94">                starC = c;</span>
+<span class="fc" id="L95">                p++;</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">            } else if (p &lt; pattern.length()</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">                    &amp;&amp; pattern.charAt(p) == candidate.charAt(c)) {</span>
+<span class="fc" id="L98">                p++;</span>
+<span class="fc" id="L99">                c++;</span>
+<span class="fc bfc" id="L100" title="All 2 branches covered.">            } else if (starP != -1) {</span>
+<span class="fc" id="L101">                p = starP + 1;</span>
+<span class="fc" id="L102">                starC++;</span>
+<span class="fc" id="L103">                c = starC;</span>
+            } else {
+<span class="fc" id="L105">                return false;</span>
+            }
+        }
+<span class="fc bfc" id="L108" title="All 4 branches covered.">        while (p &lt; pattern.length() &amp;&amp; pattern.charAt(p) == '*') {</span>
+<span class="fc" id="L109">            p++;</span>
+        }
+<span class="fc bfc" id="L111" title="All 2 branches covered.">        return p == pattern.length();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

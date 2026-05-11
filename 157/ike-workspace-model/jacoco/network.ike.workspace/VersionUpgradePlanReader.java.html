@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VersionUpgradePlanReader.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">VersionUpgradePlanReader.java</span></div><h1>VersionUpgradePlanReader.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * Reads a {@code versions-upgrade-plan.yaml} file into a typed
+ * {@link VersionUpgradePlan}.
+ *
+ * &lt;p&gt;SnakeYAML parses into untyped {@code Map&lt;String,Object&gt;}; this
+ * class maps that onto immutable records with validation. Unknown
+ * fields are rejected — plans are short-lived and machine-generated,
+ * so silent tolerance is more likely to mask bugs than to help.
+ *
+ * &lt;p&gt;Matches {@link ManifestReader} in style: static factory
+ * methods, small parse helpers per record, fail-fast on malformed
+ * input with {@link VersionUpgradePlanException}.
+ */
+public final class VersionUpgradePlanReader {
+
+    private VersionUpgradePlanReader() {}
+
+    /**
+     * Read a plan from a YAML file.
+     *
+     * @param path path to {@code versions-upgrade-plan.yaml}
+     * @return the parsed plan
+     * @throws VersionUpgradePlanException if the file cannot be read or has
+     *                              invalid structure
+     */
+    public static VersionUpgradePlan read(Path path) {
+<span class="nc" id="L42">        try (Reader reader = Files.newBufferedReader(path)) {</span>
+<span class="nc" id="L43">            return read(reader);</span>
+<span class="nc" id="L44">        } catch (IOException e) {</span>
+<span class="nc" id="L45">            throw new VersionUpgradePlanException(&quot;Cannot read &quot; + path, e);</span>
+        }
+    }
+
+    /**
+     * Read a plan from a YAML source.
+     *
+     * @param reader YAML source
+     * @return the parsed plan
+     * @throws VersionUpgradePlanException if the YAML has invalid structure
+     */
+    public static VersionUpgradePlan read(Reader reader) {
+<span class="fc" id="L57">        Yaml yaml = new Yaml();</span>
+<span class="fc" id="L58">        Map&lt;String, Object&gt; root = yaml.load(reader);</span>
+<span class="fc bfc" id="L59" title="All 2 branches covered.">        if (root == null) {</span>
+<span class="fc" id="L60">            throw new VersionUpgradePlanException(&quot;Empty plan&quot;);</span>
+        }
+<span class="fc" id="L62">        return parsePlan(root);</span>
+    }
+
+    private static VersionUpgradePlan parsePlan(Map&lt;String, Object&gt; root) {
+<span class="fc" id="L66">        String schemaVersion = stringField(root, &quot;schema-version&quot;, &quot;1.0&quot;);</span>
+<span class="fc" id="L67">        String generated = stringField(root, &quot;generated&quot;, null);</span>
+<span class="fc" id="L68">        VersionUpgradeScope scope = parseScope(stringField(root, &quot;scope&quot;, null));</span>
+<span class="fc" id="L69">        String planHash = stringField(root, &quot;plan-hash&quot;, null);</span>
+<span class="fc" id="L70">        String pomFingerprint = stringField(root, &quot;pom-fingerprint&quot;, null);</span>
+<span class="fc" id="L71">        String ikeToolingVersion =</span>
+<span class="fc" id="L72">                stringField(root, &quot;ike-tooling-version&quot;, null);</span>
+
+<span class="fc" id="L74">        Map&lt;String, NodeVersionUpgrade&gt; nodes =</span>
+<span class="fc" id="L75">                parseNodes(mapField(root, &quot;nodes&quot;));</span>
+
+<span class="fc" id="L77">        return new VersionUpgradePlan(schemaVersion, generated, scope, planHash,</span>
+                pomFingerprint, ikeToolingVersion, nodes);
+    }
+
+    private static VersionUpgradeScope parseScope(String raw) {
+<span class="fc bfc" id="L82" title="All 2 branches covered.">        if (raw == null) {</span>
+<span class="fc" id="L83">            throw new VersionUpgradePlanException(</span>
+                    &quot;Plan is missing required field: scope&quot;);
+        }
+        try {
+<span class="fc" id="L87">            return VersionUpgradeScope.valueOf(raw.trim().toUpperCase(Locale.ROOT));</span>
+<span class="fc" id="L88">        } catch (IllegalArgumentException e) {</span>
+<span class="fc" id="L89">            throw new VersionUpgradePlanException(</span>
+                    &quot;Unknown scope '&quot; + raw + &quot;' — expected 'module' or &quot;
+                            + &quot;'workspace'&quot;, e);
+        }
+    }
+
+    private static Map&lt;String, NodeVersionUpgrade&gt; parseNodes(
+            Map&lt;String, Object&gt; raw) {
+<span class="pc bpc" id="L97" title="1 of 4 branches missed.">        if (raw == null || raw.isEmpty()) {</span>
+<span class="fc" id="L98">            return Map.of();</span>
+        }
+<span class="fc" id="L100">        Map&lt;String, NodeVersionUpgrade&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">        for (Map.Entry&lt;String, Object&gt; entry : raw.entrySet()) {</span>
+<span class="fc" id="L102">            String name = entry.getKey();</span>
+            @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L104">            Map&lt;String, Object&gt; fields = (Map&lt;String, Object&gt;) entry.getValue();</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">            if (fields == null) {</span>
+<span class="nc" id="L106">                throw new VersionUpgradePlanException(</span>
+                        &quot;Node '&quot; + name + &quot;' has no body&quot;);
+            }
+<span class="fc" id="L109">            result.put(name, parseNode(name, fields));</span>
+<span class="fc" id="L110">        }</span>
+<span class="fc" id="L111">        return Collections.unmodifiableMap(result);</span>
+    }
+
+    private static NodeVersionUpgrade parseNode(String name,
+                                                Map&lt;String, Object&gt; fields) {
+<span class="fc" id="L116">        ParentVersionUpgrade parent = parseParent(mapField(fields, &quot;parent&quot;));</span>
+<span class="fc" id="L117">        List&lt;PropertyVersionUpgrade&gt; properties =</span>
+<span class="fc" id="L118">                parseProperties(mapField(fields, &quot;properties&quot;));</span>
+<span class="fc" id="L119">        List&lt;LiteralVersionUpgrade&gt; literals =</span>
+<span class="fc" id="L120">                parseLiterals(listOfMaps(fields, &quot;literals&quot;));</span>
+<span class="fc" id="L121">        return new NodeVersionUpgrade(name, parent, properties, literals);</span>
+    }
+
+    private static ParentVersionUpgrade parseParent(Map&lt;String, Object&gt; map) {
+<span class="pc bpc" id="L125" title="1 of 4 branches missed.">        if (map == null || map.isEmpty()) {</span>
+<span class="fc" id="L126">            return null;</span>
+        }
+<span class="fc" id="L128">        return new ParentVersionUpgrade(</span>
+<span class="fc" id="L129">                requireString(map, &quot;groupId&quot;),</span>
+<span class="fc" id="L130">                requireString(map, &quot;artifactId&quot;),</span>
+<span class="fc" id="L131">                requireString(map, &quot;from&quot;),</span>
+<span class="fc" id="L132">                requireString(map, &quot;to&quot;),</span>
+<span class="fc" id="L133">                parseStatus(requireString(map, &quot;status&quot;)),</span>
+<span class="fc" id="L134">                stringField(map, &quot;reason&quot;, null));</span>
+    }
+
+    private static List&lt;PropertyVersionUpgrade&gt; parseProperties(
+            Map&lt;String, Object&gt; map) {
+<span class="pc bpc" id="L139" title="1 of 4 branches missed.">        if (map == null || map.isEmpty()) {</span>
+<span class="fc" id="L140">            return List.of();</span>
+        }
+<span class="fc" id="L142">        List&lt;PropertyVersionUpgrade&gt; result = new ArrayList&lt;&gt;(map.size());</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">        for (Map.Entry&lt;String, Object&gt; entry : map.entrySet()) {</span>
+<span class="fc" id="L144">            String propertyName = entry.getKey();</span>
+            @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L146">            Map&lt;String, Object&gt; fields = (Map&lt;String, Object&gt;) entry.getValue();</span>
+<span class="pc bpc" id="L147" title="1 of 2 branches missed.">            if (fields == null) {</span>
+<span class="nc" id="L148">                throw new VersionUpgradePlanException(</span>
+                        &quot;Property '&quot; + propertyName + &quot;' has no body&quot;);
+            }
+<span class="fc" id="L151">            result.add(new PropertyVersionUpgrade(</span>
+                    propertyName,
+<span class="fc" id="L153">                    requireString(fields, &quot;from&quot;),</span>
+<span class="fc" id="L154">                    requireString(fields, &quot;to&quot;),</span>
+<span class="fc" id="L155">                    parseStatus(requireString(fields, &quot;status&quot;)),</span>
+<span class="fc" id="L156">                    stringField(fields, &quot;reason&quot;, null)));</span>
+<span class="fc" id="L157">        }</span>
+<span class="fc" id="L158">        return Collections.unmodifiableList(result);</span>
+    }
+
+    private static List&lt;LiteralVersionUpgrade&gt; parseLiterals(
+            List&lt;Map&lt;String, Object&gt;&gt; raw) {
+<span class="pc bpc" id="L163" title="1 of 4 branches missed.">        if (raw == null || raw.isEmpty()) {</span>
+<span class="fc" id="L164">            return List.of();</span>
+        }
+<span class="fc" id="L166">        List&lt;LiteralVersionUpgrade&gt; result = new ArrayList&lt;&gt;(raw.size());</span>
+<span class="fc bfc" id="L167" title="All 2 branches covered.">        for (Map&lt;String, Object&gt; entry : raw) {</span>
+<span class="fc" id="L168">            result.add(new LiteralVersionUpgrade(</span>
+<span class="fc" id="L169">                    requireString(entry, &quot;groupId&quot;),</span>
+<span class="fc" id="L170">                    requireString(entry, &quot;artifactId&quot;),</span>
+<span class="fc" id="L171">                    stringField(entry, &quot;location&quot;, &quot;&quot;),</span>
+<span class="fc" id="L172">                    requireString(entry, &quot;from&quot;),</span>
+<span class="fc" id="L173">                    requireString(entry, &quot;to&quot;),</span>
+<span class="fc" id="L174">                    parseStatus(requireString(entry, &quot;status&quot;)),</span>
+<span class="fc" id="L175">                    stringField(entry, &quot;reason&quot;, null)));</span>
+<span class="fc" id="L176">        }</span>
+<span class="fc" id="L177">        return Collections.unmodifiableList(result);</span>
+    }
+
+    private static VersionUpgradeStatus parseStatus(String raw) {
+<span class="fc" id="L181">        String canon = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');</span>
+        try {
+<span class="fc" id="L183">            return VersionUpgradeStatus.valueOf(canon);</span>
+<span class="fc" id="L184">        } catch (IllegalArgumentException e) {</span>
+<span class="fc" id="L185">            throw new VersionUpgradePlanException(</span>
+                    &quot;Unknown status '&quot; + raw + &quot;' — expected 'ready', &quot;
+                            + &quot;'blocked', or 'pending-upstream'&quot;, e);
+        }
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private static Map&lt;String, Object&gt; mapField(Map&lt;String, Object&gt; map,
+                                                String key) {
+<span class="fc" id="L194">        Object value = map.get(key);</span>
+<span class="fc bfc" id="L195" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L196">            return null;</span>
+        }
+<span class="pc bpc" id="L198" title="1 of 2 branches missed.">        if (!(value instanceof Map)) {</span>
+<span class="nc" id="L199">            throw new VersionUpgradePlanException(</span>
+                    &quot;Expected a mapping for '&quot; + key + &quot;' but got &quot;
+<span class="nc" id="L201">                            + value.getClass().getSimpleName());</span>
+        }
+<span class="fc" id="L203">        return (Map&lt;String, Object&gt;) value;</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private static List&lt;Map&lt;String, Object&gt;&gt; listOfMaps(
+            Map&lt;String, Object&gt; map, String key) {
+<span class="fc" id="L209">        Object value = map.get(key);</span>
+<span class="pc bpc" id="L210" title="1 of 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L211">            return null;</span>
+        }
+<span class="pc bpc" id="L213" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
+<span class="nc" id="L214">            throw new VersionUpgradePlanException(</span>
+                    &quot;Expected a list for '&quot; + key + &quot;' but got &quot;
+<span class="nc" id="L216">                            + value.getClass().getSimpleName());</span>
+        }
+<span class="fc" id="L218">        return (List&lt;Map&lt;String, Object&gt;&gt;) value;</span>
+    }
+
+    private static String stringField(Map&lt;String, Object&gt; map, String key,
+                                      String defaultValue) {
+<span class="fc" id="L223">        Object value = map.get(key);</span>
+<span class="fc bfc" id="L224" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L225">            return defaultValue;</span>
+        }
+<span class="fc" id="L227">        return value.toString();</span>
+    }
+
+    private static String requireString(Map&lt;String, Object&gt; map, String key) {
+<span class="fc" id="L231">        Object value = map.get(key);</span>
+<span class="fc bfc" id="L232" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L233">            throw new VersionUpgradePlanException(</span>
+                    &quot;Missing required field: &quot; + key);
+        }
+<span class="fc" id="L236">        return value.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldManifest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">ScaffoldManifest.java</span></div><h1>ScaffoldManifest.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * In-memory representation of a scaffold manifest.
+ *
+ * &lt;p&gt;Shipped as {@code scaffold-manifest.yaml} inside the
+ * {@code ike-build-standards} scaffold zip (see #222). Consumed by the
+ * {@code ike:scaffold-draft|publish|revert} mojo family to decide
+ * what templates to install, where, under which policy.
+ *
+ * @param schema           manifest schema version (currently
+ *                         {@link #CURRENT_SCHEMA})
+ * @param standardsVersion {@code ike-build-standards} version that
+ *                         produced this manifest (recorded into
+ *                         lockfile entries on publish)
+ * @param entries          ordered list of manifest entries; never
+ *                         {@code null}, stored as an unmodifiable
+ *                         copy
+ * @param foundation       IKE-foundation version pins captured at
+ *                         scaffold-build time — the
+ *                         tested-together compatibility snapshot of
+ *                         ike-parent + standard properties. Null
+ *                         when the manifest doesn't declare a
+ *                         {@code foundation:} section (#345)
+ */
+public record ScaffoldManifest(
+        int schema,
+        String standardsVersion,
+        List&lt;ManifestEntry&gt; entries,
+        Foundation foundation) {
+
+    /**
+     * Current on-disk schema version. Bumps here must be paired with
+     * a migration in {@code ScaffoldManifestIo}.
+     */
+    public static final int CURRENT_SCHEMA = 1;
+
+    /**
+     * Canonical constructor with validation and defensive copying.
+     */
+<span class="fc" id="L46">    public ScaffoldManifest {</span>
+<span class="pc bpc" id="L47" title="1 of 2 branches missed.">        if (schema &lt;= 0) {</span>
+<span class="nc" id="L48">            throw new IllegalArgumentException(</span>
+                    &quot;schema must be positive&quot;);
+        }
+<span class="fc" id="L51">        Objects.requireNonNull(standardsVersion, &quot;standardsVersion&quot;);</span>
+<span class="pc bpc" id="L52" title="1 of 2 branches missed.">        if (standardsVersion.isBlank()) {</span>
+<span class="nc" id="L53">            throw new IllegalArgumentException(</span>
+                    &quot;standardsVersion cannot be blank&quot;);
+        }
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">        entries = entries == null</span>
+<span class="nc" id="L57">                ? Collections.emptyList()</span>
+<span class="fc" id="L58">                : List.copyOf(entries);</span>
+<span class="fc" id="L59">    }</span>
+
+    /**
+     * Backward-compatible constructor (#345 added the {@code foundation}
+     * field; pre-#345 callers passed three args and got a manifest
+     * with no foundation pinning).
+     *
+     * @param schema           manifest schema version
+     * @param standardsVersion ike-build-standards version that
+     *                         produced this manifest
+     * @param entries          ordered manifest entries
+     */
+    public ScaffoldManifest(int schema,
+                             String standardsVersion,
+                             List&lt;ManifestEntry&gt; entries) {
+<span class="fc" id="L74">        this(schema, standardsVersion, entries, null);</span>
+<span class="fc" id="L75">    }</span>
+
+    /**
+     * Filter entries by scope.
+     *
+     * @param scope the scope to keep
+     * @return manifest entries matching {@code scope}, in original
+     *         order
+     */
+    public List&lt;ManifestEntry&gt; entriesInScope(ScaffoldScope scope) {
+<span class="fc" id="L85">        Objects.requireNonNull(scope, &quot;scope&quot;);</span>
+<span class="fc" id="L86">        return entries.stream()</span>
+<span class="fc bfc" id="L87" title="All 2 branches covered.">                .filter(e -&gt; e.scope() == scope)</span>
+<span class="fc" id="L88">                .toList();</span>
+    }
+
+    /**
+     * IKE-foundation version pins baked into the scaffold zip at
+     * release time (#345). Picking up scaffold version N means picking
+     * up the foundation versions that were the latest-released at
+     * the moment {@code ike-tooling N} cut its release — the
+     * compatibility snapshot operators want for cross-cascade
+     * consistency.
+     *
+     * &lt;p&gt;The {@code parent} field carries the workspace-level
+     * {@code &lt;parent&gt;} target (typically
+     * {@code network.ike.platform:ike-parent} at version N).
+     * The {@code properties} map carries values for the
+     * standard IKE foundation property names
+     * ({@code ike-tooling.version}, {@code ike-docs.version},
+     * {@code ike-platform.version}).
+     *
+     * @param parent     parent declaration coordinates + version
+     * @param properties map of property names to expected values
+     */
+    public record Foundation(ParentRef parent,
+                              Map&lt;String, String&gt; properties) {
+
+        /** Canonical constructor with defensive copying. */
+<span class="fc" id="L114">        public Foundation {</span>
+<span class="pc bpc" id="L115" title="1 of 2 branches missed.">            properties = properties == null</span>
+<span class="nc" id="L116">                    ? Collections.emptyMap()</span>
+<span class="fc" id="L117">                    : Map.copyOf(properties);</span>
+<span class="fc" id="L118">        }</span>
+    }
+
+    /**
+     * Coordinates of an inheriting parent POM, used by
+     * {@link Foundation}.
+     *
+     * @param groupId    parent groupId
+     * @param artifactId parent artifactId
+     * @param version    parent version
+     */
+    public record ParentRef(String groupId,
+                             String artifactId,
+                             String version) {
+
+        /** Canonical constructor with null guards. */
+<span class="fc" id="L134">        public ParentRef {</span>
+<span class="fc" id="L135">            Objects.requireNonNull(groupId, &quot;groupId&quot;);</span>
+<span class="fc" id="L136">            Objects.requireNonNull(artifactId, &quot;artifactId&quot;);</span>
+<span class="fc" id="L137">            Objects.requireNonNull(version, &quot;version&quot;);</span>
+<span class="fc" id="L138">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

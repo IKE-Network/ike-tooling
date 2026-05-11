@@ -1,0 +1,370 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldMojoSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">ScaffoldMojoSupport.java</span></div><h1>ScaffoldMojoSupport.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.Log;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Shared plumbing for {@code ike:scaffold-draft},
+ * {@code ike:scaffold-publish}, and {@code ike:scaffold-revert}.
+ *
+ * &lt;p&gt;Resolves the scaffold tree (manifest + templates), loads
+ * per-scope lockfiles from disk, and offers pure-function helpers
+ * the three mojos use. Written as a final class with static
+ * methods so the mojos can share wiring without inheritance.
+ */
+public final class ScaffoldMojoSupport {
+
+    /** File name of the manifest inside a scaffold tree. */
+    public static final String MANIFEST_FILE = &quot;scaffold-manifest.yaml&quot;;
+
+    /** Relative path of the per-project lockfile. */
+    public static final String PROJECT_LOCKFILE_REL =
+            &quot;.ike/scaffold.lock&quot;;
+
+    /** Relative path of the per-user lockfile. */
+    public static final String USER_LOCKFILE_REL =
+            &quot;.ike/scaffold.lock&quot;;
+
+    private ScaffoldMojoSupport() {}
+
+    /**
+     * Resolve the effective project root for a scaffold goal.
+     *
+     * &lt;p&gt;Goals annotated {@code projectRequired = false} cannot rely on
+     * Maven's parameter-default expansion of {@code ${project.basedir}}
+     * — Maven 4 leaves the placeholder uninterpolated when no project
+     * is required, even when one is in scope. Callers therefore pass an
+     * explicit {@code projectRoot} parameter when supplied by the user;
+     * when blank, this helper derives the directory from
+     * {@link Session#getTopDirectory()} (the directory Maven was
+     * launched from).
+     *
+     * &lt;p&gt;The result is null when no {@code pom.xml} sits at the
+     * resolved location, which the calling mojo treats as
+     * fresh-machine bootstrap (user scope only, no project scope).
+     *
+     * @param projectRootOverride raw value of the {@code projectRoot}
+     *                            parameter; null/blank means
+     *                            &quot;auto-detect&quot;
+     * @param session             Maven 4 session; required for
+     *                            auto-detection. May be {@code null}
+     *                            in tests that supply an explicit
+     *                            override.
+     * @return absolute project root, or {@code null} when no project
+     *         is in scope at the resolved location
+     */
+    public static Path resolveProjectRoot(
+            String projectRootOverride, Session session) {
+<span class="fc bfc" id="L63" title="All 2 branches covered.">        if (projectRootOverride != null</span>
+<span class="fc bfc" id="L64" title="All 2 branches covered.">                &amp;&amp; !projectRootOverride.isBlank()) {</span>
+<span class="fc" id="L65">            return Path.of(projectRootOverride);</span>
+        }
+<span class="pc bpc" id="L67" title="1 of 2 branches missed.">        if (session == null) {</span>
+<span class="fc" id="L68">            return null;</span>
+        }
+<span class="nc" id="L70">        Path top = session.getTopDirectory();</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">        if (top == null) {</span>
+<span class="nc" id="L72">            return null;</span>
+        }
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (!Files.isRegularFile(top.resolve(&quot;pom.xml&quot;))) {</span>
+<span class="nc" id="L75">            return null;</span>
+        }
+<span class="nc" id="L77">        return top;</span>
+    }
+
+    /**
+     * Resolve the manifest file at the root of a scaffold tree.
+     *
+     * @param scaffoldDir the directory containing
+     *                    {@value #MANIFEST_FILE} and templates
+     * @return parsed manifest
+     * @throws ScaffoldException if the directory or manifest is missing
+     */
+    public static ScaffoldManifest loadManifest(Path scaffoldDir) {
+<span class="fc bfc" id="L89" title="All 2 branches covered.">        if (scaffoldDir == null) {</span>
+<span class="fc" id="L90">            throw new ScaffoldException(</span>
+                    &quot;scaffoldDir is required; point it at the &quot;
+                            + &quot;unpacked ike-build-standards scaffold tree&quot;);
+        }
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        if (!Files.isDirectory(scaffoldDir)) {</span>
+<span class="fc" id="L95">            throw new ScaffoldException(</span>
+                    &quot;scaffoldDir is not a directory: &quot; + scaffoldDir);
+        }
+<span class="fc" id="L98">        Path manifestPath = scaffoldDir.resolve(MANIFEST_FILE);</span>
+<span class="fc bfc" id="L99" title="All 2 branches covered.">        if (!Files.isRegularFile(manifestPath)) {</span>
+<span class="fc" id="L100">            throw new ScaffoldException(</span>
+                    &quot;missing &quot; + MANIFEST_FILE + &quot; under &quot;
+                            + scaffoldDir);
+        }
+<span class="fc" id="L104">        return ScaffoldManifestIo.read(manifestPath);</span>
+    }
+
+    /**
+     * Resolve the project lockfile path, creating nothing.
+     *
+     * @param projectRoot project base directory; may be {@code null}
+     *                    when no project is in scope
+     * @return absolute path to {@code {projectRoot}/.ike/scaffold.lock},
+     *         or {@code null} if {@code projectRoot} is null
+     */
+    public static Path projectLockfilePath(Path projectRoot) {
+<span class="fc bfc" id="L116" title="All 2 branches covered.">        if (projectRoot == null) {</span>
+<span class="fc" id="L117">            return null;</span>
+        }
+<span class="fc" id="L119">        return projectRoot.resolve(PROJECT_LOCKFILE_REL);</span>
+    }
+
+    /**
+     * Resolve the user lockfile path, creating nothing.
+     *
+     * @param userHome the user's home directory; required
+     * @return absolute path to {@code {userHome}/.ike/scaffold.lock}
+     */
+    public static Path userLockfilePath(Path userHome) {
+<span class="fc" id="L129">        return userHome.resolve(USER_LOCKFILE_REL);</span>
+    }
+
+    /**
+     * Load a lockfile from disk, returning
+     * {@link ScaffoldLockfile#empty()} when the file is absent.
+     *
+     * @param lockfilePath path to the lockfile; may be {@code null}
+     *                     (returns empty)
+     * @return the loaded lockfile, or an empty lockfile
+     */
+    public static ScaffoldLockfile loadLockfileOrEmpty(Path lockfilePath) {
+<span class="fc bfc" id="L141" title="All 2 branches covered.">        if (lockfilePath == null) {</span>
+<span class="fc" id="L142">            return ScaffoldLockfile.empty();</span>
+        }
+<span class="fc bfc" id="L144" title="All 2 branches covered.">        if (!Files.isRegularFile(lockfilePath)) {</span>
+<span class="fc" id="L145">            return ScaffoldLockfile.empty();</span>
+        }
+<span class="fc" id="L147">        return ScaffoldLockfileIo.read(lockfilePath);</span>
+    }
+
+    /**
+     * Render a draft-style listing of a plan suitable for log output.
+     *
+     * &lt;p&gt;Lines look like:
+     * &lt;pre&gt;
+     * [INSTALL]  mvnw                         -&amp;gt; /path/to/mvnw
+     * [UPDATE]   .mvn/maven.config            -&amp;gt; refresh
+     * [SKIP]     .gitignore                   user-edited; +3/-1
+     * [OK]       ~/.m2/settings.xml           up-to-date
+     * [USER]     ~/.gitconfig                 deferred to user value for [core].hooksPath
+     * &lt;/pre&gt;
+     *
+     * @param plan  the plan to render
+     * @param scope the scope the plan was built for (used as a header)
+     * @return multi-line human-readable report (no trailing newline)
+     */
+    public static String renderPlanReport(
+            ScaffoldPlan plan, ScaffoldScope scope) {
+<span class="fc" id="L168">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L169">        sb.append(&quot;─── &quot;).append(scope.manifestValue())</span>
+<span class="fc" id="L170">                .append(&quot; scope (&quot;).append(plan.entries().size())</span>
+<span class="fc" id="L171">                .append(&quot; entries) ───&quot;);</span>
+<span class="fc bfc" id="L172" title="All 2 branches covered.">        if (plan.entries().isEmpty()) {</span>
+<span class="fc" id="L173">            sb.append(&quot;\n  (nothing in this scope)&quot;);</span>
+<span class="fc" id="L174">            return sb.toString();</span>
+        }
+<span class="fc bfc" id="L176" title="All 2 branches covered.">        for (PlannedEntry pe : plan.entries()) {</span>
+<span class="fc" id="L177">            sb.append('\n').append(formatLine(pe));</span>
+<span class="fc" id="L178">        }</span>
+<span class="fc" id="L179">        return sb.toString();</span>
+    }
+
+    /**
+     * One-line summary of what the plan would change, for post-publish
+     * telemetry and draft headers.
+     *
+     * @param plan the plan to summarise
+     * @return counts of each action type
+     */
+    public static Counts countActions(ScaffoldPlan plan) {
+<span class="fc" id="L190">        int install = 0, update = 0, skip = 0;</span>
+<span class="fc" id="L191">        int upToDate = 0, userManaged = 0;</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">        for (PlannedEntry pe : plan.entries()) {</span>
+<span class="fc" id="L193">            TierAction a = pe.action();</span>
+<span class="fc bfc" id="L194" title="All 2 branches covered.">            if (a instanceof TierAction.Write w) {</span>
+<span class="fc bfc" id="L195" title="All 2 branches covered.">                if (w.kind() == TierAction.Write.Kind.INSTALL) {</span>
+<span class="fc" id="L196">                    install++;</span>
+                } else {
+<span class="fc" id="L198">                    update++;</span>
+                }
+<span class="fc bfc" id="L200" title="All 2 branches covered.">            } else if (a instanceof TierAction.Skip) {</span>
+<span class="fc" id="L201">                skip++;</span>
+<span class="fc bfc" id="L202" title="All 2 branches covered.">            } else if (a instanceof TierAction.UpToDate) {</span>
+<span class="fc" id="L203">                upToDate++;</span>
+<span class="pc bpc" id="L204" title="1 of 2 branches missed.">            } else if (a instanceof TierAction.UserManaged) {</span>
+<span class="fc" id="L205">                userManaged++;</span>
+            }
+<span class="fc" id="L207">        }</span>
+<span class="fc" id="L208">        return new Counts(install, update, skip, upToDate, userManaged);</span>
+    }
+
+    /**
+     * Render a revert-outcome listing suitable for log output.
+     *
+     * @param result the revert result
+     * @param scope  the scope the revert targeted
+     * @return multi-line human-readable report (no trailing newline)
+     */
+    public static String renderRevertReport(
+            ScaffoldReverter.RevertResult result, ScaffoldScope scope) {
+<span class="fc" id="L220">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L221">        sb.append(&quot;─── &quot;).append(scope.manifestValue())</span>
+<span class="fc" id="L222">                .append(&quot; scope (&quot;).append(result.outcomes().size())</span>
+<span class="fc" id="L223">                .append(&quot; entries) ───&quot;);</span>
+<span class="fc bfc" id="L224" title="All 2 branches covered.">        if (result.outcomes().isEmpty()) {</span>
+<span class="fc" id="L225">            sb.append(&quot;\n  (nothing to revert)&quot;);</span>
+<span class="fc" id="L226">            return sb.toString();</span>
+        }
+<span class="fc bfc" id="L228" title="All 2 branches covered.">        for (ScaffoldReverter.Outcome o : result.outcomes()) {</span>
+<span class="fc" id="L229">            sb.append('\n').append(formatOutcome(o));</span>
+<span class="fc" id="L230">        }</span>
+<span class="fc" id="L231">        return sb.toString();</span>
+    }
+
+    /**
+     * Write a batch of plan-report lines through the supplied log.
+     * Each {@code \n}-separated segment becomes a separate
+     * {@link Log#info(CharSequence) log.info} call so Maven's
+     * level/colour formatting works on each line.
+     *
+     * @param log       the mojo log
+     * @param multiLine multi-line text
+     */
+    public static void logLines(Log log, String multiLine) {
+<span class="fc bfc" id="L244" title="All 2 branches covered.">        for (String line : multiLine.split(&quot;\n&quot;)) {</span>
+<span class="fc" id="L245">            log.info(line);</span>
+        }
+<span class="fc" id="L247">    }</span>
+
+    // ── Helpers ─────────────────────────────────────────────────────
+
+    private static String formatLine(PlannedEntry pe) {
+<span class="fc" id="L252">        String dest = pe.manifest().dest();</span>
+<span class="fc" id="L253">        TierAction a = pe.action();</span>
+<span class="fc bfc" id="L254" title="All 2 branches covered.">        if (a instanceof TierAction.Write w) {</span>
+<span class="pc bpc" id="L255" title="2 of 3 branches missed.">            String label = switch (w.kind()) {</span>
+<span class="fc" id="L256">                case INSTALL -&gt; &quot;[INSTALL]&quot;;</span>
+<span class="nc" id="L257">                case UPDATE -&gt; &quot;[UPDATE] &quot;;</span>
+<span class="nc" id="L258">                case REVERT -&gt; &quot;[REVERT] &quot;;</span>
+            };
+<span class="fc" id="L260">            return &quot;  &quot; + label + &quot;  &quot; + padRight(dest, 36)</span>
+<span class="fc" id="L261">                    + &quot;  &quot; + w.reason();</span>
+        }
+<span class="fc bfc" id="L263" title="All 2 branches covered.">        if (a instanceof TierAction.Skip s) {</span>
+<span class="fc" id="L264">            StringBuilder line = new StringBuilder();</span>
+<span class="fc" id="L265">            line.append(&quot;  [SKIP]    &quot;).append(padRight(dest, 36))</span>
+<span class="fc" id="L266">                    .append(&quot;  &quot;).append(s.reason());</span>
+<span class="pc bpc" id="L267" title="1 of 2 branches missed.">            if (!s.diff().isBlank()) {</span>
+<span class="fc bfc" id="L268" title="All 2 branches covered.">                for (String diffLine : s.diff().split(&quot;\n&quot;)) {</span>
+<span class="fc" id="L269">                    line.append('\n').append(&quot;        &quot;).append(diffLine);</span>
+                }
+            }
+<span class="fc" id="L272">            return line.toString();</span>
+        }
+<span class="fc bfc" id="L274" title="All 2 branches covered.">        if (a instanceof TierAction.UpToDate u) {</span>
+<span class="fc" id="L275">            return &quot;  [OK]      &quot; + padRight(dest, 36)</span>
+<span class="fc" id="L276">                    + &quot;  &quot; + u.reason();</span>
+        }
+<span class="pc bpc" id="L278" title="1 of 2 branches missed.">        if (a instanceof TierAction.UserManaged m) {</span>
+<span class="fc" id="L279">            return &quot;  [USER]    &quot; + padRight(dest, 36)</span>
+<span class="fc" id="L280">                    + &quot;  &quot; + m.reason();</span>
+        }
+<span class="nc" id="L282">        return &quot;  [?]       &quot; + dest;</span>
+    }
+
+    private static String formatOutcome(ScaffoldReverter.Outcome o) {
+<span class="fc bfc" id="L286" title="All 3 branches covered.">        String label = switch (o.kind()) {</span>
+<span class="fc" id="L287">            case DELETED -&gt; &quot;[DELETED]&quot;;</span>
+<span class="fc" id="L288">            case REMOVED_FROM_LOCKFILE -&gt; &quot;[CLEARED]&quot;;</span>
+<span class="fc" id="L289">            case SKIPPED -&gt; &quot;[SKIP]   &quot;;</span>
+        };
+<span class="fc" id="L291">        return &quot;  &quot; + label + &quot;  &quot; + padRight(o.dest(), 36)</span>
+<span class="fc" id="L292">                + &quot;  &quot; + o.message();</span>
+    }
+
+    private static String padRight(String s, int width) {
+<span class="pc bpc" id="L296" title="1 of 2 branches missed.">        if (s.length() &gt;= width) {</span>
+<span class="nc" id="L297">            return s;</span>
+        }
+<span class="fc" id="L299">        StringBuilder sb = new StringBuilder(s);</span>
+<span class="fc bfc" id="L300" title="All 2 branches covered.">        while (sb.length() &lt; width) {</span>
+<span class="fc" id="L301">            sb.append(' ');</span>
+        }
+<span class="fc" id="L303">        return sb.toString();</span>
+    }
+
+    /**
+     * Aggregate counts of each action kind in a plan.
+     *
+     * @param install     number of {@link TierAction.Write} with
+     *                    {@link TierAction.Write.Kind#INSTALL}
+     * @param update      number of {@link TierAction.Write} with
+     *                    {@link TierAction.Write.Kind#UPDATE}
+     * @param skip        number of {@link TierAction.Skip}
+     * @param upToDate    number of {@link TierAction.UpToDate}
+     * @param userManaged number of {@link TierAction.UserManaged}
+     */
+<span class="fc" id="L317">    public record Counts(</span>
+            int install, int update, int skip,
+            int upToDate, int userManaged) {
+
+        /**
+         * Total number of entries across every action kind.
+         *
+         * @return sum of {@code install + update + skip + upToDate +
+         *         userManaged}
+         */
+        public int total() {
+<span class="fc" id="L328">            return install + update + skip + upToDate + userManaged;</span>
+        }
+
+        /**
+         * Whether any write action is planned.
+         *
+         * @return {@code true} if {@code install + update &gt; 0}
+         */
+        public boolean hasWrites() {
+<span class="fc bfc" id="L337" title="All 2 branches covered.">            return install + update &gt; 0;</span>
+        }
+
+        /**
+         * One-line summary like
+         * {@code &quot;2 install, 1 update, 0 skip, 0 ok, 1 user&quot;}.
+         *
+         * @return summary line suitable for draft-output display
+         */
+        public String summary() {
+<span class="fc" id="L347">            return install + &quot; install, &quot; + update + &quot; update, &quot;</span>
+                    + skip + &quot; skip, &quot; + upToDate + &quot; ok, &quot;
+                    + userManaged + &quot; user&quot;;
+        }
+    }
+
+    /**
+     * Scopes the mojos should run for given a project-required
+     * context: in a project, both scopes apply; standalone, only
+     * user.
+     *
+     * @param inProject whether the mojo invocation has a project
+     * @return scopes to process, in order
+     */
+    public static List&lt;ScaffoldScope&gt; scopesToProcess(boolean inProject) {
+<span class="fc" id="L362">        List&lt;ScaffoldScope&gt; scopes = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L363">        scopes.add(ScaffoldScope.USER);</span>
+<span class="fc bfc" id="L364" title="All 2 branches covered.">        if (inProject) {</span>
+<span class="fc" id="L365">            scopes.add(ScaffoldScope.PROJECT);</span>
+        }
+<span class="fc" id="L367">        return scopes;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

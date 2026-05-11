@@ -1,0 +1,400 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ManifestReader.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">ManifestReader.java</span></div><h1>ManifestReader.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Reads a {@code workspace.yaml} file into a typed {@link Manifest}.
+ *
+ * &lt;p&gt;SnakeYAML parses into raw Maps; this class maps the untyped
+ * structure onto immutable Java records with validation.
+ *
+ * &lt;p&gt;As of #150, the manifest uses the {@code subprojects:} top-level
+ * key. Legacy manifests with {@code components:} are rejected by
+ * {@link #read(Path)} — run {@code mvn ws:align-publish} to migrate,
+ * or call
+ * {@link #migrateLegacySchemaIfNeeded(Path, java.util.function.Consumer)}
+ * first as {@code ws:align-publish} does internally.
+ */
+public final class ManifestReader {
+
+    private ManifestReader() {}
+
+    /**
+     * Read a workspace manifest from the given YAML file path.
+     *
+     * @param path path to workspace.yaml
+     * @return the parsed manifest
+     * @throws ManifestException if the file cannot be read, has invalid
+     *                           structure, or uses the legacy
+     *                           {@code components:} schema
+     */
+    public static Manifest read(Path path) {
+<span class="fc" id="L45">        try (Reader reader = Files.newBufferedReader(path)) {</span>
+<span class="fc" id="L46">            return read(reader);</span>
+<span class="nc" id="L47">        } catch (IOException e) {</span>
+<span class="nc" id="L48">            throw new ManifestException(&quot;Cannot read &quot; + path, e);</span>
+        }
+    }
+
+    /**
+     * Read a workspace manifest from a Reader (useful for testing).
+     *
+     * @param reader YAML source
+     * @return the parsed manifest
+     * @throws ManifestException if the YAML has invalid structure or uses
+     *                           the legacy {@code components:} schema
+     */
+    public static Manifest read(Reader reader) {
+<span class="fc" id="L61">        Yaml yaml = new Yaml();</span>
+<span class="fc" id="L62">        Map&lt;String, Object&gt; root = yaml.load(reader);</span>
+<span class="fc bfc" id="L63" title="All 2 branches covered.">        if (root == null) {</span>
+<span class="fc" id="L64">            throw new ManifestException(&quot;Empty manifest&quot;);</span>
+        }
+        // Hard-cut on the legacy schema (#150): the reader only accepts
+        // the new `subprojects:` key. `ws:align-publish` migrates in-place
+        // via migrateLegacySchemaIfNeeded before calling read().
+<span class="fc bfc" id="L69" title="All 4 branches covered.">        if (root.containsKey(&quot;components&quot;) &amp;&amp; !root.containsKey(&quot;subprojects&quot;)) {</span>
+<span class="fc" id="L70">            throw new ManifestException(</span>
+                    &quot;workspace.yaml uses legacy 'components:' schema. &quot;
+                            + &quot;Run 'mvn ws:align-publish' to migrate to &quot;
+                            + &quot;'subprojects:' (see #150).&quot;);
+        }
+<span class="fc" id="L75">        return parseManifest(root);</span>
+    }
+
+    private static Manifest parseManifest(Map&lt;String, Object&gt; root) {
+<span class="fc" id="L79">        String schemaVersion = stringField(root, &quot;schema-version&quot;, &quot;1.0&quot;);</span>
+<span class="fc" id="L80">        String generated = stringField(root, &quot;generated&quot;, null);</span>
+
+<span class="fc" id="L82">        Defaults defaults = parseDefaults(mapField(root, &quot;defaults&quot;));</span>
+        // component-types: / subproject-types: is legacy; the concept of
+        // a per-subproject type has been removed entirely. A present
+        // section or per-subproject `type:` field is silently ignored;
+        // ws:align-publish strips legacy structure from workspace.yaml.
+<span class="fc" id="L87">        Map&lt;String, Subproject&gt; subprojects = parseSubprojects(</span>
+<span class="fc" id="L88">                mapField(root, &quot;subprojects&quot;), defaults);</span>
+<span class="fc" id="L89">        IdeSettings ide = parseIdeSettings(mapField(root, &quot;ide&quot;));</span>
+        // Schema 1.1 (#183): typed workspace-root coordinates. Absent on
+        // legacy manifests; callers that need it check for null and
+        // suggest ws:adopt-root (#184).
+<span class="fc" id="L93">        WorkspaceRoot workspaceRoot = parseWorkspaceRoot(</span>
+<span class="fc" id="L94">                mapField(root, &quot;workspace-root&quot;));</span>
+
+<span class="fc" id="L96">        return new Manifest(schemaVersion, generated, defaults,</span>
+                workspaceRoot, subprojects, ide);
+    }
+
+    private static WorkspaceRoot parseWorkspaceRoot(Map&lt;String, Object&gt; map) {
+<span class="fc bfc" id="L101" title="All 2 branches covered.">        if (map == null) {</span>
+<span class="fc" id="L102">            return null;</span>
+        }
+<span class="fc" id="L104">        return new WorkspaceRoot(</span>
+<span class="fc" id="L105">                stringField(map, &quot;groupId&quot;, null),</span>
+<span class="fc" id="L106">                stringField(map, &quot;artifactId&quot;, null),</span>
+<span class="fc" id="L107">                stringField(map, &quot;version&quot;, null)</span>
+        );
+    }
+
+    private static IdeSettings parseIdeSettings(Map&lt;String, Object&gt; map) {
+<span class="fc bfc" id="L112" title="All 2 branches covered.">        if (map == null) {</span>
+<span class="fc" id="L113">            return IdeSettings.EMPTY;</span>
+        }
+<span class="fc" id="L115">        return new IdeSettings(</span>
+<span class="fc" id="L116">                stringField(map, &quot;language-level&quot;, null),</span>
+<span class="fc" id="L117">                stringField(map, &quot;jdk-name&quot;, null)</span>
+        );
+    }
+
+    private static Defaults parseDefaults(Map&lt;String, Object&gt; map) {
+<span class="fc bfc" id="L122" title="All 2 branches covered.">        if (map == null) {</span>
+<span class="fc" id="L123">            return new Defaults(&quot;main&quot;, null);</span>
+        }
+<span class="fc" id="L125">        return new Defaults(</span>
+<span class="fc" id="L126">                stringField(map, &quot;branch&quot;, &quot;main&quot;),</span>
+<span class="fc" id="L127">                stringField(map, &quot;maven-version&quot;, null)</span>
+        );
+    }
+
+    private static Map&lt;String, Subproject&gt; parseSubprojects(
+            Map&lt;String, Object&gt; map, Defaults defaults) {
+<span class="fc bfc" id="L133" title="All 2 branches covered.">        if (map == null) {</span>
+<span class="fc" id="L134">            return Map.of();</span>
+        }
+<span class="fc" id="L136">        Map&lt;String, Subproject&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L137" title="All 2 branches covered.">        for (Map.Entry&lt;String, Object&gt; entry : map.entrySet()) {</span>
+<span class="fc" id="L138">            String name = entry.getKey();</span>
+            @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L140">            Map&lt;String, Object&gt; fields = (Map&lt;String, Object&gt;) entry.getValue();</span>
+<span class="fc" id="L141">            result.put(name, parseSubproject(name, fields, defaults));</span>
+<span class="fc" id="L142">        }</span>
+<span class="fc" id="L143">        return Collections.unmodifiableMap(result);</span>
+    }
+
+    private static Subproject parseSubproject(String name,
+                                              Map&lt;String, Object&gt; fields,
+                                              Defaults defaults) {
+<span class="fc" id="L149">        String branch = stringField(fields, &quot;branch&quot;, defaults.branch());</span>
+<span class="fc" id="L150">        String version = stringField(fields, &quot;version&quot;, null);</span>
+        // SnakeYAML reads YAML ~ (null) as Java null — handle it
+<span class="pc bpc" id="L152" title="1 of 2 branches missed.">        if (&quot;~&quot;.equals(version)) {</span>
+<span class="nc" id="L153">            version = null;</span>
+        }
+
+        @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L157">        List&lt;Map&lt;String, Object&gt;&gt; depsRaw =</span>
+<span class="fc" id="L158">                (List&lt;Map&lt;String, Object&gt;&gt;) fields.get(&quot;depends-on&quot;);</span>
+<span class="fc" id="L159">        List&lt;Dependency&gt; deps = parseDependencies(depsRaw);</span>
+
+        // Alignment fields (#233 schema, sub-task 2). Legacy manifests
+        // without these default to snapshot-aligned, preserving today's
+        // behavior; tag/kind stay null in that case.
+<span class="fc" id="L164">        String state = stringField(fields, &quot;state&quot;, Subproject.STATE_SNAPSHOT);</span>
+<span class="fc" id="L165">        String tag = stringField(fields, &quot;tag&quot;, null);</span>
+<span class="fc" id="L166">        String kind = stringField(fields, &quot;kind&quot;, null);</span>
+
+<span class="fc" id="L168">        return new Subproject(</span>
+                name,
+<span class="fc" id="L170">                stringField(fields, &quot;description&quot;, &quot;&quot;),</span>
+<span class="fc" id="L171">                stringField(fields, &quot;repo&quot;, &quot;&quot;),</span>
+                branch,
+                version,
+<span class="fc" id="L174">                stringField(fields, &quot;groupId&quot;, &quot;&quot;),</span>
+                deps,
+<span class="fc" id="L176">                stringField(fields, &quot;notes&quot;, null),</span>
+<span class="fc" id="L177">                stringField(fields, &quot;maven-version&quot;, null),</span>
+<span class="fc" id="L178">                stringField(fields, &quot;parent&quot;, null),</span>
+<span class="fc" id="L179">                stringField(fields, &quot;sha&quot;, null),</span>
+                state,
+                tag,
+                kind
+        );
+    }
+
+    private static List&lt;Dependency&gt; parseDependencies(
+            List&lt;Map&lt;String, Object&gt;&gt; raw) {
+<span class="fc bfc" id="L188" title="All 4 branches covered.">        if (raw == null || raw.isEmpty()) {</span>
+<span class="fc" id="L189">            return List.of();</span>
+        }
+<span class="fc" id="L191">        List&lt;Dependency&gt; result = new ArrayList&lt;&gt;(raw.size());</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">        for (Map&lt;String, Object&gt; entry : raw) {</span>
+<span class="fc" id="L193">            result.add(new Dependency(</span>
+<span class="fc" id="L194">                    stringField(entry, &quot;subproject&quot;, &quot;&quot;),</span>
+<span class="fc" id="L195">                    stringField(entry, &quot;relationship&quot;, &quot;build&quot;),</span>
+<span class="fc" id="L196">                    stringField(entry, &quot;version-property&quot;, null)</span>
+            ));
+<span class="fc" id="L198">        }</span>
+<span class="fc" id="L199">        return Collections.unmodifiableList(result);</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private static Map&lt;String, Object&gt; mapField(Map&lt;String, Object&gt; map,
+                                                 String key) {
+<span class="fc" id="L205">        Object value = map.get(key);</span>
+<span class="fc bfc" id="L206" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L207">            return null;</span>
+        }
+<span class="fc" id="L209">        return (Map&lt;String, Object&gt;) value;</span>
+    }
+
+    private static String stringField(Map&lt;String, Object&gt; map, String key,
+                                       String defaultValue) {
+<span class="fc" id="L214">        Object value = map.get(key);</span>
+<span class="fc bfc" id="L215" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L216">            return defaultValue;</span>
+        }
+<span class="fc" id="L218">        return value.toString();</span>
+    }
+
+    // ── Legacy schema migration (#150) ──────────────────────────────
+
+    /** Matches {@code components:} as a top-level key (column 0). */
+<span class="fc" id="L224">    private static final Pattern LEGACY_COMPONENTS_KEY =</span>
+<span class="fc" id="L225">            Pattern.compile(&quot;^components:&quot;, Pattern.MULTILINE);</span>
+
+    /** Matches {@code component-types:} as a top-level key (column 0). */
+<span class="fc" id="L228">    private static final Pattern LEGACY_COMPONENT_TYPES_KEY =</span>
+<span class="fc" id="L229">            Pattern.compile(&quot;^component-types:&quot;, Pattern.MULTILINE);</span>
+
+    /** Matches {@code groups:} as a top-level key (column 0). */
+<span class="fc" id="L232">    private static final Pattern LEGACY_GROUPS_KEY =</span>
+<span class="fc" id="L233">            Pattern.compile(&quot;^groups:&quot;, Pattern.MULTILINE);</span>
+
+    /** Matches a legacy {@code  - component:} depends-on entry (indent 2). */
+<span class="fc" id="L236">    private static final Pattern LEGACY_COMPONENT_DEP =</span>
+<span class="fc" id="L237">            Pattern.compile(&quot;^(\\s+)- component:&quot;, Pattern.MULTILINE);</span>
+
+    /**
+     * Idempotently migrate a workspace.yaml file from the legacy
+     * {@code components:} schema to the new {@code subprojects:} schema.
+     *
+     * &lt;p&gt;If the file does not contain any legacy markers this is a no-op
+     * (no file write, no log output). If any legacy markers are present
+     * the method rewrites in place:
+     * &lt;ul&gt;
+     *   &lt;li&gt;{@code ^components:} → {@code subprojects:}&lt;/li&gt;
+     *   &lt;li&gt;{@code ^component-types:} block — removed entirely (terminated
+     *       by the next top-level key at column 0 or EOF)&lt;/li&gt;
+     *   &lt;li&gt;{@code ^groups:} block — removed entirely (same termination)&lt;/li&gt;
+     *   &lt;li&gt;{@code  - component:} (depends-on dash form) →
+     *       {@code  - subproject:}&lt;/li&gt;
+     * &lt;/ul&gt;
+     *
+     * &lt;p&gt;This is the entry point {@code ws:align-publish} calls before
+     * reading the manifest, so legacy workspaces auto-migrate on first
+     * align. Other callers get the hard-cut error from {@link #read(Path)}.
+     *
+     * @param manifestPath path to workspace.yaml
+     * @param infoLog      optional info-level log sink (nullable)
+     * @return {@code true} if the file was migrated, {@code false} if
+     *         no legacy schema was present
+     * @throws ManifestException if the file cannot be read or written
+     */
+    public static boolean migrateLegacySchemaIfNeeded(
+            Path manifestPath,
+            java.util.function.Consumer&lt;String&gt; infoLog) {
+        String content;
+        try {
+<span class="fc" id="L270">            content = Files.readString(manifestPath, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L271">        } catch (IOException e) {</span>
+<span class="nc" id="L272">            throw new ManifestException(</span>
+                    &quot;Cannot read &quot; + manifestPath + &quot; for migration&quot;, e);
+<span class="fc" id="L274">        }</span>
+
+<span class="fc bfc" id="L276" title="All 2 branches covered.">        boolean hasLegacy = LEGACY_COMPONENTS_KEY.matcher(content).find()</span>
+<span class="pc bpc" id="L277" title="1 of 2 branches missed.">                || LEGACY_COMPONENT_TYPES_KEY.matcher(content).find()</span>
+<span class="pc bpc" id="L278" title="1 of 2 branches missed.">                || LEGACY_GROUPS_KEY.matcher(content).find()</span>
+<span class="pc bpc" id="L279" title="1 of 2 branches missed.">                || LEGACY_COMPONENT_DEP.matcher(content).find();</span>
+<span class="fc bfc" id="L280" title="All 2 branches covered.">        if (!hasLegacy) {</span>
+<span class="fc" id="L281">            return false;</span>
+        }
+
+<span class="fc" id="L284">        String migrated = migrate(content);</span>
+<span class="pc bpc" id="L285" title="1 of 2 branches missed.">        if (migrated.equals(content)) {</span>
+<span class="nc" id="L286">            return false;</span>
+        }
+
+        try {
+<span class="fc" id="L290">            Files.writeString(manifestPath, migrated, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L291">        } catch (IOException e) {</span>
+<span class="nc" id="L292">            throw new ManifestException(</span>
+                    &quot;Cannot write migrated &quot; + manifestPath, e);
+<span class="fc" id="L294">        }</span>
+<span class="fc bfc" id="L295" title="All 2 branches covered.">        if (infoLog != null) {</span>
+<span class="fc" id="L296">            infoLog.accept(</span>
+                    &quot;Migrated workspace.yaml: components: → subprojects:, &quot;
+                            + &quot;stripped component-types:/groups:&quot;);
+        }
+<span class="fc" id="L300">        return true;</span>
+    }
+
+    /**
+     * Apply legacy-schema rewrites to yaml text. Pure function —
+     * public for unit testing.
+     *
+     * @param yaml original workspace.yaml content
+     * @return migrated content (same as input if already on new schema)
+     */
+    public static String migrate(String yaml) {
+<span class="fc" id="L311">        String result = yaml;</span>
+        // 1. Remove entire component-types: block (first, so the
+        //    components: match below does not see a surviving line
+        //    inside what was component-types).
+<span class="fc" id="L315">        result = stripTopLevelBlock(result, &quot;component-types&quot;);</span>
+        // 2. Remove entire groups: block.
+<span class="fc" id="L317">        result = stripTopLevelBlock(result, &quot;groups&quot;);</span>
+        // 3. Rename components: → subprojects: (top-level key only).
+<span class="fc" id="L319">        result = LEGACY_COMPONENTS_KEY.matcher(result)</span>
+<span class="fc" id="L320">                .replaceAll(&quot;subprojects:&quot;);</span>
+        // 4. Rename depends-on dash form: `  - component:` → `  - subproject:`
+<span class="fc" id="L322">        result = LEGACY_COMPONENT_DEP.matcher(result)</span>
+<span class="fc" id="L323">                .replaceAll(&quot;$1- subproject:&quot;);</span>
+<span class="fc" id="L324">        return result;</span>
+    }
+
+    /**
+     * Strip a top-level YAML block that starts with {@code &lt;key&gt;:} at
+     * column 0. The block continues through all indented lines and
+     * intervening blank lines, and ends at the next non-indented,
+     * non-blank line (top-level key, top-level comment, or EOF).
+     *
+     * &lt;p&gt;Trailing comments/section-headers are intentionally left in
+     * place — they typically introduce the next section, not the block
+     * being removed.
+     */
+    private static String stripTopLevelBlock(String yaml, String key) {
+<span class="fc" id="L338">        Pattern start = Pattern.compile(&quot;^&quot; + Pattern.quote(key) + &quot;:&quot;,</span>
+                Pattern.MULTILINE);
+<span class="fc" id="L340">        Matcher m = start.matcher(yaml);</span>
+<span class="fc bfc" id="L341" title="All 2 branches covered.">        if (!m.find()) {</span>
+<span class="fc" id="L342">            return yaml;</span>
+        }
+
+<span class="fc" id="L345">        int blockStart = m.start();</span>
+
+        // Find the newline that ends the `key:` line, then walk
+        // forward consuming indented or blank lines.
+<span class="fc" id="L349">        int blockEnd = yaml.length();</span>
+<span class="fc" id="L350">        int i = yaml.indexOf('\n', m.end());</span>
+<span class="pc bpc" id="L351" title="1 of 2 branches missed.">        if (i &lt; 0) {</span>
+            // Key line has no trailing newline — strip to EOF.
+<span class="nc" id="L353">            blockEnd = yaml.length();</span>
+        } else {
+            // Position i at the newline terminating `key:`. Step
+            // forward line-by-line; each iteration classifies the line
+            // starting at lineStart.
+            while (true) {
+<span class="fc" id="L359">                int lineStart = i + 1;</span>
+<span class="fc bfc" id="L360" title="All 2 branches covered.">                if (lineStart &gt;= yaml.length()) {</span>
+<span class="fc" id="L361">                    blockEnd = yaml.length();</span>
+<span class="fc" id="L362">                    break;</span>
+                }
+<span class="fc" id="L364">                int lineEnd = yaml.indexOf('\n', lineStart);</span>
+<span class="pc bpc" id="L365" title="1 of 2 branches missed.">                if (lineEnd &lt; 0) lineEnd = yaml.length();</span>
+
+<span class="fc" id="L367">                char c = yaml.charAt(lineStart);</span>
+<span class="pc bpc" id="L368" title="4 of 10 branches missed.">                if (c == ' ' || c == '\t'</span>
+                        || c == '\n' || c == '\r'
+                        || lineStart == lineEnd) {
+                    // Indented or blank — part of the block.
+<span class="pc bpc" id="L372" title="1 of 2 branches missed.">                    if (lineEnd == yaml.length()) {</span>
+<span class="nc" id="L373">                        blockEnd = yaml.length();</span>
+<span class="nc" id="L374">                        break;</span>
+                    }
+<span class="fc" id="L376">                    i = lineEnd;</span>
+<span class="fc" id="L377">                    continue;</span>
+                }
+                // Non-indented, non-blank: block ends here, preserving
+                // whatever follows (comment banner, next key, etc.).
+<span class="fc" id="L381">                blockEnd = lineStart;</span>
+<span class="fc" id="L382">                break;</span>
+            }
+        }
+
+<span class="fc" id="L386">        String head = yaml.substring(0, blockStart);</span>
+<span class="fc" id="L387">        String tail = yaml.substring(blockEnd);</span>
+        // Collapse multiple leading blank lines in the tail to a
+        // single blank line so we don't leave `\n\n\n` at the seam.
+<span class="fc" id="L390">        int trim = 0;</span>
+<span class="pc bpc" id="L391" title="1 of 4 branches missed.">        while (trim &lt; tail.length() &amp;&amp; tail.charAt(trim) == '\n') {</span>
+<span class="nc" id="L392">            trim++;</span>
+        }
+        // Keep one blank line if both sides are non-empty.
+<span class="pc bpc" id="L395" title="2 of 6 branches missed.">        String sep = (!head.isEmpty() &amp;&amp; !tail.substring(trim).isEmpty()</span>
+<span class="pc" id="L396">                &amp;&amp; trim &gt; 0) ? &quot;\n&quot; : &quot;&quot;;</span>
+<span class="fc" id="L397">        return head + sep + tail.substring(trim);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

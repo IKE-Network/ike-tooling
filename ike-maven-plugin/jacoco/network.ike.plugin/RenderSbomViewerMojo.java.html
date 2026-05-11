@@ -1,0 +1,372 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RenderSbomViewerMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">RenderSbomViewerMojo.java</span></div><h1>RenderSbomViewerMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Render a Web-friendly SBOM viewer page from the CycloneDX SBOM
+ * (ike-issues#341).
+ *
+ * &lt;p&gt;The third human-facing view of the same {@code bom.json}:
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code licenses.html} — SPDX-grouped slice (#335)&lt;/li&gt;
+ *   &lt;li&gt;{@code built-with.html} — narrative + summary slice (#336)&lt;/li&gt;
+ *   &lt;li&gt;{@code dependencies.html} &lt;em&gt;(this mojo)&lt;/em&gt; — full
+ *       sortable component table&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;All three derive from the same source of truth. This mojo
+ * walks every component in the SBOM and emits a single rendered
+ * page with each component's coordinates, SPDX license, type, and
+ * (when present) hash digests.
+ *
+ * &lt;p&gt;Replaces the auto-generated {@code dependencies} report from
+ * {@code maven-project-info-reports-plugin}, which scans only
+ * declared {@code &lt;dependencies&gt;} (not the full transitive graph
+ * the SBOM captures) and reports licenses verbatim from each POM
+ * (not SPDX-canonical).
+ *
+ * &lt;p&gt;Skip with {@code -Dike.skip.sbom-viewer=true}.
+ *
+ * &lt;pre&gt;{@code
+ * mvn package                      # produces bom.json
+ * mvn ike:render-sbom-viewer       # produces dependencies.adoc
+ * mvn site                         # renders dependencies.html
+ * }&lt;/pre&gt;
+ *
+ * @see RenderSpdxLicensesMojo  the SPDX-grouped slice
+ * @see BuiltWithMojo           the narrative + summary slice
+ * @see GenerateBomMojo         IKE-specific Maven dependency BOM
+ *                              (different concept)
+ */
+@Mojo(name = &quot;render-sbom-viewer&quot;, defaultPhase = &quot;pre-site&quot;)
+public class RenderSbomViewerMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L66">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /**
+     * Path to the CycloneDX SBOM produced at {@code package} phase
+     * by {@code cyclonedx-maven-plugin} (ike-issues#333).
+     */
+    @Parameter(property = &quot;ike.bom.path&quot;,
+            defaultValue = &quot;${project.build.directory}/bom.json&quot;)
+    File bomPath;
+
+    /**
+     * Output AsciiDoc file. Default lands in the standard
+     * generated-site location which Maven Site renders to
+     * {@code target/site/dependencies.html}.
+     */
+    @Parameter(property = &quot;ike.sbom-viewer.output&quot;,
+            defaultValue = &quot;${project.build.directory}/generated-site/asciidoc/dependencies.adoc&quot;)
+    File outputPath;
+
+    /** Skip generation. */
+    @Parameter(property = &quot;ike.skip.sbom-viewer&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /** Project artifact ID, used in the rendered page title. */
+    @Parameter(defaultValue = &quot;${project.artifactId}&quot;, readonly = true)
+    String projectArtifactId;
+
+    /** Project version, used in the rendered page title. */
+    @Parameter(defaultValue = &quot;${project.version}&quot;, readonly = true)
+    String projectVersion;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L98">    public RenderSbomViewerMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L103">            getLog().info(&quot;ike:render-sbom-viewer skipped &quot;</span>
+                    + &quot;(-Dike.skip.sbom-viewer=true)&quot;);
+<span class="nc" id="L105">            return;</span>
+        }
+
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (!bomPath.exists()) {</span>
+<span class="nc" id="L109">            getLog().warn(&quot;Skipping ike:render-sbom-viewer: SBOM not &quot;</span>
+                    + &quot;found at &quot; + bomPath + &quot;. Run 'mvn package' &quot;
+                    + &quot;first to produce the SBOM (ike-issues#333).&quot;);
+<span class="nc" id="L112">            return;</span>
+        }
+
+        SbomData bom;
+        try {
+<span class="nc" id="L117">            bom = parseSbom(bomPath);</span>
+<span class="nc" id="L118">        } catch (IOException e) {</span>
+<span class="nc" id="L119">            throw new MojoException(</span>
+                    &quot;Could not parse SBOM at &quot; + bomPath + &quot;: &quot;
+<span class="nc" id="L121">                            + e.getMessage(), e);</span>
+<span class="nc" id="L122">        }</span>
+
+<span class="nc" id="L124">        String adoc = renderAdoc(bom);</span>
+
+<span class="nc" id="L126">        File parent = outputPath.getParentFile();</span>
+<span class="nc bnc" id="L127" title="All 6 branches missed.">        if (parent != null &amp;&amp; !parent.isDirectory() &amp;&amp; !parent.mkdirs()) {</span>
+<span class="nc" id="L128">            throw new MojoException(</span>
+                    &quot;Could not create output directory: &quot; + parent);
+        }
+
+        try {
+<span class="nc" id="L133">            Files.writeString(outputPath.toPath(), adoc,</span>
+                    StandardCharsets.UTF_8);
+<span class="nc" id="L135">        } catch (IOException e) {</span>
+<span class="nc" id="L136">            throw new MojoException(</span>
+<span class="nc" id="L137">                    &quot;Could not write &quot; + outputPath + &quot;: &quot; + e.getMessage(),</span>
+                    e);
+<span class="nc" id="L139">        }</span>
+
+<span class="nc" id="L141">        getLog().info(&quot;Wrote SBOM viewer page: &quot; + outputPath);</span>
+<span class="nc" id="L142">        getLog().info(&quot;  Components: &quot; + bom.components.size());</span>
+<span class="nc" id="L143">        getLog().info(&quot;  Distinct license expressions: &quot;</span>
+                + bom.licenseGroupCount);
+<span class="nc" id="L145">    }</span>
+
+    /**
+     * Parse the SBOM JSON. Uses snakeyaml to read JSON-as-YAML so we
+     * don't need a Jackson dep on this mojo's classpath (matches
+     * {@link RenderSpdxLicensesMojo} and {@link BuiltWithMojo}).
+     *
+     * @param bom path to {@code bom.json}
+     * @return parsed component list + summary statistics
+     * @throws IOException if the file cannot be read or parsed
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private SbomData parseSbom(File bom) throws IOException {
+<span class="nc" id="L158">        Yaml yaml = new Yaml();</span>
+        Map&lt;String, Object&gt; root;
+<span class="nc" id="L160">        try (Reader reader = Files.newBufferedReader(bom.toPath(),</span>
+                StandardCharsets.UTF_8)) {
+<span class="nc" id="L162">            root = (Map&lt;String, Object&gt;) yaml.load(reader);</span>
+        }
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (root == null) {</span>
+<span class="nc" id="L165">            return new SbomData(new ArrayList&lt;&gt;(), 0);</span>
+        }
+<span class="nc" id="L167">        List&lt;Map&lt;String, Object&gt;&gt; rawComponents =</span>
+<span class="nc" id="L168">                (List&lt;Map&lt;String, Object&gt;&gt;) root.get(&quot;components&quot;);</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (rawComponents == null) {</span>
+<span class="nc" id="L170">            return new SbomData(new ArrayList&lt;&gt;(), 0);</span>
+        }
+
+<span class="nc" id="L173">        List&lt;Component&gt; components = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        for (Map&lt;String, Object&gt; c : rawComponents) {</span>
+<span class="nc" id="L175">            String group       = stringOrEmpty(c.get(&quot;group&quot;));</span>
+<span class="nc" id="L176">            String name        = stringOrEmpty(c.get(&quot;name&quot;));</span>
+<span class="nc" id="L177">            String version     = stringOrEmpty(c.get(&quot;version&quot;));</span>
+<span class="nc" id="L178">            String description = stringOrEmpty(c.get(&quot;description&quot;));</span>
+<span class="nc" id="L179">            String purl        = stringOrEmpty(c.get(&quot;purl&quot;));</span>
+<span class="nc" id="L180">            String type        = stringOrEmpty(c.get(&quot;type&quot;));</span>
+<span class="nc" id="L181">            String spdx        = extractSpdxExpression(c);</span>
+<span class="nc" id="L182">            String sha256      = extractHash(c, &quot;SHA-256&quot;);</span>
+<span class="nc" id="L183">            components.add(new Component(group, name, version,</span>
+                    description, purl, type, spdx, sha256));
+<span class="nc" id="L185">        }</span>
+
+        // Sort by group:name:version for stable, browseable listing.
+<span class="nc" id="L188">        components.sort(Comparator</span>
+<span class="nc" id="L189">                .comparing((Component cm) -&gt; cm.group)</span>
+<span class="nc" id="L190">                .thenComparing(cm -&gt; cm.name)</span>
+<span class="nc" id="L191">                .thenComparing(cm -&gt; cm.version));</span>
+
+<span class="nc" id="L193">        long licenseGroups = components.stream()</span>
+<span class="nc" id="L194">                .map(cm -&gt; cm.spdx)</span>
+<span class="nc" id="L195">                .distinct()</span>
+<span class="nc" id="L196">                .count();</span>
+<span class="nc" id="L197">        return new SbomData(components, (int) licenseGroups);</span>
+    }
+
+    /**
+     * Pull an SPDX license expression out of a CycloneDX component.
+     * Same logic as {@link RenderSpdxLicensesMojo} (kept independent
+     * to avoid coupling the two mojos via a shared utility).
+     *
+     * @param c the component map from the SBOM
+     * @return the SPDX expression for this component
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private String extractSpdxExpression(Map&lt;String, Object&gt; c) {
+<span class="nc" id="L210">        Object licensesObj = c.get(&quot;licenses&quot;);</span>
+<span class="nc bnc" id="L211" title="All 4 branches missed.">        if (!(licensesObj instanceof List&lt;?&gt; raw) || raw.isEmpty()) {</span>
+<span class="nc" id="L212">            return &quot;(no license declared)&quot;;</span>
+        }
+<span class="nc" id="L214">        List&lt;Map&lt;String, Object&gt;&gt; entries = (List&lt;Map&lt;String, Object&gt;&gt;) raw;</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        if (entries.size() == 1) {</span>
+<span class="nc" id="L216">            Object exp = entries.get(0).get(&quot;expression&quot;);</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">            if (exp != null) return exp.toString();</span>
+        }
+<span class="nc" id="L219">        List&lt;String&gt; ids = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">        for (Map&lt;String, Object&gt; entry : entries) {</span>
+<span class="nc" id="L221">            Map&lt;String, Object&gt; license =</span>
+<span class="nc" id="L222">                    (Map&lt;String, Object&gt;) entry.get(&quot;license&quot;);</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">            if (license == null) continue;</span>
+<span class="nc" id="L224">            Object id = license.get(&quot;id&quot;);</span>
+<span class="nc" id="L225">            Object name = license.get(&quot;name&quot;);</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">            if (id != null) ids.add(id.toString());</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">            else if (name != null) ids.add(name.toString());</span>
+<span class="nc" id="L228">        }</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if (ids.isEmpty()) return &quot;(no license declared)&quot;;</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">        if (ids.size() == 1) return ids.get(0);</span>
+<span class="nc" id="L231">        Collections.sort(ids);</span>
+<span class="nc" id="L232">        return String.join(&quot; OR &quot;, ids);</span>
+    }
+
+    /**
+     * Pull a specific hash algorithm's content out of a CycloneDX
+     * component's {@code hashes} array, or empty string if absent.
+     *
+     * @param c   the component map
+     * @param alg the hash algorithm name (e.g. {@code &quot;SHA-256&quot;})
+     * @return the hash content, or empty string if absent
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private String extractHash(Map&lt;String, Object&gt; c, String alg) {
+<span class="nc" id="L245">        Object hashesObj = c.get(&quot;hashes&quot;);</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (!(hashesObj instanceof List&lt;?&gt; raw)) return &quot;&quot;;</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        for (Object h : raw) {</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">            if (!(h instanceof Map&lt;?, ?&gt; rawMap)) continue;</span>
+<span class="nc" id="L249">            Map&lt;String, Object&gt; hashMap = (Map&lt;String, Object&gt;) rawMap;</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">            if (alg.equals(hashMap.get(&quot;alg&quot;))) {</span>
+<span class="nc" id="L251">                Object content = hashMap.get(&quot;content&quot;);</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">                return content == null ? &quot;&quot; : content.toString();</span>
+            }
+<span class="nc" id="L254">        }</span>
+<span class="nc" id="L255">        return &quot;&quot;;</span>
+    }
+
+    /**
+     * Render the SBOM data to AsciiDoc.
+     *
+     * @param bom parsed SBOM
+     * @return AsciiDoc page source
+     */
+    private String renderAdoc(SbomData bom) {
+<span class="nc" id="L265">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L266">        sb.append(&quot;= Dependencies (SBOM)\n&quot;);</span>
+<span class="nc" id="L267">        sb.append(&quot;:icons: font\n&quot;);</span>
+<span class="nc" id="L268">        sb.append(&quot;:source-highlighter: coderay\n&quot;);</span>
+<span class="nc" id="L269">        sb.append(&quot;:toc: preamble\n&quot;);</span>
+<span class="nc" id="L270">        sb.append(&quot;:toclevels: 2\n\n&quot;);</span>
+
+<span class="nc" id="L272">        sb.append(&quot;Full transitive dependency graph for `&quot;)</span>
+<span class="nc" id="L273">                .append(projectArtifactId).append(&quot;` &quot;)</span>
+<span class="nc" id="L274">                .append(projectVersion)</span>
+<span class="nc" id="L275">                .append(&quot;, generated from &quot;)</span>
+<span class="nc" id="L276">                .append(&quot;link:bom.json[bom.json] (CycloneDX 1.6) at &quot;</span>
+                        + &quot;build time. Same SBOM source as the SPDX-&quot;
+                        + &quot;grouped link:licenses.html[licenses.html] &quot;
+                        + &quot;and the curated link:built-with.html&quot;
+                        + &quot;[built-with.html] — three views of the &quot;
+                        + &quot;same data.\n\n&quot;);
+
+<span class="nc" id="L283">        sb.append(&quot;== Summary\n\n&quot;);</span>
+<span class="nc" id="L284">        sb.append(&quot;|===\n&quot;);</span>
+<span class="nc" id="L285">        sb.append(&quot;| Total components | &quot;).append(bom.components.size())</span>
+<span class="nc" id="L286">                .append(&quot;\n&quot;);</span>
+<span class="nc" id="L287">        sb.append(&quot;| Distinct license expressions | &quot;)</span>
+<span class="nc" id="L288">                .append(bom.licenseGroupCount).append(&quot;\n&quot;);</span>
+<span class="nc" id="L289">        sb.append(&quot;|===\n\n&quot;);</span>
+
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (bom.components.isEmpty()) {</span>
+<span class="nc" id="L292">            sb.append(&quot;_No components in this module's SBOM._\n\n&quot;);</span>
+        } else {
+<span class="nc" id="L294">            sb.append(&quot;== Components\n\n&quot;);</span>
+<span class="nc" id="L295">            sb.append(&quot;Sorted by group, artifact, version. Click &quot;</span>
+                    + &quot;link:bom.json[bom.json] for the raw &quot;
+                    + &quot;machine-readable form (Dependency-Track, Trivy, &quot;
+                    + &quot;Snyk, GitHub dep-graph all ingest it directly).\n\n&quot;);
+<span class="nc" id="L299">            sb.append(&quot;[%autowidth.stretch, options=\&quot;header\&quot;]\n&quot;);</span>
+<span class="nc" id="L300">            sb.append(&quot;|===\n&quot;);</span>
+<span class="nc" id="L301">            sb.append(&quot;| Group | Artifact | Version | License | Type\n\n&quot;);</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">            for (Component c : bom.components) {</span>
+<span class="nc" id="L303">                sb.append(&quot;| `&quot;).append(escapeAdoc(c.group)).append(&quot;`\n&quot;);</span>
+<span class="nc" id="L304">                sb.append(&quot;| `&quot;).append(escapeAdoc(c.name)).append(&quot;`\n&quot;);</span>
+<span class="nc" id="L305">                sb.append(&quot;| `&quot;).append(escapeAdoc(c.version)).append(&quot;`\n&quot;);</span>
+<span class="nc bnc" id="L306" title="All 4 branches missed.">                if (c.spdx.startsWith(&quot;(&quot;) &amp;&amp; c.spdx.endsWith(&quot;)&quot;)) {</span>
+<span class="nc" id="L307">                    sb.append(&quot;| _&quot;).append(c.spdx).append(&quot;_\n&quot;);</span>
+                } else {
+<span class="nc" id="L309">                    sb.append(&quot;| `&quot;).append(escapeAdoc(c.spdx)).append(&quot;`\n&quot;);</span>
+                }
+<span class="nc" id="L311">                sb.append(&quot;| &quot;).append(escapeAdoc(</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">                        c.type.isEmpty() ? &quot;library&quot; : c.type)).append(&quot;\n\n&quot;);</span>
+<span class="nc" id="L313">            }</span>
+<span class="nc" id="L314">            sb.append(&quot;|===\n\n&quot;);</span>
+        }
+
+<span class="nc" id="L317">        sb.append(&quot;== Download\n\n&quot;);</span>
+<span class="nc" id="L318">        sb.append(&quot;* link:bom.json[Software Bill of Materials &quot;</span>
+                + &quot;(CycloneDX, JSON)] — raw machine-readable form. &quot;
+                + &quot;Includes purls, hashes, and dependency-graph &quot;
+                + &quot;edges that this page summarizes.\n&quot;);
+<span class="nc" id="L322">        sb.append(&quot;* link:bom.xml[bom.xml] — same content in XML.\n&quot;);</span>
+<span class="nc" id="L323">        sb.append(&quot;* As a Maven artifact: pull &quot;</span>
+<span class="nc" id="L324">                + &quot;`&quot;).append(projectArtifactId)</span>
+<span class="nc" id="L325">                .append(&quot;:​&quot;)  // zero-width space to soften wrap</span>
+<span class="nc" id="L326">                .append(projectVersion)</span>
+<span class="nc" id="L327">                .append(&quot;` with `&lt;classifier&gt;cyclonedx&lt;/classifier&gt;&quot;</span>
+                        + &quot;&lt;type&gt;json&lt;/type&gt;` from Nexus / Maven Central.\n\n&quot;);
+
+<span class="nc" id="L330">        sb.append(&quot;== See also\n\n&quot;);</span>
+<span class="nc" id="L331">        sb.append(&quot;* link:licenses.html[Licenses (SPDX)] — same &quot;</span>
+                + &quot;components grouped by license expression.\n&quot;);
+<span class="nc" id="L333">        sb.append(&quot;* link:built-with.html[Built With] — curated &quot;</span>
+                + &quot;narrative + per-license summary.\n&quot;);
+<span class="nc" id="L335">        sb.append(&quot;* https://github.com/IKE-Network/ike-issues/issues/341&quot;</span>
+                + &quot;[ike-issues#341] — the issue that introduced this &quot;
+                + &quot;page.\n&quot;);
+<span class="nc" id="L338">        return sb.toString();</span>
+    }
+
+    /**
+     * Escape a string for safe inline-code use in AsciiDoc.
+     *
+     * @param s input
+     * @return escaped string
+     */
+    private String escapeAdoc(String s) {
+<span class="nc bnc" id="L348" title="All 2 branches missed.">        if (s == null) return &quot;&quot;;</span>
+<span class="nc" id="L349">        return s.replace(&quot;`&quot;, &quot;\\`&quot;);</span>
+    }
+
+    /**
+     * Coerce a possibly-null map value to a non-null string.
+     *
+     * @param o the value
+     * @return the string value, or empty if null
+     */
+    private static String stringOrEmpty(Object o) {
+<span class="nc bnc" id="L359" title="All 2 branches missed.">        return o == null ? &quot;&quot; : o.toString();</span>
+    }
+
+    /** A single component projected from the SBOM. */
+<span class="nc" id="L363">    private record Component(</span>
+            String group, String name, String version,
+            String description, String purl, String type,
+            String spdx, String sha256) { }
+
+    /** Parsed SBOM with a small summary side-channel. */
+<span class="nc" id="L369">    private record SbomData(List&lt;Component&gt; components,</span>
+                            int licenseGroupCount) { }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

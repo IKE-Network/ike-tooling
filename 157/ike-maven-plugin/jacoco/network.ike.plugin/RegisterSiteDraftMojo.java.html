@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RegisterSiteDraftMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">RegisterSiteDraftMojo.java</span></div><h1>RegisterSiteDraftMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.util.List;
+
+/**
+ * Register a project on the IKE Network org landing page.
+ *
+ * &lt;p&gt;This goal writes an AsciiDoc registration fragment for the
+ * current project into the {@code IKE-Network.github.io} repository,
+ * regenerates the master index, builds the site through the full
+ * AsciiDoc pipeline, and publishes the result to GitHub Pages.
+ *
+ * &lt;p&gt;Designed to be called as part of the release ceremony, after
+ * {@code ike:deploy-site-publish} has pushed the project's own site to
+ * its {@code gh-pages} branch. The org site registration is a
+ * best-effort operation — failure does not block a release.
+ *
+ * &lt;p&gt;By default this goal runs as a &lt;strong&gt;draft preview&lt;/strong&gt;.
+ * Use {@code ike:register-site-publish} to execute, or pass
+ * {@code -Dpublish=true} explicitly.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;
+ * # Preview what would happen:
+ * mvn ike:register-site-draft
+ *
+ * # Actually register:
+ * mvn ike:register-site-publish
+ * &lt;/pre&gt;
+ *
+ * @see DeregisterSiteDraftMojo
+ * @see OrgSiteSupport
+ */
+@Mojo(name = &quot;register-site-draft&quot;, projectRequired = false, aggregator = true)
+public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L49">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /** Git URL of the org site repository. */
+    @Parameter(property = &quot;orgRepo&quot;,
+               defaultValue = &quot;https://github.com/IKE-Network/IKE-Network.github.io.git&quot;)
+    private String orgRepo;
+
+    /** Branch for source content in the org repo. */
+    @Parameter(property = &quot;orgBranch&quot;, defaultValue = &quot;main&quot;)
+    private String orgBranch;
+
+    /** Human-readable project name. Defaults to POM {@code &lt;name&gt;}. */
+    @Parameter(property = &quot;projectName&quot;, defaultValue = &quot;${project.name}&quot;)
+    private String projectName;
+
+    /** One-line project description. Defaults to POM {@code &lt;description&gt;}. */
+    @Parameter(property = &quot;projectDescription&quot;, defaultValue = &quot;${project.description}&quot;)
+    private String projectDescription;
+
+    /** Site URL on ike.network. Derived from artifact ID if not set. */
+    @Parameter(property = &quot;projectSiteUrl&quot;)
+    private String projectSiteUrl;
+
+    /** GitHub repository URL. Derived from SCM or project URL if not set. */
+    @Parameter(property = &quot;githubUrl&quot;)
+    private String githubUrl;
+
+    /** Version to register. Defaults to release version (SNAPSHOT stripped). */
+    @Parameter(property = &quot;releaseVersion&quot;)
+    private String releaseVersion;
+
+    /** Execute the registration (default: false = draft preview). */
+    @Parameter(property = &quot;publish&quot;, defaultValue = &quot;false&quot;)
+    boolean publish;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L85">    public RegisterSiteDraftMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc" id="L89">        File gitRoot = ReleaseSupport.gitRoot(new File(&quot;.&quot;));</span>
+<span class="nc" id="L90">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+
+<span class="nc" id="L92">        String artifactId = ReleaseSupport.readPomArtifactId(rootPom);</span>
+<span class="nc" id="L93">        String version = resolveVersion(rootPom);</span>
+
+<span class="nc bnc" id="L95" title="All 4 branches missed.">        if (projectSiteUrl == null || projectSiteUrl.isBlank()) {</span>
+<span class="nc" id="L96">            projectSiteUrl = &quot;https://ike.network/&quot; + artifactId + &quot;/&quot;;</span>
+        }
+<span class="nc bnc" id="L98" title="All 4 branches missed.">        if (githubUrl == null || githubUrl.isBlank()) {</span>
+<span class="nc" id="L99">            githubUrl = &quot;https://github.com/IKE-Network/&quot; + artifactId;</span>
+        }
+
+        // Collect reactor module names
+<span class="nc" id="L103">        List&lt;String&gt; modules = resolveModules(gitRoot);</span>
+
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        boolean draft = !publish;</span>
+
+<span class="nc" id="L107">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L108">        getLog().info(&quot;REGISTER PROJECT ON IKE NETWORK&quot;);</span>
+<span class="nc" id="L109">        getLog().info(&quot;  Project:     &quot; + artifactId);</span>
+<span class="nc" id="L110">        getLog().info(&quot;  Name:        &quot; + projectName);</span>
+<span class="nc" id="L111">        getLog().info(&quot;  Version:     &quot; + version);</span>
+<span class="nc" id="L112">        getLog().info(&quot;  Site URL:    &quot; + projectSiteUrl);</span>
+<span class="nc" id="L113">        getLog().info(&quot;  GitHub:      &quot; + githubUrl);</span>
+<span class="nc" id="L114">        getLog().info(&quot;  Org repo:    &quot; + orgRepo);</span>
+<span class="nc" id="L115">        getLog().info(&quot;  Org branch:  &quot; + orgBranch);</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        getLog().info(&quot;  Modules:     &quot; + (modules.isEmpty() ? &quot;(none)&quot; : modules));</span>
+<span class="nc" id="L117">        getLog().info(&quot;  Publish:       &quot;+ publish);</span>
+<span class="nc" id="L118">        getLog().info(&quot;&quot;);</span>
+
+<span class="nc bnc" id="L120" title="All 2 branches missed.">        if (draft) {</span>
+<span class="nc" id="L121">            getLog().info(&quot;[DRAFT] Would register &quot; + artifactId + &quot; &quot; + version</span>
+                    + &quot; on &quot; + orgRepo);
+<span class="nc" id="L123">            return;</span>
+        }
+
+<span class="nc" id="L126">        OrgSiteSupport.registerProject(gitRoot, getLog(), orgRepo, orgBranch,</span>
+                artifactId, projectName, projectDescription, version,
+                projectSiteUrl, githubUrl, modules);
+
+<span class="nc" id="L130">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L131">        getLog().info(&quot;Registered &quot; + artifactId + &quot; &quot; + version</span>
+                + &quot; on ike.network&quot;);
+<span class="nc" id="L133">    }</span>
+
+    /**
+     * Resolve the version to register. Prefers the explicit
+     * {@code releaseVersion} parameter, falls back to POM version
+     * with {@code -SNAPSHOT} stripped.
+     */
+    private String resolveVersion(File rootPom) throws MojoException {
+<span class="nc bnc" id="L141" title="All 4 branches missed.">        if (releaseVersion != null &amp;&amp; !releaseVersion.isBlank()) {</span>
+<span class="nc" id="L142">            return releaseVersion;</span>
+        }
+<span class="nc" id="L144">        String pomVersion = ReleaseSupport.readPomVersion(rootPom);</span>
+<span class="nc" id="L145">        return pomVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+    }
+
+    /**
+     * Collect reactor module names from the root POM.
+     * Returns an empty list for non-reactor projects.
+     */
+    private List&lt;String&gt; resolveModules(File gitRoot) {
+        // Parse modules from root POM — simple regex scan
+<span class="nc" id="L154">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+        try {
+<span class="nc" id="L156">            String pom = java.nio.file.Files.readString(rootPom.toPath(),</span>
+                    java.nio.charset.StandardCharsets.UTF_8);
+<span class="nc" id="L158">            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(</span>
+                    &quot;&lt;module&gt;([^&lt;]+)&lt;/module&gt;&quot;);
+<span class="nc" id="L160">            java.util.regex.Matcher matcher = pattern.matcher(pom);</span>
+<span class="nc" id="L161">            List&lt;String&gt; modules = new java.util.ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            while (matcher.find()) {</span>
+<span class="nc" id="L163">                modules.add(matcher.group(1));</span>
+            }
+<span class="nc" id="L165">            return modules;</span>
+<span class="nc" id="L166">        } catch (Exception e) {</span>
+<span class="nc" id="L167">            getLog().debug(&quot;Could not parse modules from POM: &quot; + e.getMessage());</span>
+<span class="nc" id="L168">            return List.of();</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

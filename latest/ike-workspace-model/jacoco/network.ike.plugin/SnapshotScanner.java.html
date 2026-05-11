@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SnapshotScanner.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">SnapshotScanner.java</span></div><h1>SnapshotScanner.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.model.Dependency;
+import org.apache.maven.api.model.DependencyManagement;
+import org.apache.maven.api.model.Model;
+import org.apache.maven.api.model.Parent;
+import org.apache.maven.api.model.Plugin;
+import org.apache.maven.api.model.PluginManagement;
+import org.apache.maven.api.model.Profile;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.model.v4.MavenStaxReader;
+
+import javax.xml.stream.XMLStreamException;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Scan POM files for {@code -SNAPSHOT} references that would leak into
+ * a released artifact via Maven 4's consumer POM flattener.
+ *
+ * &lt;p&gt;Maven 4 resolves properties and promotes {@code &lt;pluginManagement&gt;}
+ * entries into {@code &lt;plugins&gt;} when it writes the &lt;em&gt;consumer POM&lt;/em&gt;
+ * — the POM consumers download from the repository. If a
+ * {@code &lt;pluginManagement&gt;} entry references a property (e.g.
+ * {@code &lt;version&gt;${ike-tooling.version}&lt;/version&gt;}) whose value ends in
+ * {@code -SNAPSHOT}, the flattener writes the literal SNAPSHOT string
+ * into the released artifact. Downstream consumers then see
+ * {@code &lt;version&gt;117-SNAPSHOT&lt;/version&gt;} in the released POM and their
+ * builds fail with &quot;artifact not found&quot; — even though the release
+ * passed locally.
+ *
+ * &lt;p&gt;This scanner uses Maven 4's own {@link MavenStaxReader} to parse
+ * POMs into the typed {@link Model} tree, then inspects only the
+ * contexts that feed the consumer POM:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;&lt;strong&gt;Source properties scan&lt;/strong&gt; via
+ *       {@link #scanSourceProperties(File)} — inspects
+ *       {@code &lt;properties&gt;} and fails if any value ends in
+ *       {@code -SNAPSHOT}. Catches the bug at its source before any
+ *       release mutation runs.&lt;/li&gt;
+ *   &lt;li&gt;&lt;strong&gt;Post-mutation version scan&lt;/strong&gt; via
+ *       {@link #scanForSnapshotVersions(List)} — walks the model's
+ *       {@code &lt;parent&gt;}, {@code &lt;dependencies&gt;}, {@code &lt;dependencyManagement&gt;},
+ *       {@code &lt;build&gt;/&lt;plugins&gt;}, {@code &lt;build&gt;/&lt;pluginManagement&gt;}, and
+ *       every profile's equivalent sections. Any {@code -SNAPSHOT}
+ *       version here is a baked-in reference that would leak through
+ *       the consumer POM.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;&lt;strong&gt;Not scanned:&lt;/strong&gt; the module's own {@code &lt;version&gt;}
+ * (immediate child of {@code &lt;project&gt;}), because during release the
+ * module version is handled by
+ * {@link ReleaseSupport#setPomVersion(java.io.File, String, String)}
+ * and is not a consumer-POM leakage path. Comments, CDATA, and
+ * whitespace are natively ignored by the Maven parser.
+ */
+public final class SnapshotScanner {
+
+    /** Suffix that marks a SNAPSHOT version. */
+    private static final String SNAPSHOT_SUFFIX = &quot;-SNAPSHOT&quot;;
+
+    private SnapshotScanner() {}
+
+    /**
+     * A single SNAPSHOT reference that would leak into a released POM.
+     *
+     * @param pomFile  the POM file containing the reference
+     * @param location descriptor of the element location
+     *                 (e.g. {@code &quot;properties/ike-tooling.version&quot;} or
+     *                 {@code &quot;pluginManagement/plugin[ike-maven-plugin]&quot;})
+     * @param value    the SNAPSHOT-ending value found
+     */
+<span class="fc" id="L81">    public record Violation(File pomFile, String location, String value) {</span>
+
+        /**
+         * Format this violation as a single indented bullet for an
+         * aggregated error message.
+         *
+         * @param gitRoot the repository root used to relativize the
+         *                POM path; may be {@code null} for absolute paths
+         * @return a single-line bullet formatted for log output
+         */
+        public String toBullet(File gitRoot) {
+<span class="fc bfc" id="L92" title="All 2 branches covered.">            String path = (gitRoot != null)</span>
+<span class="fc" id="L93">                    ? gitRoot.toPath().relativize(pomFile.toPath()).toString()</span>
+<span class="fc" id="L94">                    : pomFile.getPath();</span>
+<span class="fc" id="L95">            return &quot;    • &quot; + path + &quot;: &quot; + location + &quot; = &quot; + value;</span>
+        }
+    }
+
+    /**
+     * Scan the {@code &lt;properties&gt;} sections of a POM (root plus any
+     * profile properties) for any value ending in {@code -SNAPSHOT}.
+     *
+     * &lt;p&gt;This is the primary gate that catches the
+     * {@code &lt;ike-tooling.version&gt;112-SNAPSHOT&lt;/ike-tooling.version&gt;}
+     * class of bug before any release mutation runs.
+     *
+     * @param pomFile the POM file to scan
+     * @return violations found in properties; empty if clean
+     * @throws MojoException if the file cannot be read or parsed
+     */
+    public static List&lt;Violation&gt; scanSourceProperties(File pomFile) {
+<span class="fc" id="L112">        Model model = parseModel(pomFile);</span>
+<span class="fc" id="L113">        List&lt;Violation&gt; violations = new ArrayList&lt;&gt;();</span>
+
+<span class="fc" id="L115">        collectSnapshotProperties(model.getProperties(), &quot;properties&quot;,</span>
+                pomFile, violations);
+
+<span class="fc bfc" id="L118" title="All 2 branches covered.">        for (Profile profile : model.getProfiles()) {</span>
+<span class="fc" id="L119">            collectSnapshotProperties(profile.getProperties(),</span>
+<span class="fc" id="L120">                    &quot;profiles/&quot; + profile.getId() + &quot;/properties&quot;,</span>
+                    pomFile, violations);
+<span class="fc" id="L122">        }</span>
+
+<span class="fc" id="L124">        return violations;</span>
+    }
+
+    /**
+     * Scan a list of POMs for any {@code &lt;version&gt;...-SNAPSHOT&lt;/version&gt;}
+     * in the consumer-POM-relevant contexts: {@code &lt;parent&gt;},
+     * {@code &lt;dependencies&gt;}, {@code &lt;dependencyManagement&gt;},
+     * {@code &lt;build&gt;/&lt;plugins&gt;}, {@code &lt;build&gt;/&lt;pluginManagement&gt;},
+     * and the same sections within every profile.
+     *
+     * &lt;p&gt;Intended for use &lt;em&gt;after&lt;/em&gt;
+     * {@link ReleaseSupport#replaceProjectVersionRefs(File, String,
+     * org.apache.maven.api.plugin.Log)} has resolved
+     * {@code ${project.version}} to a literal.
+     *
+     * &lt;p&gt;Explicitly skips the module's own {@code &lt;version&gt;} element —
+     * that is handled by {@link ReleaseSupport#setPomVersion} and does
+     * not leak into the consumer POM as a stale SNAPSHOT.
+     *
+     * @param pomFiles POM files to scan
+     * @return violations found across all POMs; empty if clean
+     * @throws MojoException if any file cannot be read or parsed
+     */
+    public static List&lt;Violation&gt; scanForSnapshotVersions(List&lt;File&gt; pomFiles) {
+<span class="fc" id="L148">        List&lt;Violation&gt; violations = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L149" title="All 2 branches covered.">        for (File pom : pomFiles) {</span>
+<span class="fc" id="L150">            Model model = parseModel(pom);</span>
+<span class="fc" id="L151">            scanModel(pom, model, &quot;&quot;, violations);</span>
+<span class="pc bpc" id="L152" title="1 of 2 branches missed.">            for (Profile profile : model.getProfiles()) {</span>
+<span class="nc" id="L153">                scanProfile(pom, profile, violations);</span>
+<span class="nc" id="L154">            }</span>
+<span class="fc" id="L155">        }</span>
+<span class="fc" id="L156">        return violations;</span>
+    }
+
+    /**
+     * Format a list of violations as an aggregated multi-line message
+     * suitable for {@code MojoException} or preflight output.
+     *
+     * @param violations the violations to format (non-empty)
+     * @param gitRoot    repo root for relative path display; may be null
+     * @param headline   opening sentence (e.g. &quot;Cannot release — ...&quot;)
+     * @param remedyHint closing instruction shown after the bullets
+     * @return a formatted multi-line error body
+     */
+    public static String formatViolations(List&lt;Violation&gt; violations,
+                                           File gitRoot,
+                                           String headline,
+                                           String remedyHint) {
+<span class="nc" id="L173">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L174">        sb.append(headline).append(&quot;\n&quot;);</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        for (Violation v : violations) {</span>
+<span class="nc" id="L176">            sb.append(v.toBullet(gitRoot)).append(&quot;\n&quot;);</span>
+<span class="nc" id="L177">        }</span>
+<span class="nc" id="L178">        sb.append(remedyHint);</span>
+<span class="nc" id="L179">        return sb.toString();</span>
+    }
+
+    // ── parser ────────────────────────────────────────────────────────
+
+    private static Model parseModel(File pomFile) {
+<span class="fc" id="L185">        try (Reader reader = Files.newBufferedReader(pomFile.toPath(),</span>
+                StandardCharsets.UTF_8)) {
+<span class="fc" id="L187">            return new MavenStaxReader().read(reader);</span>
+<span class="nc" id="L188">        } catch (IOException | XMLStreamException e) {</span>
+<span class="nc" id="L189">            throw new MojoException(</span>
+<span class="nc" id="L190">                    &quot;Failed to parse &quot; + pomFile + &quot;: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    // ── properties collection ────────────────────────────────────────
+
+    private static void collectSnapshotProperties(Map&lt;String, String&gt; props,
+                                                   String locationPrefix,
+                                                   File pomFile,
+                                                   List&lt;Violation&gt; into) {
+<span class="pc bpc" id="L200" title="1 of 2 branches missed.">        if (props == null) return;</span>
+<span class="fc bfc" id="L201" title="All 2 branches covered.">        for (Map.Entry&lt;String, String&gt; entry : props.entrySet()) {</span>
+<span class="fc" id="L202">            String value = entry.getValue();</span>
+<span class="pc bpc" id="L203" title="1 of 4 branches missed.">            if (value != null &amp;&amp; value.endsWith(SNAPSHOT_SUFFIX)) {</span>
+<span class="fc" id="L204">                into.add(new Violation(pomFile,</span>
+<span class="fc" id="L205">                        locationPrefix + &quot;/&quot; + entry.getKey(), value));</span>
+            }
+<span class="fc" id="L207">        }</span>
+<span class="fc" id="L208">    }</span>
+
+    // ── model traversal for version scans ────────────────────────────
+
+    private static void scanModel(File pom, Model model, String prefix,
+                                   List&lt;Violation&gt; into) {
+        // &lt;parent&gt;&lt;version&gt; — inherited parent reference
+<span class="fc" id="L215">        Parent parent = model.getParent();</span>
+<span class="pc bpc" id="L216" title="1 of 4 branches missed.">        if (parent != null &amp;&amp; isSnapshot(parent.getVersion())) {</span>
+<span class="fc" id="L217">            into.add(new Violation(pom,</span>
+<span class="fc" id="L218">                    prefix + &quot;parent[&quot; + coords(parent.getGroupId(),</span>
+<span class="fc" id="L219">                            parent.getArtifactId()) + &quot;]&quot;,</span>
+<span class="fc" id="L220">                    parent.getVersion()));</span>
+        }
+
+        // &lt;dependencies&gt;&lt;dependency&gt;&lt;version&gt;
+<span class="fc" id="L224">        scanDependencies(pom, model.getDependencies(),</span>
+                prefix + &quot;dependencies&quot;, into);
+
+        // &lt;dependencyManagement&gt;&lt;dependencies&gt;&lt;dependency&gt;&lt;version&gt;
+<span class="fc" id="L228">        DependencyManagement dm = model.getDependencyManagement();</span>
+<span class="fc bfc" id="L229" title="All 2 branches covered.">        if (dm != null) {</span>
+<span class="fc" id="L230">            scanDependencies(pom, dm.getDependencies(),</span>
+                    prefix + &quot;dependencyManagement&quot;, into);
+        }
+
+        // &lt;build&gt;&lt;plugins&gt;&lt;plugin&gt;&lt;version&gt;
+<span class="fc bfc" id="L235" title="All 2 branches covered.">        if (model.getBuild() != null) {</span>
+<span class="fc" id="L236">            scanPlugins(pom, model.getBuild().getPlugins(),</span>
+                    prefix + &quot;build/plugins&quot;, into);
+
+            // &lt;build&gt;&lt;pluginManagement&gt;&lt;plugins&gt;&lt;plugin&gt;&lt;version&gt;
+<span class="fc" id="L240">            PluginManagement pm = model.getBuild().getPluginManagement();</span>
+<span class="fc bfc" id="L241" title="All 2 branches covered.">            if (pm != null) {</span>
+<span class="fc" id="L242">                scanPlugins(pom, pm.getPlugins(),</span>
+                        prefix + &quot;build/pluginManagement&quot;, into);
+            }
+        }
+<span class="fc" id="L246">    }</span>
+
+    private static void scanProfile(File pom, Profile profile,
+                                     List&lt;Violation&gt; into) {
+<span class="nc" id="L250">        String prefix = &quot;profiles/&quot; + profile.getId() + &quot;/&quot;;</span>
+
+<span class="nc" id="L252">        scanDependencies(pom, profile.getDependencies(),</span>
+                prefix + &quot;dependencies&quot;, into);
+
+<span class="nc" id="L255">        DependencyManagement dm = profile.getDependencyManagement();</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">        if (dm != null) {</span>
+<span class="nc" id="L257">            scanDependencies(pom, dm.getDependencies(),</span>
+                    prefix + &quot;dependencyManagement&quot;, into);
+        }
+
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        if (profile.getBuild() != null) {</span>
+<span class="nc" id="L262">            scanPlugins(pom, profile.getBuild().getPlugins(),</span>
+                    prefix + &quot;build/plugins&quot;, into);
+
+<span class="nc" id="L265">            PluginManagement pm = profile.getBuild().getPluginManagement();</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">            if (pm != null) {</span>
+<span class="nc" id="L267">                scanPlugins(pom, pm.getPlugins(),</span>
+                        prefix + &quot;build/pluginManagement&quot;, into);
+            }
+        }
+<span class="nc" id="L271">    }</span>
+
+    private static void scanDependencies(File pom, List&lt;Dependency&gt; deps,
+                                          String prefix,
+                                          List&lt;Violation&gt; into) {
+<span class="pc bpc" id="L276" title="1 of 2 branches missed.">        if (deps == null) return;</span>
+<span class="fc bfc" id="L277" title="All 2 branches covered.">        for (Dependency dep : deps) {</span>
+<span class="fc bfc" id="L278" title="All 2 branches covered.">            if (isSnapshot(dep.getVersion())) {</span>
+<span class="fc" id="L279">                into.add(new Violation(pom,</span>
+<span class="fc" id="L280">                        prefix + &quot;/&quot; + coords(dep.getGroupId(),</span>
+<span class="fc" id="L281">                                dep.getArtifactId()),</span>
+<span class="fc" id="L282">                        dep.getVersion()));</span>
+            }
+<span class="fc" id="L284">        }</span>
+<span class="fc" id="L285">    }</span>
+
+    private static void scanPlugins(File pom, List&lt;Plugin&gt; plugins,
+                                     String prefix,
+                                     List&lt;Violation&gt; into) {
+<span class="pc bpc" id="L290" title="1 of 2 branches missed.">        if (plugins == null) return;</span>
+<span class="fc bfc" id="L291" title="All 2 branches covered.">        for (Plugin plugin : plugins) {</span>
+<span class="fc bfc" id="L292" title="All 2 branches covered.">            if (isSnapshot(plugin.getVersion())) {</span>
+<span class="fc" id="L293">                into.add(new Violation(pom,</span>
+<span class="fc" id="L294">                        prefix + &quot;/&quot; + coords(plugin.getGroupId(),</span>
+<span class="fc" id="L295">                                plugin.getArtifactId()),</span>
+<span class="fc" id="L296">                        plugin.getVersion()));</span>
+            }
+<span class="fc" id="L298">        }</span>
+<span class="fc" id="L299">    }</span>
+
+    private static boolean isSnapshot(String version) {
+<span class="pc bpc" id="L302" title="1 of 4 branches missed.">        return version != null &amp;&amp; version.endsWith(SNAPSHOT_SUFFIX);</span>
+    }
+
+    private static String coords(String groupId, String artifactId) {
+<span class="pc bpc" id="L306" title="2 of 4 branches missed.">        if (groupId == null || groupId.isBlank()) {</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">            return artifactId == null ? &quot;?&quot; : artifactId;</span>
+        }
+<span class="fc" id="L309">        return groupId + &quot;:&quot; + artifactId;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

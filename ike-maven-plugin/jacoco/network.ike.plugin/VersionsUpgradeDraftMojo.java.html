@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VersionsUpgradeDraftMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">VersionsUpgradeDraftMojo.java</span></div><h1>VersionsUpgradeDraftMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.upgrade.SessionCandidateVersionResolver;
+import network.ike.plugin.support.upgrade.VersionUpgradePlanBuilder;
+import network.ike.workspace.LiteralVersionUpgrade;
+import network.ike.workspace.NodeVersionUpgrade;
+import network.ike.workspace.ParentVersionUpgrade;
+import network.ike.workspace.PropertyVersionUpgrade;
+import network.ike.workspace.VersionUpgradePlan;
+import network.ike.workspace.VersionUpgradePlanWriter;
+import network.ike.workspace.VersionUpgradeRules;
+import network.ike.workspace.VersionUpgradeRulesException;
+import network.ike.workspace.VersionUpgradeRulesReader;
+import network.ike.workspace.VersionUpgradeStatus;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
+
+/**
+ * Preview the version upgrades that {@code ike:versions-upgrade-publish}
+ * would apply to the current module.
+ *
+ * &lt;p&gt;Scans the module's {@code pom.xml} for {@code &lt;parent&gt;}, version
+ * properties (entries in {@code &lt;properties&gt;} consumed via
+ * {@code ${name}} from a {@code &lt;version&gt;} element), and literal
+ * {@code &lt;version&gt;} values on plugins and dependencies. For each
+ * coordinate, consults the {@code versions-upgrade-rules.yaml} ruleset
+ * to decide whether to {@code allow} (resolve the highest non-SNAPSHOT
+ * release from the configured remotes), {@code pin} (force a specific
+ * version), or {@code block} (record the coordinate as off-limits with
+ * a reason). The result is serialized as
+ * {@code versions-upgrade-plan.yaml} for human review.
+ *
+ * &lt;p&gt;This goal is read-only: it never modifies the POM. The companion
+ * {@code ike:versions-upgrade-publish} consumes the plan file and
+ * applies the {@code READY} entries via OpenRewrite (preserving
+ * comments and formatting). Edit the plan between draft and publish
+ * to remove entries you don't want, or change a {@code to:} value to
+ * pin a different target.
+ *
+ * &lt;p&gt;If {@code versions-upgrade-rules.yaml} is absent the goal aborts
+ * — there is no safe default. The {@code default-action: block}
+ * convention means an empty ruleset would propose nothing, which is
+ * indistinguishable from &quot;everything is up to date&quot; and would mask a
+ * misconfigured ruleset. Create the file with at minimum:
+ * &lt;pre&gt;
+ * schema-version: &quot;1.0&quot;
+ * default-action: block
+ * rules:
+ *   - match: &quot;network.ike.*&quot;
+ *     action: allow
+ * &lt;/pre&gt;
+ *
+ * @see VersionsUpgradePublishMojo
+ */
+@Mojo(name = &quot;versions-upgrade-draft&quot;, projectRequired = true)
+public class VersionsUpgradeDraftMojo extends AbstractGoalMojo {
+
+    /** The current Maven session — provides the version resolver. */
+    @Inject
+    private Session session;
+
+    /** The current Maven project — provides the POM path and artifactId. */
+    @Inject
+    private Project project;
+
+    /**
+     * Path to the ruleset that controls which coordinates may be
+     * upgraded. Defaults to {@code versions-upgrade-rules.yaml} in the
+     * project root.
+     */
+    @Parameter(property = &quot;rulesFile&quot;,
+               defaultValue = &quot;${project.basedir}/versions-upgrade-rules.yaml&quot;)
+    String rulesFile;
+
+    /**
+     * Path the generated plan is written to. Defaults to
+     * {@code versions-upgrade-plan.yaml} in the project root.
+     */
+    @Parameter(property = &quot;outputFile&quot;,
+               defaultValue = &quot;${project.basedir}/versions-upgrade-plan.yaml&quot;)
+    String outputFile;
+
+    /**
+     * The {@code ike-tooling.version} value at draft time, surfaced in
+     * the plan header for human review. Defaults to the property of the
+     * same name from the project's effective POM; null if the project
+     * does not declare it.
+     */
+    @Parameter(property = &quot;ike-tooling.version&quot;,
+               defaultValue = &quot;${ike-tooling.version}&quot;)
+    String ikeToolingVersion;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L103">    public VersionsUpgradeDraftMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc" id="L107">        Path projectRoot = project.getBasedir();</span>
+<span class="nc" id="L108">        Path pomPath = project.getPomPath();</span>
+<span class="nc" id="L109">        Path rulesPath = Path.of(rulesFile);</span>
+<span class="nc" id="L110">        Path planPath = Path.of(outputFile);</span>
+
+<span class="nc" id="L112">        VersionUpgradeRules rules = loadRules(rulesPath);</span>
+<span class="nc" id="L113">        VersionUpgradePlanBuilder builder = new VersionUpgradePlanBuilder(</span>
+                rules, new SessionCandidateVersionResolver(session));
+
+<span class="nc" id="L116">        String nodeName = project.getArtifactId();</span>
+<span class="nc" id="L117">        VersionUpgradePlan plan = builder.buildModulePlan(</span>
+<span class="nc" id="L118">                nodeName, pomPath, normalizeIkeToolingVersion());</span>
+
+<span class="nc" id="L120">        VersionUpgradePlanWriter.write(plan, planPath);</span>
+
+<span class="nc" id="L122">        logSummary(plan, rulesPath, planPath);</span>
+
+<span class="nc" id="L124">        writeReport(IkeGoal.VERSIONS_UPGRADE_DRAFT, projectRoot,</span>
+<span class="nc" id="L125">                buildReport(plan, rulesPath, planPath));</span>
+<span class="nc" id="L126">    }</span>
+
+    private VersionUpgradeRules loadRules(Path rulesPath) {
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        if (!Files.isRegularFile(rulesPath)) {</span>
+<span class="nc" id="L130">            throw new MojoException(</span>
+                    &quot;Ruleset not found: &quot; + rulesPath
+                            + &quot;\n  Create this file with at minimum:\n&quot;
+                            + &quot;    schema-version: \&quot;1.0\&quot;\n&quot;
+                            + &quot;    default-action: block\n&quot;
+                            + &quot;    rules:\n&quot;
+                            + &quot;      - match: \&quot;network.ike.*\&quot;\n&quot;
+                            + &quot;        action: allow\n&quot;
+                            + &quot;  Or set -DrulesFile=&lt;path&gt; to point at&quot;
+                            + &quot; a workspace-shared ruleset.&quot;);
+        }
+        try {
+<span class="nc" id="L142">            return VersionUpgradeRulesReader.read(rulesPath);</span>
+<span class="nc" id="L143">        } catch (VersionUpgradeRulesException e) {</span>
+<span class="nc" id="L144">            throw new MojoException(</span>
+                    &quot;Cannot read ruleset &quot; + rulesPath + &quot;: &quot;
+<span class="nc" id="L146">                            + e.getMessage(), e);</span>
+        }
+    }
+
+    private String normalizeIkeToolingVersion() {
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        if (ikeToolingVersion == null) return null;</span>
+        // When the property is undeclared, Maven leaves the literal
+        // ${ike-tooling.version} unresolved.
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        if (ikeToolingVersion.startsWith(&quot;${&quot;)) return null;</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        if (ikeToolingVersion.isBlank()) return null;</span>
+<span class="nc" id="L156">        return ikeToolingVersion;</span>
+    }
+
+    private void logSummary(VersionUpgradePlan plan, Path rulesPath,
+                            Path planPath) {
+<span class="nc" id="L161">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L162">        getLog().info(&quot;ike:versions-upgrade-draft&quot;);</span>
+<span class="nc" id="L163">        getLog().info(&quot;  ruleset: &quot; + rulesPath);</span>
+<span class="nc" id="L164">        getLog().info(&quot;  plan:    &quot; + planPath);</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        if (plan.ikeToolingVersion() != null) {</span>
+<span class="nc" id="L166">            getLog().info(&quot;  ike-tooling.version: &quot;</span>
+<span class="nc" id="L167">                    + plan.ikeToolingVersion());</span>
+        }
+<span class="nc" id="L169">        getLog().info(&quot;&quot;);</span>
+
+        for (Map.Entry&lt;String, NodeVersionUpgrade&gt; entry
+<span class="nc bnc" id="L172" title="All 2 branches missed.">                : plan.nodes().entrySet()) {</span>
+<span class="nc" id="L173">            logNode(entry.getKey(), entry.getValue());</span>
+<span class="nc" id="L174">        }</span>
+
+<span class="nc" id="L176">        Counts counts = countActions(plan);</span>
+<span class="nc" id="L177">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L178">        getLog().info(&quot;Summary: &quot; + counts.summary());</span>
+<span class="nc" id="L179">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L180">        getLog().info(&quot;Edit &quot; + planPath.getFileName()</span>
+                + &quot; to refine, then run ike:versions-upgrade-publish.&quot;);
+<span class="nc" id="L182">    }</span>
+
+    private void logNode(String nodeName, NodeVersionUpgrade node) {
+<span class="nc" id="L185">        getLog().info(&quot;Node: &quot; + nodeName);</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">        if (node.parent() != null) {</span>
+<span class="nc" id="L187">            ParentVersionUpgrade p = node.parent();</span>
+<span class="nc" id="L188">            getLog().info(&quot;  parent &quot; + p.groupId() + &quot;:&quot; + p.artifactId()</span>
+<span class="nc" id="L189">                    + &quot;: &quot; + p.fromVersion() + &quot; -&gt; &quot; + p.toVersion()</span>
+<span class="nc" id="L190">                    + &quot;  [&quot; + statusLabel(p.status()) + &quot;]&quot;</span>
+<span class="nc" id="L191">                    + reasonSuffix(p.reason()));</span>
+        }
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        for (PropertyVersionUpgrade prop : node.properties()) {</span>
+<span class="nc" id="L194">            getLog().info(&quot;  property ${&quot; + prop.propertyName() + &quot;}: &quot;</span>
+<span class="nc" id="L195">                    + prop.fromVersion() + &quot; -&gt; &quot; + prop.toVersion()</span>
+<span class="nc" id="L196">                    + &quot;  [&quot; + statusLabel(prop.status()) + &quot;]&quot;</span>
+<span class="nc" id="L197">                    + reasonSuffix(prop.reason()));</span>
+<span class="nc" id="L198">        }</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">        for (LiteralVersionUpgrade lit : node.literals()) {</span>
+<span class="nc" id="L200">            getLog().info(&quot;  literal &quot; + lit.groupId() + &quot;:&quot;</span>
+<span class="nc" id="L201">                    + lit.artifactId() + &quot;: &quot;</span>
+<span class="nc" id="L202">                    + lit.fromVersion() + &quot; -&gt; &quot; + lit.toVersion()</span>
+<span class="nc" id="L203">                    + &quot;  [&quot; + statusLabel(lit.status()) + &quot;]&quot;</span>
+<span class="nc" id="L204">                    + reasonSuffix(lit.reason()));</span>
+<span class="nc" id="L205">        }</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">        if (node.parent() == null</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                &amp;&amp; node.properties().isEmpty()</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">                &amp;&amp; node.literals().isEmpty()) {</span>
+<span class="nc" id="L209">            getLog().info(&quot;  (no upgrades proposed)&quot;);</span>
+        }
+<span class="nc" id="L211">    }</span>
+
+    private static String statusLabel(VersionUpgradeStatus status) {
+<span class="nc" id="L214">        return status.name().toLowerCase().replace('_', '-');</span>
+    }
+
+    private static String reasonSuffix(String reason) {
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        return reason == null ? &quot;&quot; : &quot;  — &quot; + reason;</span>
+    }
+
+    private static Counts countActions(VersionUpgradePlan plan) {
+<span class="nc" id="L222">        int ready = 0;</span>
+<span class="nc" id="L223">        int blocked = 0;</span>
+<span class="nc" id="L224">        int pending = 0;</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">        for (NodeVersionUpgrade node : plan.nodes().values()) {</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">            if (node.parent() != null) {</span>
+<span class="nc bnc" id="L227" title="All 4 branches missed.">                switch (node.parent().status()) {</span>
+<span class="nc" id="L228">                    case READY -&gt; ready++;</span>
+<span class="nc" id="L229">                    case BLOCKED -&gt; blocked++;</span>
+<span class="nc" id="L230">                    case PENDING_UPSTREAM -&gt; pending++;</span>
+                }
+            }
+<span class="nc bnc" id="L233" title="All 2 branches missed.">            for (PropertyVersionUpgrade p : node.properties()) {</span>
+<span class="nc bnc" id="L234" title="All 4 branches missed.">                switch (p.status()) {</span>
+<span class="nc" id="L235">                    case READY -&gt; ready++;</span>
+<span class="nc" id="L236">                    case BLOCKED -&gt; blocked++;</span>
+<span class="nc" id="L237">                    case PENDING_UPSTREAM -&gt; pending++;</span>
+                }
+<span class="nc" id="L239">            }</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">            for (LiteralVersionUpgrade l : node.literals()) {</span>
+<span class="nc bnc" id="L241" title="All 4 branches missed.">                switch (l.status()) {</span>
+<span class="nc" id="L242">                    case READY -&gt; ready++;</span>
+<span class="nc" id="L243">                    case BLOCKED -&gt; blocked++;</span>
+<span class="nc" id="L244">                    case PENDING_UPSTREAM -&gt; pending++;</span>
+                }
+<span class="nc" id="L246">            }</span>
+<span class="nc" id="L247">        }</span>
+<span class="nc" id="L248">        return new Counts(ready, blocked, pending);</span>
+    }
+
+<span class="nc" id="L251">    private record Counts(int ready, int blocked, int pending) {</span>
+        String summary() {
+<span class="nc" id="L253">            return ready + &quot; ready, &quot; + blocked + &quot; blocked, &quot;</span>
+                    + pending + &quot; pending-upstream&quot;;
+        }
+    }
+
+    private String buildReport(VersionUpgradePlan plan, Path rulesPath,
+                               Path planPath) {
+<span class="nc" id="L260">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L261">        sb.append(&quot;**Project:** &quot;).append(project.getArtifactId())</span>
+<span class="nc" id="L262">                .append(&quot;\n&quot;);</span>
+<span class="nc" id="L263">        sb.append(&quot;**Scope:** module\n&quot;);</span>
+<span class="nc" id="L264">        sb.append(&quot;**Ruleset:** `&quot;).append(rulesPath).append(&quot;`\n&quot;);</span>
+<span class="nc" id="L265">        sb.append(&quot;**Plan:** `&quot;).append(planPath).append(&quot;`\n&quot;);</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        if (plan.ikeToolingVersion() != null) {</span>
+<span class="nc" id="L267">            sb.append(&quot;**ike-tooling.version:** `&quot;)</span>
+<span class="nc" id="L268">                    .append(plan.ikeToolingVersion()).append(&quot;`\n&quot;);</span>
+        }
+<span class="nc" id="L270">        sb.append(&quot;**Generated:** &quot;).append(plan.generated()).append(&quot;\n\n&quot;);</span>
+
+        for (Map.Entry&lt;String, NodeVersionUpgrade&gt; entry
+<span class="nc bnc" id="L273" title="All 2 branches missed.">                : plan.nodes().entrySet()) {</span>
+<span class="nc" id="L274">            appendNodeSection(sb, entry.getKey(), entry.getValue());</span>
+<span class="nc" id="L275">        }</span>
+
+<span class="nc" id="L277">        Counts counts = countActions(plan);</span>
+<span class="nc" id="L278">        sb.append(&quot;## Summary\n&quot;);</span>
+<span class="nc" id="L279">        sb.append(&quot;- ready:            &quot;).append(counts.ready()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L280">        sb.append(&quot;- blocked:          &quot;).append(counts.blocked()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L281">        sb.append(&quot;- pending-upstream: &quot;).append(counts.pending()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L282">        sb.append(&quot;\n&quot;);</span>
+<span class="nc" id="L283">        sb.append(&quot;Edit `&quot;).append(planPath.getFileName())</span>
+<span class="nc" id="L284">                .append(&quot;` to refine, then run &quot;</span>
+                        + &quot;`ike:versions-upgrade-publish`.\n&quot;);
+<span class="nc" id="L286">        return sb.toString();</span>
+    }
+
+    private static void appendNodeSection(StringBuilder sb, String nodeName,
+                                          NodeVersionUpgrade node) {
+<span class="nc" id="L291">        sb.append(&quot;## &quot;).append(nodeName).append(&quot;\n&quot;);</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">        if (node.parent() != null) {</span>
+<span class="nc" id="L293">            ParentVersionUpgrade p = node.parent();</span>
+<span class="nc" id="L294">            sb.append(&quot;- parent `&quot;).append(p.groupId()).append(&quot;:&quot;)</span>
+<span class="nc" id="L295">                    .append(p.artifactId()).append(&quot;`: &quot;)</span>
+<span class="nc" id="L296">                    .append(p.fromVersion()).append(&quot; → &quot;)</span>
+<span class="nc" id="L297">                    .append(p.toVersion()).append(&quot; [&quot;)</span>
+<span class="nc" id="L298">                    .append(statusLabel(p.status())).append(&quot;]&quot;)</span>
+<span class="nc" id="L299">                    .append(reasonSuffix(p.reason())).append(&quot;\n&quot;);</span>
+        }
+<span class="nc bnc" id="L301" title="All 2 branches missed.">        for (PropertyVersionUpgrade prop : node.properties()) {</span>
+<span class="nc" id="L302">            sb.append(&quot;- property `${&quot;).append(prop.propertyName())</span>
+<span class="nc" id="L303">                    .append(&quot;}`: &quot;).append(prop.fromVersion())</span>
+<span class="nc" id="L304">                    .append(&quot; → &quot;).append(prop.toVersion()).append(&quot; [&quot;)</span>
+<span class="nc" id="L305">                    .append(statusLabel(prop.status())).append(&quot;]&quot;)</span>
+<span class="nc" id="L306">                    .append(reasonSuffix(prop.reason())).append(&quot;\n&quot;);</span>
+<span class="nc" id="L307">        }</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">        for (LiteralVersionUpgrade lit : node.literals()) {</span>
+<span class="nc" id="L309">            sb.append(&quot;- literal `&quot;).append(lit.groupId()).append(&quot;:&quot;)</span>
+<span class="nc" id="L310">                    .append(lit.artifactId()).append(&quot;`: &quot;)</span>
+<span class="nc" id="L311">                    .append(lit.fromVersion()).append(&quot; → &quot;)</span>
+<span class="nc" id="L312">                    .append(lit.toVersion()).append(&quot; [&quot;)</span>
+<span class="nc" id="L313">                    .append(statusLabel(lit.status())).append(&quot;]&quot;)</span>
+<span class="nc" id="L314">                    .append(reasonSuffix(lit.reason())).append(&quot;\n&quot;);</span>
+<span class="nc" id="L315">        }</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">        if (node.parent() == null</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">                &amp;&amp; node.properties().isEmpty()</span>
+<span class="nc bnc" id="L318" title="All 2 branches missed.">                &amp;&amp; node.literals().isEmpty()) {</span>
+<span class="nc" id="L319">            sb.append(&quot;- _no upgrades proposed_\n&quot;);</span>
+        }
+<span class="nc" id="L321">        sb.append(&quot;\n&quot;);</span>
+<span class="nc" id="L322">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
