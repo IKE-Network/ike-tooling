@@ -1541,6 +1541,92 @@ class ReleaseSupportTest {
                 staging, "ike-example-ws")).isNull();
     }
 
+    // ──────────────────────────────────────────────────────────────────
+    // detectAggregatedStaging (#351)
+    // ──────────────────────────────────────────────────────────────────
+
+    @Test
+    void detectAggregatedStaging_workspaceWithSubprojects_returnsWorkspaceSubdir(
+            @TempDir Path tmpDir) throws Exception {
+        // Reproduce the v153 ike-example-ws case: target/staging/
+        // contains ike-example-ws/, doc-example/, example-project/,
+        // ike-example-its/ all as siblings. The workspace's own
+        // content is in ike-example-ws/ and should win.
+        Path staging = tmpDir.resolve("staging");
+        Path wsDir = staging.resolve("ike-example-ws");
+        Files.createDirectories(wsDir);
+        Files.writeString(wsDir.resolve("index.html"), "<html/>");
+        Files.createDirectories(staging.resolve("doc-example"));
+        Files.writeString(staging.resolve("doc-example")
+                .resolve("index.html"), "<html/>");
+        Files.createDirectories(staging.resolve("example-project"));
+        Files.writeString(staging.resolve("example-project")
+                .resolve("index.html"), "<html/>");
+
+        Path result = ReleaseSupport.detectAggregatedStaging(
+                staging, "ike-example-ws");
+
+        assertThat(result).isEqualTo(wsDir);
+    }
+
+    @Test
+    void detectAggregatedStaging_singleTopLevel_returnsNull(@TempDir Path tmpDir)
+            throws Exception {
+        // Single top-level entry — detectParentArtifactNesting's
+        // territory. detectAggregatedStaging must not fire here.
+        Path staging = tmpDir.resolve("staging");
+        Path wsDir = staging.resolve("ike-example-ws");
+        Files.createDirectories(wsDir);
+        Files.writeString(wsDir.resolve("index.html"), "<html/>");
+
+        assertThat(ReleaseSupport.detectAggregatedStaging(
+                staging, "ike-example-ws")).isNull();
+    }
+
+    @Test
+    void detectAggregatedStaging_multipleTopLevelButProjectIdAbsent_returnsNull(
+            @TempDir Path tmpDir) throws Exception {
+        // Several top-level subdirs but none matches projectId —
+        // no candidate to unwrap to.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging.resolve("doc-example"));
+        Files.createDirectories(staging.resolve("example-project"));
+        Files.writeString(staging.resolve("doc-example")
+                .resolve("index.html"), "<html/>");
+
+        assertThat(ReleaseSupport.detectAggregatedStaging(
+                staging, "ike-example-ws")).isNull();
+    }
+
+    @Test
+    void detectAggregatedStaging_projectIdSubdirEmpty_returnsNull(
+            @TempDir Path tmpDir) throws Exception {
+        // projectId subdir exists alongside siblings but is empty —
+        // nothing to publish.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging.resolve("ike-example-ws"));
+        Files.createDirectories(staging.resolve("doc-example"));
+        Files.writeString(staging.resolve("doc-example")
+                .resolve("index.html"), "<html/>");
+
+        assertThat(ReleaseSupport.detectAggregatedStaging(
+                staging, "ike-example-ws")).isNull();
+    }
+
+    @Test
+    void detectAggregatedStaging_flatStagingWithFiles_returnsNull(
+            @TempDir Path tmpDir) throws Exception {
+        // Single-module project staging — files at root, no subdirs.
+        // Should not unwrap.
+        Path staging = tmpDir.resolve("staging");
+        Files.createDirectories(staging);
+        Files.writeString(staging.resolve("index.html"), "<html/>");
+        Files.writeString(staging.resolve("bom.json"), "{}");
+
+        assertThat(ReleaseSupport.detectAggregatedStaging(
+                staging, "ike-example-ws")).isNull();
+    }
+
     @Test
     void publishProjectSiteToGhPages_emptyStagingDir_throwsLoud() throws Exception {
         // The bug pattern from #334: an empty-but-existing target/staging/

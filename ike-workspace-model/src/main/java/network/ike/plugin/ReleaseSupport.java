@@ -1129,6 +1129,35 @@ public class ReleaseSupport {
             effectiveStagingSource = parentArtifactUnwrap;
         }
 
+        // Detect aggregated-reactor staging where the project's own
+        // site is one of several top-level entries (ike-issues#351).
+        // When a workspace pom inherits a <site> URL via property
+        // indirection that produces no common ancestor with its
+        // subprojects (e.g. https://ike.network/${project.artifactId}/
+        // per project), site:stage flattens each module at its own
+        // top-level path under target/staging/. The workspace's own
+        // content lives in staging/<projectId>/ and the subprojects
+        // are siblings. Without this unwrap, publishProjectSiteToGhPages
+        // would copy the whole flattened tree as the gh-pages root —
+        // workspace's own pages end up in /<projectId>/, the
+        // subprojects' aggregated sites take over the actual root,
+        // and the wrong index.html ships. Unwrap to <projectId>/
+        // pulls just the workspace's own content to the gh-pages root.
+        // Orthogonal to #337 (version-nested) and #342 (parent-artifactId);
+        // applies whenever the project's own subdir exists alongside
+        // other top-level entries.
+        Path aggregatedUnwrap =
+                detectAggregatedStaging(effectiveStagingSource, projectId);
+        if (aggregatedUnwrap != null) {
+            log.info("  Detected aggregated-reactor staging at "
+                    + effectiveStagingSource
+                    + " — using " + aggregatedUnwrap
+                    + " as the gh-pages source. (Reactor site:stage "
+                    + "flattened module sites at the staging root; "
+                    + "ike-issues#351.)");
+            effectiveStagingSource = aggregatedUnwrap;
+        }
+
         log.info("Publishing " + projectId + " site to gh-pages...");
 
         Path tempDir;
@@ -1526,6 +1555,68 @@ public class ReleaseSupport {
                             + " for parent-artifactId nesting: "
                             + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Detect aggregated-reactor staging where the project's own site
+     * lives alongside multiple sibling subdirs (ike-issues#351).
+     *
+     * <p>When a workspace pom inherits a {@code <site>} URL with no
+     * common ancestor among its reactor subprojects' URLs (e.g.
+     * each module gets {@code https://ike.network/<artifactId>/}),
+     * {@code site:stage} flattens each module's site at its own
+     * top-level path under {@code target/staging/}. The workspace's
+     * own content lives in {@code staging/<projectId>/} and the
+     * subprojects are siblings. Without unwrap, the gh-pages root
+     * gets the whole flattened tree — wrong index.html, missing
+     * the workspace's own pages.
+     *
+     * <p>Detection criteria (all must hold):
+     * <ol>
+     *   <li>{@code source} contains at least one top-level entry, AND</li>
+     *   <li>a subdirectory named {@code projectId} exists at the
+     *       top level, AND</li>
+     *   <li>that subdirectory is non-empty.</li>
+     * </ol>
+     *
+     * <p>Single-top-level cases are handled by
+     * {@link #detectParentArtifactNesting}; this method's value-add
+     * is the multi-top-level case where {@code projectId} is one of
+     * several siblings.
+     *
+     * <p>Returns the path to {@code source/<projectId>} when the
+     * detection fires; {@code null} otherwise.
+     *
+     * @param source    the post-#337/#342-unwrap effective staging source
+     * @param projectId the project's own artifactId
+     * @return the unwrapped path, or {@code null}
+     * @throws MojoException if the directory cannot be inspected
+     */
+    public static Path detectAggregatedStaging(Path source,
+                                                String projectId)
+            throws MojoException {
+        if (!Files.isDirectory(source)) {
+            return null;
+        }
+        try (Stream<Path> entries = Files.list(source)) {
+            // Only fire when there are multiple top-level entries —
+            // the single-top-level case is detectParentArtifactNesting's
+            // territory.
+            if (entries.count() < 2) {
+                return null;
+            }
+        } catch (IOException e) {
+            throw new MojoException(
+                    "Could not inspect " + source
+                            + " for aggregated staging: "
+                            + e.getMessage(), e);
+        }
+        Path candidate = source.resolve(projectId);
+        if (!Files.isDirectory(candidate)
+                || isEmptyDirectory(candidate)) {
+            return null;
+        }
+        return candidate;
     }
 
     /**
