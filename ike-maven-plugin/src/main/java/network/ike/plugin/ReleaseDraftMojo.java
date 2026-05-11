@@ -430,6 +430,20 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         "-B", "-T", "1");
 
                 // 5. Stage site (packages for deploy)
+                // Clean target/staging/ first — stale content from
+                // earlier releases (which used a different staging
+                // structure under pre-#304 site URLs) can survive
+                // the maven-clean-plugin pass on some configurations
+                // and get picked up by publishProjectSiteToGhPages'
+                // unwrap heuristics. Caused v6 workspace site to
+                // ship a stale v3-era footer. ike-issues#351 v3.
+                Path stagingDirToClean = gitRoot.toPath()
+                        .resolve("target").resolve("staging");
+                if (Files.isDirectory(stagingDirToClean)) {
+                    getLog().info("Cleaning stale target/staging/ "
+                            + "before site:stage (#351)...");
+                    ReleaseSupport.deleteDirectory(stagingDirToClean);
+                }
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "site:stage", "-B", "-T", "1");
 
