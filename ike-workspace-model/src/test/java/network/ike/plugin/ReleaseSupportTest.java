@@ -1614,6 +1614,35 @@ class ReleaseSupportTest {
     }
 
     @Test
+    void detectAggregatedStaging_compoundNestingAndAggregation_returnsDeepProjectIdSubdir(
+            @TempDir Path tmpDir) throws Exception {
+        // Reproduce the v154 ike-example-ws case: target/staging/ has
+        // sibling subdirs from aggregated reactor modules AND the
+        // workspace's own content is nested under <parentArtifactId>/
+        // (because the workspace inherits ike-parent). Combined #342
+        // + #351 pattern that v1 of detectAggregatedStaging missed.
+        Path staging = tmpDir.resolve("staging");
+        // Workspace's own content, nested under parent-artifactId.
+        Path wsDir = staging.resolve("ike-parent")
+                .resolve("ike-example-ws");
+        Files.createDirectories(wsDir);
+        Files.writeString(wsDir.resolve("index.html"), "<html/>");
+        Files.writeString(wsDir.resolve("workspace-yaml.html"), "<html/>");
+        Files.writeString(wsDir.resolve("it-suite.html"), "<html/>");
+        // Sibling top-level entries from other reactor modules.
+        Files.createDirectories(staging.resolve("apidocs"));
+        Files.createDirectories(staging.resolve("docs"));
+        Files.createDirectories(staging.resolve("jacoco"));
+        Files.writeString(staging.resolve("index.html"),
+                "<html><title>example-project</title></html>");
+
+        Path result = ReleaseSupport.detectAggregatedStaging(
+                staging, "ike-example-ws");
+
+        assertThat(result).isEqualTo(wsDir);
+    }
+
+    @Test
     void detectAggregatedStaging_flatStagingWithFiles_returnsNull(
             @TempDir Path tmpDir) throws Exception {
         // Single-module project staging — files at root, no subdirs.

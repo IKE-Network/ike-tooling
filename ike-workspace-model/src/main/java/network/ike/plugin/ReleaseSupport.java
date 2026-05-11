@@ -1611,12 +1611,37 @@ public class ReleaseSupport {
                             + " for aggregated staging: "
                             + e.getMessage(), e);
         }
-        Path candidate = source.resolve(projectId);
-        if (!Files.isDirectory(candidate)
-                || isEmptyDirectory(candidate)) {
-            return null;
+        // Check shallow first: source/<projectId>/
+        Path shallow = source.resolve(projectId);
+        if (Files.isDirectory(shallow) && !isEmptyDirectory(shallow)) {
+            return shallow;
         }
-        return candidate;
+        // Check one level deeper: source/<anyDir>/<projectId>/. This
+        // catches the compound case where the workspace's own site is
+        // nested under parent-artifactId (#342) AND the reactor's
+        // sibling subprojects flatten at the staging root (#351 v1
+        // detection didn't fire on the shallow check because the
+        // projectId subdir lives at staging/<parentArtifactId>/<projectId>/,
+        // not staging/<projectId>/). The first matching deeper
+        // candidate wins — staging/<parentArtifactId>/<projectId>/
+        // is the only configuration that produces this layout in
+        // practice, so we don't disambiguate.
+        try (Stream<Path> entries = Files.list(source)) {
+            for (Path top : entries.toList()) {
+                if (!Files.isDirectory(top)) continue;
+                Path deeper = top.resolve(projectId);
+                if (Files.isDirectory(deeper)
+                        && !isEmptyDirectory(deeper)) {
+                    return deeper;
+                }
+            }
+        } catch (IOException e) {
+            throw new MojoException(
+                    "Could not inspect " + source
+                            + " for aggregated staging (deep): "
+                            + e.getMessage(), e);
+        }
+        return null;
     }
 
     /**
