@@ -1574,73 +1574,6 @@ public class ReleaseSupport {
      *         was detected
      * @throws MojoException if the directory cannot be inspected
      */
-    /**
-     * Detect URL-as-path staging where {@code site:stage} has
-     * mapped an {@code https://}-form {@code <site><url>} to a
-     * literal directory tree under {@code target/staging/}
-     * (ike-issues#359).
-     *
-     * <p>For a {@code <site><url>https://ike.network/<projectId>/}
-     * inside a multi-module reactor, maven-site-plugin produces
-     * {@code target/staging/https:/ike.network/<projectId>/<content>}
-     * — scheme (https:), host (ike.network), and each path segment
-     * each become a real subdirectory. The pre-#304 scpexe URLs
-     * also went through this transformation, but their path
-     * segments aligned with where site-deploy actually wrote, so
-     * the layout was sensible. Post-#304 the https:// URLs survive
-     * only for relative-path computation and the URL-as-path
-     * staging is wasted — the actual publish target is gh-pages.
-     *
-     * <p>Detection: descend into {@code source/https:/} (or
-     * {@code source/http:/}), then a single host directory, then
-     * the project's own {@code <projectId>/} subdirectory. When
-     * all three exist and {@code <projectId>/} is non-empty,
-     * return it as the effective staging source. The caller then
-     * applies the remaining unwraps (version-nested #337,
-     * parent-artifactId #342, aggregated #351) to the narrowed
-     * source — e.g. ike-platform's
-     * {@code <site><url>https://ike.network/ike-platform/${project.version}/}
-     * resolves to {@code source/https:/ike.network/ike-platform/}
-     * here, then #337 descends into {@code 40/}.
-     *
-     * <p>Returns {@code null} if any layer of the expected
-     * structure is missing or the project's own directory is
-     * empty — staying conservative so non-matching projects
-     * (single-module reactors, scpexe-URL projects, etc.) fall
-     * through to the existing unwrap chain unchanged.
-     *
-     * @param source    the staging directory to inspect
-     * @param projectId the project's artifactId
-     * @return the unwrap target or {@code null}
-     * @throws MojoException if a directory cannot be listed
-     */
-    public static Path detectHttpsUrlStaging(Path source, String projectId)
-            throws MojoException {
-        if (!Files.isDirectory(source)) return null;
-        Path scheme = source.resolve("https:");
-        if (!Files.isDirectory(scheme)) {
-            scheme = source.resolve("http:");
-            if (!Files.isDirectory(scheme)) return null;
-        }
-        Path host;
-        try (Stream<Path> hosts = Files.list(scheme)) {
-            List<Path> hostDirs = hosts.filter(Files::isDirectory).toList();
-            if (hostDirs.size() != 1) return null;
-            host = hostDirs.get(0);
-        } catch (IOException e) {
-            throw new MojoException(
-                    "Could not inspect " + scheme
-                            + " for URL-as-path staging: "
-                            + e.getMessage(), e);
-        }
-        Path projectDir = host.resolve(projectId);
-        if (!Files.isDirectory(projectDir)
-                || isEmptyDirectory(projectDir)) {
-            return null;
-        }
-        return projectDir;
-    }
-
     public static Path detectParentArtifactNesting(Path source,
                                                     String projectId)
             throws MojoException {
@@ -1754,6 +1687,75 @@ public class ReleaseSupport {
                             + e.getMessage(), e);
         }
         return null;
+    }
+
+    /**
+     * Detect URL-as-path staging where {@code site:stage} has
+     * mapped an {@code https://}-form {@code <site><url>} to a
+     * literal directory tree under {@code target/staging/}
+     * (ike-issues#359).
+     *
+     * <p>For a {@code <site><url>https://ike.network/<projectId>/}
+     * inside a multi-module reactor, maven-site-plugin produces
+     * {@code target/staging/https:/ike.network/<projectId>/<content>}
+     * — scheme ({@code https:}), host ({@code ike.network}), and each
+     * path segment each become a real subdirectory. The pre-#304
+     * scpexe URLs also went through this transformation, but their
+     * path segments aligned with where site-deploy actually wrote,
+     * so the layout was sensible. Post-#304 the {@code https://}
+     * URLs survive only for relative-path computation and the
+     * URL-as-path staging is wasted — the actual publish target is
+     * gh-pages.
+     *
+     * <p>Detection: descend into {@code source/https:/} (or
+     * {@code source/http:/}), then a single host directory, then
+     * the project's own {@code <projectId>/} subdirectory. When
+     * all three exist and {@code <projectId>/} is non-empty,
+     * return it as the effective staging source. The caller then
+     * applies the remaining unwraps (version-nested #337,
+     * parent-artifactId #342, aggregated #351) to the narrowed
+     * source — e.g. ike-platform's
+     * {@code https://ike.network/ike-platform/${project.version}/}
+     * resolves to {@code source/https:/ike.network/ike-platform/}
+     * here, then #337 descends into {@code 40/}.
+     *
+     * <p>Returns {@code null} if any layer of the expected
+     * structure is missing or the project's own directory is
+     * empty — staying conservative so non-matching projects
+     * (single-module reactors, scpexe-URL projects, etc.) fall
+     * through to the existing unwrap chain unchanged.
+     *
+     * @param source    the staging directory to inspect
+     * @param projectId the project's artifactId
+     * @return the unwrap target, or {@code null} if no
+     *         URL-as-path nesting was detected
+     * @throws MojoException if a directory cannot be listed
+     */
+    public static Path detectHttpsUrlStaging(Path source, String projectId)
+            throws MojoException {
+        if (!Files.isDirectory(source)) return null;
+        Path scheme = source.resolve("https:");
+        if (!Files.isDirectory(scheme)) {
+            scheme = source.resolve("http:");
+            if (!Files.isDirectory(scheme)) return null;
+        }
+        Path host;
+        try (Stream<Path> hosts = Files.list(scheme)) {
+            List<Path> hostDirs = hosts.filter(Files::isDirectory).toList();
+            if (hostDirs.size() != 1) return null;
+            host = hostDirs.get(0);
+        } catch (IOException e) {
+            throw new MojoException(
+                    "Could not inspect " + scheme
+                            + " for URL-as-path staging: "
+                            + e.getMessage(), e);
+        }
+        Path projectDir = host.resolve(projectId);
+        if (!Files.isDirectory(projectDir)
+                || isEmptyDirectory(projectDir)) {
+            return null;
+        }
+        return projectDir;
     }
 
     /**
