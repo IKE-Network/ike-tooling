@@ -100,6 +100,20 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     boolean nonRecursiveSite;
 
     /**
+     * Skip the org-site registration step that runs at the end of a
+     * successful release-publish. By default each release invokes
+     * {@code ike:register-site-publish} so the IKE Network landing
+     * page at https://ike.network/ picks up the just-released
+     * version automatically. Pass {@code -Dike.skip.orgSite=true}
+     * to skip when batching releases or working offline.
+     *
+     * <p>Best-effort: failure of the org-site step warns but does
+     * not fail the release. ike-issues#367.
+     */
+    @Parameter(property = "ike.skip.orgSite", defaultValue = "false")
+    boolean skipOrgSite;
+
+    /**
      * GitHub repository for issue tracking, used to look up a milestone
      * named {@code <artifactId> v<version>} for release notes generation.
      * If the milestone exists, its closed issues are formatted as the
@@ -535,6 +549,35 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             createGitHubRelease(gitRoot, projectId, releaseVersion);
         } else {
             getLog().info("No 'origin' remote — skipping GitHub Release");
+        }
+
+        // Auto-register this release on the IKE Network org-site
+        // (ike-issues#367). Runs only when:
+        //   - we actually published to gh-pages (skip when publishSite
+        //     was off or the publish failed; no point advertising a
+        //     release whose canonical URL 404s);
+        //   - the operator hasn't opted out via -Dike.skip.orgSite=true.
+        // Best-effort: a failed register-site step warns but does not
+        // fail the release — the release artifacts are already on
+        // Nexus and the project's own gh-pages is already updated.
+        // Worst case the org-site footer lags one release behind for
+        // the affected project; the next successful release catches up.
+        if (publishSite && ghPagesPublished && !skipOrgSite && hasOrigin) {
+            getLog().info("");
+            getLog().info("Registering release on IKE Network landing page (#367)...");
+            try {
+                ReleaseSupport.exec(gitRoot, getLog(),
+                        mvnw.getAbsolutePath(),
+                        "ike:register-site-publish",
+                        "-DreleaseVersion=" + releaseVersion,
+                        "-B");
+            } catch (Exception e) {
+                getLog().warn("  ⚠ Org-site registration failed (non-fatal): "
+                        + e.getMessage());
+                getLog().warn("    The release itself is complete. To retry: "
+                        + "mvn ike:register-site-publish -DreleaseVersion="
+                        + releaseVersion);
+            }
         }
 
         // Pre-#304: this block called cleanRemoteSiteDir to ssh-delete

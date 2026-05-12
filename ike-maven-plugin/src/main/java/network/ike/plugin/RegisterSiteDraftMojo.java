@@ -147,7 +147,9 @@ public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
 
     /**
      * Collect reactor module names from the root POM.
-     * Returns an empty list for non-reactor projects.
+     * Handles both Maven 3 {@code <module>} and Maven 4
+     * {@code <subproject>} tags. Returns an empty list for
+     * non-reactor projects.
      */
     private List<String> resolveModules(File gitRoot) {
         // Parse modules from root POM — simple regex scan
@@ -156,7 +158,7 @@ public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
             String pom = java.nio.file.Files.readString(rootPom.toPath(),
                     java.nio.charset.StandardCharsets.UTF_8);
             java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                    "<module>([^<]+)</module>");
+                    "<(?:module|subproject)>([^<]+)</(?:module|subproject)>");
             java.util.regex.Matcher matcher = pattern.matcher(pom);
             List<String> modules = new java.util.ArrayList<>();
             while (matcher.find()) {
