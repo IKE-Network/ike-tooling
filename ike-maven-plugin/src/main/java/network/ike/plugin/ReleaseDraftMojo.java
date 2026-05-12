@@ -349,6 +349,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // -N (non-recursive) when releasing an aggregator whose
         // subproject sites would otherwise collide at the staging
         // root (ike-issues#356).
+        //
+        // -Drelease.bootstrap.version=<oldVersion> activates the
+        // releaseSelfSite profile (#370) for projects that have it.
+        // The profile references ike-maven-plugin at the just-
+        // installed SNAPSHOT (oldVersion is the pre-release pom
+        // version) — a different GAV from the submodules being
+        // released, so no reactor cycle. No-op for projects that
+        // don't declare the profile.
         if (publishSite) {
             getLog().info("Building site (pre-flight check)...");
             List<String> siteArgs = new ArrayList<>();
@@ -358,6 +366,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             siteArgs.add("-B");
             siteArgs.add("-T");
             siteArgs.add("1");
+            siteArgs.add("-Drelease.bootstrap.version=" + oldVersion);
             if (nonRecursiveSite) siteArgs.add("-N");
             ReleaseSupport.exec(gitRoot, getLog(),
                     siteArgs.toArray(new String[0]));
@@ -399,22 +408,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // Re-read version after merge (it's the release version on main now)
         String currentVersion = ReleaseSupport.readPomVersion(rootPom);
         ReleaseSupport.setPomVersion(rootPom, currentVersion, nextVersion);
-
-        // Auto-bump the bootstrap-version property when present
-        // (ike-issues#370). The selfSite profile in ike-tooling's
-        // reactor pom needs to reference a previously-released
-        // version of ike-maven-plugin (not the current reactor
-        // submodule, which would create a cycle). To eliminate the
-        // manual-bump anti-pattern, this post-release step updates
-        // the property to the just-released version. No effect for
-        // poms that don't declare the property.
-        if (ReleaseSupport.pomDeclaresProperty(rootPom,
-                "ike-tooling.previous.version")) {
-            getLog().info("Auto-bumping ike-tooling.previous.version "
-                    + "to " + releaseVersion + " (#370)...");
-            ReleaseSupport.setPomProperty(rootPom,
-                    "ike-tooling.previous.version", releaseVersion);
-        }
 
         // Verify build with new SNAPSHOT version
         ReleaseSupport.exec(gitRoot, getLog(),
@@ -478,13 +471,17 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                             + e.getMessage());
                 }
 
-                // 3. Build site (generates JaCoCo HTML from jacoco.exec)
+                // 3. Build site (generates JaCoCo HTML from jacoco.exec).
+                //    -Drelease.bootstrap.version activates the
+                //    releaseSelfSite profile for projects that
+                //    declare it (#370). See pre-flight comment above.
                 List<String> buildArgs = new ArrayList<>();
                 buildArgs.add(mvnw.getAbsolutePath());
                 buildArgs.add("site");
                 buildArgs.add("-B");
                 buildArgs.add("-T");
                 buildArgs.add("1");
+                buildArgs.add("-Drelease.bootstrap.version=" + oldVersion);
                 if (nonRecursiveSite) buildArgs.add("-N");
                 ReleaseSupport.exec(gitRoot, getLog(),
                         buildArgs.toArray(new String[0]));
@@ -516,6 +513,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 stageArgs.add("-B");
                 stageArgs.add("-T");
                 stageArgs.add("1");
+                stageArgs.add("-Drelease.bootstrap.version=" + oldVersion);
                 if (nonRecursiveSite) stageArgs.add("-N");
                 ReleaseSupport.exec(gitRoot, getLog(),
                         stageArgs.toArray(new String[0]));
