@@ -305,8 +305,16 @@ public final class OrgSiteSupport {
     // ── Site build ───────────────────────────────────────────────────
 
     /**
-     * Build the org site by invoking {@code mvn site site:stage} in
-     * the cloned org repo.
+     * Build the org site by invoking {@code mvn site} in the cloned
+     * org repo. Output lands at {@code target/site/}.
+     *
+     * <p>Note: only {@code site} is invoked, not {@code site:stage}.
+     * {@code site:stage} requires {@code <distributionManagement>}
+     * in the project pom to compute relative paths; the org-site
+     * source pom intentionally omits it because the org site has no
+     * Nexus deployment target — it ships only as static HTML to the
+     * publish repo. {@code mvn site} alone produces the rendered
+     * {@code target/site/} tree that publishToPubRepo then ships.
      *
      * @param orgRoot root of the cloned org repository
      * @param log     Maven logger
@@ -317,7 +325,7 @@ public final class OrgSiteSupport {
         File mvnw = resolveMaven(orgRoot, log);
         log.info("Building org site...");
         ReleaseSupport.exec(orgRoot, log,
-                mvnw.getAbsolutePath(), "site", "site:stage", "-B");
+                mvnw.getAbsolutePath(), "site", "-B");
     }
 
     // ── GitHub Pages publishing ──────────────────────────────────────
