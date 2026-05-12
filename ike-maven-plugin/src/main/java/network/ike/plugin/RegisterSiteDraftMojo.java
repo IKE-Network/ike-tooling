@@ -36,7 +36,11 @@ import java.util.List;
  * @see DeregisterSiteDraftMojo
  * @see OrgSiteSupport
  */
-@Mojo(name = "register-site-draft", projectRequired = false, aggregator = true)
+// projectRequired = true: the goal needs Maven's active project so the
+// @Parameter defaultValue templates ${project.name} and ${project.description}
+// interpolate. With projectRequired = false they evaluated to literal "null"
+// and the org-site fragment shipped `= null` as its heading.
+@Mojo(name = "register-site-draft", projectRequired = true, aggregator = true)
 public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
 
     @org.apache.maven.api.di.Inject
@@ -72,12 +76,24 @@ public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
     @Parameter(property = "pubBranch", defaultValue = "main")
     private String pubBranch;
 
-    /** Human-readable project name. Defaults to POM {@code <name>}. */
-    @Parameter(property = "projectName", defaultValue = "${project.name}")
+    /**
+     * Human-readable project name. Defaults to the project's
+     * {@code <name>} read directly from {@code pom.xml}. The
+     * {@code defaultValue = "${project.name}"} form does NOT work
+     * here — under Maven 4 with {@code aggregator = true}, the
+     * project-property template doesn't interpolate at parameter-
+     * injection time and the field arrives as a literal {@code null}.
+     * Read from disk in {@link #execute()} instead.
+     */
+    @Parameter(property = "projectName")
     private String projectName;
 
-    /** One-line project description. Defaults to POM {@code <description>}. */
-    @Parameter(property = "projectDescription", defaultValue = "${project.description}")
+    /**
+     * One-line project description. Same caveat as
+     * {@link #projectName} — read from {@code pom.xml} in
+     * {@link #execute()} when not explicitly supplied.
+     */
+    @Parameter(property = "projectDescription")
     private String projectDescription;
 
     /** Site URL on ike.network. Derived from artifact ID if not set. */
@@ -106,6 +122,24 @@ public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
 
         String artifactId = ReleaseSupport.readPomArtifactId(rootPom);
         String version = resolveVersion(rootPom);
+
+        // Fill in name/description from pom.xml directly. The
+        // @Parameter defaultValue route ($\{project.name},
+        // $\{project.description}) doesn't work under
+        // projectRequired=true + aggregator=true in Maven 4 — the
+        // fields land as null and the org-site fragment shipped
+        // `= null` as its heading. Read on demand instead.
+        if (projectName == null || projectName.isBlank()) {
+            projectName = readPomTextField(rootPom, "name");
+            if (projectName == null || projectName.isBlank()) {
+                // Fall back to a derived label so the org-site is
+                // never headed with a literal "null".
+                projectName = artifactId;
+            }
+        }
+        if (projectDescription == null || projectDescription.isBlank()) {
+            projectDescription = readPomTextField(rootPom, "description");
+        }
 
         if (projectSiteUrl == null || projectSiteUrl.isBlank()) {
             projectSiteUrl = "https://ike.network/" + artifactId + "/";
@@ -146,6 +180,42 @@ public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("");
         getLog().info("Registered " + artifactId + " " + version
                 + " on ike.network");
+    }
+
+    /**
+     * Read the top-level value of a POM child element (e.g.
+     * {@code <name>}, {@code <description>}). Skips any preceding
+     * {@code <parent>} block so we return the project's own value,
+     * not the inherited one. Returns {@code null} when the field
+     * is absent or the file cannot be read.
+     */
+    static String readPomTextField(File pom, String fieldName) {
+        if (pom == null || !pom.isFile()) return null;
+        try {
+            String content = java.nio.file.Files.readString(pom.toPath(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            int searchFrom = 0;
+            int parentOpen = content.indexOf("<parent>");
+            if (parentOpen >= 0) {
+                int parentClose = content.indexOf("</parent>", parentOpen);
+                if (parentClose > parentOpen) {
+                    searchFrom = parentClose + "</parent>".length();
+                }
+            }
+            String openTag = "<" + fieldName + ">";
+            String closeTag = "</" + fieldName + ">";
+            int open = content.indexOf(openTag, searchFrom);
+            if (open < 0) return null;
+            int valueStart = open + openTag.length();
+            int close = content.indexOf(closeTag, valueStart);
+            if (close < 0) return null;
+            // Collapse whitespace so multi-line descriptions render
+            // as a single line in the org-site fragment.
+            return content.substring(valueStart, close)
+                    .trim().replaceAll("\\s+", " ");
+        } catch (java.io.IOException e) {
+            return null;
+        }
     }
 
     /**

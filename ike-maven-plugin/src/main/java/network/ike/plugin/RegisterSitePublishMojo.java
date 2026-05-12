@@ -14,7 +14,8 @@ import org.apache.maven.api.plugin.annotations.Mojo;
  *
  * @see RegisterSiteDraftMojo
  */
-@Mojo(name = "register-site-publish", projectRequired = false, aggregator = true)
+// projectRequired = true: see RegisterSiteDraftMojo for the bug this fixes.
+@Mojo(name = "register-site-publish", projectRequired = true, aggregator = true)
 public class RegisterSitePublishMojo extends RegisterSiteDraftMojo {
 
     /** Creates this goal instance. */
