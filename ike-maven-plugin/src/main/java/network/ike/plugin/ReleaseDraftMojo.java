@@ -400,6 +400,22 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         String currentVersion = ReleaseSupport.readPomVersion(rootPom);
         ReleaseSupport.setPomVersion(rootPom, currentVersion, nextVersion);
 
+        // Auto-bump the bootstrap-version property when present
+        // (ike-issues#370). The selfSite profile in ike-tooling's
+        // reactor pom needs to reference a previously-released
+        // version of ike-maven-plugin (not the current reactor
+        // submodule, which would create a cycle). To eliminate the
+        // manual-bump anti-pattern, this post-release step updates
+        // the property to the just-released version. No effect for
+        // poms that don't declare the property.
+        if (ReleaseSupport.pomDeclaresProperty(rootPom,
+                "ike-tooling.previous.version")) {
+            getLog().info("Auto-bumping ike-tooling.previous.version "
+                    + "to " + releaseVersion + " (#370)...");
+            ReleaseSupport.setPomProperty(rootPom,
+                    "ike-tooling.previous.version", releaseVersion);
+        }
+
         // Verify build with new SNAPSHOT version
         ReleaseSupport.exec(gitRoot, getLog(),
                 mvnw.getAbsolutePath(), "clean", "verify", "-B", "-T", "1");

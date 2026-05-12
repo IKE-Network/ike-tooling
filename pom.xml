@@ -100,31 +100,28 @@
 
         <!-- Bootstrap version of ike-maven-plugin for the reactor
              root's own site reporting (ike-issues#370). The reactor
-             pom cannot reference its own plugin at ${project.version}
-             in <build><plugins>: that creates a Maven build cycle
-             (parent depends on child). Bootstrap pattern: reference
-             a PREVIOUSLY released version (already in Nexus / local
-             repo), so the reactor build resolves the plugin from a
-             real artifact, not from itself. Wires the selfSite
-             profile (default-active) which adds built-with and
-             render-sbom-viewer executions at pre-site phase, so the
-             reactor root finally gets /ike-tooling/built-with.html
-             and /ike-tooling/dependencies.html on each release.
+             pom cannot reference ike-maven-plugin at ${project.version}
+             in <build><plugins>: Maven's reactor evaluation inserts
+             an edge from the reactor root to ike-maven-plugin (the
+             submodule it would build), and since ike-maven-plugin
+             depends on ike-build-standards (another submodule),
+             Maven finds a cyclic reference and refuses the build.
+             Bootstrap pattern: reference a PREVIOUSLY released
+             version (already in Nexus / local repo) so Maven
+             resolves the plugin from a real artifact, not from
+             itself. No cycle.
 
-             Bump after each successful release to the just-released
-             version. The release flow does NOT auto-bump this (would
-             touch the same file the post-release step bumps, with
-             non-trivial coordination), so it's a manual step:
+             Auto-bumped to releaseVersion by ReleaseDraftMojo's
+             post-release step — same commit that bumps
+             project.version to N+1-SNAPSHOT also writes
+             ike-tooling.previous.version=N. No manual operator
+             step. ike-issues#370.
 
-               1. Release ike-tooling vN (with this property at vN-1)
-               2. Edit ike-tooling/pom.xml: set this property to vN
-               3. Commit, push (no release needed; takes effect on
-                  next release's site rendering)
-
-             Deactivate the bootstrap entirely with -P-selfSite when
-             iterating on ike:* mojos that you want to run at the
-             reactor's SNAPSHOT version (otherwise short-prefix
-             lookups resolve to the bootstrap version). -->
+             Deactivate the bootstrap entirely with
+             -DskipSelfSite=true when iterating on ike:* mojos at
+             the reactor's SNAPSHOT version (otherwise short-prefix
+             lookups resolve to this released bootstrap version's
+             binary instead of the dev SNAPSHOT). -->
         <ike-tooling.previous.version>161</ike-tooling.previous.version>
 
         <!-- Plugin versions -->
@@ -592,27 +589,15 @@
         </profile>
 
         <!-- ── selfSite ─────────────────────────────────────────────── -->
-        <!-- ike-tooling's reactor root pom cannot reference ike-      -->
-        <!-- maven-plugin at ${project.version} in <build><plugins>:    -->
-        <!-- that creates a Maven build cycle (parent depends on        -->
-        <!-- child being built first). So neither ike:built-with nor    -->
-        <!-- ike:render-sbom-viewer runs on the reactor root, and       -->
-        <!-- /ike-tooling/built-with.html and                           -->
-        <!-- /ike-tooling/dependencies.html have always been 404.       -->
-        <!--                                                            -->
-        <!-- Bootstrap pattern (ike-issues#370): reference a            -->
-        <!-- PREVIOUSLY released version of ike-maven-plugin. That      -->
-        <!-- version's artifact lives in Nexus / the local repo —      -->
-        <!-- the reactor resolves it like any other third-party plugin  -->
-        <!-- with no cycle. The bootstrap version is pinned in the      -->
-        <!-- ike-tooling.previous.version property and bumped after     -->
-        <!-- each release (see the comment on that property).           -->
-        <!--                                                            -->
-        <!-- Default-active. Deactivate with -P-selfSite when iterating -->
-        <!-- on ike:* mojos: with the profile active, short-prefix      -->
-        <!-- lookups for ike-maven-plugin would resolve to the          -->
-        <!-- bootstrap version's binary (a previously-released artifact -->
-        <!-- in ~/.m2) instead of the dev SNAPSHOT just installed.      -->
+        <!-- Wire ike:built-with and ike:render-sbom-viewer at         -->
+        <!-- pre-site phase so the reactor-root site finally gets      -->
+        <!-- /ike-tooling/built-with.html and dependencies.html on     -->
+        <!-- each release. Uses the bootstrap version property         -->
+        <!-- (ike-tooling.previous.version, auto-bumped each           -->
+        <!-- release) to avoid the reactor-cycle Maven detects when    -->
+        <!-- the reactor root references its own submodule plugin.    -->
+        <!-- See the comment on ike-tooling.previous.version above     -->
+        <!-- for the full mechanism. ike-issues#370.                    -->
         <profile>
             <id>selfSite</id>
             <!-- Active by default. Maven's <activeByDefault>true</> is
