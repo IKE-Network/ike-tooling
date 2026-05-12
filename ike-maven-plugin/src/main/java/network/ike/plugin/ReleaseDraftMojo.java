@@ -566,9 +566,20 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             getLog().info("");
             getLog().info("Registering release on IKE Network landing page (#367)...");
             try {
+                // Invoke the goal at the JUST-RELEASED plugin version,
+                // not via the short prefix. The post-release bump has
+                // already advanced the pom to N+1-SNAPSHOT, so
+                // `mvn ike:register-site-publish` would try to resolve
+                // ike-maven-plugin at N+1-SNAPSHOT (absent) and fail.
+                // The plugin coordinates here always pin to the
+                // version that just made it into ~/.m2 via the
+                // release-publish flow.
+                String pluginCoord =
+                        "network.ike.tooling:ike-maven-plugin:"
+                        + releaseVersion + ":register-site-publish";
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(),
-                        "ike:register-site-publish",
+                        pluginCoord,
                         "-DreleaseVersion=" + releaseVersion,
                         "-B");
             } catch (Exception e) {
