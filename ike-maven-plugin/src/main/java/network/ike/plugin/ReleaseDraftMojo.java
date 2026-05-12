@@ -350,13 +350,46 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // subproject sites would otherwise collide at the staging
         // root (ike-issues#356).
         //
-        // -Drelease.bootstrap.version=<oldVersion> activates the
-        // releaseSelfSite profile (#370) for projects that have it.
-        // The profile references ike-maven-plugin at the just-
-        // installed SNAPSHOT (oldVersion is the pre-release pom
-        // version) — a different GAV from the submodules being
-        // released, so no reactor cycle. No-op for projects that
-        // don't declare the profile.
+        // ── X-SNAPSHOT bootstrap (2 of 2) ─────────────────────────────
+        // ike-issues#370.
+        //
+        // Every `mvn site` / `mvn site:stage` invocation in this mojo
+        // passes -Drelease.bootstrap.version=<oldVersion>. oldVersion
+        // is the pre-release pom version (i.e., X-SNAPSHOT, where X is
+        // the version about to be released — captured at line ~139,
+        // before setPomVersion runs).
+        //
+        // The property activates the releaseSelfSite profile in any
+        // reactor-root pom that declares it (currently just ike-tooling
+        // itself, which has the cycle problem). Inside that profile,
+        // ike-maven-plugin is bound at <version>${release.bootstrap.
+        // version}</version> — i.e., at X-SNAPSHOT, which is a
+        // DIFFERENT GAV than the reactor submodules (set to X by this
+        // mojo's setPomVersion). Different GAV → no graph edge to a
+        // submodule → no reactor cycle. Maven flags the cycle at
+        // reactor evaluation time, so the indirection has to live in
+        // the pom; we just supply the property value.
+        //
+        // Why X-SNAPSHOT is guaranteed in ~/.m2: this mojo's pre-
+        // release step (above) runs `mvn clean install` BEFORE any
+        // version bump, installing X-SNAPSHOT locally. Subsequent
+        // site invocations resolve the plugin descriptor from there.
+        //
+        // No-op for projects that do not declare the releaseSelfSite
+        // profile — setting a property Maven does not see has no
+        // effect, so this is safe to pass unconditionally.
+        //
+        // THE OTHER HALF OF THIS PATTERN — see
+        //   ike-tooling/pom.xml
+        // (search "X-SNAPSHOT bootstrap (1 of 2)") for the profile
+        // declaration that consumes ${release.bootstrap.version}.
+        //
+        // Note: only `mvn site` / `mvn site:stage` invocations pass
+        // the property. Other release-flow `mvn` calls (verify, deploy,
+        // register-site-publish, etc.) stay outside the profile and
+        // resolve plugin coords via pluginManagement — the standard
+        // self-host pattern, which works because pluginManagement
+        // does not create reactor edges the way live <plugins> does.
         if (publishSite) {
             getLog().info("Building site (pre-flight check)...");
             List<String> siteArgs = new ArrayList<>();
@@ -472,9 +505,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 }
 
                 // 3. Build site (generates JaCoCo HTML from jacoco.exec).
-                //    -Drelease.bootstrap.version activates the
-                //    releaseSelfSite profile for projects that
-                //    declare it (#370). See pre-flight comment above.
+                //    -Drelease.bootstrap.version=oldVersion (X-SNAPSHOT)
+                //    activates the releaseSelfSite profile in reactor-
+                //    root poms that declare it (#370). See the
+                //    "X-SNAPSHOT bootstrap (2 of 2)" comment on the
+                //    pre-flight site invocation for the full pattern.
                 List<String> buildArgs = new ArrayList<>();
                 buildArgs.add(mvnw.getAbsolutePath());
                 buildArgs.add("site");
@@ -507,6 +542,8 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                             + "before site:stage (#351)...");
                     ReleaseSupport.deleteDirectory(stagingDirToClean);
                 }
+                // -Drelease.bootstrap.version: X-SNAPSHOT bootstrap
+                // (see pre-flight site invocation for full pattern).
                 List<String> stageArgs = new ArrayList<>();
                 stageArgs.add(mvnw.getAbsolutePath());
                 stageArgs.add("site:stage");
