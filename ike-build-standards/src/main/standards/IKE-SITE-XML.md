@@ -57,7 +57,7 @@ TODO placeholders. Everything else is identical across modules.
         href="https://github.com/IKE-Network/TODO-repo-name/tree/main/TODO-module-name"/>
 
     <body>
-        <breadcrumbs combine.self="override">
+        <breadcrumbs>
             <item name="IKE" href="https://ike.network/"/>
             <item name="TODO: parent reactor display name" href="../index.html"/>
             <item name="TODO: this module display name" href="index.html"/>
@@ -71,21 +71,36 @@ TODO placeholders. Everything else is identical across modules.
 </site>
 ```
 
-### Why `combine.self="override"` on `<breadcrumbs>`
+### Critical: parent reactor's `IKE` breadcrumb must use absolute URL
 
-Without that attribute, Maven Site's body-merging logic INHERITS the
-parent reactor's `<breadcrumbs>` and concatenates them with the child's,
-producing the wrong order on the rendered page:
+Maven Site MERGES the child's breadcrumbs with the parent reactor's
+breadcrumbs at render time. If the parent's `IKE` item href differs
+from the child's, BOTH end up in the rendered breadcrumb — producing
+the four-item pattern that bit `ike-docs` submodules:
 
 ```
 IKE / IKE Docs / IKE / Minimal Fonts
               ^^^^^^
-              extra parent "IKE" injected by the merge
+              extra parent "IKE" injected because parent's href is
+              ../index.html while child's is https://ike.network/
 ```
 
-`combine.self="override"` tells Maven Site that the child's breadcrumbs
-REPLACE the parent's, not merge. Trip-tested live at
-`https://ike.network/ike-docs/minimal-fonts/` (before the fix).
+The dedupe checks RAW href strings, not resolved URLs. So both the
+parent reactor's site.xml AND every submodule's site.xml must use
+the IDENTICAL absolute href for the `IKE` item:
+
+```xml
+<item name="IKE" href="https://ike.network/"/>
+```
+
+If you see the four-item pattern, the parent's site.xml is using
+a relative href like `../index.html` — change it to the absolute
+form and the merge dedupes.
+
+The `combine.self="override"` attribute on `<breadcrumbs>` does NOT
+work for this — Maven Site's body-merging XML reader doesn't honor
+the Maven model's combine attributes. The only fix is href identity
+on the inherited items.
 
 ### Placeholders
 
