@@ -57,9 +57,10 @@ TODO placeholders. Everything else is identical across modules.
         href="https://github.com/IKE-Network/TODO-repo-name/tree/main/TODO-module-name"/>
 
     <body>
-        <breadcrumbs>
+        <breadcrumbs combine.self="override">
             <item name="IKE" href="https://ike.network/"/>
             <item name="TODO: parent reactor display name" href="../index.html"/>
+            <item name="TODO: this module display name" href="index.html"/>
         </breadcrumbs>
         <menu name="Overview">
             <item name="About" href="index.html"/>
@@ -69,6 +70,22 @@ TODO placeholders. Everything else is identical across modules.
     </body>
 </site>
 ```
+
+### Why `combine.self="override"` on `<breadcrumbs>`
+
+Without that attribute, Maven Site's body-merging logic INHERITS the
+parent reactor's `<breadcrumbs>` and concatenates them with the child's,
+producing the wrong order on the rendered page:
+
+```
+IKE / IKE Docs / IKE / Minimal Fonts
+              ^^^^^^
+              extra parent "IKE" injected by the merge
+```
+
+`combine.self="override"` tells Maven Site that the child's breadcrumbs
+REPLACE the parent's, not merge. Trip-tested live at
+`https://ike.network/ike-docs/minimal-fonts/` (before the fix).
 
 ### Placeholders
 
