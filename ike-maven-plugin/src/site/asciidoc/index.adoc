@@ -135,6 +135,7 @@ mvn ike:versions-upgrade-publish
 | Goal | Phase | Purpose
 
 | <<release-draft,release-{draft,publish}>>            | release    | Single-repo release: tag, deploy to Nexus + komet.sh + GitHub Pages, bump
+| <<verify-release-published,verify-release-published>>| release    | Verify all post-release publication targets (6 read-only HTTP checks)
 | <<deploy-site,deploy-site-{draft,publish}>>          | site       | Generate and deploy the Maven site (release / snapshot / checkpoint variants)
 | <<register-site,register-site-{draft,publish}>>      | site       | Register a project on the IKE Network org landing page (`https://ike.network/`)
 | <<deregister-site,deregister-site-{draft,publish}>>  | site       | Reverse of register-site
@@ -196,6 +197,37 @@ If your reactor is the one that *builds* `ike-maven-plugin` (i.e.,
 `ike-tooling` itself), see link:self-host-bootstrap.html[Self-host
 bootstrap pattern] for how the release flow's site invocations
 sidestep the reactor cycle.
+
+[#verify-release-published]
+=== ike:verify-release-published
+
+Verify that all six post-release publication targets are reachable
+for a given project + version. Read-only; exits non-zero on any
+check failure so it composes into shell pipelines and CI.
+
+[source,bash]
+----
+# Use pom defaults (artifactId + pom version with -SNAPSHOT stripped)
+mvn ike:verify-release-published
+
+# Explicit values (e.g., verifying from outside the released checkout)
+mvn ike:verify-release-published -DprojectId=ike-tooling -Dversion=163
+
+# Skip targets that aren't ready yet (e.g., immediately after tag push,
+# before the org-site sync has had a chance to run)
+mvn ike:verify-release-published -DskipOrgSite=true
+----
+
+Checks:
+
+* Site (current): `https://ike.network/<repo>/`
+* Site (versioned): `https://ike.network/<repo>/<N>/`
+* Site (latest): `https://ike.network/<repo>/latest/`
+* Org-site landing: `https://ike.network/`
+* Nexus artifact: `https://nexus.tinkar.org/.../ike-tooling-N.pom`
+* GitHub release: `https://api.github.com/repos/IKE-Network/<repo>/releases/tags/vN`
+
+ike-issues#374.
 
 [source,bash]
 ----
