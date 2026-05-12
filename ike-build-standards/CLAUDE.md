@@ -12,7 +12,7 @@ Read these files in `src/main/standards/`:
 
 ## Module Overview
 
-This module produces several classified ZIP artifacts:
+This module produces seven classified ZIP artifacts:
 - `classifier=claude`           — Claude instruction files (Markdown)
 - `classifier=docs`             — human-readable convention documents (AsciiDoc)
 - `classifier=config`           — shared static config (checkstyle, editorconfig, …)
@@ -26,6 +26,15 @@ This module produces several classified ZIP artifacts:
                                    per-repo copies (#318). Hosted here rather than in
                                    `ike-doc-resources` so `ike-tooling` itself can
                                    consume it (#308) without inverting the cascade.
+- `classifier=built-with`       — platform-wide Built-With supplement (`supplement.yaml`)
+                                   unpacked at `initialize` by `ike-parent` to
+                                   `target/built-with-supplement.yaml`. The `ike:built-with`
+                                   mojo reads it as a third-priority fallback after the
+                                   per-project and walk-up locations, so external
+                                   consumers (`ike-lab-documents`, `doc-example`, etc.)
+                                   get the Curated narrative section on their
+                                   `built-with.html` without authoring their own
+                                   supplement (#340).
 
 Consumer modules unpack the `claude` artifact at `validate` phase into
 `.claude/standards/` via `maven-dependency-plugin`.
@@ -43,8 +52,8 @@ the concrete artifact version into the lockfile.
 - Uses the ike-tooling reactor's single-segment integer version (e.g., `144-SNAPSHOT`)
 - Assembly descriptors live in `src/assembly/`: `claude-standards.xml`,
   `docs.xml`, `config.xml`, `asciidoctorconfig.xml`, `scaffold.xml`,
-  `site-theme.xml`. Each maps to one classified ZIP execution in
-  `pom.xml`'s `maven-assembly-plugin` config.
+  `site-theme.xml`, `built-with.xml`. Each maps to one classified ZIP
+  execution in `pom.xml`'s `maven-assembly-plugin` config.
 - Source content for each classifier lives in `src/main/<classifier>/`
   (e.g. `src/main/site-theme/css/site.css`).
 - Version is managed in `ike-parent`, which provides inline dependency management
