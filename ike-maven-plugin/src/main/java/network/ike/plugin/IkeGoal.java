@@ -137,6 +137,14 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:unpack-zip} — unpack a zip artifact into a target directory. */
     UNPACK_ZIP("unpack-zip", UnpackZipMojo.class,
             "Unpack a zip artifact into a target directory."),
+    /** {@code ike:verify-release-published} — verify all post-release publication targets (#374). */
+    VERIFY_RELEASE_PUBLISHED("verify-release-published",
+            VerifyReleasePublishedMojo.class,
+            "Verify all post-release publication targets are "
+                    + "reachable for the current project + version: "
+                    + "site (current/versioned/latest), org-site "
+                    + "landing, Nexus artifact, GitHub release tag. "
+                    + "Read-only; exits non-zero on any failure."),
     /** {@code ike:versions-upgrade-draft} — preview proposed version upgrades. */
     VERSIONS_UPGRADE_DRAFT("versions-upgrade-draft",
             VersionsUpgradeDraftMojo.class,
