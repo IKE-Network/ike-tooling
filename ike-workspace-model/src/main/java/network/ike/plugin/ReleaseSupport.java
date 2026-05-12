@@ -1138,6 +1138,15 @@ public class ReleaseSupport {
             effectiveStagingSource = urlAsPathUnwrap;
         }
 
+        // Capture the layer at which sibling submodule sites live
+        // BEFORE the version-nested unwrap narrows further. For
+        // ike-platform the URL is .../ike-platform/<version>/ so
+        // siblings (ike-workspace-maven-plugin/, ike-parent/) live
+        // alongside the version dir, one level up from the final
+        // narrowed source. For ike-tooling/ike-docs (no version in
+        // URL) siblings live at the same layer. ike-issues#363.
+        Path siblingSubmoduleLayer = effectiveStagingSource;
+
         Path nestedVersionDir = effectiveStagingSource.resolve(version);
         if (Files.isDirectory(nestedVersionDir)
                 && !isEmptyDirectory(nestedVersionDir)) {
@@ -1310,6 +1319,44 @@ public class ReleaseSupport {
                 throw new MojoException(
                         "Failed to copy staging dir to latest/: "
                                 + e.getMessage(), e);
+            }
+
+            // (4) Publish sibling submodule subtrees (ike-issues#363).
+            //     In a multi-module reactor with a per-artifactId or
+            //     per-version <site> URL, each child module renders
+            //     its own site into target/staging/.../<moduleId>/.
+            //     Without this step those subtrees never reach
+            //     gh-pages — the workspace site links to them but
+            //     they 404. We walk siblingSubmoduleLayer for
+            //     subdirs that:
+            //       (a) aren't the version-nested target we already
+            //           published (which IS the workspace's own),
+            //       (b) contain an index.html (signal of a rendered
+            //           module site, not a CSS/fonts resource dir).
+            //     Each matching subtree gets copied to both
+            //     <root>/<moduleId>/ and <root>/<version>/<moduleId>/.
+            List<Path> siblings = findSubmoduleSiteDirs(
+                    siblingSubmoduleLayer, effectiveStagingSource);
+            for (Path siblingSource : siblings) {
+                String moduleId = siblingSource.getFileName().toString();
+                if (moduleId.equals(projectId)) continue;
+                Path siblingRootDest = tempDir.resolve(moduleId);
+                Path siblingVersionDest = tempDir.resolve(version)
+                        .resolve(moduleId);
+                deleteDirectory(siblingRootDest);
+                deleteDirectory(siblingVersionDest);
+                try {
+                    Files.createDirectories(siblingRootDest);
+                    Files.createDirectories(siblingVersionDest);
+                    copyDirectory(siblingSource, siblingRootDest);
+                    copyDirectory(siblingSource, siblingVersionDest);
+                } catch (IOException e) {
+                    throw new MojoException(
+                            "Failed to copy submodule subtree "
+                                    + siblingSource + ": "
+                                    + e.getMessage(), e);
+                }
+                log.info("  Published submodule site: " + moduleId);
             }
 
             // .nojekyll — disable Jekyll preprocessing on rendered HTML.
@@ -1756,6 +1803,56 @@ public class ReleaseSupport {
             return null;
         }
         return projectDir;
+    }
+
+    /**
+     * Find one-level-deep subdirectories under {@code layer} that
+     * look like rendered Maven-site outputs (have an {@code index.html}
+     * at the top), excluding {@code exclude} itself (the workspace's
+     * own subtree, already published at the gh-pages root).
+     *
+     * <p>Used by {@link #publishProjectSiteToGhPages} step (4) to
+     * surface sibling submodule subtrees in a multi-module reactor.
+     * The conservative {@code index.html}-presence check keeps the
+     * walk from mis-classifying resource dirs ({@code css/},
+     * {@code fonts/}, {@code images/}) or version dirs as submodule
+     * sites.
+     *
+     * <p>Returns an empty list if {@code layer} is not a directory
+     * or has no matching entries. Order is unspecified.
+     *
+     * @param layer   the directory to scan
+     * @param exclude a path that, when matched against an entry,
+     *                causes the entry to be skipped (typically the
+     *                workspace's own narrowed staging source)
+     * @return list of submodule site directories
+     * @throws MojoException if the directory cannot be listed
+     */
+    public static List<Path> findSubmoduleSiteDirs(Path layer, Path exclude)
+            throws MojoException {
+        List<Path> result = new ArrayList<>();
+        if (!Files.isDirectory(layer)) return result;
+        Path excludeAbs = exclude == null ? null
+                : exclude.toAbsolutePath().normalize();
+        try (Stream<Path> entries = Files.list(layer)) {
+            for (Path entry : entries.toList()) {
+                if (!Files.isDirectory(entry)) continue;
+                if (excludeAbs != null
+                        && entry.toAbsolutePath().normalize()
+                                .equals(excludeAbs)) {
+                    continue;
+                }
+                Path indexHtml = entry.resolve("index.html");
+                if (Files.isRegularFile(indexHtml)) {
+                    result.add(entry);
+                }
+            }
+        } catch (IOException e) {
+            throw new MojoException(
+                    "Could not scan for submodule sites at " + layer
+                            + ": " + e.getMessage(), e);
+        }
+        return result;
     }
 
     /**

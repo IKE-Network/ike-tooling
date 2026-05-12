@@ -1772,6 +1772,71 @@ class ReleaseSupportTest {
                 staging, "ike-tooling")).isNull();
     }
 
+    // ── findSubmoduleSiteDirs (ike-issues#363) ──────────────────────
+
+    @Test
+    void findSubmoduleSiteDirs_findsRenderedSubdirs_excludesWorkspaceOwn(
+            @TempDir Path tmpDir) throws Exception {
+        // ike-platform shape: under <projectId>/ at the URL-unwrap
+        // layer, we have <version>/ (workspace own) plus sibling
+        // submodule dirs each with their own index.html.
+        Path layer = tmpDir.resolve("layer");
+        Path versioned = layer.resolve("41");
+        Files.createDirectories(versioned);
+        Files.writeString(versioned.resolve("index.html"), "<html/>");
+        Path sub1 = layer.resolve("ike-workspace-maven-plugin");
+        Files.createDirectories(sub1);
+        Files.writeString(sub1.resolve("index.html"), "<html/>");
+        Path sub2 = layer.resolve("ike-bom");
+        Files.createDirectories(sub2);
+        Files.writeString(sub2.resolve("index.html"), "<html/>");
+        // Resource dir without index.html
+        Files.createDirectories(layer.resolve("css"));
+
+        List<Path> result = ReleaseSupport.findSubmoduleSiteDirs(
+                layer, versioned);
+
+        assertThat(result)
+                .containsExactlyInAnyOrder(sub1, sub2);
+    }
+
+    @Test
+    void findSubmoduleSiteDirs_layerNotADir_returnsEmpty(
+            @TempDir Path tmpDir) {
+        Path missing = tmpDir.resolve("does-not-exist");
+        assertThat(ReleaseSupport.findSubmoduleSiteDirs(missing, null))
+                .isEmpty();
+    }
+
+    @Test
+    void findSubmoduleSiteDirs_noIndexHtml_skipped(
+            @TempDir Path tmpDir) throws Exception {
+        // A subdir with no index.html is not a module site (it's
+        // typically a resource bundle from the parent's site).
+        Path layer = tmpDir.resolve("layer");
+        Path noIndex = layer.resolve("fonts");
+        Files.createDirectories(noIndex);
+        Files.writeString(noIndex.resolve("roboto.ttf"), "fake");
+
+        assertThat(ReleaseSupport.findSubmoduleSiteDirs(layer, null))
+                .isEmpty();
+    }
+
+    @Test
+    void findSubmoduleSiteDirs_nullExclude_includesAll(
+            @TempDir Path tmpDir) throws Exception {
+        Path layer = tmpDir.resolve("layer");
+        Path m1 = layer.resolve("mod1");
+        Path m2 = layer.resolve("mod2");
+        Files.createDirectories(m1);
+        Files.createDirectories(m2);
+        Files.writeString(m1.resolve("index.html"), "<html/>");
+        Files.writeString(m2.resolve("index.html"), "<html/>");
+
+        assertThat(ReleaseSupport.findSubmoduleSiteDirs(layer, null))
+                .containsExactlyInAnyOrder(m1, m2);
+    }
+
     @Test
     void publishProjectSiteToGhPages_emptyStagingDir_throwsLoud() throws Exception {
         // The bug pattern from #334: an empty-but-existing target/staging/
