@@ -620,7 +620,28 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     mvnw.getAbsolutePath(), "clean", "deploy", "-B", "-T", "1",
                     "-P", "release,signArtifacts");
         } finally {
-            // Always return to main, even if deploy fails
+            // Always return to main, even if deploy fails.
+            //
+            // Stash any mid-flight worktree changes first (#373). By
+            // this point the release has shipped: Nexus deploy +
+            // gh-pages + org-site register are all done. The only
+            // remaining work is `git checkout main`, push tag + main,
+            // and the GitHub Release. If something has written to the
+            // worktree mid-flight (an operator edit, a stray tool
+            // output), `git checkout main` fails with
+            //
+            //   "Your local changes ... would be overwritten by checkout"
+            //
+            // — and the housekeeping never runs. Recovery is mechanical
+            // but manual. Pre-empt by stashing foreign worktree
+            // changes; the operator gets them back with `git stash
+            // pop` after the release reports complete.
+            //
+            // Release-flow's own commits ran before this block (set-
+            // version → tag → restore-project.version → merge → bump-
+            // to-next-SNAPSHOT). So anything captured by the stash is
+            // strictly foreign — by construction.
+            stashForeignWorktreeChanges(gitRoot, releaseVersion);
             ReleaseSupport.exec(gitRoot, getLog(), "git", "checkout", "main");
         }
 
@@ -1154,6 +1175,71 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // gh-pages publish above is the canonical site distribution.
 
         return new SiteDeployResult(ghPagesPublished);
+    }
+
+    /**
+     * Stash any uncommitted worktree changes that accumulated during
+     * the external-phase block, so the subsequent {@code git checkout
+     * main} can proceed unblocked. ike-issues#373.
+     *
+     * <p>By the time this runs, the release flow's own commits have
+     * already shipped (set-version → tag → restore-project.version →
+     * merge to main → post-release bump → external deploys). Anything
+     * captured by the stash is strictly foreign worktree state:
+     * operator edits, the #358 gh-pages on-disk leak files, stray
+     * tool output, etc.
+     *
+     * <p>Best-effort: if {@code git status} or {@code git stash} fail
+     * for any reason, the {@code git checkout main} that follows
+     * will produce its standard error message — same as before this
+     * guard existed. The guard only adds capability, it doesn't
+     * remove fallback behavior.
+     *
+     * @param gitRoot        the project's git root
+     * @param releaseVersion the release version, used in the stash
+     *                       message so the operator can identify
+     *                       which release's stash it is
+     */
+    private void stashForeignWorktreeChanges(File gitRoot,
+                                              String releaseVersion) {
+        String status;
+        try {
+            status = ReleaseSupport.execCapture(gitRoot,
+                    "git", "status", "--porcelain").trim();
+        } catch (MojoException e) {
+            getLog().debug("  Could not run git status before "
+                    + "checkout main (#373): " + e.getMessage());
+            return;
+        }
+        if (status.isEmpty()) return;
+
+        getLog().warn("");
+        getLog().warn("Detected mid-flight worktree changes (#373) — "
+                + "stashing before 'git checkout main'.");
+        for (String line : status.split("\n")) {
+            getLog().warn("    " + line);
+        }
+
+        String stashMessage = "release-flow: mid-flight changes "
+                + "during v" + releaseVersion;
+        try {
+            ReleaseSupport.exec(gitRoot, getLog(),
+                    "git", "stash", "push",
+                    "--include-untracked",
+                    "-m", stashMessage);
+            getLog().warn("");
+            getLog().warn("  Stashed as: " + stashMessage);
+            getLog().warn("  Recover with: git stash pop");
+            getLog().warn("");
+        } catch (Exception e) {
+            // Couldn't stash — let the subsequent checkout main fail
+            // with its standard message. Don't mask the underlying
+            // problem.
+            getLog().warn("  ⚠ Could not stash mid-flight changes: "
+                    + e.getMessage());
+            getLog().warn("  'git checkout main' will likely fail; "
+                    + "recover manually per the runbook.");
+        }
     }
 
     /**
