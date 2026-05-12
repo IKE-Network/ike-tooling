@@ -493,7 +493,14 @@ public final class OrgSiteSupport {
             writeFragment(srcRoot, artifactId, name, description,
                     version, siteUrl, githubUrl, modules);
             regenerateIndex(srcRoot);
-            renderToXhtml(srcRoot, log);
+            // No renderToXhtml here: the source pom has
+            // asciidoctor-parser-doxia-module wired into
+            // maven-site-plugin's plugin dependencies, so buildSite's
+            // `mvn site site:stage` renders src/site/asciidoc/*.adoc
+            // natively. A separate pre-render to
+            // target/generated-site/xhtml/index.xhtml produces a
+            // second source for index.html and trips the site plugin's
+            // duplicate-output check.
             buildSite(srcRoot, log);
             commitAndPush(srcRoot,
                     "site: register " + artifactId + " " + version,
@@ -529,7 +536,7 @@ public final class OrgSiteSupport {
         try {
             deleteFragment(srcRoot, artifactId);
             regenerateIndex(srcRoot);
-            renderToXhtml(srcRoot, log);
+            // No renderToXhtml — see registerProject for the rationale.
             buildSite(srcRoot, log);
             commitAndPush(srcRoot,
                     "site: deregister " + artifactId,
