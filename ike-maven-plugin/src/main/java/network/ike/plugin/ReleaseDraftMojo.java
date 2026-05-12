@@ -520,6 +520,45 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                             e.getMessage());
                     ghPagesPublished = false;
                 }
+
+                // Auto-register this release on the IKE Network org-site
+                // (ike-issues#367). Placed here, inside the try block,
+                // for one specific reason: the working tree is checked
+                // out at the `v<releaseVersion>` tag right now, so the
+                // pom version reads as <releaseVersion> (not the
+                // post-release SNAPSHOT bump). That means
+                // `mvn ike:register-site-publish` (short prefix)
+                // resolves the plugin via ${project.version} and
+                // naturally lands on the just-installed plugin
+                // version — no explicit coordinate pin needed.
+                //
+                // Gates: publishSite + ghPagesPublished prevent
+                // advertising a release whose canonical URL 404s;
+                // hasOrigin skips the call for local-only repos;
+                // skipOrgSite is the operator's opt-out.
+                //
+                // Best-effort: register-site failure warns but does
+                // not abort the release. Nexus deploy still runs.
+                if (publishSite && ghPagesPublished
+                        && !skipOrgSite && hasOrigin) {
+                    getLog().info("");
+                    getLog().info("Registering release on IKE Network "
+                            + "landing page (#367)...");
+                    try {
+                        ReleaseSupport.exec(gitRoot, getLog(),
+                                mvnw.getAbsolutePath(),
+                                "ike:register-site-publish",
+                                "-B");
+                    } catch (Exception e) {
+                        getLog().warn("  ⚠ Org-site registration "
+                                + "failed (non-fatal): " + e.getMessage());
+                        getLog().warn("    The release itself is "
+                                + "complete. To retry: cd to a checkout "
+                                + "at the v" + releaseVersion
+                                + " tag and run "
+                                + "mvn ike:register-site-publish");
+                    }
+                }
             }
 
             // ── Nexus deploy (critical — the actual release) ─────────
@@ -549,46 +588,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             createGitHubRelease(gitRoot, projectId, releaseVersion);
         } else {
             getLog().info("No 'origin' remote — skipping GitHub Release");
-        }
-
-        // Auto-register this release on the IKE Network org-site
-        // (ike-issues#367). Runs only when:
-        //   - we actually published to gh-pages (skip when publishSite
-        //     was off or the publish failed; no point advertising a
-        //     release whose canonical URL 404s);
-        //   - the operator hasn't opted out via -Dike.skip.orgSite=true.
-        // Best-effort: a failed register-site step warns but does not
-        // fail the release — the release artifacts are already on
-        // Nexus and the project's own gh-pages is already updated.
-        // Worst case the org-site footer lags one release behind for
-        // the affected project; the next successful release catches up.
-        if (publishSite && ghPagesPublished && !skipOrgSite && hasOrigin) {
-            getLog().info("");
-            getLog().info("Registering release on IKE Network landing page (#367)...");
-            try {
-                // Invoke the goal at the JUST-RELEASED plugin version,
-                // not via the short prefix. The post-release bump has
-                // already advanced the pom to N+1-SNAPSHOT, so
-                // `mvn ike:register-site-publish` would try to resolve
-                // ike-maven-plugin at N+1-SNAPSHOT (absent) and fail.
-                // The plugin coordinates here always pin to the
-                // version that just made it into ~/.m2 via the
-                // release-publish flow.
-                String pluginCoord =
-                        "network.ike.tooling:ike-maven-plugin:"
-                        + releaseVersion + ":register-site-publish";
-                ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(),
-                        pluginCoord,
-                        "-DreleaseVersion=" + releaseVersion,
-                        "-B");
-            } catch (Exception e) {
-                getLog().warn("  ⚠ Org-site registration failed (non-fatal): "
-                        + e.getMessage());
-                getLog().warn("    The release itself is complete. To retry: "
-                        + "mvn ike:register-site-publish -DreleaseVersion="
-                        + releaseVersion);
-            }
         }
 
         // Pre-#304: this block called cleanRemoteSiteDir to ssh-delete
