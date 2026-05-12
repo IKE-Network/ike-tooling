@@ -1,0 +1,381 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VerifyReleasePublishedMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">VerifyReleasePublishedMojo.java</span></div><h1>VerifyReleasePublishedMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Verify all post-release publication targets are reachable for a given
+ * project + version. Runs six read-only HTTP checks against the canonical
+ * post-release landing spots documented in {@code cutting-a-release.adoc}.
+ *
+ * &lt;p&gt;Replaces the operator's manual curl-around-six-URLs sequence with
+ * a single goal that hits everything in parallel and reports green/red
+ * for each. Composes into release scripts and CI: exits non-zero when
+ * any check fails so a shell pipeline can branch on success.
+ *
+ * &lt;p&gt;All checks are HTTP HEAD or GET against public URLs — no auth, no
+ * subprocess to {@code gh}, no Nexus credentials required. The goal is
+ * deliberately read-only and safe to run any time.
+ *
+ * &lt;p&gt;ike-issues#374.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;
+ * mvn ike:verify-release-published
+ * mvn ike:verify-release-published -DprojectId=ike-tooling -Dversion=163
+ * &lt;/pre&gt;
+ */
+@Mojo(name = &quot;verify-release-published&quot;, projectRequired = false)
+public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @Inject
+    Log log;
+
+    /** Access the Maven logger. */
+<span class="nc" id="L51">    Log getLog() { return log; }</span>
+
+    /**
+     * Project artifactId being verified. Defaults to the current
+     * directory's pom.xml artifactId.
+     */
+    @Parameter(property = &quot;projectId&quot;)
+    String projectId;
+
+    /**
+     * Release version being verified. Defaults to the current pom.xml
+     * version with any {@code -SNAPSHOT} suffix stripped. For
+     * post-release worktrees (where pom.xml is already bumped to the
+     * next SNAPSHOT), pass the just-released version explicitly via
+     * {@code -Dversion=N}.
+     */
+    @Parameter(property = &quot;version&quot;)
+    String version;
+
+    /**
+     * Site base URL. The released site is expected at
+     * {@code &lt;siteBase&gt;&lt;projectId&gt;/} and friends.
+     */
+    @Parameter(property = &quot;siteBase&quot;, defaultValue = &quot;https://ike.network/&quot;)
+    String siteBase;
+
+    /**
+     * GitHub org slug. Used to look up the GitHub release and the
+     * source repo for the org-site landing page.
+     */
+    @Parameter(property = &quot;githubOrg&quot;, defaultValue = &quot;IKE-Network&quot;)
+    String githubOrg;
+
+    /**
+     * Nexus repository base URL. The released artifact is expected at
+     * {@code &lt;nexusBase&gt;&lt;groupPath&gt;/&lt;projectId&gt;/&lt;version&gt;/}.
+     */
+    @Parameter(property = &quot;nexusBase&quot;,
+               defaultValue = &quot;https://nexus.tinkar.org/repository/ike-public/&quot;)
+    String nexusBase;
+
+    /**
+     * Filesystem path to the pom.xml whose coordinates default the
+     * other parameters. Override only when verifying a release from
+     * outside its own checkout.
+     */
+    @Parameter(property = &quot;pomFile&quot;, defaultValue = &quot;${project.basedir}/pom.xml&quot;)
+    File pomFile;
+
+    /**
+     * Skip the GitHub release check. Useful when the release tag is
+     * already validated by another mechanism or when running offline.
+     */
+    @Parameter(property = &quot;skipGithubRelease&quot;, defaultValue = &quot;false&quot;)
+    boolean skipGithubRelease;
+
+    /**
+     * Skip the org-site landing page check. The org site updates
+     * asynchronously after the release tag is pushed; use this flag
+     * to verify a release before the org-site sync has run.
+     */
+    @Parameter(property = &quot;skipOrgSite&quot;, defaultValue = &quot;false&quot;)
+    boolean skipOrgSite;
+
+    /**
+     * HTTP request timeout per check, in seconds.
+     */
+    @Parameter(property = &quot;timeoutSeconds&quot;, defaultValue = &quot;10&quot;)
+    int timeoutSeconds;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L122">    public VerifyReleasePublishedMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc" id="L126">        resolveDefaults();</span>
+
+<span class="nc" id="L128">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L129">        getLog().info(&quot;Verifying release &quot; + projectId + &quot; &quot; + version);</span>
+<span class="nc" id="L130">        getLog().info(&quot;&quot;);</span>
+
+<span class="nc" id="L132">        List&lt;CheckResult&gt; results = runChecks();</span>
+
+<span class="nc" id="L134">        getLog().info(&quot;  &quot; + padRight(&quot;Target&quot;, 32)</span>
+<span class="nc" id="L135">                + padRight(&quot;Result&quot;, 10) + &quot;URL&quot;);</span>
+<span class="nc" id="L136">        getLog().info(&quot;  &quot; + &quot;─&quot;.repeat(32 + 10 + 40));</span>
+<span class="nc" id="L137">        int failures = 0;</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        for (CheckResult r : results) {</span>
+<span class="nc bnc" id="L139" title="All 4 branches missed.">            String marker = r.ok ? &quot;✓ ok&quot; : (r.skipped ? &quot;— skip&quot; : &quot;✗ FAIL&quot;);</span>
+<span class="nc" id="L140">            getLog().info(&quot;  &quot; + padRight(r.target, 32)</span>
+<span class="nc" id="L141">                    + padRight(marker, 10) + r.url);</span>
+<span class="nc bnc" id="L142" title="All 4 branches missed.">            if (!r.ok &amp;&amp; !r.skipped) failures++;</span>
+<span class="nc" id="L143">        }</span>
+<span class="nc" id="L144">        getLog().info(&quot;&quot;);</span>
+
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        if (failures == 0) {</span>
+<span class="nc" id="L147">            getLog().info(&quot;All checks passed.&quot;);</span>
+        } else {
+<span class="nc" id="L149">            throw new MojoException(failures</span>
+                    + &quot; release verification check(s) failed. &quot;
+                    + &quot;See output above for details. ike-issues#374.&quot;);
+        }
+<span class="nc" id="L153">    }</span>
+
+    /**
+     * Fill in unset parameters from {@link #pomFile}. Called once at
+     * the start of {@link #execute()}.
+     *
+     * @throws MojoException when the pom cannot be read and required
+     *                       parameters are not explicitly set
+     */
+    void resolveDefaults() throws MojoException {
+<span class="pc bpc" id="L163" title="1 of 4 branches missed.">        if (projectId == null || projectId.isBlank()) {</span>
+<span class="fc" id="L164">            projectId = readPomField(pomFile, &quot;artifactId&quot;);</span>
+        }
+<span class="pc bpc" id="L166" title="1 of 4 branches missed.">        if (version == null || version.isBlank()) {</span>
+<span class="fc" id="L167">            String pomVersion = readPomField(pomFile, &quot;version&quot;);</span>
+<span class="pc bpc" id="L168" title="1 of 2 branches missed.">            if (pomVersion != null) {</span>
+<span class="fc" id="L169">                version = pomVersion.replaceFirst(&quot;-SNAPSHOT$&quot;, &quot;&quot;);</span>
+            }
+        }
+<span class="pc bpc" id="L172" title="2 of 4 branches missed.">        if (projectId == null || projectId.isBlank()) {</span>
+<span class="nc" id="L173">            throw new MojoException(</span>
+                    &quot;Could not determine projectId. Pass -DprojectId=&lt;id&gt;.&quot;);
+        }
+<span class="pc bpc" id="L176" title="2 of 4 branches missed.">        if (version == null || version.isBlank()) {</span>
+<span class="nc" id="L177">            throw new MojoException(</span>
+                    &quot;Could not determine version. Pass -Dversion=&lt;N&gt;.&quot;);
+        }
+<span class="fc" id="L180">    }</span>
+
+    /**
+     * Run all six verification checks. Returns one result per check in
+     * the order they appear in the output table. Skipped checks (per
+     * {@link #skipGithubRelease}, {@link #skipOrgSite}) appear with
+     * {@code skipped=true} so the table is complete.
+     */
+    List&lt;CheckResult&gt; runChecks() {
+<span class="nc" id="L189">        List&lt;CheckResult&gt; results = new ArrayList&lt;&gt;();</span>
+
+        // Site: current at root
+<span class="nc" id="L192">        results.add(httpCheck(&quot;Site (current)&quot;,</span>
+                siteBase + projectId + &quot;/&quot;));
+        // Site: versioned
+<span class="nc" id="L195">        results.add(httpCheck(&quot;Site (version &quot; + version + &quot;)&quot;,</span>
+                siteBase + projectId + &quot;/&quot; + version + &quot;/&quot;));
+        // Site: latest alias
+<span class="nc" id="L198">        results.add(httpCheck(&quot;Site (latest)&quot;,</span>
+                siteBase + projectId + &quot;/latest/&quot;));
+
+        // Org-site landing
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (skipOrgSite) {</span>
+<span class="nc" id="L203">            results.add(CheckResult.skipped(&quot;Org-site landing&quot;, siteBase));</span>
+        } else {
+<span class="nc" id="L205">            results.add(httpCheck(&quot;Org-site landing&quot;, siteBase));</span>
+        }
+
+        // Nexus artifact
+<span class="nc" id="L209">        String groupPath = readPomGroupPath(pomFile);</span>
+        String nexusUrl;
+<span class="nc bnc" id="L211" title="All 2 branches missed.">        if (groupPath == null) {</span>
+<span class="nc" id="L212">            nexusUrl = nexusBase;</span>
+<span class="nc" id="L213">            results.add(CheckResult.fail(&quot;Nexus artifact&quot;,</span>
+                    nexusUrl,
+                    &quot;Could not read groupId from pom.xml — pass &quot;
+                            + &quot;-DnexusBase=&lt;full URL to artifact dir&gt;.&quot;));
+        } else {
+<span class="nc" id="L218">            nexusUrl = nexusBase + groupPath + &quot;/&quot; + projectId</span>
+                    + &quot;/&quot; + version + &quot;/&quot; + projectId + &quot;-&quot;
+                    + version + &quot;.pom&quot;;
+<span class="nc" id="L221">            results.add(httpCheck(&quot;Nexus artifact&quot;, nexusUrl));</span>
+        }
+
+        // GitHub release
+<span class="nc bnc" id="L225" title="All 2 branches missed.">        if (skipGithubRelease) {</span>
+<span class="nc" id="L226">            results.add(CheckResult.skipped(&quot;GitHub release v&quot; + version,</span>
+                    &quot;(skipped)&quot;));
+        } else {
+<span class="nc" id="L229">            String ghUrl = &quot;https://api.github.com/repos/&quot;</span>
+                    + githubOrg + &quot;/&quot; + projectId
+                    + &quot;/releases/tags/v&quot; + version;
+<span class="nc" id="L232">            results.add(httpCheck(&quot;GitHub release v&quot; + version, ghUrl));</span>
+        }
+
+<span class="nc" id="L235">        return results;</span>
+    }
+
+    /**
+     * Perform one HEAD-or-GET check against {@code url}. Returns
+     * {@code ok=true} for HTTP 2xx, {@code ok=false} otherwise (including
+     * timeouts, DNS failures, and connection refused). Tries HEAD first;
+     * if the server doesn't support HEAD (some Nexus / GitHub Pages
+     * configurations return 405), retries with GET.
+     */
+    CheckResult httpCheck(String target, String url) {
+<span class="nc" id="L246">        HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L247">                .connectTimeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L248">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
+<span class="nc" id="L249">                .build();</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        for (String method : new String[]{&quot;HEAD&quot;, &quot;GET&quot;}) {</span>
+            try {
+<span class="nc" id="L252">                HttpRequest req = HttpRequest.newBuilder()</span>
+<span class="nc" id="L253">                        .uri(URI.create(url))</span>
+<span class="nc" id="L254">                        .timeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L255">                        .method(method, HttpRequest.BodyPublishers.noBody())</span>
+<span class="nc" id="L256">                        .build();</span>
+<span class="nc" id="L257">                HttpResponse&lt;Void&gt; resp = client.send(req,</span>
+<span class="nc" id="L258">                        HttpResponse.BodyHandlers.discarding());</span>
+<span class="nc" id="L259">                int code = resp.statusCode();</span>
+<span class="nc bnc" id="L260" title="All 4 branches missed.">                if (code &gt;= 200 &amp;&amp; code &lt; 300) {</span>
+<span class="nc" id="L261">                    return CheckResult.ok(target, url);</span>
+                }
+<span class="nc bnc" id="L263" title="All 4 branches missed.">                if (code == 405 &amp;&amp; &quot;HEAD&quot;.equals(method)) {</span>
+<span class="nc" id="L264">                    continue; // try GET</span>
+                }
+<span class="nc" id="L266">                return CheckResult.fail(target, url,</span>
+                        &quot;HTTP &quot; + code);
+<span class="nc" id="L268">            } catch (Exception e) {</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">                if (&quot;HEAD&quot;.equals(method)) continue; // try GET on transport error</span>
+<span class="nc" id="L270">                return CheckResult.fail(target, url, e.getClass().getSimpleName()</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">                        + (e.getMessage() != null ? &quot;: &quot; + e.getMessage() : &quot;&quot;));</span>
+            }
+        }
+        // Both methods failed without producing a definitive result.
+<span class="nc" id="L275">        return CheckResult.fail(target, url, &quot;no response&quot;);</span>
+    }
+
+    /**
+     * Extract a top-level POM field value by name. Skips any preceding
+     * {@code &lt;parent&gt;} block so we don't return parent coordinates.
+     * Returns {@code null} when the field is absent or the file
+     * cannot be read.
+     */
+    static String readPomField(File pom, String fieldName) {
+<span class="fc bfc" id="L285" title="All 4 branches covered.">        if (pom == null || !pom.isFile()) return null;</span>
+        try {
+<span class="fc" id="L287">            String content = Files.readString(pom.toPath(),</span>
+                    StandardCharsets.UTF_8);
+<span class="fc" id="L289">            int searchFrom = 0;</span>
+<span class="fc" id="L290">            int parentOpen = content.indexOf(&quot;&lt;parent&gt;&quot;);</span>
+<span class="fc bfc" id="L291" title="All 2 branches covered.">            if (parentOpen &gt;= 0) {</span>
+<span class="fc" id="L292">                int parentClose = content.indexOf(&quot;&lt;/parent&gt;&quot;, parentOpen);</span>
+<span class="pc bpc" id="L293" title="1 of 2 branches missed.">                if (parentClose &gt; parentOpen) {</span>
+<span class="fc" id="L294">                    searchFrom = parentClose + &quot;&lt;/parent&gt;&quot;.length();</span>
+                }
+            }
+<span class="fc" id="L297">            String openTag = &quot;&lt;&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="fc" id="L298">            String closeTag = &quot;&lt;/&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="fc" id="L299">            int open = content.indexOf(openTag, searchFrom);</span>
+<span class="fc bfc" id="L300" title="All 2 branches covered.">            if (open &lt; 0) return null;</span>
+<span class="fc" id="L301">            int valueStart = open + openTag.length();</span>
+<span class="fc" id="L302">            int close = content.indexOf(closeTag, valueStart);</span>
+<span class="pc bpc" id="L303" title="1 of 2 branches missed.">            if (close &lt; 0) return null;</span>
+<span class="fc" id="L304">            return content.substring(valueStart, close).trim();</span>
+<span class="nc" id="L305">        } catch (IOException e) {</span>
+<span class="nc" id="L306">            return null;</span>
+        }
+    }
+
+    /**
+     * Read the pom's groupId and convert it to a Nexus repo path
+     * (dots → slashes). Falls back to the parent groupId when the
+     * project itself doesn't declare one (the common case).
+     */
+    static String readPomGroupPath(File pom) {
+<span class="pc bpc" id="L316" title="2 of 4 branches missed.">        if (pom == null || !pom.isFile()) return null;</span>
+<span class="fc" id="L317">        String groupId = readPomField(pom, &quot;groupId&quot;);</span>
+<span class="fc bfc" id="L318" title="All 2 branches covered.">        if (groupId == null) {</span>
+            // Try parent groupId
+<span class="fc" id="L320">            groupId = readParentField(pom, &quot;groupId&quot;);</span>
+        }
+<span class="fc bfc" id="L322" title="All 2 branches covered.">        return groupId == null ? null : groupId.replace('.', '/');</span>
+    }
+
+    /**
+     * Extract a field from the {@code &lt;parent&gt;} block of a POM, if
+     * present. Used as the groupId fallback when the project doesn't
+     * declare its own.
+     */
+    static String readParentField(File pom, String fieldName) {
+<span class="pc bpc" id="L331" title="2 of 4 branches missed.">        if (pom == null || !pom.isFile()) return null;</span>
+        try {
+<span class="fc" id="L333">            String content = Files.readString(pom.toPath(),</span>
+                    StandardCharsets.UTF_8);
+<span class="fc" id="L335">            int parentOpen = content.indexOf(&quot;&lt;parent&gt;&quot;);</span>
+<span class="fc bfc" id="L336" title="All 2 branches covered.">            if (parentOpen &lt; 0) return null;</span>
+<span class="fc" id="L337">            int parentClose = content.indexOf(&quot;&lt;/parent&gt;&quot;, parentOpen);</span>
+<span class="pc bpc" id="L338" title="1 of 2 branches missed.">            if (parentClose &lt; 0) return null;</span>
+<span class="fc" id="L339">            String parentBlock = content.substring(parentOpen, parentClose);</span>
+<span class="fc" id="L340">            String openTag = &quot;&lt;&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="fc" id="L341">            String closeTag = &quot;&lt;/&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="fc" id="L342">            int open = parentBlock.indexOf(openTag);</span>
+<span class="pc bpc" id="L343" title="1 of 2 branches missed.">            if (open &lt; 0) return null;</span>
+<span class="fc" id="L344">            int valueStart = open + openTag.length();</span>
+<span class="fc" id="L345">            int close = parentBlock.indexOf(closeTag, valueStart);</span>
+<span class="pc bpc" id="L346" title="1 of 2 branches missed.">            if (close &lt; 0) return null;</span>
+<span class="fc" id="L347">            return parentBlock.substring(valueStart, close).trim();</span>
+<span class="nc" id="L348">        } catch (IOException e) {</span>
+<span class="nc" id="L349">            return null;</span>
+        }
+    }
+
+    static String padRight(String s, int width) {
+<span class="fc bfc" id="L354" title="All 2 branches covered.">        if (s.length() &gt;= width) return s;</span>
+<span class="fc" id="L355">        return s + &quot; &quot;.repeat(width - s.length());</span>
+    }
+
+    /**
+     * One verification check's outcome.
+     *
+     * @param target   short name shown in the output table
+     * @param url      the URL that was checked
+     * @param ok       {@code true} when the check passed
+     * @param skipped  {@code true} when the check was skipped per a flag
+     * @param reason   failure detail (HTTP status, exception class),
+     *                 {@code null} on success
+     */
+<span class="nc" id="L368">    record CheckResult(String target, String url, boolean ok,</span>
+                       boolean skipped, String reason) {
+        static CheckResult ok(String target, String url) {
+<span class="nc" id="L371">            return new CheckResult(target, url, true, false, null);</span>
+        }
+        static CheckResult fail(String target, String url, String reason) {
+<span class="nc" id="L374">            return new CheckResult(target, url, false, false, reason);</span>
+        }
+        static CheckResult skipped(String target, String url) {
+<span class="nc" id="L377">            return new CheckResult(target, url, false, true, null);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

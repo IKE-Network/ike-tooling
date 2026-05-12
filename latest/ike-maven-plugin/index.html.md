@@ -86,6 +86,7 @@ mvn ike:versions-upgrade-publish
 | Goal | Phase | Purpose |
 | --- | --- | --- |
 | [release-{draft,publish}](#release-draft) | release | Single-repo release: tag, deploy to Nexus + komet.sh + GitHub Pages, bump |
+| [verify-release-published](#verify-release-published) | release | Verify all post-release publication targets (6 read-only HTTP checks) |
 | [deploy-site-{draft,publish}](#deploy-site) | site | Generate and deploy the Maven site (release / snapshot / checkpoint variants) |
 | [register-site-{draft,publish}](#register-site) | site | Register a project on the IKE Network org landing page (`[https://ike.network/](https://ike.network/)[2]`) |
 | [deregister-site-{draft,publish}](#deregister-site) | site | Reverse of register-site |
@@ -133,6 +134,35 @@ Full single-repo release in one command. The publish variant:
 13. Bumps to the next SNAPSHOT version
 
 Failure recovery: re-run `ike:release-publish` and it picks up where the previous attempt left off (already-published phases are skipped).
+
+If your reactor is the one that **builds** `ike-maven-plugin` (i.e., `ike-tooling` itself), see [Self-host bootstrap pattern](self-host-bootstrap.html)[4] for how the release flow’s site invocations sidestep the reactor cycle.
+
+### [#ike-verify-release-published](#ike-verify-release-published)ike:verify-release-published
+
+Verify that all six post-release publication targets are reachable for a given project + version. Read-only; exits non-zero on any check failure so it composes into shell pipelines and CI.
+
+```
+# Use pom defaults (artifactId + pom version with -SNAPSHOT stripped)
+mvn ike:verify-release-published
+
+# Explicit values (e.g., verifying from outside the released checkout)
+mvn ike:verify-release-published -DprojectId=ike-tooling -Dversion=163
+
+# Skip targets that aren't ready yet (e.g., immediately after tag push,
+# before the org-site sync has had a chance to run)
+mvn ike:verify-release-published -DskipOrgSite=true
+```
+
+Checks:
+
+- Site (current): `[https://ike.network/<repo>/](https://ike.network/<repo>/)[5]`
+- Site (versioned): `[https://ike.network/<repo>/<N>/](https://ike.network/<repo>/<N>/)[6]`
+- Site (latest): `[https://ike.network/<repo>/latest/](https://ike.network/<repo>/latest/)[7]`
+- Org-site landing: `[https://ike.network/](https://ike.network/)[2]`
+- Nexus artifact: `[https://nexus.tinkar.org/…/ike-tooling-N.pom](https://nexus.tinkar.org/…​/ike-tooling-N.pom)[8]`
+- GitHub release: `[https://api.github.com/repos/IKE-Network/<repo>/releases/tags/vN](https://api.github.com/repos/IKE-Network/<repo>/releases/tags/vN)[9]`
+
+ike-issues#374.
 
 ```
 mvn ike:release-draft                       # preview
@@ -285,7 +315,8 @@ Print a list of available `ike:*` goals, generated from the compile-time `IkeGoa
 
 ## [#see-also](#see-also)See also
 
+- [Self-host bootstrap pattern](self-host-bootstrap.html)[4] — for reactors that build the plugin they want to bind.
 - [ws:* plugin](https://ike.network/ike-platform/ike-workspace-maven-plugin/)[1] — workspace-spanning goals.
-- [ike-tooling reactor home](https://ike.network/ike-tooling/)[4].
-- [Source on GitHub](https://github.com/IKE-Network/ike-tooling)[5].
-- [Issue tracker](https://github.com/IKE-Network/ike-issues)[6].
+- [ike-tooling reactor home](https://ike.network/ike-tooling/)[10].
+- [Source on GitHub](https://github.com/IKE-Network/ike-tooling)[11].
+- [Issue tracker](https://github.com/IKE-Network/ike-issues)[12].
