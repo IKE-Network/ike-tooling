@@ -48,14 +48,29 @@ public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
      */
     protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
-    /** Git URL of the org site repository. */
-    @Parameter(property = "orgRepo",
-               defaultValue = "https://github.com/IKE-Network/IKE-Network.github.io.git")
-    private String orgRepo;
+    /**
+     * Git URL of the org-site SOURCE repository (has the Maven pom
+     * and src/site/ tree where the per-project fragment lands).
+     */
+    @Parameter(property = "srcRepo",
+               defaultValue = "https://github.com/IKE-Network/ike-network-site.git")
+    private String srcRepo;
 
-    /** Branch for source content in the org repo. */
-    @Parameter(property = "orgBranch", defaultValue = "main")
-    private String orgBranch;
+    /** Branch for source content in the source repo. */
+    @Parameter(property = "srcBranch", defaultValue = "main")
+    private String srcBranch;
+
+    /**
+     * Git URL of the org-site PUBLISH repository (rendered HTML
+     * served at https://ike.network/).
+     */
+    @Parameter(property = "pubRepo",
+               defaultValue = "https://github.com/IKE-Network/IKE-Network.github.io.git")
+    private String pubRepo;
+
+    /** Branch for rendered content in the publish repo. */
+    @Parameter(property = "pubBranch", defaultValue = "main")
+    private String pubBranch;
 
     /** Human-readable project name. Defaults to POM {@code <name>}. */
     @Parameter(property = "projectName", defaultValue = "${project.name}")
@@ -111,19 +126,20 @@ public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("  Version:     " + version);
         getLog().info("  Site URL:    " + projectSiteUrl);
         getLog().info("  GitHub:      " + githubUrl);
-        getLog().info("  Org repo:    " + orgRepo);
-        getLog().info("  Org branch:  " + orgBranch);
+        getLog().info("  Src repo:    " + srcRepo + " (" + srcBranch + ")");
+        getLog().info("  Pub repo:    " + pubRepo + " (" + pubBranch + ")");
         getLog().info("  Modules:     " + (modules.isEmpty() ? "(none)" : modules));
         getLog().info("  Publish:       "+ publish);
         getLog().info("");
 
         if (draft) {
             getLog().info("[DRAFT] Would register " + artifactId + " " + version
-                    + " on " + orgRepo);
+                    + " on " + srcRepo + " + " + pubRepo);
             return;
         }
 
-        OrgSiteSupport.registerProject(gitRoot, getLog(), orgRepo, orgBranch,
+        OrgSiteSupport.registerProject(gitRoot, getLog(),
+                srcRepo, pubRepo, srcBranch, pubBranch,
                 artifactId, projectName, projectDescription, version,
                 projectSiteUrl, githubUrl, modules);
 

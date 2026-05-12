@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Shared utilities for org-site registration and deregistration.
@@ -33,7 +34,32 @@ import java.util.List;
  */
 public final class OrgSiteSupport {
 
-    /** Default Git URL for the org site repository. */
+    /**
+     * Default Git URL for the org-site SOURCE repository. The source
+     * repo has the Maven pom + src/site/ tree and is where fragments
+     * are written.
+     */
+    static final String SRC_REPO_DEFAULT =
+            "https://github.com/IKE-Network/ike-network-site.git";
+
+    /**
+     * Default Git URL for the org-site PUBLISH repository. The publish
+     * repo holds only the rendered HTML and is what GitHub Pages
+     * serves at https://ike.network/. Publish flow: clone, wipe
+     * everything except .git, copy target/site/ from the source build,
+     * commit, push.
+     */
+    static final String PUB_REPO_DEFAULT =
+            "https://github.com/IKE-Network/IKE-Network.github.io.git";
+
+    /**
+     * @deprecated Use {@link #SRC_REPO_DEFAULT} for the source repo
+     *             and {@link #PUB_REPO_DEFAULT} for the publish repo.
+     *             Pre-#367 the workflow assumed a single repo serving
+     *             both roles; that never worked because the publish
+     *             repo has no pom. Kept for legacy callers.
+     */
+    @Deprecated
     static final String ORG_REPO_DEFAULT =
             "https://github.com/IKE-Network/IKE-Network.github.io.git";
 
@@ -413,70 +439,208 @@ public final class OrgSiteSupport {
     }
 
     /**
-     * Run the full registration workflow: clone, write fragment,
-     * regenerate index, render, build, commit, publish.
+     * Run the full registration workflow on a two-repo org-site
+     * layout (#367):
      *
-     * @param callerGitRoot   git root of the calling project (for URL resolution)
-     * @param log             Maven logger
-     * @param orgRepoUrl      git URL of the org site repo
-     * @param orgBranch       branch for source content
-     * @param artifactId      Maven artifact ID
-     * @param name            human-readable project name
-     * @param description     project description
-     * @param version         release version
-     * @param siteUrl         public site URL
-     * @param githubUrl       GitHub repository URL
-     * @param modules         reactor module names
+     * <ol>
+     *   <li>Clone the SOURCE repo ({@code srcRepoUrl}) — has the
+     *       Maven pom and src/site/ tree.</li>
+     *   <li>Write the per-project fragment into
+     *       {@code projects/&lt;artifactId&gt;.adoc}.</li>
+     *   <li>Regenerate the master index from all fragments.</li>
+     *   <li>Render the index AsciiDoc to XHTML (for doxia).</li>
+     *   <li>Run {@code mvn site} to produce {@code target/site/}.</li>
+     *   <li>Commit + push the source repo so the fragment + index
+     *       are persisted.</li>
+     *   <li>Publish {@code target/site/} to the PUBLISH repo
+     *       ({@code pubRepoUrl}) by cloning, wiping non-Git
+     *       contents, copying the build output, committing, and
+     *       pushing.</li>
+     * </ol>
+     *
+     * <p>Pre-#367 this method assumed a single repo for both roles
+     * and ran {@code mvn site} inside a repo that had no pom —
+     * which silently failed every release that tried to auto-update
+     * the landing page. The two-repo split mirrors the README in
+     * IKE-Network.github.io and the manual flow operators have been
+     * using all along.
+     *
+     * @param callerGitRoot git root of the calling project
+     * @param log           Maven logger
+     * @param srcRepoUrl    git URL of the source repo (has pom)
+     * @param pubRepoUrl    git URL of the publish repo (rendered HTML)
+     * @param srcBranch     branch in the source repo
+     * @param pubBranch     branch in the publish repo
+     * @param artifactId    Maven artifact ID
+     * @param name          human-readable project name
+     * @param description   project description
+     * @param version       release version
+     * @param siteUrl       public site URL
+     * @param githubUrl     GitHub repository URL
+     * @param modules       reactor module names
      * @throws MojoException if any step fails
      */
     public static void registerProject(File callerGitRoot, Log log,
-                                        String orgRepoUrl, String orgBranch,
+                                        String srcRepoUrl, String pubRepoUrl,
+                                        String srcBranch, String pubBranch,
                                         String artifactId, String name,
                                         String description, String version,
                                         String siteUrl, String githubUrl,
                                         List<String> modules)
             throws MojoException {
-        File orgRoot = cloneOrgRepo(orgRepoUrl, orgBranch, log);
+        File srcRoot = cloneOrgRepo(srcRepoUrl, srcBranch, log);
         try {
-            writeFragment(orgRoot, artifactId, name, description,
+            writeFragment(srcRoot, artifactId, name, description,
                     version, siteUrl, githubUrl, modules);
-            regenerateIndex(orgRoot);
-            renderToXhtml(orgRoot, log);
-            buildSite(orgRoot, log);
-            commitAndPush(orgRoot,
+            regenerateIndex(srcRoot);
+            renderToXhtml(srcRoot, log);
+            buildSite(srcRoot, log);
+            commitAndPush(srcRoot,
                     "site: register " + artifactId + " " + version,
-                    orgBranch, log);
-            publishToGhPages(orgRoot, orgRepoUrl, log);
+                    srcBranch, log);
+            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,
+                    artifactId, version, log);
         } finally {
-            ReleaseSupport.deleteDirectory(orgRoot.toPath());
+            ReleaseSupport.deleteDirectory(srcRoot.toPath());
         }
     }
 
     /**
-     * Run the full deregistration workflow: clone, delete fragment,
-     * regenerate index, render, build, commit, publish.
+     * Run the full deregistration workflow against the two-repo
+     * org-site layout (#367 — mirror of
+     * {@link #registerProject(File, Log, String, String, String,
+     *        String, String, String, String, String, String,
+     *        String, List)}).
      *
      * @param log        Maven logger
-     * @param orgRepoUrl git URL of the org site repo
-     * @param orgBranch  branch for source content
+     * @param srcRepoUrl git URL of the source repo (has pom)
+     * @param pubRepoUrl git URL of the publish repo (rendered HTML)
+     * @param srcBranch  branch in the source repo
+     * @param pubBranch  branch in the publish repo
      * @param artifactId artifact ID to deregister
      * @throws MojoException if any step fails
      */
-    public static void deregisterProject(Log log, String orgRepoUrl,
-                                          String orgBranch, String artifactId)
+    public static void deregisterProject(Log log,
+                                          String srcRepoUrl, String pubRepoUrl,
+                                          String srcBranch, String pubBranch,
+                                          String artifactId)
             throws MojoException {
-        File orgRoot = cloneOrgRepo(orgRepoUrl, orgBranch, log);
+        File srcRoot = cloneOrgRepo(srcRepoUrl, srcBranch, log);
         try {
-            deleteFragment(orgRoot, artifactId);
-            regenerateIndex(orgRoot);
-            renderToXhtml(orgRoot, log);
-            buildSite(orgRoot, log);
-            commitAndPush(orgRoot,
+            deleteFragment(srcRoot, artifactId);
+            regenerateIndex(srcRoot);
+            renderToXhtml(srcRoot, log);
+            buildSite(srcRoot, log);
+            commitAndPush(srcRoot,
                     "site: deregister " + artifactId,
-                    orgBranch, log);
-            publishToGhPages(orgRoot, orgRepoUrl, log);
+                    srcBranch, log);
+            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,
+                    artifactId, "(deregister)", log);
         } finally {
-            ReleaseSupport.deleteDirectory(orgRoot.toPath());
+            ReleaseSupport.deleteDirectory(srcRoot.toPath());
+        }
+    }
+
+    /**
+     * Publish the {@code target/site/} contents from a freshly-
+     * built source repo to a separate publish repo.
+     *
+     * <p>Clones the publish repo at {@code pubBranch}, wipes every
+     * file/directory except {@code .git/}, copies the entire
+     * {@code target/site/} tree into the clone root, commits with a
+     * descriptive message, and pushes. Because the source build
+     * emits {@code .nojekyll} and {@code CNAME} (from
+     * {@code src/site/resources/}), those land naturally — no
+     * special preservation needed.
+     *
+     * <p>Replaces the pre-#367 {@code publishToGhPages} flow, which
+     * pushed to a {@code gh-pages} branch of the SAME repo as the
+     * source. The new flow correctly addresses the IKE-Network
+     * org-site layout where source and publish live in different
+     * repos and the publish repo serves from {@code main}.
+     *
+     * @param srcRoot     the source repo with {@code target/site/}
+     *                    built
+     * @param pubRepoUrl  git URL of the publish repo
+     * @param pubBranch   branch to push to (typically {@code main})
+     * @param artifactId  for the commit message
+     * @param version     for the commit message
+     * @param log         Maven logger
+     * @throws MojoException if any step fails
+     */
+    public static void publishToPubRepo(File srcRoot, String pubRepoUrl,
+                                         String pubBranch,
+                                         String artifactId, String version,
+                                         Log log)
+            throws MojoException {
+        Path siteDir = srcRoot.toPath()
+                .resolve("target").resolve("site");
+        if (!Files.isDirectory(siteDir)) {
+            throw new MojoException(
+                    "Source repo's target/site/ does not exist: "
+                            + siteDir + ". buildSite likely failed.");
+        }
+
+        File pubRoot = cloneOrgRepo(pubRepoUrl, pubBranch, log);
+        try {
+            // Wipe everything in pubRoot except .git/. The source
+            // build's target/site/ contains .nojekyll and CNAME
+            // (from src/site/resources/), so we don't need to
+            // preserve anything pre-existing.
+            try (Stream<Path> entries = Files.list(pubRoot.toPath())) {
+                for (Path entry : entries.toList()) {
+                    if (entry.getFileName().toString().equals(".git")) {
+                        continue;
+                    }
+                    if (Files.isDirectory(entry)) {
+                        ReleaseSupport.deleteDirectory(entry);
+                    } else {
+                        Files.delete(entry);
+                    }
+                }
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to clear publish repo before copy: "
+                                + e.getMessage(), e);
+            }
+
+            try {
+                ReleaseSupport.copyDirectory(siteDir, pubRoot.toPath());
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to copy target/site to publish repo: "
+                                + e.getMessage(), e);
+            }
+
+            // Commit + push. If the rendered output happens to be
+            // byte-identical to the previous publish (rare —
+            // outputTimestamp moves), `git commit` will fail with
+            // 'nothing to commit'; tolerate that as a no-op
+            // publish.
+            ReleaseSupport.exec(pubRoot, log, "git", "add", "-A");
+            String status;
+            try {
+                status = ReleaseSupport.execCapture(pubRoot,
+                        "git", "status", "--porcelain").trim();
+            } catch (MojoException e) {
+                status = "";
+            }
+            if (status.isEmpty()) {
+                log.info("  Publish repo unchanged after rebuild — "
+                        + "nothing to push.");
+                return;
+            }
+            String message = "site: publish "
+                    + artifactId + " " + version
+                    + " (auto-register, #367)";
+            ReleaseSupport.exec(pubRoot, log,
+                    "git", "commit", "-m", message);
+            ReleaseSupport.exec(pubRoot, log,
+                    "git", "push", "origin", pubBranch);
+            log.info("  Org-site updated: "
+                    + artifactId + " " + version);
+        } finally {
+            ReleaseSupport.deleteDirectory(pubRoot.toPath());
         }
     }
 

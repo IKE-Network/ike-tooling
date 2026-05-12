@@ -45,14 +45,30 @@ public class DeregisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo
      */
     protected org.apache.maven.api.plugin.Log getLog() { return log; }
 
-    /** Git URL of the org site repository. */
-    @Parameter(property = "orgRepo",
-               defaultValue = "https://github.com/IKE-Network/IKE-Network.github.io.git")
-    private String orgRepo;
+    /**
+     * Git URL of the org-site SOURCE repository (has the Maven pom
+     * and src/site/ tree where the per-project fragment to delete
+     * lives).
+     */
+    @Parameter(property = "srcRepo",
+               defaultValue = "https://github.com/IKE-Network/ike-network-site.git")
+    private String srcRepo;
 
-    /** Branch for source content in the org repo. */
-    @Parameter(property = "orgBranch", defaultValue = "main")
-    private String orgBranch;
+    /** Branch for source content in the source repo. */
+    @Parameter(property = "srcBranch", defaultValue = "main")
+    private String srcBranch;
+
+    /**
+     * Git URL of the org-site PUBLISH repository (rendered HTML
+     * served at https://ike.network/).
+     */
+    @Parameter(property = "pubRepo",
+               defaultValue = "https://github.com/IKE-Network/IKE-Network.github.io.git")
+    private String pubRepo;
+
+    /** Branch for rendered content in the publish repo. */
+    @Parameter(property = "pubBranch", defaultValue = "main")
+    private String pubBranch;
 
     /**
      * Artifact ID of the project to deregister.
@@ -75,18 +91,19 @@ public class DeregisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo
         getLog().info("");
         getLog().info("DEREGISTER PROJECT FROM IKE NETWORK");
         getLog().info("  Project ID:  " + projectId);
-        getLog().info("  Org repo:    " + orgRepo);
-        getLog().info("  Org branch:  " + orgBranch);
+        getLog().info("  Src repo:    " + srcRepo + " (" + srcBranch + ")");
+        getLog().info("  Pub repo:    " + pubRepo + " (" + pubBranch + ")");
         getLog().info("  Publish:       "+ publish);
         getLog().info("");
 
         if (draft) {
             getLog().info("[DRAFT] Would deregister " + projectId
-                    + " from " + orgRepo);
+                    + " from " + srcRepo + " + " + pubRepo);
             return;
         }
 
-        OrgSiteSupport.deregisterProject(getLog(), orgRepo, orgBranch, projectId);
+        OrgSiteSupport.deregisterProject(getLog(),
+                srcRepo, pubRepo, srcBranch, pubBranch, projectId);
 
         getLog().info("");
         getLog().info("Deregistered " + projectId + " from ike.network");
