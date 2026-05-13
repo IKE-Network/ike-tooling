@@ -47,8 +47,27 @@ The cascade is orchestrated by
 `ike-workspace-maven-plugin:cascade-foundation-publish` (in
 `ike-platform`); see [`cutting-a-release.adoc`](https://ike.network/ike-platform/cutting-a-release.html).
 
+## Doc as Code + LLM-Friendly
+
+`ike-tooling` is the source of the IKE Network's doc-as-code
+infrastructure. Its [`ike-build-standards`](ike-build-standards)
+submodule ships every build convention, documentation standard,
+and AI-assistant instruction as versioned Markdown files. The
+`claude` classifier ZIP is unpacked into every consuming project's
+`.claude/standards/` directory at `validate` phase — so when a
+developer or Claude itself opens an IKE project, the agent reads
+the standards locally and applies them automatically; contributors
+don't have to memorize the conventions.
+
+See the [`ike-build-standards` README](ike-build-standards#readme)
+for the inventory of standards (each is a linkable Markdown file
+covering one topic: `MAVEN.md`, `IKE-DOC.md`, `IKE-DIAGRAMS.md`,
+`IKE-RELEASE.md`, etc.) and the
+[published index](https://ike.network/ike-tooling/ike-build-standards/).
+
 ## Links
 
 - **Documentation:** [`https://ike.network/ike-tooling/`](https://ike.network/ike-tooling/)
+- **Build standards:** [`ike-build-standards`](https://ike.network/ike-tooling/ike-build-standards/)
 - **Issues:** [`IKE-Network/ike-issues`](https://github.com/IKE-Network/ike-issues) (cross-project tracker)
 - **Source:** [`IKE-Network/ike-tooling`](https://github.com/IKE-Network/ike-tooling)
