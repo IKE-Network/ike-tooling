@@ -335,4 +335,116 @@ class VerifyReleasePublishedMojoTest {
         assertThat(mojo.projectId).isEqualTo("override-project");
         assertThat(mojo.version).isEqualTo("99");
     }
+
+    // ── readPomSubprojects (ike-issues#382) ──────────────────────
+
+    @Test
+    void readPomSubprojects_maven4Subprojects(@TempDir Path tmp)
+            throws IOException {
+        Path pom = tmp.resolve("pom.xml");
+        Files.writeString(pom, """
+                <project>
+                  <subprojects>
+                    <subproject>module-a</subproject>
+                    <subproject>module-b</subproject>
+                    <subproject>module-c</subproject>
+                  </subprojects>
+                </project>
+                """);
+        assertThat(VerifyReleasePublishedMojo.readPomSubprojects(
+                pom.toFile()))
+                .containsExactly("module-a", "module-b", "module-c");
+    }
+
+    @Test
+    void readPomSubprojects_legacyModules(@TempDir Path tmp)
+            throws IOException {
+        Path pom = tmp.resolve("pom.xml");
+        Files.writeString(pom, """
+                <project>
+                  <modules>
+                    <module>old-a</module>
+                    <module>old-b</module>
+                  </modules>
+                </project>
+                """);
+        assertThat(VerifyReleasePublishedMojo.readPomSubprojects(
+                pom.toFile()))
+                .containsExactly("old-a", "old-b");
+    }
+
+    @Test
+    void readPomSubprojects_inProfile_picksThemUp(@TempDir Path tmp)
+            throws IOException {
+        // ike-example-ws pattern: subprojects inside file-activated
+        // profiles. The cross-reference should still see them so the
+        // workspace verify covers all declared subprojects.
+        Path pom = tmp.resolve("pom.xml");
+        Files.writeString(pom, """
+                <project>
+                  <profiles>
+                    <profile>
+                      <id>with-doc-example</id>
+                      <subprojects>
+                        <subproject>doc-example</subproject>
+                      </subprojects>
+                    </profile>
+                    <profile>
+                      <id>with-example-project</id>
+                      <subprojects>
+                        <subproject>example-project</subproject>
+                      </subprojects>
+                    </profile>
+                  </profiles>
+                </project>
+                """);
+        assertThat(VerifyReleasePublishedMojo.readPomSubprojects(
+                pom.toFile()))
+                .containsExactly("doc-example", "example-project");
+    }
+
+    @Test
+    void readPomSubprojects_deduplicates(@TempDir Path tmp)
+            throws IOException {
+        Path pom = tmp.resolve("pom.xml");
+        Files.writeString(pom, """
+                <project>
+                  <subprojects>
+                    <subproject>module-a</subproject>
+                  </subprojects>
+                  <profiles>
+                    <profile>
+                      <id>extra</id>
+                      <subprojects>
+                        <subproject>module-a</subproject>
+                      </subprojects>
+                    </profile>
+                  </profiles>
+                </project>
+                """);
+        assertThat(VerifyReleasePublishedMojo.readPomSubprojects(
+                pom.toFile()))
+                .containsExactly("module-a");
+    }
+
+    @Test
+    void readPomSubprojects_noneDeclared_empty(@TempDir Path tmp)
+            throws IOException {
+        Path pom = tmp.resolve("pom.xml");
+        Files.writeString(pom, """
+                <project>
+                  <artifactId>singleton</artifactId>
+                </project>
+                """);
+        assertThat(VerifyReleasePublishedMojo.readPomSubprojects(
+                pom.toFile()))
+                .isEmpty();
+    }
+
+    @Test
+    void readPomSubprojects_missingFile_empty() {
+        assertThat(VerifyReleasePublishedMojo.readPomSubprojects(
+                new File("/does/not/exist/pom.xml")))
+                .isEmpty();
+    }
 }

@@ -141,6 +141,28 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
     boolean skipOrgSite;
 
     /**
+     * Skip the subproject topology cross-reference. The cross-
+     * reference reads the reactor pom's {@code <subprojects>} or
+     * legacy {@code <modules>}, and for each subproject HEAD-checks
+     * three canonical publish URLs: {@code <site-base><projectId>/<sub>/},
+     * {@code <site-base><projectId>/<version>/<sub>/}, and
+     * {@code <site-base><projectId>/latest/<sub>/}. Catches missing-
+     * from-tree paths the gh-pages tree walk can't see (the walk
+     * only verifies paths that DO exist; this verifies paths that
+     * SHOULD exist per the reactor topology). ike-issues#382.
+     */
+    @Parameter(property = "skipSubprojectTopology", defaultValue = "false")
+    boolean skipSubprojectTopology;
+
+    /**
+     * Submodule names to skip in the subproject topology check.
+     * Comma-separated. Use when a declared subproject doesn't
+     * publish a site (rare in IKE; flag for build-only modules).
+     */
+    @Parameter(property = "subprojectTopologySkip", defaultValue = "")
+    String subprojectTopologySkip;
+
+    /**
      * HTTP request timeout per check, in seconds.
      */
     @Parameter(property = "timeoutSeconds", defaultValue = "10")
@@ -260,6 +282,19 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
             results.add(httpCheck("GitHub release v" + version, ghUrl));
         }
 
+        // Subproject topology checks — cross-reference the reactor's
+        // <subprojects>/<modules> declarations against gh-pages.
+        // Asserts every (submodule × {root, /<version>/, /latest/})
+        // URL is reachable. Catches missing-from-tree paths that the
+        // gh-pages tree walk can't see (it only HEAD-checks paths
+        // already in the tree). ike-issues#382.
+        if (skipSubprojectTopology) {
+            results.add(CheckResult.skipped("Subproject topology",
+                    "(skipped)"));
+        } else {
+            results.addAll(runSubprojectChecks());
+        }
+
         // gh-pages tree walk — verify every published index.html is
         // actually reachable. Catches submodule-publish gaps and
         // depth-mismatch bugs that the fixed checks above miss.
@@ -271,6 +306,132 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
         }
 
         return results;
+    }
+
+    /**
+     * Cross-reference the reactor's declared subprojects against
+     * gh-pages. For each subproject, HEAD-check the three canonical
+     * publish URLs:
+     * <ul>
+     *   <li>{@code <site-base><projectId>/<sub>/} — current alias</li>
+     *   <li>{@code <site-base><projectId>/<version>/<sub>/} — versioned</li>
+     *   <li>{@code <site-base><projectId>/latest/<sub>/} — latest alias</li>
+     * </ul>
+     *
+     * <p>The submodule directory name is used as both the path
+     * segment and (by IKE convention) the artifactId. When a submodule
+     * doesn't match this convention or doesn't publish a site, list
+     * it in {@link #subprojectTopologySkip} to exclude.
+     *
+     * <p>Returns a header CheckResult followed by 3×N entries (one
+     * per submodule × canonical URL). Empty header-only result when
+     * the pom declares no subprojects (single-module project).
+     *
+     * <p>ike-issues#382.
+     */
+    List<CheckResult> runSubprojectChecks() {
+        List<String> subs = readPomSubprojects(pomFile);
+        List<String> skipExplicit = parseSkipPatterns(subprojectTopologySkip);
+        String reactorUrlPrefix = siteBase + projectId + "/";
+        List<String> reactorSubs = new ArrayList<>();
+        List<String> independentSubs = new ArrayList<>();
+        File pomDir = pomFile == null ? null : pomFile.getParentFile();
+        for (String sub : subs) {
+            if (skipExplicit.contains(sub)) continue;
+            // Read the submodule's declared <site><url> to decide
+            // whether it publishes UNDER the reactor's gh-pages
+            // (aggregator-pom case: ike-platform/ike-parent) or as
+            // its OWN top-level gh-pages branch (workspace case:
+            // ike-example-ws/doc-example, where doc-example has its
+            // own repo and gh-pages branch under
+            // https://ike.network/doc-example/).
+            String subSiteUrl = null;
+            if (pomDir != null) {
+                File subPom = new File(new File(pomDir, sub), "pom.xml");
+                if (subPom.isFile()) {
+                    subSiteUrl = readPomSiteUrlInterpolated(subPom, sub);
+                }
+            }
+            // Three cases:
+            //  (1) Submodule declares its OWN <site> under reactor's
+            //      URL prefix → in-reactor (ike-parent, ike-workspace-
+            //      maven-plugin in ike-platform).
+            //  (2) Submodule declares its OWN <site> NOT under
+            //      reactor's prefix → independent (doc-example,
+            //      example-project, its in ike-example-ws).
+            //  (3) Submodule declares NO <site>, inherits from parent
+            //      with default append-path=true → effectively
+            //      under reactor's prefix (ike-bom in ike-platform).
+            if (subSiteUrl == null
+                    || subSiteUrl.startsWith(reactorUrlPrefix)) {
+                reactorSubs.add(sub);
+            } else {
+                independentSubs.add(sub);
+            }
+        }
+        List<CheckResult> results = new ArrayList<>();
+        String header = reactorSubs.size() + " in-reactor"
+                + (independentSubs.isEmpty()
+                        ? ""
+                        : ", " + independentSubs.size()
+                                + " independent-skip")
+                + " × 3 URL(s)";
+        results.add(CheckResult.ok("Subproject topology", header));
+        for (String sub : reactorSubs) {
+            results.add(httpCheck("  " + sub + "/",
+                    reactorUrlPrefix + sub + "/"));
+            results.add(httpCheck("  " + version + "/" + sub + "/",
+                    reactorUrlPrefix + version + "/" + sub + "/"));
+            results.add(httpCheck("  latest/" + sub + "/",
+                    reactorUrlPrefix + "latest/" + sub + "/"));
+        }
+        return results;
+    }
+
+    /**
+     * Read a submodule pom's {@code <distributionManagement><site><url>}
+     * with the two most-common Maven placeholders interpolated:
+     * {@code ${project.artifactId}} → the submodule's artifactId (or
+     * its directory name as a fallback) and {@code ${project.version}}
+     * → the {@link #version} parameter. Returns {@code null} when the
+     * pom doesn't declare a site URL.
+     *
+     * <p>Used by {@link #runSubprojectChecks()} to decide whether a
+     * declared subproject publishes under the reactor's gh-pages or
+     * as its own top-level branch.
+     */
+    String readPomSiteUrlInterpolated(File subPom, String dirName) {
+        String content;
+        try {
+            content = Files.readString(subPom.toPath(),
+                    StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return null;
+        }
+        int distOpen = content.indexOf("<distributionManagement>");
+        if (distOpen < 0) return null;
+        int distClose = content.indexOf("</distributionManagement>",
+                distOpen);
+        if (distClose < 0) return null;
+        String distBlock = content.substring(distOpen, distClose);
+        int siteOpen = distBlock.indexOf("<site");
+        if (siteOpen < 0) return null;
+        int siteClose = distBlock.indexOf("</site>", siteOpen);
+        if (siteClose < 0) return null;
+        String siteBlock = distBlock.substring(siteOpen, siteClose);
+        int urlOpen = siteBlock.indexOf("<url>");
+        if (urlOpen < 0) return null;
+        int urlClose = siteBlock.indexOf("</url>", urlOpen);
+        if (urlClose < 0) return null;
+        String raw = siteBlock.substring(urlOpen + "<url>".length(),
+                urlClose).trim();
+        String artifactId = readPomField(subPom, "artifactId");
+        if (artifactId == null || artifactId.isBlank()) {
+            artifactId = dirName;
+        }
+        return raw
+                .replace("${project.artifactId}", artifactId)
+                .replace("${project.version}", version);
     }
 
     /**
@@ -524,6 +685,44 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
         } catch (IOException e) {
             return null;
         }
+    }
+
+    /**
+     * Read the pom's declared subprojects — both top-level
+     * {@code <subprojects><subproject>...</subproject></subprojects>}
+     * (Maven 4) and legacy {@code <modules><module>...</module></modules>}
+     * and including subprojects declared inside any
+     * {@code <profile>} block (file-activated submodule includes
+     * are the standard IKE workspace pattern).
+     *
+     * <p>Returns the declared directory names in source order, with
+     * duplicates removed. Empty list when the pom declares none
+     * (single-module project) or cannot be read.
+     *
+     * <p>Used by {@link #runSubprojectChecks()} for the #382 topology
+     * cross-reference.
+     */
+    static List<String> readPomSubprojects(File pom) {
+        if (pom == null || !pom.isFile()) return List.of();
+        String content;
+        try {
+            content = Files.readString(pom.toPath(),
+                    StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return List.of();
+        }
+        java.util.LinkedHashSet<String> result =
+                new java.util.LinkedHashSet<>();
+        for (String tag : new String[]{"subproject", "module"}) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "<" + tag + ">\\s*([^<\\s][^<]*?)\\s*</" + tag + ">");
+            java.util.regex.Matcher m = p.matcher(content);
+            while (m.find()) {
+                String name = m.group(1).trim();
+                if (!name.isEmpty()) result.add(name);
+            }
+        }
+        return new ArrayList<>(result);
     }
 
     /**
