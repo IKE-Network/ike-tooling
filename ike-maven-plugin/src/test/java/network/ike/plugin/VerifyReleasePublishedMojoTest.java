@@ -176,6 +176,147 @@ class VerifyReleasePublishedMojoTest {
         assertThat(mojo.version).isEqualTo("42");
     }
 
+    // ── gh-pages tree walk helpers ───────────────────────────────
+
+    @Test
+    void extractIndexHtmlPaths_findsPathsEndingInIndexHtml() {
+        String body = """
+                {
+                  "tree": [
+                    {"path": "index.html", "type": "blob"},
+                    {"path": "21/index.html", "type": "blob"},
+                    {"path": "21/doc-example/index.html", "type": "blob"},
+                    {"path": "latest/index.html", "type": "blob"},
+                    {"path": "css", "type": "tree"},
+                    {"path": "css/site.css", "type": "blob"}
+                  ]
+                }
+                """;
+        var paths = VerifyReleasePublishedMojo.extractIndexHtmlPaths(body);
+        org.assertj.core.api.Assertions.assertThat(paths)
+                .containsExactly("index.html",
+                        "21/index.html",
+                        "21/doc-example/index.html",
+                        "latest/index.html");
+    }
+
+    @Test
+    void extractIndexHtmlPaths_excludesJavadocStyleSuffixes() {
+        // javadoc generates files like allclasses-index.html and
+        // allpackages-index.html — these just happen to end with
+        // "index.html" but aren't a directory's landing page.
+        // Must NOT match.
+        String body = """
+                {
+                  "tree": [
+                    {"path": "apidocs/allclasses-index.html", "type": "blob"},
+                    {"path": "apidocs/allpackages-index.html", "type": "blob"},
+                    {"path": "apidocs/index.html", "type": "blob"},
+                    {"path": "apidocs/overview-summary.html", "type": "blob"}
+                  ]
+                }
+                """;
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.extractIndexHtmlPaths(body))
+                .containsExactly("apidocs/index.html");
+    }
+
+    @Test
+    void extractIndexHtmlPaths_emptyOnNullOrBlank() {
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.extractIndexHtmlPaths(null))
+                .isEmpty();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.extractIndexHtmlPaths(""))
+                .isEmpty();
+    }
+
+    @Test
+    void parseSkipPatterns_splitsAndTrimsCommaSeparated() {
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.parseSkipPatterns(
+                        "apidocs/, */apidocs/,xref/"))
+                .containsExactly("apidocs/", "*/apidocs/", "xref/");
+    }
+
+    @Test
+    void parseSkipPatterns_blankReturnsEmptyList() {
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.parseSkipPatterns(""))
+                .isEmpty();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.parseSkipPatterns(null))
+                .isEmpty();
+    }
+
+    @Test
+    void shouldSkipPath_versionDirsOtherThanCurrent() {
+        var skip = java.util.List.<String>of();
+        // Numeric prefix that isn't current → skip
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "20/doc-example", "21", skip)).isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "21/doc-example", "21", skip)).isFalse();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "latest/doc-example", "21", skip)).isFalse();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "doc-example", "21", skip)).isFalse();
+    }
+
+    @Test
+    void shouldSkipPath_userPatterns_literal() {
+        var skip = java.util.List.of("apidocs/");
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "apidocs/network/ike", "21", skip)).isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "apidocs", "21", skip)).isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "css/site.css", "21", skip)).isFalse();
+    }
+
+    @Test
+    void shouldSkipPath_userPatterns_starWildcard() {
+        var skip = java.util.List.of("*/apidocs/");
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "ike-bom/apidocs/network", "21", skip)).isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "ike-bom/apidocs", "21", skip)).isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.shouldSkipPath(
+                        "ike-bom/something-else", "21", skip)).isFalse();
+    }
+
+    @Test
+    void looksLikeVersionSegment_recognizesShapes() {
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.looksLikeVersionSegment("21"))
+                .isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.looksLikeVersionSegment("166"))
+                .isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.looksLikeVersionSegment(
+                        "7-checkpoint.20260228.1")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.looksLikeVersionSegment(
+                        "ike-tooling")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.looksLikeVersionSegment(""))
+                .isFalse();
+        org.assertj.core.api.Assertions.assertThat(
+                VerifyReleasePublishedMojo.looksLikeVersionSegment(null))
+                .isFalse();
+    }
+
     @Test
     void resolveDefaults_respectsExplicitValues(@TempDir Path tmp)
             throws IOException {

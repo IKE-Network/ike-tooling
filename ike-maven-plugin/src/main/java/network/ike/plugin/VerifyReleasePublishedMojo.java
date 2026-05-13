@@ -105,6 +105,34 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
     boolean skipGithubRelease;
 
     /**
+     * Skip the gh-pages tree walk. The walk asks the GitHub API for
+     * the project's published {@code gh-pages} tree, enumerates every
+     * {@code index.html}, and HEAD-checks the corresponding URL. This
+     * is what catches submodule-publish gaps and depth-mismatch bugs
+     * the fixed-six-URL checks miss (e.g. ike-issues#358 #363
+     * regressions where some subsite under a multi-module reactor
+     * lands at the wrong depth and 404s). On by default.
+     */
+    @Parameter(property = "skipGhPagesTreeWalk", defaultValue = "false")
+    boolean skipGhPagesTreeWalk;
+
+    /**
+     * Path-prefix patterns to skip during the gh-pages tree walk.
+     * Comma-separated. Defaults skip the auto-generated javadoc and
+     * source-xref trees (huge, page-by-page checking adds little
+     * value) and version dirs that aren't the current release
+     * (avoids N×N checks across release history).
+     *
+     * <p>Each entry is matched as a literal prefix against the
+     * gh-pages relative path of the index.html's containing
+     * directory. {@code "*"} matches any single path segment.
+     */
+    @Parameter(property = "ghPagesTreeSkip",
+               defaultValue = "apidocs/,*/apidocs/,xref/,xref-test/,"
+                       + "*/xref/,*/xref-test/")
+    String ghPagesTreeSkip;
+
+    /**
      * Skip the org-site landing page check. The org site updates
      * asynchronously after the release tag is pushed; use this flag
      * to verify a release before the org-site sync has run.
@@ -232,7 +260,198 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
             results.add(httpCheck("GitHub release v" + version, ghUrl));
         }
 
+        // gh-pages tree walk — verify every published index.html is
+        // actually reachable. Catches submodule-publish gaps and
+        // depth-mismatch bugs that the fixed checks above miss.
+        if (skipGhPagesTreeWalk) {
+            results.add(CheckResult.skipped("gh-pages tree walk",
+                    "(skipped)"));
+        } else {
+            results.addAll(runGhPagesTreeChecks());
+        }
+
         return results;
+    }
+
+    /**
+     * Fetch the project's gh-pages tree from the GitHub API, find
+     * every {@code index.html}, derive the corresponding ike.network
+     * URL, and HEAD-check each. Skips paths matching
+     * {@link #ghPagesTreeSkip} prefixes and skips version-prefixed
+     * paths other than the current release (avoids N×N history
+     * checks).
+     *
+     * <p>Returns one {@code CheckResult} per checked URL — labeled by
+     * the gh-pages path so failures point at the specific file.
+     */
+    List<CheckResult> runGhPagesTreeChecks() {
+        String apiUrl = "https://api.github.com/repos/"
+                + githubOrg + "/" + projectId
+                + "/git/trees/gh-pages?recursive=true";
+        String body;
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(timeoutSeconds))
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build();
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .header("Accept", "application/vnd.github+json")
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = client.send(req,
+                    HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                return List.of(CheckResult.fail("gh-pages tree walk",
+                        apiUrl, "GitHub API HTTP " + resp.statusCode()));
+            }
+            body = resp.body();
+        } catch (Exception e) {
+            return List.of(CheckResult.fail("gh-pages tree walk",
+                    apiUrl,
+                    e.getClass().getSimpleName()
+                            + (e.getMessage() != null
+                                    ? ": " + e.getMessage() : "")));
+        }
+
+        List<String> skipPrefixes = parseSkipPatterns(ghPagesTreeSkip);
+        List<String> indexHtmlPaths = extractIndexHtmlPaths(body);
+        List<String> urlsToCheck = new ArrayList<>();
+        for (String path : indexHtmlPaths) {
+            String containingDir = path.substring(0,
+                    path.length() - "index.html".length());
+            // Strip trailing slash for prefix matching
+            String normalized = containingDir.endsWith("/")
+                    ? containingDir.substring(0, containingDir.length() - 1)
+                    : containingDir;
+            if (shouldSkipPath(normalized, version, skipPrefixes)) continue;
+            String url = siteBase + projectId + "/" + containingDir;
+            urlsToCheck.add(url);
+        }
+
+        List<CheckResult> walkResults = new ArrayList<>();
+        // Summary first so the table has a marker even when 0 paths
+        // were eligible (e.g. fresh repo with no index.html outside
+        // the skipped trees).
+        walkResults.add(CheckResult.ok("gh-pages tree walk",
+                urlsToCheck.size() + " path(s) to check"));
+        for (String url : urlsToCheck) {
+            // Use short path-derived label for clarity in the table.
+            String relPath = url.substring(siteBase.length()
+                    + projectId.length() + 1);
+            if (relPath.isEmpty()) relPath = "/";
+            walkResults.add(httpCheck("  " + relPath, url));
+        }
+        return walkResults;
+    }
+
+    /**
+     * Pure-string extract of every {@code "path": "..."} value from
+     * GitHub's git/trees JSON response where the path ends with
+     * {@code index.html}. Inlined regex; the alternative is a JSON
+     * parser dependency the rest of the goal doesn't need.
+     */
+    static List<String> extractIndexHtmlPaths(String body) {
+        if (body == null) return List.of();
+        List<String> result = new ArrayList<>();
+        // Match paths that are EXACTLY "index.html" at the root OR
+        // end with "/index.html" — exclude javadoc-style filenames
+        // like "apidocs/allclasses-index.html" that just happen to
+        // contain "index.html" as a suffix without a directory-
+        // boundary slash.
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "\"path\"\\s*:\\s*\"((?:[^\"]+?/)?index\\.html)\"");
+        java.util.regex.Matcher m = p.matcher(body);
+        while (m.find()) {
+            result.add(m.group(1));
+        }
+        return result;
+    }
+
+    /**
+     * Parse the comma-separated skip patterns into a list. Trims
+     * whitespace; drops empty entries.
+     */
+    static List<String> parseSkipPatterns(String patterns) {
+        if (patterns == null || patterns.isBlank()) return List.of();
+        List<String> result = new ArrayList<>();
+        for (String entry : patterns.split(",")) {
+            String trimmed = entry.trim();
+            if (!trimmed.isEmpty()) result.add(trimmed);
+        }
+        return result;
+    }
+
+    /**
+     * Return {@code true} when the given path should be skipped per
+     * the rules: matches a literal or {@code *}-prefixed skip
+     * pattern, OR starts with a numeric version dir other than the
+     * current release (avoids N×N checks across release history).
+     *
+     * @param path           the gh-pages path (without trailing slash)
+     * @param currentVersion the release version being verified
+     * @param skipPrefixes   parsed prefix patterns from
+     *                       {@link #ghPagesTreeSkip}
+     */
+    static boolean shouldSkipPath(String path, String currentVersion,
+                                    List<String> skipPrefixes) {
+        // Skip numeric-prefixed version dirs that aren't this release.
+        // Recognize a leading path segment that's all digits (or
+        // ends in "-checkpoint.<stuff>") as a version-snapshot dir.
+        int firstSlash = path.indexOf('/');
+        String firstSegment = firstSlash < 0 ? path
+                : path.substring(0, firstSlash);
+        if (looksLikeVersionSegment(firstSegment)
+                && !firstSegment.equals(currentVersion)
+                && !firstSegment.equals("latest")) {
+            return true;
+        }
+        // Apply user-configurable prefix patterns.
+        for (String pattern : skipPrefixes) {
+            if (matchesPrefix(pattern, path)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Check whether a path segment looks like a version snapshot
+     * directory. Pre-release / post-release IKE versions are
+     * single-segment integers (e.g. {@code 21}, {@code 165}) or
+     * checkpoint forms ({@code 7-checkpoint.20260228.1}).
+     */
+    static boolean looksLikeVersionSegment(String segment) {
+        if (segment == null || segment.isEmpty()) return false;
+        if (!Character.isDigit(segment.charAt(0))) return false;
+        // Numeric prefix is enough — checkpoint suffixes start with a
+        // digit too. Anything starting with a digit at the gh-pages
+        // top level is a snapshot dir, not a sub-site.
+        return true;
+    }
+
+    /**
+     * Match a literal prefix pattern (or one beginning with
+     * {@code *}/) against a path. The {@code *} matches any single
+     * path segment.
+     */
+    static boolean matchesPrefix(String pattern, String path) {
+        if (pattern.startsWith("*/")) {
+            // *<rest> matches any first segment followed by /<rest>
+            String rest = pattern.substring(2);
+            int firstSlash = path.indexOf('/');
+            if (firstSlash < 0) return false;
+            String afterFirst = path.substring(firstSlash + 1);
+            return afterFirst.startsWith(rest)
+                    || afterFirst.equals(rest.endsWith("/")
+                            ? rest.substring(0, rest.length() - 1)
+                            : rest);
+        }
+        // Literal prefix
+        String normalizedPattern = pattern.endsWith("/")
+                ? pattern.substring(0, pattern.length() - 1)
+                : pattern;
+        return path.startsWith(pattern)
+                || path.equals(normalizedPattern);
     }
 
     /**
