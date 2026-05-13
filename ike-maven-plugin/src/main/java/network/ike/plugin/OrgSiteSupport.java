@@ -211,8 +211,8 @@ public final class OrgSiteSupport {
         sb.append("= IKE Network\n");
         sb.append(":icons: font\n");
         sb.append('\n');
-        sb.append("The Integrated Knowledge Environment (IKE) is a community-driven\n");
-        sb.append("platform for knowledge engineering.\n");
+        sb.append("The IKE Network (Integrated Knowledge Exchange) is a sociotechnical\n");
+        sb.append("fabric where knowledge compounds.\n");
         sb.append('\n');
 
         if (!fragmentNames.isEmpty()) {

@@ -2,7 +2,7 @@
 
 ## Domain Context
 
-IKE (Integrated Knowledge Environment) projects work with knowledge representation, terminology systems, and description logic. Core concepts include:
+IKE (Integrated Knowledge Exchange) projects work with knowledge representation, terminology systems, and description logic. Core concepts include:
 
 - **Concepts** — named entities in a knowledge graph (e.g., clinical findings, anatomical structures)
 - **Axioms** — description logic statements relating concepts (e.g., `Pneumonia ⊑ DiseaseOfLung`)
