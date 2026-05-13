@@ -1,6 +1,8 @@
 # IKE Tooling
 
-**Documentation:** https://ike.network/ike-tooling/
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![Documentation](https://img.shields.io/badge/docs-ike.network%2Fike--tooling-blue)](https://ike.network/ike-tooling/)
+[![IKE Network](https://img.shields.io/badge/IKE-Network-green)](https://ike.network/)
 
 Build tooling for the IKE Network: workspace management, release
 orchestration, gitflow workflows, and build-time utilities.
@@ -32,6 +34,8 @@ in their `<pluginManagement>`. Maven resolves extension plugins at
 project-load time, before property interpolation, so the JAR must
 already be on Nexus.
 
-## Issues
+## Links
 
-Cross-project tracker: [`IKE-Network/ike-issues`](https://github.com/IKE-Network/ike-issues).
+- **Documentation:** [`https://ike.network/ike-tooling/`](https://ike.network/ike-tooling/)
+- **Issues:** [`IKE-Network/ike-issues`](https://github.com/IKE-Network/ike-issues) (cross-project tracker)
+- **Source:** [`IKE-Network/ike-tooling`](https://github.com/IKE-Network/ike-tooling)
