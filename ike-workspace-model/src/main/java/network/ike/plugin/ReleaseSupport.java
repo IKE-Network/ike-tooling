@@ -1335,22 +1335,44 @@ public class ReleaseSupport {
             //           module site, not a CSS/fonts resource dir).
             //     Each matching subtree gets copied to both
             //     <root>/<moduleId>/ and <root>/<version>/<moduleId>/.
-            // Walk BOTH the post-URL-unwrap siblingSubmoduleLayer
-            // AND the original stagingDir. Different submodule URL
-            // shapes land at different staging depths in the same
-            // reactor (#358 followup): for ike-platform, ike-bom and
-            // ike-workspace-maven-plugin stage under
-            // target/staging/https:/ike.network/ike-platform/, while
-            // ike-parent (which has a different effective <site><url>
-            // post the inheritance-fix) stages cleanly at
-            // target/staging/ike-parent/. The single-layer walk used
-            // to scan only the post-unwrap layer, missing ike-parent
-            // and shipping ike-platform v45-v49 with a broken
-            // /ike-platform/ike-parent/ URL.
+            // Walk THREE candidate layers for sibling submodules.
+            // Different submodule <site><url> shapes land at
+            // different staging depths in the same reactor — we have
+            // to cover all of them or some submodules ship with 404.
             //
-            // Use a LinkedHashSet keyed by directory name to merge
+            //   (a) siblingSubmoduleLayer — the post-URL-unwrap
+            //       layer (typically target/staging/https:/<host>/<projectId>/).
+            //       Submodules with URL https://ike.network/<projectId>/<sub>/
+            //       (same form as reactor top) land as siblings of
+            //       the reactor's own site here.
+            //
+            //   (b) stagingDir — the bare staging root. Submodules
+            //       whose <site><url> resolves to a top-level path
+            //       (e.g. https://ike.network/<sub>/) stage as
+            //       1-level-deep dirs in stagingDir. Pre-#380, this
+            //       is where ike-parent landed.
+            //
+            //   (c) stagingDir/<projectId>/ — when a submodule's URL
+            //       AND the reactor's URL share a common middle
+            //       segment (https://ike.network/<projectId>/...),
+            //       Maven Site can stage the submodule's content
+            //       *under* a directory named after the reactor's
+            //       projectId. Post-#380, ike-parent's URL is
+            //       https://ike.network/ike-platform/ike-parent/ and
+            //       its content lands at
+            //       target/staging/ike-platform/ike-parent/. The
+            //       depth-1 walks in (a) and (b) miss this — the
+            //       projectId-named container is rejected by the
+            //       moduleId==projectId guard below, dropping its
+            //       children with it.
+            //
+            // ike-issues#380 followup: ike-platform v51 shipped
+            // without /ike-platform/ike-parent/ because layer (c)
+            // wasn't being walked.
+            //
+            // Use a LinkedHashMap keyed by directory name to merge
             // hits and dedupe — the same sibling could theoretically
-            // appear in both layers if a reactor mixes shapes.
+            // appear in multiple layers if a reactor mixes shapes.
             java.util.Map<String, Path> siblingByName =
                     new java.util.LinkedHashMap<>();
             for (Path candidate : findSubmoduleSiteDirs(
@@ -1361,6 +1383,19 @@ public class ReleaseSupport {
             if (!stagingDir.equals(siblingSubmoduleLayer)) {
                 for (Path candidate : findSubmoduleSiteDirs(
                         stagingDir, effectiveStagingSource)) {
+                    siblingByName.putIfAbsent(
+                            candidate.getFileName().toString(), candidate);
+                }
+            }
+            // Layer (c): stagingDir/<projectId>/ — projectId-named
+            // container that holds submodule sites as children.
+            Path projectIdContainer = stagingDir.resolve(projectId);
+            if (Files.isDirectory(projectIdContainer)
+                    && !projectIdContainer.toAbsolutePath().normalize()
+                            .equals(siblingSubmoduleLayer
+                                    .toAbsolutePath().normalize())) {
+                for (Path candidate : findSubmoduleSiteDirs(
+                        projectIdContainer, effectiveStagingSource)) {
                     siblingByName.putIfAbsent(
                             candidate.getFileName().toString(), candidate);
                 }

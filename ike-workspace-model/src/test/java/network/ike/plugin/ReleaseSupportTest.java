@@ -1861,6 +1861,40 @@ class ReleaseSupportTest {
     }
 
     @Test
+    void findSubmoduleSiteDirs_underProjectIdContainer_finds(
+            @TempDir Path tmpDir) throws Exception {
+        // ike-issues#381: post-#380, ike-parent's <site><url> resolves
+        // to https://ike.network/ike-platform/ike-parent/. Maven Site
+        // stages its content at target/staging/ike-platform/ike-parent/
+        // — under a directory named after the reactor projectId.
+        // publishProjectSiteToGhPages must walk that container layer
+        // (in addition to siblingSubmoduleLayer and stagingDir) to
+        // find ike-parent, otherwise the v51 regression repeats:
+        // ike-platform's gh-pages ships without /ike-parent/ paths.
+        //
+        // This test asserts findSubmoduleSiteDirs handles the
+        // projectId-container shape correctly. The orchestrating
+        // 3-layer walk in publishProjectSiteToGhPages step (4) is
+        // exercised indirectly via release integration tests, but
+        // documenting the helper contract here keeps the regression
+        // pattern grep-able from the test suite.
+        Path stagingDir = tmpDir.resolve("staging");
+        Path projectIdContainer = stagingDir.resolve("ike-platform");
+        Path ikeParent = projectIdContainer.resolve("ike-parent");
+        Files.createDirectories(ikeParent);
+        Files.writeString(ikeParent.resolve("index.html"), "<html/>");
+        // Sibling resource dir that should NOT be picked up.
+        Path containerCss = projectIdContainer.resolve("css");
+        Files.createDirectories(containerCss);
+        Files.writeString(containerCss.resolve("site.css"), "body{}");
+
+        List<Path> result = ReleaseSupport.findSubmoduleSiteDirs(
+                projectIdContainer, null);
+
+        assertThat(result).containsExactly(ikeParent);
+    }
+
+    @Test
     void publishProjectSiteToGhPages_emptyStagingDir_throwsLoud() throws Exception {
         // The bug pattern from #334: an empty-but-existing target/staging/
         // directory used to silently produce a .nojekyll-only gh-pages
