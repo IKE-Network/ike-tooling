@@ -1335,8 +1335,37 @@ public class ReleaseSupport {
             //           module site, not a CSS/fonts resource dir).
             //     Each matching subtree gets copied to both
             //     <root>/<moduleId>/ and <root>/<version>/<moduleId>/.
-            List<Path> siblings = findSubmoduleSiteDirs(
-                    siblingSubmoduleLayer, effectiveStagingSource);
+            // Walk BOTH the post-URL-unwrap siblingSubmoduleLayer
+            // AND the original stagingDir. Different submodule URL
+            // shapes land at different staging depths in the same
+            // reactor (#358 followup): for ike-platform, ike-bom and
+            // ike-workspace-maven-plugin stage under
+            // target/staging/https:/ike.network/ike-platform/, while
+            // ike-parent (which has a different effective <site><url>
+            // post the inheritance-fix) stages cleanly at
+            // target/staging/ike-parent/. The single-layer walk used
+            // to scan only the post-unwrap layer, missing ike-parent
+            // and shipping ike-platform v45-v49 with a broken
+            // /ike-platform/ike-parent/ URL.
+            //
+            // Use a LinkedHashSet keyed by directory name to merge
+            // hits and dedupe — the same sibling could theoretically
+            // appear in both layers if a reactor mixes shapes.
+            java.util.Map<String, Path> siblingByName =
+                    new java.util.LinkedHashMap<>();
+            for (Path candidate : findSubmoduleSiteDirs(
+                    siblingSubmoduleLayer, effectiveStagingSource)) {
+                siblingByName.putIfAbsent(
+                        candidate.getFileName().toString(), candidate);
+            }
+            if (!stagingDir.equals(siblingSubmoduleLayer)) {
+                for (Path candidate : findSubmoduleSiteDirs(
+                        stagingDir, effectiveStagingSource)) {
+                    siblingByName.putIfAbsent(
+                            candidate.getFileName().toString(), candidate);
+                }
+            }
+            List<Path> siblings = new ArrayList<>(siblingByName.values());
             for (Path siblingSource : siblings) {
                 String moduleId = siblingSource.getFileName().toString();
                 if (moduleId.equals(projectId)) continue;
