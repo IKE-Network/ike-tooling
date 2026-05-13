@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RegisterSiteDraftMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">RegisterSiteDraftMojo.java</span></div><h1>RegisterSiteDraftMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.util.List;
+
+/**
+ * Register a project on the IKE Network org landing page.
+ *
+ * &lt;p&gt;This goal writes an AsciiDoc registration fragment for the
+ * current project into the {@code IKE-Network.github.io} repository,
+ * regenerates the master index, builds the site through the full
+ * AsciiDoc pipeline, and publishes the result to GitHub Pages.
+ *
+ * &lt;p&gt;Designed to be called as part of the release ceremony, after
+ * {@code ike:deploy-site-publish} has pushed the project's own site to
+ * its {@code gh-pages} branch. The org site registration is a
+ * best-effort operation — failure does not block a release.
+ *
+ * &lt;p&gt;By default this goal runs as a &lt;strong&gt;draft preview&lt;/strong&gt;.
+ * Use {@code ike:register-site-publish} to execute, or pass
+ * {@code -Dpublish=true} explicitly.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;
+ * # Preview what would happen:
+ * mvn ike:register-site-draft
+ *
+ * # Actually register:
+ * mvn ike:register-site-publish
+ * &lt;/pre&gt;
+ *
+ * @see DeregisterSiteDraftMojo
+ * @see OrgSiteSupport
+ */
+// projectRequired = true: the goal needs Maven's active project so the
+// @Parameter defaultValue templates ${project.name} and ${project.description}
+// interpolate. With projectRequired = false they evaluated to literal &quot;null&quot;
+// and the org-site fragment shipped `= null` as its heading.
+@Mojo(name = &quot;register-site-draft&quot;, projectRequired = true, aggregator = true)
+public class RegisterSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L53">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /**
+     * Git URL of the org-site SOURCE repository (has the Maven pom
+     * and src/site/ tree where the per-project fragment lands).
+     */
+    @Parameter(property = &quot;srcRepo&quot;,
+               defaultValue = &quot;https://github.com/IKE-Network/ike-network-site.git&quot;)
+    private String srcRepo;
+
+    /** Branch for source content in the source repo. */
+    @Parameter(property = &quot;srcBranch&quot;, defaultValue = &quot;main&quot;)
+    private String srcBranch;
+
+    /**
+     * Git URL of the org-site PUBLISH repository (rendered HTML
+     * served at https://ike.network/).
+     */
+    @Parameter(property = &quot;pubRepo&quot;,
+               defaultValue = &quot;https://github.com/IKE-Network/IKE-Network.github.io.git&quot;)
+    private String pubRepo;
+
+    /** Branch for rendered content in the publish repo. */
+    @Parameter(property = &quot;pubBranch&quot;, defaultValue = &quot;main&quot;)
+    private String pubBranch;
+
+    /**
+     * Human-readable project name. Defaults to the project's
+     * {@code &lt;name&gt;} read directly from {@code pom.xml}. The
+     * {@code defaultValue = &quot;${project.name}&quot;} form does NOT work
+     * here — under Maven 4 with {@code aggregator = true}, the
+     * project-property template doesn't interpolate at parameter-
+     * injection time and the field arrives as a literal {@code null}.
+     * Read from disk in {@link #execute()} instead.
+     */
+    @Parameter(property = &quot;projectName&quot;)
+    private String projectName;
+
+    /**
+     * One-line project description. Same caveat as
+     * {@link #projectName} — read from {@code pom.xml} in
+     * {@link #execute()} when not explicitly supplied.
+     */
+    @Parameter(property = &quot;projectDescription&quot;)
+    private String projectDescription;
+
+    /** Site URL on ike.network. Derived from artifact ID if not set. */
+    @Parameter(property = &quot;projectSiteUrl&quot;)
+    private String projectSiteUrl;
+
+    /** GitHub repository URL. Derived from SCM or project URL if not set. */
+    @Parameter(property = &quot;githubUrl&quot;)
+    private String githubUrl;
+
+    /** Version to register. Defaults to release version (SNAPSHOT stripped). */
+    @Parameter(property = &quot;releaseVersion&quot;)
+    private String releaseVersion;
+
+    /** Execute the registration (default: false = draft preview). */
+    @Parameter(property = &quot;publish&quot;, defaultValue = &quot;false&quot;)
+    boolean publish;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L116">    public RegisterSiteDraftMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc" id="L120">        File gitRoot = ReleaseSupport.gitRoot(new File(&quot;.&quot;));</span>
+<span class="nc" id="L121">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+
+<span class="nc" id="L123">        String artifactId = ReleaseSupport.readPomArtifactId(rootPom);</span>
+<span class="nc" id="L124">        String version = resolveVersion(rootPom);</span>
+
+        // Fill in name/description from pom.xml directly. The
+        // @Parameter defaultValue route ($\{project.name},
+        // $\{project.description}) doesn't work under
+        // projectRequired=true + aggregator=true in Maven 4 — the
+        // fields land as null and the org-site fragment shipped
+        // `= null` as its heading. Read on demand instead.
+<span class="nc bnc" id="L132" title="All 4 branches missed.">        if (projectName == null || projectName.isBlank()) {</span>
+<span class="nc" id="L133">            projectName = readPomTextField(rootPom, &quot;name&quot;);</span>
+<span class="nc bnc" id="L134" title="All 4 branches missed.">            if (projectName == null || projectName.isBlank()) {</span>
+                // Fall back to a derived label so the org-site is
+                // never headed with a literal &quot;null&quot;.
+<span class="nc" id="L137">                projectName = artifactId;</span>
+            }
+        }
+<span class="nc bnc" id="L140" title="All 4 branches missed.">        if (projectDescription == null || projectDescription.isBlank()) {</span>
+<span class="nc" id="L141">            projectDescription = readPomTextField(rootPom, &quot;description&quot;);</span>
+        }
+
+<span class="nc bnc" id="L144" title="All 4 branches missed.">        if (projectSiteUrl == null || projectSiteUrl.isBlank()) {</span>
+<span class="nc" id="L145">            projectSiteUrl = &quot;https://ike.network/&quot; + artifactId + &quot;/&quot;;</span>
+        }
+<span class="nc bnc" id="L147" title="All 4 branches missed.">        if (githubUrl == null || githubUrl.isBlank()) {</span>
+<span class="nc" id="L148">            githubUrl = &quot;https://github.com/IKE-Network/&quot; + artifactId;</span>
+        }
+
+        // Collect reactor module names
+<span class="nc" id="L152">        List&lt;String&gt; modules = resolveModules(gitRoot);</span>
+
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        boolean draft = !publish;</span>
+
+<span class="nc" id="L156">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L157">        getLog().info(&quot;REGISTER PROJECT ON IKE NETWORK&quot;);</span>
+<span class="nc" id="L158">        getLog().info(&quot;  Project:     &quot; + artifactId);</span>
+<span class="nc" id="L159">        getLog().info(&quot;  Name:        &quot; + projectName);</span>
+<span class="nc" id="L160">        getLog().info(&quot;  Version:     &quot; + version);</span>
+<span class="nc" id="L161">        getLog().info(&quot;  Site URL:    &quot; + projectSiteUrl);</span>
+<span class="nc" id="L162">        getLog().info(&quot;  GitHub:      &quot; + githubUrl);</span>
+<span class="nc" id="L163">        getLog().info(&quot;  Src repo:    &quot; + srcRepo + &quot; (&quot; + srcBranch + &quot;)&quot;);</span>
+<span class="nc" id="L164">        getLog().info(&quot;  Pub repo:    &quot; + pubRepo + &quot; (&quot; + pubBranch + &quot;)&quot;);</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        getLog().info(&quot;  Modules:     &quot; + (modules.isEmpty() ? &quot;(none)&quot; : modules));</span>
+<span class="nc" id="L166">        getLog().info(&quot;  Publish:       &quot;+ publish);</span>
+<span class="nc" id="L167">        getLog().info(&quot;&quot;);</span>
+
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (draft) {</span>
+<span class="nc" id="L170">            getLog().info(&quot;[DRAFT] Would register &quot; + artifactId + &quot; &quot; + version</span>
+                    + &quot; on &quot; + srcRepo + &quot; + &quot; + pubRepo);
+<span class="nc" id="L172">            return;</span>
+        }
+
+<span class="nc" id="L175">        OrgSiteSupport.registerProject(gitRoot, getLog(),</span>
+                srcRepo, pubRepo, srcBranch, pubBranch,
+                artifactId, projectName, projectDescription, version,
+                projectSiteUrl, githubUrl, modules);
+
+<span class="nc" id="L180">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L181">        getLog().info(&quot;Registered &quot; + artifactId + &quot; &quot; + version</span>
+                + &quot; on ike.network&quot;);
+<span class="nc" id="L183">    }</span>
+
+    /**
+     * Read the top-level value of a POM child element (e.g.
+     * {@code &lt;name&gt;}, {@code &lt;description&gt;}). Skips any preceding
+     * {@code &lt;parent&gt;} block so we return the project's own value,
+     * not the inherited one. Returns {@code null} when the field
+     * is absent or the file cannot be read.
+     */
+    static String readPomTextField(File pom, String fieldName) {
+<span class="nc bnc" id="L193" title="All 4 branches missed.">        if (pom == null || !pom.isFile()) return null;</span>
+        try {
+<span class="nc" id="L195">            String content = java.nio.file.Files.readString(pom.toPath(),</span>
+                    java.nio.charset.StandardCharsets.UTF_8);
+<span class="nc" id="L197">            int searchFrom = 0;</span>
+<span class="nc" id="L198">            int parentOpen = content.indexOf(&quot;&lt;parent&gt;&quot;);</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">            if (parentOpen &gt;= 0) {</span>
+<span class="nc" id="L200">                int parentClose = content.indexOf(&quot;&lt;/parent&gt;&quot;, parentOpen);</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">                if (parentClose &gt; parentOpen) {</span>
+<span class="nc" id="L202">                    searchFrom = parentClose + &quot;&lt;/parent&gt;&quot;.length();</span>
+                }
+            }
+<span class="nc" id="L205">            String openTag = &quot;&lt;&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="nc" id="L206">            String closeTag = &quot;&lt;/&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="nc" id="L207">            int open = content.indexOf(openTag, searchFrom);</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">            if (open &lt; 0) return null;</span>
+<span class="nc" id="L209">            int valueStart = open + openTag.length();</span>
+<span class="nc" id="L210">            int close = content.indexOf(closeTag, valueStart);</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">            if (close &lt; 0) return null;</span>
+            // Collapse whitespace so multi-line descriptions render
+            // as a single line in the org-site fragment.
+<span class="nc" id="L214">            return content.substring(valueStart, close)</span>
+<span class="nc" id="L215">                    .trim().replaceAll(&quot;\\s+&quot;, &quot; &quot;);</span>
+<span class="nc" id="L216">        } catch (java.io.IOException e) {</span>
+<span class="nc" id="L217">            return null;</span>
+        }
+    }
+
+    /**
+     * Resolve the version to register. Prefers the explicit
+     * {@code releaseVersion} parameter, falls back to POM version
+     * with {@code -SNAPSHOT} stripped.
+     */
+    private String resolveVersion(File rootPom) throws MojoException {
+<span class="nc bnc" id="L227" title="All 4 branches missed.">        if (releaseVersion != null &amp;&amp; !releaseVersion.isBlank()) {</span>
+<span class="nc" id="L228">            return releaseVersion;</span>
+        }
+<span class="nc" id="L230">        String pomVersion = ReleaseSupport.readPomVersion(rootPom);</span>
+<span class="nc" id="L231">        return pomVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+    }
+
+    /**
+     * Collect reactor module names from the root POM.
+     * Handles both Maven 3 {@code &lt;module&gt;} and Maven 4
+     * {@code &lt;subproject&gt;} tags. Returns an empty list for
+     * non-reactor projects.
+     */
+    private List&lt;String&gt; resolveModules(File gitRoot) {
+        // Parse modules from root POM — simple regex scan
+<span class="nc" id="L242">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+        try {
+<span class="nc" id="L244">            String pom = java.nio.file.Files.readString(rootPom.toPath(),</span>
+                    java.nio.charset.StandardCharsets.UTF_8);
+<span class="nc" id="L246">            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(</span>
+                    &quot;&lt;(?:module|subproject)&gt;([^&lt;]+)&lt;/(?:module|subproject)&gt;&quot;);
+<span class="nc" id="L248">            java.util.regex.Matcher matcher = pattern.matcher(pom);</span>
+<span class="nc" id="L249">            List&lt;String&gt; modules = new java.util.ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">            while (matcher.find()) {</span>
+<span class="nc" id="L251">                modules.add(matcher.group(1));</span>
+            }
+<span class="nc" id="L253">            return modules;</span>
+<span class="nc" id="L254">        } catch (Exception e) {</span>
+<span class="nc" id="L255">            getLog().debug(&quot;Could not parse modules from POM: &quot; + e.getMessage());</span>
+<span class="nc" id="L256">            return List.of();</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

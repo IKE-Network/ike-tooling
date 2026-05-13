@@ -6,7 +6,7 @@ canonical_url: https://ike.network/ike-tooling/built-with.html
 
 # Built With
 
-Open-source software that `ike-tooling` 171 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-tooling` 172 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 

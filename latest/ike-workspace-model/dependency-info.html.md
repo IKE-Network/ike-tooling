@@ -12,14 +12,14 @@ canonical_url: https://ike.network/ike-tooling/ike-workspace-model/dependency-in
 <dependency>
   <groupId>network.ike.tooling</groupId>
   <artifactId>ike-workspace-model</artifactId>
-  <version>171</version>
+  <version>172</version>
 </dependency>
 ```
 
 ## [Apache Ivy](#apache-ivy)
 
 ```
-<dependency org="network.ike.tooling" name="ike-workspace-model" rev="171">
+<dependency org="network.ike.tooling" name="ike-workspace-model" rev="172">
   <artifact name="ike-workspace-model" type="jar" />
 </dependency>
 ```
@@ -28,24 +28,24 @@ canonical_url: https://ike.network/ike-tooling/ike-workspace-model/dependency-in
 
 ```
 @Grapes(
-@Grab(group='network.ike.tooling', module='ike-workspace-model', version='171')
+@Grab(group='network.ike.tooling', module='ike-workspace-model', version='172')
 )
 ```
 
 ## [Gradle/Grails](#gradle-grails)
 
 ```
-implementation 'network.ike.tooling:ike-workspace-model:171'
+implementation 'network.ike.tooling:ike-workspace-model:172'
 ```
 
 ## [Scala SBT](#scala-sbt)
 
 ```
-libraryDependencies += "network.ike.tooling" % "ike-workspace-model" % "171"
+libraryDependencies += "network.ike.tooling" % "ike-workspace-model" % "172"
 ```
 
 ## [Leiningen](#leiningen)
 
 ```
-[network.ike.tooling/ike-workspace-model "171"]
+[network.ike.tooling/ike-workspace-model "172"]
 ```
