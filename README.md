@@ -25,14 +25,27 @@ mvn clean install
 ## Release Cascade
 
 ```
-[ike-tooling] → ike-docs → ike-platform → { downstream consumers }
+[ike-tooling] → ike-docs → ike-platform → { doc-example, example-project, ike-example-ws, ike-example-its }
 ```
 
 `ike-tooling` releases first because both `ike-docs` and `ike-platform`
-declare `ike-maven-plugin` with `extensions=true` at literal versions
-in their `<pluginManagement>`. Maven resolves extension plugins at
-project-load time, before property interpolation, so the JAR must
-already be on Nexus.
+declare `ike-maven-plugin` in their `<pluginManagement>` (via
+`${ike-tooling.version}`) and consume `ike-build-standards` at
+`validate` time. Those artifacts must be resolvable from Nexus
+when the downstream reactors load.
+
+The cascade ordering is structurally upstream-first; it is not
+driven by extension-realm timing. Earlier revisions cited
+`<extensions>true</extensions>` for `<packaging>ike-doc</packaging>`
+as the reason — that machinery was retired in
+[`IKE-Network/ike-issues#321`](https://github.com/IKE-Network/ike-issues/issues/321)
+when `ike-doc-maven-plugin` adopted a classifier-canonical doc
+shape (`<classifier>adoc</classifier><type>zip</type>`). The
+ordering is unchanged; the literal-version pinning is gone.
+
+The cascade is orchestrated by
+`ike-workspace-maven-plugin:cascade-foundation-publish` (in
+`ike-platform`); see [`cutting-a-release.adoc`](https://ike.network/ike-platform/cutting-a-release.html).
 
 ## Links
 
