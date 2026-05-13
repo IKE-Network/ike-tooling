@@ -90,39 +90,84 @@ public final class VersionUpgradeNoise {
 
     // ── Per-entry convenience wrappers ──────────────────────────────
 
-    /** @see #isPureNoise(VersionUpgradeStatus, String, String, String) */
+    /**
+     * Convenience overload that destructures a {@link ParentVersionUpgrade}
+     * into its fields and delegates to the four-argument form.
+     *
+     * @param p the parent-upgrade entry to classify
+     * @return {@code true} when this entry should be silently dropped;
+     *         see {@link #isPureNoise(VersionUpgradeStatus, String, String, String)}
+     */
     public static boolean isPureNoise(ParentVersionUpgrade p) {
         return isPureNoise(p.status(), p.fromVersion(),
                 p.toVersion(), p.reason());
     }
 
-    /** @see #isPureNoise(VersionUpgradeStatus, String, String, String) */
+    /**
+     * Convenience overload that destructures a {@link PropertyVersionUpgrade}
+     * into its fields and delegates to the four-argument form.
+     *
+     * @param p the property-upgrade entry to classify
+     * @return {@code true} when this entry should be silently dropped;
+     *         see {@link #isPureNoise(VersionUpgradeStatus, String, String, String)}
+     */
     public static boolean isPureNoise(PropertyVersionUpgrade p) {
         return isPureNoise(p.status(), p.fromVersion(),
                 p.toVersion(), p.reason());
     }
 
-    /** @see #isPureNoise(VersionUpgradeStatus, String, String, String) */
+    /**
+     * Convenience overload that destructures a {@link LiteralVersionUpgrade}
+     * into its fields and delegates to the four-argument form.
+     *
+     * @param l the literal-upgrade entry to classify
+     * @return {@code true} when this entry should be silently dropped;
+     *         see {@link #isPureNoise(VersionUpgradeStatus, String, String, String)}
+     */
     public static boolean isPureNoise(LiteralVersionUpgrade l) {
         return isPureNoise(l.status(), l.fromVersion(),
                 l.toVersion(), l.reason());
     }
 
-    /** @see #isInformationalSameVersion(VersionUpgradeStatus, String, String, String) */
+    /**
+     * Convenience overload that destructures a {@link ParentVersionUpgrade}
+     * into its fields and delegates to the four-argument form.
+     *
+     * @param p the parent-upgrade entry to classify
+     * @return {@code true} when this entry should appear in the Warnings
+     *         section; see
+     *         {@link #isInformationalSameVersion(VersionUpgradeStatus, String, String, String)}
+     */
     public static boolean isInformationalSameVersion(
             ParentVersionUpgrade p) {
         return isInformationalSameVersion(p.status(), p.fromVersion(),
                 p.toVersion(), p.reason());
     }
 
-    /** @see #isInformationalSameVersion(VersionUpgradeStatus, String, String, String) */
+    /**
+     * Convenience overload that destructures a {@link PropertyVersionUpgrade}
+     * into its fields and delegates to the four-argument form.
+     *
+     * @param p the property-upgrade entry to classify
+     * @return {@code true} when this entry should appear in the Warnings
+     *         section; see
+     *         {@link #isInformationalSameVersion(VersionUpgradeStatus, String, String, String)}
+     */
     public static boolean isInformationalSameVersion(
             PropertyVersionUpgrade p) {
         return isInformationalSameVersion(p.status(), p.fromVersion(),
                 p.toVersion(), p.reason());
     }
 
-    /** @see #isInformationalSameVersion(VersionUpgradeStatus, String, String, String) */
+    /**
+     * Convenience overload that destructures a {@link LiteralVersionUpgrade}
+     * into its fields and delegates to the four-argument form.
+     *
+     * @param l the literal-upgrade entry to classify
+     * @return {@code true} when this entry should appear in the Warnings
+     *         section; see
+     *         {@link #isInformationalSameVersion(VersionUpgradeStatus, String, String, String)}
+     */
     public static boolean isInformationalSameVersion(
             LiteralVersionUpgrade l) {
         return isInformationalSameVersion(l.status(), l.fromVersion(),
