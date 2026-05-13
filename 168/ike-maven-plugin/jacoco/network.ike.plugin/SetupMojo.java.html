@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SetupMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">SetupMojo.java</span></div><h1>SetupMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Install VCS bridge git hooks to {@code ~/.git-hooks/}.
+ *
+ * &lt;p&gt;Installs the pre-commit, post-commit, and pre-push hooks that
+ * coordinate git state across Syncthing-paired machines. Only the
+ * VCS bridge hooks are written — existing hooks (prepare-commit-msg,
+ * commit-msg, post-checkout) are never touched.
+ *
+ * &lt;p&gt;After installation, verifies that {@code core.hooksPath} is
+ * configured to point to {@code ~/.git-hooks/}.
+ *
+ * &lt;p&gt;Usage: {@code mvnw ike:setup}
+ */
+@Mojo(name = &quot;setup&quot;, projectRequired = false)
+public class SetupMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L39">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /** Creates this goal instance. */
+<span class="fc" id="L42">    public SetupMojo() {}</span>
+
+    /** VCS bridge hook filenames — only these are written. */
+<span class="fc" id="L45">    private static final List&lt;String&gt; VCS_HOOKS =</span>
+<span class="fc" id="L46">            List.of(&quot;pre-commit&quot;, &quot;post-commit&quot;, &quot;pre-push&quot;);</span>
+
+    /**
+     * Force overwrite of existing VCS bridge hooks without prompting.
+     */
+    @Parameter(property = &quot;force&quot;, defaultValue = &quot;false&quot;)
+    boolean force;
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc" id="L56">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L57">        getLog().info(&quot;IKE VCS Bridge — Setup&quot;);</span>
+<span class="nc" id="L58">        getLog().info(&quot;══════════════════════════════════════════════════════════════&quot;);</span>
+
+<span class="nc" id="L60">        Path hooksDir = Path.of(System.getProperty(&quot;user.home&quot;), &quot;.git-hooks&quot;);</span>
+
+        // Create hooks directory if it doesn't exist
+        try {
+<span class="nc" id="L64">            Files.createDirectories(hooksDir);</span>
+<span class="nc" id="L65">        } catch (IOException e) {</span>
+<span class="nc" id="L66">            throw new MojoException(</span>
+                    &quot;Failed to create hooks directory: &quot; + hooksDir, e);
+<span class="nc" id="L68">        }</span>
+
+        // Install each VCS bridge hook
+<span class="nc" id="L71">        int installed = 0;</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">        for (String hookName : VCS_HOOKS) {</span>
+<span class="nc" id="L73">            Path target = hooksDir.resolve(hookName);</span>
+
+<span class="nc bnc" id="L75" title="All 4 branches missed.">            if (Files.exists(target) &amp;&amp; !force) {</span>
+<span class="nc" id="L76">                getLog().info(&quot;  &quot; + hookName + &quot;: already exists (use -Dforce=true to overwrite)&quot;);</span>
+<span class="nc" id="L77">                continue;</span>
+            }
+
+<span class="nc" id="L80">            String content = readResource(&quot;/hooks/&quot; + hookName);</span>
+            try {
+<span class="nc" id="L82">                Files.writeString(target, content, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L83">                setExecutable(target);</span>
+<span class="nc" id="L84">                getLog().info(&quot;  &quot; + hookName + &quot;: installed&quot;);</span>
+<span class="nc" id="L85">                installed++;</span>
+<span class="nc" id="L86">            } catch (IOException e) {</span>
+<span class="nc" id="L87">                throw new MojoException(</span>
+                        &quot;Failed to write hook: &quot; + target, e);
+<span class="nc" id="L89">            }</span>
+<span class="nc" id="L90">        }</span>
+
+<span class="nc" id="L92">        getLog().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">        if (installed &gt; 0) {</span>
+<span class="nc" id="L94">            getLog().info(&quot;  Installed &quot; + installed + &quot; hook(s) to &quot; + hooksDir);</span>
+        } else {
+<span class="nc" id="L96">            getLog().info(&quot;  All hooks already present.&quot;);</span>
+        }
+
+        // Ensure global gitignore entries
+<span class="nc" id="L100">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L101">        ensureGlobalGitignore();</span>
+
+        // Verify core.hooksPath
+<span class="nc" id="L104">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L105">        checkHooksPath(hooksDir);</span>
+
+<span class="nc" id="L107">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L108">    }</span>
+
+    private String readResource(String path) throws MojoException {
+<span class="nc" id="L111">        try (InputStream is = getClass().getResourceAsStream(path)) {</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">            if (is == null) {</span>
+<span class="nc" id="L113">                throw new MojoException(</span>
+                        &quot;Hook resource not found on classpath: &quot; + path);
+            }
+<span class="nc" id="L116">            return new String(is.readAllBytes(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L117">        } catch (IOException e) {</span>
+<span class="nc" id="L118">            throw new MojoException(</span>
+                    &quot;Failed to read hook resource: &quot; + path, e);
+        }
+    }
+
+    private void setExecutable(Path file) {
+        try {
+<span class="nc" id="L125">            Set&lt;PosixFilePermission&gt; perms = Files.getPosixFilePermissions(file);</span>
+<span class="nc" id="L126">            perms.add(PosixFilePermission.OWNER_EXECUTE);</span>
+<span class="nc" id="L127">            perms.add(PosixFilePermission.GROUP_EXECUTE);</span>
+<span class="nc" id="L128">            perms.add(PosixFilePermission.OTHERS_EXECUTE);</span>
+<span class="nc" id="L129">            Files.setPosixFilePermissions(file, perms);</span>
+<span class="nc" id="L130">        } catch (UnsupportedOperationException e) {</span>
+            // Windows — Git Bash handles execute permission via git config
+<span class="nc" id="L132">            getLog().debug(&quot;POSIX permissions not supported (Windows); skipping chmod.&quot;);</span>
+<span class="nc" id="L133">        } catch (IOException e) {</span>
+<span class="nc" id="L134">            getLog().warn(&quot;Could not set execute permission on &quot; + file</span>
+<span class="nc" id="L135">                    + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L136">        }</span>
+<span class="nc" id="L137">    }</span>
+
+    /**
+     * Ensure standard entries exist in the global gitignore file.
+     * Creates the file if it doesn't exist.
+     */
+    private void ensureGlobalGitignore() {
+<span class="nc" id="L144">        Path globalIgnore = Path.of(System.getProperty(&quot;user.home&quot;), &quot;.gitignore_global&quot;);</span>
+        try {
+<span class="nc bnc" id="L146" title="All 2 branches missed.">            String content = Files.exists(globalIgnore)</span>
+<span class="nc" id="L147">                    ? Files.readString(globalIgnore, StandardCharsets.UTF_8) : &quot;&quot;;</span>
+
+<span class="nc" id="L149">            StringBuilder additions = new StringBuilder();</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">            if (!content.contains(&quot;_git-init&quot;)) {</span>
+<span class="nc" id="L151">                additions.append(&quot;_git-init*\n&quot;);</span>
+            }
+<span class="nc bnc" id="L153" title="All 2 branches missed.">            if (!content.contains(&quot;vcs-state&quot;)) {</span>
+<span class="nc" id="L154">                additions.append(&quot;.ike/vcs-state\n&quot;);</span>
+            }
+
+<span class="nc bnc" id="L157" title="All 2 branches missed.">            if (additions.isEmpty()) {</span>
+<span class="nc" id="L158">                getLog().info(&quot;  Global gitignore: already current  ✓&quot;);</span>
+<span class="nc" id="L159">                return;</span>
+            }
+
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            String updated = content + (content.endsWith(&quot;\n&quot;) ? &quot;&quot; : &quot;\n&quot;) + additions;</span>
+<span class="nc" id="L163">            Files.writeString(globalIgnore, updated, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L164">            getLog().info(&quot;  Global gitignore: updated (&quot; + globalIgnore + &quot;)&quot;);</span>
+<span class="nc" id="L165">        } catch (IOException e) {</span>
+<span class="nc" id="L166">            getLog().warn(&quot;  Could not update global gitignore: &quot; + e.getMessage());</span>
+<span class="nc" id="L167">        }</span>
+<span class="nc" id="L168">    }</span>
+
+    private void checkHooksPath(Path expectedDir) throws MojoException {
+        try {
+<span class="nc" id="L172">            Process proc = new ProcessBuilder(</span>
+                    &quot;git&quot;, &quot;config&quot;, &quot;--global&quot;, &quot;core.hooksPath&quot;)
+<span class="nc" id="L174">                    .redirectErrorStream(false)</span>
+<span class="nc" id="L175">                    .start();</span>
+            String output;
+<span class="nc" id="L177">            try (var reader = new java.io.BufferedReader(</span>
+<span class="nc" id="L178">                    new java.io.InputStreamReader(proc.getInputStream(),</span>
+                            StandardCharsets.UTF_8))) {
+<span class="nc" id="L180">                output = reader.lines()</span>
+<span class="nc" id="L181">                        .collect(java.util.stream.Collectors.joining())</span>
+<span class="nc" id="L182">                        .trim();</span>
+            }
+<span class="nc" id="L184">            int exit = proc.waitFor();</span>
+
+<span class="nc bnc" id="L186" title="All 4 branches missed.">            if (exit != 0 || output.isEmpty()) {</span>
+<span class="nc" id="L187">                getLog().warn(&quot;  core.hooksPath is not set.&quot;);</span>
+<span class="nc" id="L188">                getLog().warn(&quot;  Run: git config --global core.hooksPath &quot;</span>
+                        + expectedDir);
+            } else {
+<span class="nc" id="L191">                Path actual = Path.of(output).toAbsolutePath().normalize();</span>
+<span class="nc" id="L192">                Path expected = expectedDir.toAbsolutePath().normalize();</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                if (actual.equals(expected)) {</span>
+<span class="nc" id="L194">                    getLog().info(&quot;  core.hooksPath: &quot; + output + &quot;  ✓&quot;);</span>
+                } else {
+<span class="nc" id="L196">                    getLog().warn(&quot;  core.hooksPath is set to: &quot; + output);</span>
+<span class="nc" id="L197">                    getLog().warn(&quot;  Expected: &quot; + expectedDir);</span>
+<span class="nc" id="L198">                    getLog().warn(&quot;  Hooks may not activate. Update with:&quot;);</span>
+<span class="nc" id="L199">                    getLog().warn(&quot;    git config --global core.hooksPath &quot;</span>
+                            + expectedDir);
+                }
+            }
+<span class="nc" id="L203">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L204">            getLog().warn(&quot;  Could not check core.hooksPath: &quot; + e.getMessage());</span>
+<span class="nc" id="L205">        }</span>
+<span class="nc" id="L206">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
