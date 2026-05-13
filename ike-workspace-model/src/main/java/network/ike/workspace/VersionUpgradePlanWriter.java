@@ -98,10 +98,28 @@ public final class VersionUpgradePlanWriter {
 
     private static void appendNode(List<String> lines, String name,
                                    NodeVersionUpgrade node) {
+        // Filter pure-noise entries (#384): no-op blocked-by-default
+        // and from==to ready entries carry no actionable information.
+        // The model retains them; we just don't materialize them in
+        // the user-facing YAML. Informational from==to entries (real
+        // conflicts) are kept so the report-builder can surface them
+        // as Warnings.
+        ParentVersionUpgrade parent = node.parent();
+        if (parent != null && VersionUpgradeNoise.isPureNoise(parent)) {
+            parent = null;
+        }
+        List<PropertyVersionUpgrade> properties = new ArrayList<>();
+        for (PropertyVersionUpgrade p : node.properties()) {
+            if (!VersionUpgradeNoise.isPureNoise(p)) properties.add(p);
+        }
+        List<LiteralVersionUpgrade> literals = new ArrayList<>();
+        for (LiteralVersionUpgrade l : node.literals()) {
+            if (!VersionUpgradeNoise.isPureNoise(l)) literals.add(l);
+        }
         lines.add("  " + name + ":");
-        appendParent(lines, node.parent());
-        appendProperties(lines, node.properties());
-        appendLiterals(lines, node.literals());
+        appendParent(lines, parent);
+        appendProperties(lines, properties);
+        appendLiterals(lines, literals);
     }
 
     private static void appendParent(List<String> lines,
