@@ -24,7 +24,7 @@ The artifact has no compiled code. It carries content only — seven classified 
 | `docs` | Human-readable convention documents in AsciiDoc format (`ike-workspace-conventions.adoc`, etc.) — same conventions, but rendered as proper documentation rather than instruction prose. | The IKE doc pipeline (where applicable) — readable in any AsciiDoc viewer. |
 | `config` | Shared static build configuration: `.editorconfig`, `checkstyle.xml`, `.stignore.template`. Files that should be byte-identical across every IKE workspace. | `ws:scaffold-upgrade-publish` writes them to the workspace root. |
 | `asciidoctorconfig` | The shared `.asciidoctorconfig` fragment that gives IDEs (IntelliJ, VS Code) a working AsciiDoc preview matching the build’s renderer. | Each consuming module unpacks it so live preview matches the Maven-rendered output. |
-| `scaffold` | The workspace scaffold manifest (`scaffold-manifest.yaml`) and its template files: gitignore blocks, git hooks, IDE settings, `.mvn/maven.config`. The manifest’s `standards-version` is filtered to `170` at assembly time so the consumed zip carries the concrete artifact version into the lockfile. | `ws:scaffold-upgrade-{draft,publish}` consult the manifest to detect drift and apply upgrades. |
+| `scaffold` | The workspace scaffold manifest (`scaffold-manifest.yaml`) and its template files: gitignore blocks, git hooks, IDE settings, `.mvn/maven.config`. The manifest’s `standards-version` is filtered to `171` at assembly time so the consumed zip carries the concrete artifact version into the lockfile. | `ws:scaffold-upgrade-{draft,publish}` consult the manifest to detect drift and apply upgrades. |
 | `site-theme` | Canonical Forest-theme `site.css` and `ike-logo.svg` for the Sentry Maven Site skin. Single source of truth for the ike.network theme — bumping a color here propagates to every consumer’s site on the next ike-tooling release. | `ike-parent’s `site-resources` profile (activated when `src/site/` exists) unpacks at `pre-site` into `target/generated-site/resources/`, which `maven-site-plugin` auto-merges into `target/site/`. See ike-issues#318. Hosted here rather than in `ike-doc-resources` so `ike-tooling’s own modules can consume it (#308) without inverting the release cascade. |
 | `built-with` | The platform-wide curated Built-With supplement (`supplement.yaml`) — Curated-narrative content that every project’s `built-with.html` page picks up so external consumers (`ike-lab-documents`, `doc-example`, `example-project`, etc.) get the same Curated section without authoring their own supplement. | `ike-parent’s `maven-dependency-plugin` unpacks at `initialize` into `target/built-with-supplement.yaml`. The `ike:built-with` mojo reads it as a third-priority fallback after the per-project and walk-up locations. See ike-issues#340. |
 
@@ -42,20 +42,22 @@ Pulling reference material out of the consuming projects' source trees avoids th
 
 ## [#key-files-in-claude-classifier](#key-files-in-claude-classifier)Key files in `claude` classifier
 
+Each filename links to the Markdown source on GitHub. The build unpacks the same files into every consuming project’s `.claude/standards/` at `validate` phase, so the source on GitHub and the copy Claude reads at build time are the same.
+
 | File | Scope |
 | --- | --- |
-| `MAVEN.md` | Maven 4 build standards: POM model 4.1.0 conventions, property naming, profile structure, lifecycle phases. |
-| `IKE-MAVEN.md` | IKE-specific Maven conventions: parent architecture, doc-pipeline profile, artifact distribution, property-driven builds. |
-| `JAVA.md` | Java 25 standards: preview features, pattern matching, records, sealed classes, virtual threads. |
-| `IKE-JAVA.md` | IKE-specific Java patterns: RocksDB usage, gRPC conventions, Koncept extension development. |
-| `IKE-DOC.md` | AsciiDoc documentation project standards. |
-| `IKE-RELEASE.md` | Release process — single-segment monotonic versioning, branch cadence, tag conventions. |
-| `IKE-RELEASE-RECOVERY.md` | Recovery playbook for interrupted releases. |
-| `IKE-WORKSPACE.md` | Workspace plugin conventions; complements `ws:*` runtime help. |
-| `IKE-TOPIC-DECOMPOSITION.md`, `IKE-TOPIC-REGISTRY.md`, `IKE-ASCIIDOC-FRAGMENT.md`, `IKE-ASSEMBLY.md`, `IKE-INGEST.md`, `IKE-DIAGRAMS.md`, `IKE-CLASSIFIERS.md`, `IKE-INDEX.md`, `IKE-KNOWLEDGE.md` | Documentation-system standards used by `ike-lab-documents` and other doc-only projects. |
-| `TESTING.md` | Test conventions across all IKE modules. |
+| [MAVEN.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/MAVEN.md)[1] | Maven 4 build standards: POM model 4.1.0 conventions, property naming, profile structure, lifecycle phases. |
+| [IKE-MAVEN.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-MAVEN.md)[2] | IKE-specific Maven conventions: parent architecture, doc-pipeline profile, artifact distribution, property-driven builds. |
+| [JAVA.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/JAVA.md)[3] | Java 25 standards: preview features, pattern matching, records, sealed classes, virtual threads. |
+| [IKE-JAVA.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-JAVA.md)[4] | IKE-specific Java patterns: RocksDB usage, gRPC conventions, Koncept extension development. |
+| [IKE-DOC.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-DOC.md)[5] | AsciiDoc documentation project standards. |
+| [IKE-RELEASE.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-RELEASE.md)[6] | Release process — single-segment monotonic versioning, branch cadence, tag conventions. |
+| [IKE-RELEASE-RECOVERY.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-RELEASE-RECOVERY.md)[7] | Recovery playbook for interrupted releases. |
+| [IKE-WORKSPACE.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-WORKSPACE.md)[8] | Workspace plugin conventions; complements `ws:*` runtime help. |
+| [IKE-TOPIC-DECOMPOSITION.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-TOPIC-DECOMPOSITION.md)[9], [IKE-TOPIC-REGISTRY.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-TOPIC-REGISTRY.md)[10], [IKE-ASCIIDOC-FRAGMENT.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-ASCIIDOC-FRAGMENT.md)[11], [IKE-ASSEMBLY.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-ASSEMBLY.md)[12], [IKE-INGEST.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-INGEST.md)[13], [IKE-DIAGRAMS.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-DIAGRAMS.md)[14], [IKE-CLASSIFIERS.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-CLASSIFIERS.md)[15], [IKE-INDEX.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-INDEX.md)[16], [IKE-SITE-XML.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-SITE-XML.md)[17], [IKE-KNOWLEDGE.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/IKE-KNOWLEDGE.md)[18] | Documentation-system standards used by `ike-lab-documents` and other doc-only projects. |
+| [TESTING.md](https://github.com/IKE-Network/ike-tooling/blob/main/ike-build-standards/src/main/standards/TESTING.md)[19] | Test conventions across all IKE modules. |
 
 ## [#source](#source)Source
 
-- GitHub: [ike-tooling/ike-build-standards](https://github.com/IKE-Network/ike-tooling/tree/main/ike-build-standards)[1]
-- Issues: [IKE-Network/ike-issues](https://github.com/IKE-Network/ike-issues)[2]
+- GitHub: [ike-tooling/ike-build-standards](https://github.com/IKE-Network/ike-tooling/tree/main/ike-build-standards)[20]
+- Issues: [IKE-Network/ike-issues](https://github.com/IKE-Network/ike-issues)[21]
