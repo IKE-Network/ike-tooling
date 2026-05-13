@@ -1582,14 +1582,37 @@ class ReleaseSupportTest {
     }
 
     @Test
-    void detectAggregatedStaging_singleTopLevel_returnsNull(@TempDir Path tmpDir)
-            throws Exception {
-        // Single top-level entry — detectParentArtifactNesting's
-        // territory. detectAggregatedStaging must not fire here.
+    void detectAggregatedStaging_singleTopLevelIsProjectId_returnsThatEntry(
+            @TempDir Path tmpDir) throws Exception {
+        // Post-#358 ike-parent v45+ shape: site:stage of a single-
+        // module consumer produces target/staging/<projectId>/ with
+        // content directly inside. Previously this case returned null
+        // (the multi-entry guard treated single-entry as parent-
+        // artifactId nesting's territory), causing the publish to
+        // copy the whole staging tree to gh-pages — content ended up
+        // at /<version>/<projectId>/ instead of /<version>/, and
+        // every consumer URL 404'd. The fix drops the guard so the
+        // shallow check fires here too.
         Path staging = tmpDir.resolve("staging");
         Path wsDir = staging.resolve("ike-example-ws");
         Files.createDirectories(wsDir);
         Files.writeString(wsDir.resolve("index.html"), "<html/>");
+
+        assertThat(ReleaseSupport.detectAggregatedStaging(
+                staging, "ike-example-ws")).isEqualTo(wsDir);
+    }
+
+    @Test
+    void detectAggregatedStaging_singleTopLevelNotProjectId_returnsNull(
+            @TempDir Path tmpDir) throws Exception {
+        // Single top-level entry that DOESN'T match projectId AND
+        // doesn't have projectId nested under it — nothing to unwrap.
+        // (The single-entry-with-projectId-nested case is
+        // detectParentArtifactNesting's territory and runs first.)
+        Path staging = tmpDir.resolve("staging");
+        Path unrelated = staging.resolve("unrelated-dir");
+        Files.createDirectories(unrelated);
+        Files.writeString(unrelated.resolve("index.html"), "<html/>");
 
         assertThat(ReleaseSupport.detectAggregatedStaging(
                 staging, "ike-example-ws")).isNull();

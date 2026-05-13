@@ -1690,19 +1690,23 @@ public class ReleaseSupport {
         if (!Files.isDirectory(source)) {
             return null;
         }
-        try (Stream<Path> entries = Files.list(source)) {
-            // Only fire when there are multiple top-level entries —
-            // the single-top-level case is detectParentArtifactNesting's
-            // territory.
-            if (entries.count() < 2) {
-                return null;
-            }
-        } catch (IOException e) {
-            throw new MojoException(
-                    "Could not inspect " + source
-                            + " for aggregated staging: "
-                            + e.getMessage(), e);
-        }
+        // No multi-entry guard. The earlier "count() < 2 → return null"
+        // assumed the single-entry case was always parent-artifactId
+        // nesting (handled by detectParentArtifactNesting). After the
+        // #358 fix in ike-parent v45+, single-module consumers stage
+        // their content at staging/<projectId>/ with NO further
+        // nesting — and that pattern has only one top-level entry too.
+        // Returning null there caused gh-pages publish to copy the
+        // whole staging tree (containing <projectId>/<content>) to
+        // gh-pages root, producing /<version>/<projectId>/<content>
+        // instead of /<version>/<content> — every consumer URL
+        // 404'd. ike-issues#358 followup.
+        //
+        // The detectParentArtifactNesting check runs FIRST in
+        // publishProjectSiteToGhPages and takes the deeper (doubled)
+        // path when present, so this method's shallow check only
+        // fires in the legitimate "content lives at staging/<projectId>/"
+        // case.
         // Check shallow first: source/<projectId>/
         Path shallow = source.resolve(projectId);
         if (Files.isDirectory(shallow) && !isEmptyDirectory(shallow)) {
