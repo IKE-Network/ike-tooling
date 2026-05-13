@@ -105,6 +105,34 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
     boolean skipGithubRelease;
 
     /**
+     * Skip the gh-pages tree walk. The walk asks the GitHub API for
+     * the project's published {@code gh-pages} tree, enumerates every
+     * {@code index.html}, and HEAD-checks the corresponding URL. This
+     * is what catches submodule-publish gaps and depth-mismatch bugs
+     * the fixed-six-URL checks miss (e.g. ike-issues#358 #363
+     * regressions where some subsite under a multi-module reactor
+     * lands at the wrong depth and 404s). On by default.
+     */
+    @Parameter(property = &quot;skipGhPagesTreeWalk&quot;, defaultValue = &quot;false&quot;)
+    boolean skipGhPagesTreeWalk;
+
+    /**
+     * Path-prefix patterns to skip during the gh-pages tree walk.
+     * Comma-separated. Defaults skip the auto-generated javadoc and
+     * source-xref trees (huge, page-by-page checking adds little
+     * value) and version dirs that aren't the current release
+     * (avoids N×N checks across release history).
+     *
+     * &lt;p&gt;Each entry is matched as a literal prefix against the
+     * gh-pages relative path of the index.html's containing
+     * directory. {@code &quot;*&quot;} matches any single path segment.
+     */
+    @Parameter(property = &quot;ghPagesTreeSkip&quot;,
+               defaultValue = &quot;apidocs/,*/apidocs/,xref/,xref-test/,&quot;
+                       + &quot;*/xref/,*/xref-test/&quot;)
+    String ghPagesTreeSkip;
+
+    /**
      * Skip the org-site landing page check. The org site updates
      * asynchronously after the release tag is pushed; use this flag
      * to verify a release before the org-site sync has run.
@@ -119,38 +147,38 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
     int timeoutSeconds;
 
     /** Creates this goal instance. */
-<span class="fc" id="L122">    public VerifyReleasePublishedMojo() {}</span>
+<span class="fc" id="L150">    public VerifyReleasePublishedMojo() {}</span>
 
     @Override
     public void execute() throws MojoException {
-<span class="nc" id="L126">        resolveDefaults();</span>
+<span class="nc" id="L154">        resolveDefaults();</span>
 
-<span class="nc" id="L128">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L129">        getLog().info(&quot;Verifying release &quot; + projectId + &quot; &quot; + version);</span>
-<span class="nc" id="L130">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L156">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L157">        getLog().info(&quot;Verifying release &quot; + projectId + &quot; &quot; + version);</span>
+<span class="nc" id="L158">        getLog().info(&quot;&quot;);</span>
 
-<span class="nc" id="L132">        List&lt;CheckResult&gt; results = runChecks();</span>
+<span class="nc" id="L160">        List&lt;CheckResult&gt; results = runChecks();</span>
 
-<span class="nc" id="L134">        getLog().info(&quot;  &quot; + padRight(&quot;Target&quot;, 32)</span>
-<span class="nc" id="L135">                + padRight(&quot;Result&quot;, 10) + &quot;URL&quot;);</span>
-<span class="nc" id="L136">        getLog().info(&quot;  &quot; + &quot;─&quot;.repeat(32 + 10 + 40));</span>
-<span class="nc" id="L137">        int failures = 0;</span>
-<span class="nc bnc" id="L138" title="All 2 branches missed.">        for (CheckResult r : results) {</span>
-<span class="nc bnc" id="L139" title="All 4 branches missed.">            String marker = r.ok ? &quot;✓ ok&quot; : (r.skipped ? &quot;— skip&quot; : &quot;✗ FAIL&quot;);</span>
-<span class="nc" id="L140">            getLog().info(&quot;  &quot; + padRight(r.target, 32)</span>
-<span class="nc" id="L141">                    + padRight(marker, 10) + r.url);</span>
-<span class="nc bnc" id="L142" title="All 4 branches missed.">            if (!r.ok &amp;&amp; !r.skipped) failures++;</span>
-<span class="nc" id="L143">        }</span>
-<span class="nc" id="L144">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L162">        getLog().info(&quot;  &quot; + padRight(&quot;Target&quot;, 32)</span>
+<span class="nc" id="L163">                + padRight(&quot;Result&quot;, 10) + &quot;URL&quot;);</span>
+<span class="nc" id="L164">        getLog().info(&quot;  &quot; + &quot;─&quot;.repeat(32 + 10 + 40));</span>
+<span class="nc" id="L165">        int failures = 0;</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        for (CheckResult r : results) {</span>
+<span class="nc bnc" id="L167" title="All 4 branches missed.">            String marker = r.ok ? &quot;✓ ok&quot; : (r.skipped ? &quot;— skip&quot; : &quot;✗ FAIL&quot;);</span>
+<span class="nc" id="L168">            getLog().info(&quot;  &quot; + padRight(r.target, 32)</span>
+<span class="nc" id="L169">                    + padRight(marker, 10) + r.url);</span>
+<span class="nc bnc" id="L170" title="All 4 branches missed.">            if (!r.ok &amp;&amp; !r.skipped) failures++;</span>
+<span class="nc" id="L171">        }</span>
+<span class="nc" id="L172">        getLog().info(&quot;&quot;);</span>
 
-<span class="nc bnc" id="L146" title="All 2 branches missed.">        if (failures == 0) {</span>
-<span class="nc" id="L147">            getLog().info(&quot;All checks passed.&quot;);</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        if (failures == 0) {</span>
+<span class="nc" id="L175">            getLog().info(&quot;All checks passed.&quot;);</span>
         } else {
-<span class="nc" id="L149">            throw new MojoException(failures</span>
+<span class="nc" id="L177">            throw new MojoException(failures</span>
                     + &quot; release verification check(s) failed. &quot;
                     + &quot;See output above for details. ike-issues#374.&quot;);
         }
-<span class="nc" id="L153">    }</span>
+<span class="nc" id="L181">    }</span>
 
     /**
      * Fill in unset parameters from {@link #pomFile}. Called once at
@@ -160,24 +188,24 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
      *                       parameters are not explicitly set
      */
     void resolveDefaults() throws MojoException {
-<span class="pc bpc" id="L163" title="1 of 4 branches missed.">        if (projectId == null || projectId.isBlank()) {</span>
-<span class="fc" id="L164">            projectId = readPomField(pomFile, &quot;artifactId&quot;);</span>
+<span class="pc bpc" id="L191" title="1 of 4 branches missed.">        if (projectId == null || projectId.isBlank()) {</span>
+<span class="fc" id="L192">            projectId = readPomField(pomFile, &quot;artifactId&quot;);</span>
         }
-<span class="pc bpc" id="L166" title="1 of 4 branches missed.">        if (version == null || version.isBlank()) {</span>
-<span class="fc" id="L167">            String pomVersion = readPomField(pomFile, &quot;version&quot;);</span>
-<span class="pc bpc" id="L168" title="1 of 2 branches missed.">            if (pomVersion != null) {</span>
-<span class="fc" id="L169">                version = pomVersion.replaceFirst(&quot;-SNAPSHOT$&quot;, &quot;&quot;);</span>
+<span class="pc bpc" id="L194" title="1 of 4 branches missed.">        if (version == null || version.isBlank()) {</span>
+<span class="fc" id="L195">            String pomVersion = readPomField(pomFile, &quot;version&quot;);</span>
+<span class="pc bpc" id="L196" title="1 of 2 branches missed.">            if (pomVersion != null) {</span>
+<span class="fc" id="L197">                version = pomVersion.replaceFirst(&quot;-SNAPSHOT$&quot;, &quot;&quot;);</span>
             }
         }
-<span class="pc bpc" id="L172" title="2 of 4 branches missed.">        if (projectId == null || projectId.isBlank()) {</span>
-<span class="nc" id="L173">            throw new MojoException(</span>
+<span class="pc bpc" id="L200" title="2 of 4 branches missed.">        if (projectId == null || projectId.isBlank()) {</span>
+<span class="nc" id="L201">            throw new MojoException(</span>
                     &quot;Could not determine projectId. Pass -DprojectId=&lt;id&gt;.&quot;);
         }
-<span class="pc bpc" id="L176" title="2 of 4 branches missed.">        if (version == null || version.isBlank()) {</span>
-<span class="nc" id="L177">            throw new MojoException(</span>
+<span class="pc bpc" id="L204" title="2 of 4 branches missed.">        if (version == null || version.isBlank()) {</span>
+<span class="nc" id="L205">            throw new MojoException(</span>
                     &quot;Could not determine version. Pass -Dversion=&lt;N&gt;.&quot;);
         }
-<span class="fc" id="L180">    }</span>
+<span class="fc" id="L208">    }</span>
 
     /**
      * Run all six verification checks. Returns one result per check in
@@ -186,53 +214,244 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
      * {@code skipped=true} so the table is complete.
      */
     List&lt;CheckResult&gt; runChecks() {
-<span class="nc" id="L189">        List&lt;CheckResult&gt; results = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L217">        List&lt;CheckResult&gt; results = new ArrayList&lt;&gt;();</span>
 
         // Site: current at root
-<span class="nc" id="L192">        results.add(httpCheck(&quot;Site (current)&quot;,</span>
+<span class="nc" id="L220">        results.add(httpCheck(&quot;Site (current)&quot;,</span>
                 siteBase + projectId + &quot;/&quot;));
         // Site: versioned
-<span class="nc" id="L195">        results.add(httpCheck(&quot;Site (version &quot; + version + &quot;)&quot;,</span>
+<span class="nc" id="L223">        results.add(httpCheck(&quot;Site (version &quot; + version + &quot;)&quot;,</span>
                 siteBase + projectId + &quot;/&quot; + version + &quot;/&quot;));
         // Site: latest alias
-<span class="nc" id="L198">        results.add(httpCheck(&quot;Site (latest)&quot;,</span>
+<span class="nc" id="L226">        results.add(httpCheck(&quot;Site (latest)&quot;,</span>
                 siteBase + projectId + &quot;/latest/&quot;));
 
         // Org-site landing
-<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (skipOrgSite) {</span>
-<span class="nc" id="L203">            results.add(CheckResult.skipped(&quot;Org-site landing&quot;, siteBase));</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">        if (skipOrgSite) {</span>
+<span class="nc" id="L231">            results.add(CheckResult.skipped(&quot;Org-site landing&quot;, siteBase));</span>
         } else {
-<span class="nc" id="L205">            results.add(httpCheck(&quot;Org-site landing&quot;, siteBase));</span>
+<span class="nc" id="L233">            results.add(httpCheck(&quot;Org-site landing&quot;, siteBase));</span>
         }
 
         // Nexus artifact
-<span class="nc" id="L209">        String groupPath = readPomGroupPath(pomFile);</span>
+<span class="nc" id="L237">        String groupPath = readPomGroupPath(pomFile);</span>
         String nexusUrl;
-<span class="nc bnc" id="L211" title="All 2 branches missed.">        if (groupPath == null) {</span>
-<span class="nc" id="L212">            nexusUrl = nexusBase;</span>
-<span class="nc" id="L213">            results.add(CheckResult.fail(&quot;Nexus artifact&quot;,</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (groupPath == null) {</span>
+<span class="nc" id="L240">            nexusUrl = nexusBase;</span>
+<span class="nc" id="L241">            results.add(CheckResult.fail(&quot;Nexus artifact&quot;,</span>
                     nexusUrl,
                     &quot;Could not read groupId from pom.xml — pass &quot;
                             + &quot;-DnexusBase=&lt;full URL to artifact dir&gt;.&quot;));
         } else {
-<span class="nc" id="L218">            nexusUrl = nexusBase + groupPath + &quot;/&quot; + projectId</span>
+<span class="nc" id="L246">            nexusUrl = nexusBase + groupPath + &quot;/&quot; + projectId</span>
                     + &quot;/&quot; + version + &quot;/&quot; + projectId + &quot;-&quot;
                     + version + &quot;.pom&quot;;
-<span class="nc" id="L221">            results.add(httpCheck(&quot;Nexus artifact&quot;, nexusUrl));</span>
+<span class="nc" id="L249">            results.add(httpCheck(&quot;Nexus artifact&quot;, nexusUrl));</span>
         }
 
         // GitHub release
-<span class="nc bnc" id="L225" title="All 2 branches missed.">        if (skipGithubRelease) {</span>
-<span class="nc" id="L226">            results.add(CheckResult.skipped(&quot;GitHub release v&quot; + version,</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">        if (skipGithubRelease) {</span>
+<span class="nc" id="L254">            results.add(CheckResult.skipped(&quot;GitHub release v&quot; + version,</span>
                     &quot;(skipped)&quot;));
         } else {
-<span class="nc" id="L229">            String ghUrl = &quot;https://api.github.com/repos/&quot;</span>
+<span class="nc" id="L257">            String ghUrl = &quot;https://api.github.com/repos/&quot;</span>
                     + githubOrg + &quot;/&quot; + projectId
                     + &quot;/releases/tags/v&quot; + version;
-<span class="nc" id="L232">            results.add(httpCheck(&quot;GitHub release v&quot; + version, ghUrl));</span>
+<span class="nc" id="L260">            results.add(httpCheck(&quot;GitHub release v&quot; + version, ghUrl));</span>
         }
 
-<span class="nc" id="L235">        return results;</span>
+        // gh-pages tree walk — verify every published index.html is
+        // actually reachable. Catches submodule-publish gaps and
+        // depth-mismatch bugs that the fixed checks above miss.
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        if (skipGhPagesTreeWalk) {</span>
+<span class="nc" id="L267">            results.add(CheckResult.skipped(&quot;gh-pages tree walk&quot;,</span>
+                    &quot;(skipped)&quot;));
+        } else {
+<span class="nc" id="L270">            results.addAll(runGhPagesTreeChecks());</span>
+        }
+
+<span class="nc" id="L273">        return results;</span>
+    }
+
+    /**
+     * Fetch the project's gh-pages tree from the GitHub API, find
+     * every {@code index.html}, derive the corresponding ike.network
+     * URL, and HEAD-check each. Skips paths matching
+     * {@link #ghPagesTreeSkip} prefixes and skips version-prefixed
+     * paths other than the current release (avoids N×N history
+     * checks).
+     *
+     * &lt;p&gt;Returns one {@code CheckResult} per checked URL — labeled by
+     * the gh-pages path so failures point at the specific file.
+     */
+    List&lt;CheckResult&gt; runGhPagesTreeChecks() {
+<span class="nc" id="L288">        String apiUrl = &quot;https://api.github.com/repos/&quot;</span>
+                + githubOrg + &quot;/&quot; + projectId
+                + &quot;/git/trees/gh-pages?recursive=true&quot;;
+        String body;
+        try {
+<span class="nc" id="L293">            HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L294">                    .connectTimeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L295">                    .followRedirects(HttpClient.Redirect.NORMAL)</span>
+<span class="nc" id="L296">                    .build();</span>
+<span class="nc" id="L297">            HttpRequest req = HttpRequest.newBuilder()</span>
+<span class="nc" id="L298">                    .uri(URI.create(apiUrl))</span>
+<span class="nc" id="L299">                    .timeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L300">                    .header(&quot;Accept&quot;, &quot;application/vnd.github+json&quot;)</span>
+<span class="nc" id="L301">                    .GET()</span>
+<span class="nc" id="L302">                    .build();</span>
+<span class="nc" id="L303">            HttpResponse&lt;String&gt; resp = client.send(req,</span>
+<span class="nc" id="L304">                    HttpResponse.BodyHandlers.ofString());</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">            if (resp.statusCode() != 200) {</span>
+<span class="nc" id="L306">                return List.of(CheckResult.fail(&quot;gh-pages tree walk&quot;,</span>
+<span class="nc" id="L307">                        apiUrl, &quot;GitHub API HTTP &quot; + resp.statusCode()));</span>
+            }
+<span class="nc" id="L309">            body = resp.body();</span>
+<span class="nc" id="L310">        } catch (Exception e) {</span>
+<span class="nc" id="L311">            return List.of(CheckResult.fail(&quot;gh-pages tree walk&quot;,</span>
+                    apiUrl,
+<span class="nc" id="L313">                    e.getClass().getSimpleName()</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">                            + (e.getMessage() != null</span>
+<span class="nc" id="L315">                                    ? &quot;: &quot; + e.getMessage() : &quot;&quot;)));</span>
+<span class="nc" id="L316">        }</span>
+
+<span class="nc" id="L318">        List&lt;String&gt; skipPrefixes = parseSkipPatterns(ghPagesTreeSkip);</span>
+<span class="nc" id="L319">        List&lt;String&gt; indexHtmlPaths = extractIndexHtmlPaths(body);</span>
+<span class="nc" id="L320">        List&lt;String&gt; urlsToCheck = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">        for (String path : indexHtmlPaths) {</span>
+<span class="nc" id="L322">            String containingDir = path.substring(0,</span>
+<span class="nc" id="L323">                    path.length() - &quot;index.html&quot;.length());</span>
+            // Strip trailing slash for prefix matching
+<span class="nc bnc" id="L325" title="All 2 branches missed.">            String normalized = containingDir.endsWith(&quot;/&quot;)</span>
+<span class="nc" id="L326">                    ? containingDir.substring(0, containingDir.length() - 1)</span>
+<span class="nc" id="L327">                    : containingDir;</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">            if (shouldSkipPath(normalized, version, skipPrefixes)) continue;</span>
+<span class="nc" id="L329">            String url = siteBase + projectId + &quot;/&quot; + containingDir;</span>
+<span class="nc" id="L330">            urlsToCheck.add(url);</span>
+<span class="nc" id="L331">        }</span>
+
+<span class="nc" id="L333">        List&lt;CheckResult&gt; walkResults = new ArrayList&lt;&gt;();</span>
+        // Summary first so the table has a marker even when 0 paths
+        // were eligible (e.g. fresh repo with no index.html outside
+        // the skipped trees).
+<span class="nc" id="L337">        walkResults.add(CheckResult.ok(&quot;gh-pages tree walk&quot;,</span>
+<span class="nc" id="L338">                urlsToCheck.size() + &quot; path(s) to check&quot;));</span>
+<span class="nc bnc" id="L339" title="All 2 branches missed.">        for (String url : urlsToCheck) {</span>
+            // Use short path-derived label for clarity in the table.
+<span class="nc" id="L341">            String relPath = url.substring(siteBase.length()</span>
+<span class="nc" id="L342">                    + projectId.length() + 1);</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">            if (relPath.isEmpty()) relPath = &quot;/&quot;;</span>
+<span class="nc" id="L344">            walkResults.add(httpCheck(&quot;  &quot; + relPath, url));</span>
+<span class="nc" id="L345">        }</span>
+<span class="nc" id="L346">        return walkResults;</span>
+    }
+
+    /**
+     * Pure-string extract of every {@code &quot;path&quot;: &quot;...&quot;} value from
+     * GitHub's git/trees JSON response where the path ends with
+     * {@code index.html}. Inlined regex; the alternative is a JSON
+     * parser dependency the rest of the goal doesn't need.
+     */
+    static List&lt;String&gt; extractIndexHtmlPaths(String body) {
+<span class="fc bfc" id="L356" title="All 2 branches covered.">        if (body == null) return List.of();</span>
+<span class="fc" id="L357">        List&lt;String&gt; result = new ArrayList&lt;&gt;();</span>
+        // Match paths that are EXACTLY &quot;index.html&quot; at the root OR
+        // end with &quot;/index.html&quot; — exclude javadoc-style filenames
+        // like &quot;apidocs/allclasses-index.html&quot; that just happen to
+        // contain &quot;index.html&quot; as a suffix without a directory-
+        // boundary slash.
+<span class="fc" id="L363">        java.util.regex.Pattern p = java.util.regex.Pattern.compile(</span>
+                &quot;\&quot;path\&quot;\\s*:\\s*\&quot;((?:[^\&quot;]+?/)?index\\.html)\&quot;&quot;);
+<span class="fc" id="L365">        java.util.regex.Matcher m = p.matcher(body);</span>
+<span class="fc bfc" id="L366" title="All 2 branches covered.">        while (m.find()) {</span>
+<span class="fc" id="L367">            result.add(m.group(1));</span>
+        }
+<span class="fc" id="L369">        return result;</span>
+    }
+
+    /**
+     * Parse the comma-separated skip patterns into a list. Trims
+     * whitespace; drops empty entries.
+     */
+    static List&lt;String&gt; parseSkipPatterns(String patterns) {
+<span class="fc bfc" id="L377" title="All 4 branches covered.">        if (patterns == null || patterns.isBlank()) return List.of();</span>
+<span class="fc" id="L378">        List&lt;String&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L379" title="All 2 branches covered.">        for (String entry : patterns.split(&quot;,&quot;)) {</span>
+<span class="fc" id="L380">            String trimmed = entry.trim();</span>
+<span class="pc bpc" id="L381" title="1 of 2 branches missed.">            if (!trimmed.isEmpty()) result.add(trimmed);</span>
+        }
+<span class="fc" id="L383">        return result;</span>
+    }
+
+    /**
+     * Return {@code true} when the given path should be skipped per
+     * the rules: matches a literal or {@code *}-prefixed skip
+     * pattern, OR starts with a numeric version dir other than the
+     * current release (avoids N×N checks across release history).
+     *
+     * @param path           the gh-pages path (without trailing slash)
+     * @param currentVersion the release version being verified
+     * @param skipPrefixes   parsed prefix patterns from
+     *                       {@link #ghPagesTreeSkip}
+     */
+    static boolean shouldSkipPath(String path, String currentVersion,
+                                    List&lt;String&gt; skipPrefixes) {
+        // Skip numeric-prefixed version dirs that aren't this release.
+        // Recognize a leading path segment that's all digits (or
+        // ends in &quot;-checkpoint.&lt;stuff&gt;&quot;) as a version-snapshot dir.
+<span class="fc" id="L402">        int firstSlash = path.indexOf('/');</span>
+<span class="fc bfc" id="L403" title="All 2 branches covered.">        String firstSegment = firstSlash &lt; 0 ? path</span>
+<span class="fc" id="L404">                : path.substring(0, firstSlash);</span>
+<span class="fc bfc" id="L405" title="All 2 branches covered.">        if (looksLikeVersionSegment(firstSegment)</span>
+<span class="fc bfc" id="L406" title="All 2 branches covered.">                &amp;&amp; !firstSegment.equals(currentVersion)</span>
+<span class="pc bpc" id="L407" title="1 of 2 branches missed.">                &amp;&amp; !firstSegment.equals(&quot;latest&quot;)) {</span>
+<span class="fc" id="L408">            return true;</span>
+        }
+        // Apply user-configurable prefix patterns.
+<span class="fc bfc" id="L411" title="All 2 branches covered.">        for (String pattern : skipPrefixes) {</span>
+<span class="fc bfc" id="L412" title="All 2 branches covered.">            if (matchesPrefix(pattern, path)) return true;</span>
+<span class="fc" id="L413">        }</span>
+<span class="fc" id="L414">        return false;</span>
+    }
+
+    /**
+     * Check whether a path segment looks like a version snapshot
+     * directory. Pre-release / post-release IKE versions are
+     * single-segment integers (e.g. {@code 21}, {@code 165}) or
+     * checkpoint forms ({@code 7-checkpoint.20260228.1}).
+     */
+    static boolean looksLikeVersionSegment(String segment) {
+<span class="fc bfc" id="L424" title="All 4 branches covered.">        if (segment == null || segment.isEmpty()) return false;</span>
+<span class="fc bfc" id="L425" title="All 2 branches covered.">        if (!Character.isDigit(segment.charAt(0))) return false;</span>
+        // Numeric prefix is enough — checkpoint suffixes start with a
+        // digit too. Anything starting with a digit at the gh-pages
+        // top level is a snapshot dir, not a sub-site.
+<span class="fc" id="L429">        return true;</span>
+    }
+
+    /**
+     * Match a literal prefix pattern (or one beginning with
+     * {@code *}/) against a path. The {@code *} matches any single
+     * path segment.
+     */
+    static boolean matchesPrefix(String pattern, String path) {
+<span class="fc bfc" id="L438" title="All 2 branches covered.">        if (pattern.startsWith(&quot;*/&quot;)) {</span>
+            // *&lt;rest&gt; matches any first segment followed by /&lt;rest&gt;
+<span class="fc" id="L440">            String rest = pattern.substring(2);</span>
+<span class="fc" id="L441">            int firstSlash = path.indexOf('/');</span>
+<span class="pc bpc" id="L442" title="1 of 2 branches missed.">            if (firstSlash &lt; 0) return false;</span>
+<span class="fc" id="L443">            String afterFirst = path.substring(firstSlash + 1);</span>
+<span class="fc bfc" id="L444" title="All 2 branches covered.">            return afterFirst.startsWith(rest)</span>
+<span class="pc bpc" id="L445" title="1 of 4 branches missed.">                    || afterFirst.equals(rest.endsWith(&quot;/&quot;)</span>
+<span class="fc" id="L446">                            ? rest.substring(0, rest.length() - 1)</span>
+<span class="nc" id="L447">                            : rest);</span>
+        }
+        // Literal prefix
+<span class="pc bpc" id="L450" title="1 of 2 branches missed.">        String normalizedPattern = pattern.endsWith(&quot;/&quot;)</span>
+<span class="fc" id="L451">                ? pattern.substring(0, pattern.length() - 1)</span>
+<span class="pc" id="L452">                : pattern;</span>
+<span class="fc bfc" id="L453" title="All 2 branches covered.">        return path.startsWith(pattern)</span>
+<span class="fc bfc" id="L454" title="All 2 branches covered.">                || path.equals(normalizedPattern);</span>
     }
 
     /**
@@ -243,36 +462,36 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
      * configurations return 405), retries with GET.
      */
     CheckResult httpCheck(String target, String url) {
-<span class="nc" id="L246">        HttpClient client = HttpClient.newBuilder()</span>
-<span class="nc" id="L247">                .connectTimeout(Duration.ofSeconds(timeoutSeconds))</span>
-<span class="nc" id="L248">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
-<span class="nc" id="L249">                .build();</span>
-<span class="nc bnc" id="L250" title="All 2 branches missed.">        for (String method : new String[]{&quot;HEAD&quot;, &quot;GET&quot;}) {</span>
+<span class="nc" id="L465">        HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L466">                .connectTimeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L467">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
+<span class="nc" id="L468">                .build();</span>
+<span class="nc bnc" id="L469" title="All 2 branches missed.">        for (String method : new String[]{&quot;HEAD&quot;, &quot;GET&quot;}) {</span>
             try {
-<span class="nc" id="L252">                HttpRequest req = HttpRequest.newBuilder()</span>
-<span class="nc" id="L253">                        .uri(URI.create(url))</span>
-<span class="nc" id="L254">                        .timeout(Duration.ofSeconds(timeoutSeconds))</span>
-<span class="nc" id="L255">                        .method(method, HttpRequest.BodyPublishers.noBody())</span>
-<span class="nc" id="L256">                        .build();</span>
-<span class="nc" id="L257">                HttpResponse&lt;Void&gt; resp = client.send(req,</span>
-<span class="nc" id="L258">                        HttpResponse.BodyHandlers.discarding());</span>
-<span class="nc" id="L259">                int code = resp.statusCode();</span>
-<span class="nc bnc" id="L260" title="All 4 branches missed.">                if (code &gt;= 200 &amp;&amp; code &lt; 300) {</span>
-<span class="nc" id="L261">                    return CheckResult.ok(target, url);</span>
+<span class="nc" id="L471">                HttpRequest req = HttpRequest.newBuilder()</span>
+<span class="nc" id="L472">                        .uri(URI.create(url))</span>
+<span class="nc" id="L473">                        .timeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L474">                        .method(method, HttpRequest.BodyPublishers.noBody())</span>
+<span class="nc" id="L475">                        .build();</span>
+<span class="nc" id="L476">                HttpResponse&lt;Void&gt; resp = client.send(req,</span>
+<span class="nc" id="L477">                        HttpResponse.BodyHandlers.discarding());</span>
+<span class="nc" id="L478">                int code = resp.statusCode();</span>
+<span class="nc bnc" id="L479" title="All 4 branches missed.">                if (code &gt;= 200 &amp;&amp; code &lt; 300) {</span>
+<span class="nc" id="L480">                    return CheckResult.ok(target, url);</span>
                 }
-<span class="nc bnc" id="L263" title="All 4 branches missed.">                if (code == 405 &amp;&amp; &quot;HEAD&quot;.equals(method)) {</span>
-<span class="nc" id="L264">                    continue; // try GET</span>
+<span class="nc bnc" id="L482" title="All 4 branches missed.">                if (code == 405 &amp;&amp; &quot;HEAD&quot;.equals(method)) {</span>
+<span class="nc" id="L483">                    continue; // try GET</span>
                 }
-<span class="nc" id="L266">                return CheckResult.fail(target, url,</span>
+<span class="nc" id="L485">                return CheckResult.fail(target, url,</span>
                         &quot;HTTP &quot; + code);
-<span class="nc" id="L268">            } catch (Exception e) {</span>
-<span class="nc bnc" id="L269" title="All 2 branches missed.">                if (&quot;HEAD&quot;.equals(method)) continue; // try GET on transport error</span>
-<span class="nc" id="L270">                return CheckResult.fail(target, url, e.getClass().getSimpleName()</span>
-<span class="nc bnc" id="L271" title="All 2 branches missed.">                        + (e.getMessage() != null ? &quot;: &quot; + e.getMessage() : &quot;&quot;));</span>
+<span class="nc" id="L487">            } catch (Exception e) {</span>
+<span class="nc bnc" id="L488" title="All 2 branches missed.">                if (&quot;HEAD&quot;.equals(method)) continue; // try GET on transport error</span>
+<span class="nc" id="L489">                return CheckResult.fail(target, url, e.getClass().getSimpleName()</span>
+<span class="nc bnc" id="L490" title="All 2 branches missed.">                        + (e.getMessage() != null ? &quot;: &quot; + e.getMessage() : &quot;&quot;));</span>
             }
         }
         // Both methods failed without producing a definitive result.
-<span class="nc" id="L275">        return CheckResult.fail(target, url, &quot;no response&quot;);</span>
+<span class="nc" id="L494">        return CheckResult.fail(target, url, &quot;no response&quot;);</span>
     }
 
     /**
@@ -282,28 +501,28 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
      * cannot be read.
      */
     static String readPomField(File pom, String fieldName) {
-<span class="fc bfc" id="L285" title="All 4 branches covered.">        if (pom == null || !pom.isFile()) return null;</span>
+<span class="fc bfc" id="L504" title="All 4 branches covered.">        if (pom == null || !pom.isFile()) return null;</span>
         try {
-<span class="fc" id="L287">            String content = Files.readString(pom.toPath(),</span>
+<span class="fc" id="L506">            String content = Files.readString(pom.toPath(),</span>
                     StandardCharsets.UTF_8);
-<span class="fc" id="L289">            int searchFrom = 0;</span>
-<span class="fc" id="L290">            int parentOpen = content.indexOf(&quot;&lt;parent&gt;&quot;);</span>
-<span class="fc bfc" id="L291" title="All 2 branches covered.">            if (parentOpen &gt;= 0) {</span>
-<span class="fc" id="L292">                int parentClose = content.indexOf(&quot;&lt;/parent&gt;&quot;, parentOpen);</span>
-<span class="pc bpc" id="L293" title="1 of 2 branches missed.">                if (parentClose &gt; parentOpen) {</span>
-<span class="fc" id="L294">                    searchFrom = parentClose + &quot;&lt;/parent&gt;&quot;.length();</span>
+<span class="fc" id="L508">            int searchFrom = 0;</span>
+<span class="fc" id="L509">            int parentOpen = content.indexOf(&quot;&lt;parent&gt;&quot;);</span>
+<span class="fc bfc" id="L510" title="All 2 branches covered.">            if (parentOpen &gt;= 0) {</span>
+<span class="fc" id="L511">                int parentClose = content.indexOf(&quot;&lt;/parent&gt;&quot;, parentOpen);</span>
+<span class="pc bpc" id="L512" title="1 of 2 branches missed.">                if (parentClose &gt; parentOpen) {</span>
+<span class="fc" id="L513">                    searchFrom = parentClose + &quot;&lt;/parent&gt;&quot;.length();</span>
                 }
             }
-<span class="fc" id="L297">            String openTag = &quot;&lt;&quot; + fieldName + &quot;&gt;&quot;;</span>
-<span class="fc" id="L298">            String closeTag = &quot;&lt;/&quot; + fieldName + &quot;&gt;&quot;;</span>
-<span class="fc" id="L299">            int open = content.indexOf(openTag, searchFrom);</span>
-<span class="fc bfc" id="L300" title="All 2 branches covered.">            if (open &lt; 0) return null;</span>
-<span class="fc" id="L301">            int valueStart = open + openTag.length();</span>
-<span class="fc" id="L302">            int close = content.indexOf(closeTag, valueStart);</span>
-<span class="pc bpc" id="L303" title="1 of 2 branches missed.">            if (close &lt; 0) return null;</span>
-<span class="fc" id="L304">            return content.substring(valueStart, close).trim();</span>
-<span class="nc" id="L305">        } catch (IOException e) {</span>
-<span class="nc" id="L306">            return null;</span>
+<span class="fc" id="L516">            String openTag = &quot;&lt;&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="fc" id="L517">            String closeTag = &quot;&lt;/&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="fc" id="L518">            int open = content.indexOf(openTag, searchFrom);</span>
+<span class="fc bfc" id="L519" title="All 2 branches covered.">            if (open &lt; 0) return null;</span>
+<span class="fc" id="L520">            int valueStart = open + openTag.length();</span>
+<span class="fc" id="L521">            int close = content.indexOf(closeTag, valueStart);</span>
+<span class="pc bpc" id="L522" title="1 of 2 branches missed.">            if (close &lt; 0) return null;</span>
+<span class="fc" id="L523">            return content.substring(valueStart, close).trim();</span>
+<span class="nc" id="L524">        } catch (IOException e) {</span>
+<span class="nc" id="L525">            return null;</span>
         }
     }
 
@@ -313,13 +532,13 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
      * project itself doesn't declare one (the common case).
      */
     static String readPomGroupPath(File pom) {
-<span class="pc bpc" id="L316" title="2 of 4 branches missed.">        if (pom == null || !pom.isFile()) return null;</span>
-<span class="fc" id="L317">        String groupId = readPomField(pom, &quot;groupId&quot;);</span>
-<span class="fc bfc" id="L318" title="All 2 branches covered.">        if (groupId == null) {</span>
+<span class="pc bpc" id="L535" title="2 of 4 branches missed.">        if (pom == null || !pom.isFile()) return null;</span>
+<span class="fc" id="L536">        String groupId = readPomField(pom, &quot;groupId&quot;);</span>
+<span class="fc bfc" id="L537" title="All 2 branches covered.">        if (groupId == null) {</span>
             // Try parent groupId
-<span class="fc" id="L320">            groupId = readParentField(pom, &quot;groupId&quot;);</span>
+<span class="fc" id="L539">            groupId = readParentField(pom, &quot;groupId&quot;);</span>
         }
-<span class="fc bfc" id="L322" title="All 2 branches covered.">        return groupId == null ? null : groupId.replace('.', '/');</span>
+<span class="fc bfc" id="L541" title="All 2 branches covered.">        return groupId == null ? null : groupId.replace('.', '/');</span>
     }
 
     /**
@@ -328,31 +547,31 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
      * declare its own.
      */
     static String readParentField(File pom, String fieldName) {
-<span class="pc bpc" id="L331" title="2 of 4 branches missed.">        if (pom == null || !pom.isFile()) return null;</span>
+<span class="pc bpc" id="L550" title="2 of 4 branches missed.">        if (pom == null || !pom.isFile()) return null;</span>
         try {
-<span class="fc" id="L333">            String content = Files.readString(pom.toPath(),</span>
+<span class="fc" id="L552">            String content = Files.readString(pom.toPath(),</span>
                     StandardCharsets.UTF_8);
-<span class="fc" id="L335">            int parentOpen = content.indexOf(&quot;&lt;parent&gt;&quot;);</span>
-<span class="fc bfc" id="L336" title="All 2 branches covered.">            if (parentOpen &lt; 0) return null;</span>
-<span class="fc" id="L337">            int parentClose = content.indexOf(&quot;&lt;/parent&gt;&quot;, parentOpen);</span>
-<span class="pc bpc" id="L338" title="1 of 2 branches missed.">            if (parentClose &lt; 0) return null;</span>
-<span class="fc" id="L339">            String parentBlock = content.substring(parentOpen, parentClose);</span>
-<span class="fc" id="L340">            String openTag = &quot;&lt;&quot; + fieldName + &quot;&gt;&quot;;</span>
-<span class="fc" id="L341">            String closeTag = &quot;&lt;/&quot; + fieldName + &quot;&gt;&quot;;</span>
-<span class="fc" id="L342">            int open = parentBlock.indexOf(openTag);</span>
-<span class="pc bpc" id="L343" title="1 of 2 branches missed.">            if (open &lt; 0) return null;</span>
-<span class="fc" id="L344">            int valueStart = open + openTag.length();</span>
-<span class="fc" id="L345">            int close = parentBlock.indexOf(closeTag, valueStart);</span>
-<span class="pc bpc" id="L346" title="1 of 2 branches missed.">            if (close &lt; 0) return null;</span>
-<span class="fc" id="L347">            return parentBlock.substring(valueStart, close).trim();</span>
-<span class="nc" id="L348">        } catch (IOException e) {</span>
-<span class="nc" id="L349">            return null;</span>
+<span class="fc" id="L554">            int parentOpen = content.indexOf(&quot;&lt;parent&gt;&quot;);</span>
+<span class="fc bfc" id="L555" title="All 2 branches covered.">            if (parentOpen &lt; 0) return null;</span>
+<span class="fc" id="L556">            int parentClose = content.indexOf(&quot;&lt;/parent&gt;&quot;, parentOpen);</span>
+<span class="pc bpc" id="L557" title="1 of 2 branches missed.">            if (parentClose &lt; 0) return null;</span>
+<span class="fc" id="L558">            String parentBlock = content.substring(parentOpen, parentClose);</span>
+<span class="fc" id="L559">            String openTag = &quot;&lt;&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="fc" id="L560">            String closeTag = &quot;&lt;/&quot; + fieldName + &quot;&gt;&quot;;</span>
+<span class="fc" id="L561">            int open = parentBlock.indexOf(openTag);</span>
+<span class="pc bpc" id="L562" title="1 of 2 branches missed.">            if (open &lt; 0) return null;</span>
+<span class="fc" id="L563">            int valueStart = open + openTag.length();</span>
+<span class="fc" id="L564">            int close = parentBlock.indexOf(closeTag, valueStart);</span>
+<span class="pc bpc" id="L565" title="1 of 2 branches missed.">            if (close &lt; 0) return null;</span>
+<span class="fc" id="L566">            return parentBlock.substring(valueStart, close).trim();</span>
+<span class="nc" id="L567">        } catch (IOException e) {</span>
+<span class="nc" id="L568">            return null;</span>
         }
     }
 
     static String padRight(String s, int width) {
-<span class="fc bfc" id="L354" title="All 2 branches covered.">        if (s.length() &gt;= width) return s;</span>
-<span class="fc" id="L355">        return s + &quot; &quot;.repeat(width - s.length());</span>
+<span class="fc bfc" id="L573" title="All 2 branches covered.">        if (s.length() &gt;= width) return s;</span>
+<span class="fc" id="L574">        return s + &quot; &quot;.repeat(width - s.length());</span>
     }
 
     /**
@@ -365,16 +584,16 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
      * @param reason   failure detail (HTTP status, exception class),
      *                 {@code null} on success
      */
-<span class="nc" id="L368">    record CheckResult(String target, String url, boolean ok,</span>
+<span class="nc" id="L587">    record CheckResult(String target, String url, boolean ok,</span>
                        boolean skipped, String reason) {
         static CheckResult ok(String target, String url) {
-<span class="nc" id="L371">            return new CheckResult(target, url, true, false, null);</span>
+<span class="nc" id="L590">            return new CheckResult(target, url, true, false, null);</span>
         }
         static CheckResult fail(String target, String url, String reason) {
-<span class="nc" id="L374">            return new CheckResult(target, url, false, false, reason);</span>
+<span class="nc" id="L593">            return new CheckResult(target, url, false, false, reason);</span>
         }
         static CheckResult skipped(String target, String url) {
-<span class="nc" id="L377">            return new CheckResult(target, url, false, true, null);</span>
+<span class="nc" id="L596">            return new CheckResult(target, url, false, true, null);</span>
         }
     }
 }

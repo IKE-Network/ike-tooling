@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MojoParamSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin Support</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.support</a> &gt; <span class="el_source">MojoParamSupport.java</span></div><h1>MojoParamSupport.java</h1><pre class="source lang-java linenums">package network.ike.plugin.support;
+
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+
+/**
+ * Static utility for interactive parameter resolution in mojos
+ * that implement {@link org.apache.maven.api.plugin.Mojo} directly
+ * (no shared base class).
+ *
+ * &lt;p&gt;Tries {@code System.console()} first (real terminal), then
+ * falls back to {@code System.in} (IntelliJ Maven runner — spawns
+ * Maven as a child process with stdin wired to the Run console).
+ * Fails fast with a clear error message when neither produces input
+ * (CI, daemon mode).
+ *
+ * &lt;p&gt;Moved from {@code network.ike.plugin} as part of the plugin
+ * split (ike-issues #215) so both ike-maven-plugin and
+ * ike-doc-maven-plugin can share it.
+ */
+public final class MojoParamSupport {
+
+    private MojoParamSupport() {}
+
+    /**
+     * Resolve a required parameter: return the value if present,
+     * prompt interactively if possible, or fail fast.
+     *
+     * @param currentValue the value from the {@code @Parameter} field (may be null)
+     * @param propertyName the {@code -D} property name (for the error message)
+     * @param promptLabel  human-readable label shown in the prompt
+     * @param log          Maven logger — prompt goes through the logger so
+     *                     IntelliJ renders it without a {@code [stdout]} prefix
+     * @return the resolved value — either the original or user-supplied
+     * @throws MojoException if no value can be obtained
+     */
+    public static String requireParam(String currentValue, String propertyName,
+                                       String promptLabel, Log log)
+            throws MojoException {
+<span class="nc bnc" id="L40" title="All 4 branches missed.">        if (currentValue != null &amp;&amp; !currentValue.isBlank()) {</span>
+<span class="nc" id="L41">            return currentValue.trim();</span>
+        }
+
+        // Try System.console() first (real terminal)
+<span class="nc" id="L45">        java.io.Console console = System.console();</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">        if (console != null) {</span>
+<span class="nc" id="L47">            String input = console.readLine(&quot;%s: &quot;, promptLabel);</span>
+<span class="nc bnc" id="L48" title="All 4 branches missed.">            if (input != null &amp;&amp; !input.isBlank()) {</span>
+<span class="nc" id="L49">                return input.trim();</span>
+            }
+<span class="nc" id="L51">        } else {</span>
+            // IntelliJ's Maven runner spawns Maven as a child process
+            // with stdin/stdout wired to the Run console panel. System.console()
+            // is null (not a real terminal), but System.in is connected and
+            // interactive — the same mechanism the Plexus Prompter uses.
+            // Use System.out.print (not log.info) so the cursor stays on the
+            // prompt line — log.info adds a newline, forcing input onto a new line.
+<span class="nc" id="L58">            System.out.print(&quot;\u001B[33m&quot; + promptLabel + &quot;: \u001B[0m&quot;);</span>
+<span class="nc" id="L59">            System.out.flush();</span>
+            try {
+<span class="nc" id="L61">                java.io.BufferedReader reader = new java.io.BufferedReader(</span>
+                        new java.io.InputStreamReader(System.in));
+<span class="nc" id="L63">                String input = reader.readLine();</span>
+<span class="nc bnc" id="L64" title="All 4 branches missed.">                if (input != null &amp;&amp; !input.isBlank()) {</span>
+<span class="nc" id="L65">                    return input.trim();</span>
+                }
+<span class="nc" id="L67">            } catch (java.io.IOException e) {</span>
+                // Fall through to error
+<span class="nc" id="L69">            }</span>
+        }
+
+<span class="nc" id="L72">        throw new MojoException(</span>
+                propertyName + &quot; is required. Specify -D&quot; + propertyName
+                        + &quot;=&lt;value&gt; or run interactively.&quot;);
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

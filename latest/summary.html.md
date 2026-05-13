@@ -1,6 +1,6 @@
 ---
-date_published: 2026-05-11
-date_modified: 2026-05-11
+date_published: 2026-05-12
+date_modified: 2026-05-12
 canonical_url: https://ike.network/ike-tooling/summary.html
 ---
 
@@ -27,5 +27,5 @@ canonical_url: https://ike.network/ike-tooling/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-tooling |
-| Version | 166 |
+| Version | 167 |
 | Type | pom |
