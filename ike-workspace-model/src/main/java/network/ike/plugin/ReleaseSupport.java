@@ -1407,13 +1407,29 @@ public class ReleaseSupport {
                 Path siblingRootDest = tempDir.resolve(moduleId);
                 Path siblingVersionDest = tempDir.resolve(version)
                         .resolve(moduleId);
+                // Submodules also need a latest/ alias so the
+                // canonical pattern <site-root>/latest/<sub>/ resolves.
+                // Step (3) above populates latest/ from
+                // effectiveStagingSource, which catches submodules
+                // staging UNDER that source (ike-bom,
+                // ike-workspace-maven-plugin) but NOT submodules from
+                // the projectId-container shape introduced by #381
+                // (ike-parent under stagingDir/<projectId>/). Copying
+                // here covers all three layers uniformly. Redundant
+                // for siblings already in latest/ from step (3), but
+                // the second copy is idempotent (same source).
+                Path siblingLatestDest = tempDir.resolve("latest")
+                        .resolve(moduleId);
                 deleteDirectory(siblingRootDest);
                 deleteDirectory(siblingVersionDest);
+                deleteDirectory(siblingLatestDest);
                 try {
                     Files.createDirectories(siblingRootDest);
                     Files.createDirectories(siblingVersionDest);
+                    Files.createDirectories(siblingLatestDest);
                     copyDirectory(siblingSource, siblingRootDest);
                     copyDirectory(siblingSource, siblingVersionDest);
+                    copyDirectory(siblingSource, siblingLatestDest);
                 } catch (IOException e) {
                     throw new MojoException(
                             "Failed to copy submodule subtree "
