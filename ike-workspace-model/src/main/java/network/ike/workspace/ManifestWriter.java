@@ -100,6 +100,10 @@ public final class ManifestWriter {
      * Update a field in a subproject block, or insert it after a reference
      * field if it doesn't exist yet.
      *
+     * <p>If the field exists multiple times in the block (a corrupted state
+     * from a prior version of this writer, see #387), all duplicates are
+     * collapsed into a single entry with the new value.
+     *
      * @param yaml           full YAML content
      * @param subprojectName the subproject key
      * @param field          the field name to update or insert
@@ -110,27 +114,163 @@ public final class ManifestWriter {
     public static String addOrUpdateSubprojectField(String yaml, String subprojectName,
                                                     String field, String newValue,
                                                     String afterField) {
-        // Try update first
-        String updated = updateSubprojectField(yaml, subprojectName, field, newValue);
-        if (!updated.equals(yaml)) {
-            return updated; // field existed and was updated
-        }
+        int[] bounds = findSubprojectBlockBounds(yaml, subprojectName);
+        if (bounds == null) return yaml;
 
-        // Field doesn't exist — insert after afterField
-        String escapedName = Pattern.quote(subprojectName);
-        String escapedAfter = Pattern.quote(afterField);
+        int blockStart = bounds[0];
+        int blockEnd = bounds[1];
+        String block = yaml.substring(blockStart, blockEnd);
 
-        Pattern insertPattern = Pattern.compile(
-            "(^  " + escapedName + ":\\s*$.*?^    " + escapedAfter + ":\\s*\\S+.*?)$",
-            Pattern.MULTILINE | Pattern.DOTALL
+        // Strip ALL existing occurrences of the field in this block. Handles
+        // both the normal "one existing entry" case and the corrupted
+        // "multiple duplicate entries" case (#387) idempotently.
+        Pattern fieldLine = Pattern.compile(
+            "(?m)^    " + Pattern.quote(field) + ":[^\\n]*\\n?"
         );
+        String stripped = fieldLine.matcher(block).replaceAll("");
 
-        Matcher m = insertPattern.matcher(yaml);
-        if (m.find()) {
-            String insertion = m.group(0) + "\n    " + field + ": " + newValue;
-            return yaml.substring(0, m.start()) + insertion + yaml.substring(m.end());
+        // Insert one canonical entry after the reference field.
+        Pattern afterLine = Pattern.compile(
+            "(?m)^    " + Pattern.quote(afterField) + ":[^\\n]*$"
+        );
+        Matcher afterMatcher = afterLine.matcher(stripped);
+        String rebuilt;
+        if (afterMatcher.find()) {
+            rebuilt = stripped.substring(0, afterMatcher.end())
+                    + "\n    " + field + ": " + newValue
+                    + stripped.substring(afterMatcher.end());
+        } else {
+            // Reference field not present in block — fall back to inserting
+            // the new field at the end of the block content (before the next
+            // sibling subproject's start).
+            String trimmed = stripped.replaceAll("\\s+$", "");
+            rebuilt = trimmed + "\n    " + field + ": " + newValue + "\n";
         }
-        return yaml;
+
+        return yaml.substring(0, blockStart) + rebuilt + yaml.substring(blockEnd);
+    }
+
+    /**
+     * Return the [start, end) character offsets of a subproject's body in
+     * the YAML text — the region between the {@code "  <name>:"} header
+     * line and the next sibling subproject (or the next top-level key, or
+     * end of file). Returns {@code null} if the subproject is not present.
+     *
+     * <p>{@code start} is the position immediately after the header line's
+     * newline, so the slice {@code yaml.substring(start, end)} contains
+     * only the field lines under the subproject.
+     *
+     * @param yaml           full YAML content
+     * @param subprojectName the subproject key to locate
+     * @return two-element {@code int[]} {start, end}, or null if absent
+     */
+    static int[] findSubprojectBlockBounds(String yaml, String subprojectName) {
+        Pattern header = Pattern.compile(
+            "(?m)^  " + Pattern.quote(subprojectName) + ":\\s*$"
+        );
+        Matcher headerMatcher = header.matcher(yaml);
+        if (!headerMatcher.find()) return null;
+        int start = headerMatcher.end();
+        // Skip the newline that terminates the header line, if present.
+        if (start < yaml.length() && yaml.charAt(start) == '\n') {
+            start++;
+        }
+
+        // Block ends at the next sibling subproject ("^  <key>:") or any
+        // top-level (zero-indent) key, whichever comes first.
+        Pattern boundary = Pattern.compile(
+            "(?m)^(?:  \\S[^:\\n]*:\\s*$|\\S)"
+        );
+        Matcher boundaryMatcher = boundary.matcher(yaml);
+        int end = yaml.length();
+        if (boundaryMatcher.find(start)) {
+            end = boundaryMatcher.start();
+        }
+        return new int[]{start, end};
+    }
+
+    /**
+     * Collapse duplicate field entries in every subproject block.
+     *
+     * <p>For each subproject, if any field name appears more than once
+     * in the block, keep only the LAST occurrence (matches YAML
+     * last-wins semantics for duplicate keys) and remove the rest.
+     *
+     * <p>Safety-net cleanup for workspaces affected by the pre-fix
+     * duplicate-key bug (#387). Idempotent: running on a clean file
+     * is a no-op.
+     *
+     * @param yaml full YAML content
+     * @return yaml with duplicates collapsed
+     */
+    public static String collapseDuplicateSubprojectFields(String yaml) {
+        // Find every subproject header to know the block bounds.
+        Pattern subprojectHeader = Pattern.compile(
+            "(?m)^  (\\S[^:\\n]*):\\s*$"
+        );
+        Matcher headerMatcher = subprojectHeader.matcher(yaml);
+        java.util.List<String> names = new java.util.ArrayList<>();
+        while (headerMatcher.find()) {
+            names.add(headerMatcher.group(1));
+        }
+
+        String result = yaml;
+        for (String name : names) {
+            result = collapseDuplicatesInBlock(result, name);
+        }
+        return result;
+    }
+
+    /**
+     * Helper for {@link #collapseDuplicateSubprojectFields}: collapse
+     * duplicate field keys in one subproject block, keeping the last
+     * occurrence of each field.
+     */
+    private static String collapseDuplicatesInBlock(String yaml, String subprojectName) {
+        int[] bounds = findSubprojectBlockBounds(yaml, subprojectName);
+        if (bounds == null) return yaml;
+        int blockStart = bounds[0];
+        int blockEnd = bounds[1];
+        String block = yaml.substring(blockStart, blockEnd);
+
+        // Find every "    <field>: <value>" line in encounter order,
+        // tracking the LAST occurrence per field name.
+        Pattern fieldLine = Pattern.compile(
+            "(?m)^    (\\S[^:\\n]*):[^\\n]*$"
+        );
+        Matcher fieldMatcher = fieldLine.matcher(block);
+        // Map field name → list of {start, end, lineWithNewline} for each occurrence.
+        java.util.Map<String, java.util.List<int[]>> occurrences =
+                new java.util.LinkedHashMap<>();
+        while (fieldMatcher.find()) {
+            String name = fieldMatcher.group(1);
+            int s = fieldMatcher.start();
+            int e = fieldMatcher.end();
+            // Include trailing newline if present so removal is clean.
+            if (e < block.length() && block.charAt(e) == '\n') {
+                e++;
+            }
+            occurrences.computeIfAbsent(name, k -> new java.util.ArrayList<>())
+                    .add(new int[]{s, e});
+        }
+
+        // Determine which character ranges to remove: all but the last
+        // occurrence for each duplicated field.
+        java.util.List<int[]> toRemove = new java.util.ArrayList<>();
+        for (java.util.List<int[]> list : occurrences.values()) {
+            if (list.size() <= 1) continue;
+            for (int i = 0; i < list.size() - 1; i++) {
+                toRemove.add(list.get(i));
+            }
+        }
+        if (toRemove.isEmpty()) return yaml;
+
+        toRemove.sort((a, b) -> Integer.compare(b[0], a[0]));
+        StringBuilder sb = new StringBuilder(block);
+        for (int[] r : toRemove) {
+            sb.delete(r[0], r[1]);
+        }
+        return yaml.substring(0, blockStart) + sb + yaml.substring(blockEnd);
     }
 
     /**

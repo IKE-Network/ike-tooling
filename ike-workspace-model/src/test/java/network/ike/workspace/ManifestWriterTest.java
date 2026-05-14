@@ -125,4 +125,197 @@ class ManifestWriterTest {
                 .count();
         assertThat(branchLineCount).isEqualTo(2);
     }
+
+    // ── #387: duplicate-sha bug regression tests ────────────────────────
+
+    @Test
+    void addOrUpdate_with_same_value_does_not_append_duplicate() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    sha: "abc123"
+                    version: 1.0.0-SNAPSHOT
+                """;
+        // Re-applying the same SHA must NOT append a duplicate line
+        // (the #387 bug: equality check fired false-negative).
+        String result = ManifestWriter.addOrUpdateSubprojectField(
+                yaml, "tinkar-core", "sha", "\"abc123\"", "branch");
+
+        long shaCount = result.lines()
+                .filter(l -> l.trim().startsWith("sha:"))
+                .count();
+        assertThat(shaCount).as("Exactly one sha line").isEqualTo(1);
+        assertThat(result).contains("sha: \"abc123\"");
+    }
+
+    @Test
+    void addOrUpdate_with_different_value_replaces_in_place() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    sha: "abc123"
+                    version: 1.0.0-SNAPSHOT
+                """;
+        String result = ManifestWriter.addOrUpdateSubprojectField(
+                yaml, "tinkar-core", "sha", "\"def456\"", "branch");
+
+        long shaCount = result.lines()
+                .filter(l -> l.trim().startsWith("sha:"))
+                .count();
+        assertThat(shaCount).as("Exactly one sha line").isEqualTo(1);
+        assertThat(result).contains("sha: \"def456\"");
+        assertThat(result).doesNotContain("abc123");
+    }
+
+    @Test
+    void addOrUpdate_inserts_missing_field_after_reference() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    version: 1.0.0-SNAPSHOT
+                """;
+        String result = ManifestWriter.addOrUpdateSubprojectField(
+                yaml, "tinkar-core", "sha", "\"xyz789\"", "branch");
+
+        long shaCount = result.lines()
+                .filter(l -> l.trim().startsWith("sha:"))
+                .count();
+        assertThat(shaCount).isEqualTo(1);
+        assertThat(result).contains("sha: \"xyz789\"");
+        // sha must appear after branch, before version
+        int branchIdx = result.indexOf("branch: main");
+        int shaIdx = result.indexOf("sha:");
+        int versionIdx = result.indexOf("version:");
+        assertThat(shaIdx).isGreaterThan(branchIdx);
+        assertThat(shaIdx).isLessThan(versionIdx);
+    }
+
+    @Test
+    void addOrUpdate_collapses_pre_existing_duplicates() {
+        // Workspace already affected by the bug — three sha lines for one subproject.
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    sha: "aaa111"
+                    sha: "bbb222"
+                    sha: "bbb222"
+                    version: 1.0.0-SNAPSHOT
+                """;
+        String result = ManifestWriter.addOrUpdateSubprojectField(
+                yaml, "tinkar-core", "sha", "\"ccc333\"", "branch");
+
+        long shaCount = result.lines()
+                .filter(l -> l.trim().startsWith("sha:"))
+                .count();
+        assertThat(shaCount).as("All duplicates collapsed to one").isEqualTo(1);
+        assertThat(result).contains("sha: \"ccc333\"");
+        assertThat(result).doesNotContain("aaa111");
+        assertThat(result).doesNotContain("bbb222");
+    }
+
+    @Test
+    void addOrUpdate_leaves_other_subprojects_alone() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    sha: "core111"
+                  komet:
+                    branch: main
+                    sha: "komet999"
+                """;
+        String result = ManifestWriter.addOrUpdateSubprojectField(
+                yaml, "tinkar-core", "sha", "\"core222\"", "branch");
+
+        assertThat(result).contains("sha: \"core222\"");
+        assertThat(result).contains("sha: \"komet999\"");
+        assertThat(result).doesNotContain("core111");
+    }
+
+    @Test
+    void repeated_addOrUpdate_with_same_value_is_idempotent() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    version: 1.0.0-SNAPSHOT
+                """;
+        String r1 = ManifestWriter.addOrUpdateSubprojectField(
+                yaml, "tinkar-core", "sha", "\"abc\"", "branch");
+        String r2 = ManifestWriter.addOrUpdateSubprojectField(
+                r1, "tinkar-core", "sha", "\"abc\"", "branch");
+        String r3 = ManifestWriter.addOrUpdateSubprojectField(
+                r2, "tinkar-core", "sha", "\"abc\"", "branch");
+
+        assertThat(r2).isEqualTo(r3);
+        assertThat(r1.lines().filter(l -> l.trim().startsWith("sha:")).count())
+                .isEqualTo(1);
+        assertThat(r2.lines().filter(l -> l.trim().startsWith("sha:")).count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void collapseDuplicates_keeps_last_occurrence_per_field() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    sha: "old1"
+                    sha: "old2"
+                    sha: "current"
+                    version: 1.0.0-SNAPSHOT
+                """;
+        String result = ManifestWriter.collapseDuplicateSubprojectFields(yaml);
+
+        long shaCount = result.lines()
+                .filter(l -> l.trim().startsWith("sha:"))
+                .count();
+        assertThat(shaCount).isEqualTo(1);
+        assertThat(result).contains("sha: \"current\"");
+        assertThat(result).doesNotContain("old1");
+        assertThat(result).doesNotContain("old2");
+    }
+
+    @Test
+    void collapseDuplicates_handles_multiple_subprojects() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    sha: "a"
+                    sha: "b"
+                  komet:
+                    branch: main
+                    sha: "x"
+                    sha: "y"
+                    sha: "z"
+                """;
+        String result = ManifestWriter.collapseDuplicateSubprojectFields(yaml);
+
+        long shaCount = result.lines()
+                .filter(l -> l.trim().startsWith("sha:"))
+                .count();
+        assertThat(shaCount).isEqualTo(2);
+        assertThat(result).contains("sha: \"b\"");
+        assertThat(result).contains("sha: \"z\"");
+    }
+
+    @Test
+    void collapseDuplicates_is_noop_on_clean_yaml() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    sha: "abc"
+                    version: 1.0.0-SNAPSHOT
+                  komet:
+                    branch: main
+                """;
+        String result = ManifestWriter.collapseDuplicateSubprojectFields(yaml);
+        assertThat(result).isEqualTo(yaml);
+    }
 }
