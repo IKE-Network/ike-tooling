@@ -4,6 +4,7 @@ import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.Log;
 import org.yaml.snakeyaml.Yaml;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,8 +16,12 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Generates release notes from a GitHub milestone's closed issues.
@@ -425,6 +430,218 @@ public final class ReleaseNotesSupport {
         ReleaseSupport.execCapture(new java.io.File("."),
                 "gh", "api", "repos/" + repo + "/milestones/" + milestoneNumber,
                 "-X", "PATCH", "-f", "state=closed");
+    }
+
+    // ── pending-release label removal ───────────────────────────────
+
+    /**
+     * A GitHub issue reference parsed from a closing-keyword commit
+     * trailer.
+     *
+     * @param repo   {@code owner/repo} form (e.g., "IKE-Network/ike-issues")
+     * @param number issue number
+     */
+    public record IssueRef(String repo, int number) {}
+
+    /**
+     * Matches GitHub's closing-keyword trailers in commit message bodies.
+     *
+     * <p>Captures: {@code (owner)?/(repo)?#(number)}. Owner and repo
+     * are optional to support legacy bare {@code #N} references; the
+     * IKE commit-message standard requires the full form.
+     *
+     * <p>Recognized keywords (case-insensitive): {@code close},
+     * {@code closes}, {@code closed}, {@code fix}, {@code fixes},
+     * {@code fixed}, {@code resolve}, {@code resolves}, {@code resolved}
+     * — matching GitHub's documented auto-close keywords.
+     */
+    private static final Pattern CLOSING_TRAILER_PATTERN = Pattern.compile(
+            "(?im)^\\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\b\\s*:?\\s+"
+                    + "(?:([\\w.-]+)/([\\w.-]+))?#(\\d+)\\b");
+
+    /**
+     * Remove the {@code pending-release} label from every issue
+     * referenced by a release-closing trailer ({@code Fixes},
+     * {@code Closes}, {@code Resolves} and grammatical variants) in
+     * commits between {@code previousTag} and {@code headRef}.
+     *
+     * <p>Implements the "label = live state" half of the
+     * {@code pending-release} pattern defined in {@code IKE-COMMITS.md}:
+     * a commit lands marking an issue {@code Fixes …}, the issue gets
+     * the {@code pending-release} label as a not-yet-shipped marker,
+     * and when the release actually ships the label comes off so
+     * {@code is:closed label:pending-release} accurately reflects
+     * fixes still awaiting a release.
+     *
+     * <p>Trailer references must use the full
+     * {@code <owner>/<repo>#N} form; bare {@code #N} references are
+     * resolved against {@code fallbackRepo}.
+     *
+     * <p>Pass {@code null} for {@code previousTag} to auto-derive it
+     * via {@code git describe --tags --abbrev=0 <headRef>^}. If no
+     * previous tag is reachable, label removal is skipped with an
+     * informational message.
+     *
+     * <p>Non-fatal: any failure (missing {@code gh} CLI, missing
+     * label, network error, auth error) is logged and the method
+     * continues processing the remaining references. The release is
+     * already done at this point.
+     *
+     * @param gitDir       the git working tree
+     * @param previousTag  the previous release tag, or null to auto-derive
+     * @param headRef      the new release commit or tag (e.g., "v57")
+     * @param fallbackRepo {@code owner/repo} for bare {@code #N} refs;
+     *                     may be null to ignore bare refs
+     * @param log          Maven logger (may be null)
+     * @return number of issues from which the label was actually removed
+     */
+    public static int removePendingReleaseLabels(File gitDir,
+                                                  String previousTag,
+                                                  String headRef,
+                                                  String fallbackRepo,
+                                                  Log log) {
+        try {
+            String prev = previousTag != null ? previousTag
+                    : resolvePreviousTag(gitDir, headRef);
+            if (prev == null || prev.isBlank()) {
+                if (log != null) {
+                    log.info("No previous release tag found; "
+                            + "skipping pending-release label removal");
+                }
+                return 0;
+            }
+
+            Set<IssueRef> refs = collectClosingTrailerRefs(
+                    gitDir, prev, headRef, fallbackRepo);
+            if (refs.isEmpty()) {
+                if (log != null) {
+                    log.info("No release-closing trailers found in "
+                            + prev + ".." + headRef);
+                }
+                return 0;
+            }
+
+            if (log != null) {
+                log.info("Removing pending-release label from "
+                        + refs.size() + " referenced issue(s)...");
+            }
+            int removed = 0;
+            for (IssueRef ref : refs) {
+                if (removePendingReleaseLabelOnIssue(ref, log)) {
+                    removed++;
+                }
+            }
+            if (log != null) {
+                log.info("Removed pending-release label from "
+                        + removed + " of " + refs.size()
+                        + " referenced issue(s)");
+            }
+            return removed;
+        } catch (Exception e) {
+            if (log != null) {
+                log.warn("Could not process pending-release labels: "
+                        + e.getMessage());
+            }
+            return 0;
+        }
+    }
+
+    /**
+     * Auto-derive the previous release tag via
+     * {@code git describe --tags --abbrev=0 <headRef>^}. Returns null
+     * if no previous tag is reachable (e.g., first release of a repo).
+     */
+    static String resolvePreviousTag(File gitDir, String headRef) {
+        try {
+            return ReleaseSupport.execCapture(gitDir, "git", "describe",
+                    "--tags", "--abbrev=0", headRef + "^");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Collect unique closing-trailer issue references from commits in
+     * {@code previousTag..headRef}. Delegates to
+     * {@link #parseClosingTrailers} for the actual parsing.
+     */
+    static Set<IssueRef> collectClosingTrailerRefs(File gitDir,
+                                                    String previousTag,
+                                                    String headRef,
+                                                    String fallbackRepo) {
+        try {
+            String body = ReleaseSupport.execCapture(gitDir, "git", "log",
+                    "--format=%B%n--end--", previousTag + ".." + headRef);
+            return parseClosingTrailers(body, fallbackRepo);
+        } catch (Exception e) {
+            return new LinkedHashSet<>();
+        }
+    }
+
+    /**
+     * Parse closing-keyword trailers (e.g., {@code Fixes}, {@code Closes},
+     * {@code Resolves} and grammatical variants) from a block of commit
+     * message text. Returns unique references in encounter order.
+     *
+     * <p>Trailers without an explicit {@code owner/repo} prefix are
+     * resolved against {@code fallbackRepo}; if {@code fallbackRepo} is
+     * null, bare references are ignored.
+     *
+     * <p>Exposed package-private to enable testing without a git repo.
+     *
+     * @param commitMessages concatenated commit message bodies
+     * @param fallbackRepo   {@code owner/repo} for bare references, or null
+     * @return ordered set of unique issue references found
+     */
+    static Set<IssueRef> parseClosingTrailers(String commitMessages,
+                                               String fallbackRepo) {
+        Set<IssueRef> refs = new LinkedHashSet<>();
+        if (commitMessages == null || commitMessages.isEmpty()) {
+            return refs;
+        }
+        Matcher matcher = CLOSING_TRAILER_PATTERN.matcher(commitMessages);
+        while (matcher.find()) {
+            String owner = matcher.group(1);
+            String repo = matcher.group(2);
+            int number = Integer.parseInt(matcher.group(3));
+            String fullRepo = (owner != null && repo != null)
+                    ? owner + "/" + repo
+                    : fallbackRepo;
+            if (fullRepo != null) {
+                refs.add(new IssueRef(fullRepo, number));
+            }
+        }
+        return refs;
+    }
+
+    /**
+     * Remove the {@code pending-release} label from a single issue
+     * via the {@code gh} CLI. Returns true on success; returns false
+     * (and logs at debug level) when the label is not applied, which
+     * is the most common case — gh returns HTTP 404 for "Label does
+     * not exist" on the target issue.
+     */
+    private static boolean removePendingReleaseLabelOnIssue(IssueRef ref,
+                                                             Log log) {
+        try {
+            ReleaseSupport.execCapture(new File("."),
+                    "gh", "api", "-X", "DELETE",
+                    "/repos/" + ref.repo() + "/issues/" + ref.number()
+                            + "/labels/pending-release");
+            if (log != null) {
+                log.info("  Removed pending-release from " + ref.repo()
+                        + "#" + ref.number());
+            }
+            return true;
+        } catch (Exception e) {
+            if (log != null) {
+                log.debug("  pending-release not removed from "
+                        + ref.repo() + "#" + ref.number()
+                        + " (label not applied or remove failed): "
+                        + e.getMessage());
+            }
+            return false;
+        }
     }
 
     /**

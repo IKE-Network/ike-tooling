@@ -1312,5 +1312,17 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         + "/milestones/1 -X PATCH -f state=closed");
             }
         }
+
+        // Remove pending-release label from issues resolved in this
+        // release range. Runs regardless of milestone presence: cross-
+        // org Fixes/Closes/Resolves trailers reach issues that won't
+        // be in our milestone. Non-fatal.
+        try {
+            ReleaseNotesSupport.removePendingReleaseLabels(
+                    gitRoot, null, "v" + version, issueRepo, getLog());
+        } catch (Exception e) {
+            getLog().warn("Could not remove pending-release labels "
+                    + "(release succeeded): " + e.getMessage());
+        }
     }
 }
