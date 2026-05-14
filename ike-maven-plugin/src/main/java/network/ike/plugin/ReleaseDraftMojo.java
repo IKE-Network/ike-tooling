@@ -209,7 +209,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // non-destructive and idempotent.
         boolean hasOrigin = ReleaseSupport.hasRemote(gitRoot, "origin");
         if (publish) {
-            preflightChecks(gitRoot, hasOrigin, projectId);
+            preflightChecks(gitRoot, hasOrigin, projectId, releaseVersion);
         }
         // Javadoc preflight (#168) — runs in both modes. Publish fails
         // on warnings; draft logs them so the user sees what would block
@@ -818,13 +818,27 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * <p>Checks:
      * <ol>
      *   <li>Git push — can we authenticate to the remote?</li>
-     *   <li>SSH proxy — can we reach the site deploy server?</li>
      *   <li>gh CLI — is it installed and authenticated?</li>
+     *   <li>gh write permission on {@code issueRepo} — required by
+     *       milestone close and {@code pending-release} label removal
+     *       (#392). Fail-fast: silent permission failures mid-release
+     *       leak label state.</li>
+     *   <li>{@code pending-release} label exists on {@code issueRepo}
+     *       (#392). Warn — label removal becomes a no-op for that repo
+     *       if missing.</li>
+     *   <li>Trailer compliance for commits in the release range
+     *       (#392). Per IKE-COMMITS.md every commit must reference an
+     *       issue via {@code Fixes}/{@code Closes}/{@code Resolves}/
+     *       {@code Refs} trailer. Warn — promote to fail-fast after
+     *       one release cycle of adoption.</li>
+     *   <li>Milestone {@code <projectId> v<version>} exists (#392).
+     *       Warn — release falls back to auto-generated notes if
+     *       missing.</li>
      *   <li>Maven wrapper — is it present and executable?</li>
      * </ol>
      */
     private void preflightChecks(File gitRoot, boolean hasOrigin,
-                                  String projectId)
+                                  String projectId, String releaseVersion)
             throws MojoException {
         getLog().info("");
         getLog().info("PREFLIGHT CHECKS");
@@ -845,14 +859,13 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             getLog().info("  Git push:    no origin remote (local-only release)");
         }
 
-        // 2. SSH proxy — can we reach the site deploy server?
-        // SSH proxy check removed in #304 (scpexe site-deploy retired).
-
-        // 3. gh CLI — installed and authenticated?
+        // 2. gh CLI — installed and authenticated?
+        boolean ghAvailable = false;
         if (hasOrigin) {
             try {
                 ReleaseSupport.execCapture(gitRoot, "gh", "auth", "status");
                 getLog().info("  gh CLI:      authenticated  ✓");
+                ghAvailable = true;
             } catch (Exception e) {
                 warnings.add("gh CLI not available or not authenticated — "
                         + "GitHub Release will be skipped. "
@@ -862,7 +875,102 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
         }
 
-        // 4. Maven wrapper
+        // 3. gh write permission on issueRepo (#392) — fail-fast.
+        // Required for closeMilestone and removePendingReleaseLabels.
+        if (ghAvailable && issueRepo != null && !issueRepo.isBlank()) {
+            try {
+                String pushPerm = ReleaseSupport.execCapture(gitRoot,
+                        "gh", "api", "/repos/" + issueRepo,
+                        "--jq", ".permissions.push");
+                if (!"true".equals(pushPerm.trim())) {
+                    throw new MojoException(
+                            "gh token lacks push permission on " + issueRepo
+                                    + ". Required for milestone close and "
+                                    + "pending-release label removal.\n"
+                                    + "  Re-authenticate with repo scope: "
+                                    + "gh auth refresh -s repo");
+                }
+                getLog().info("  gh perms:    push on " + issueRepo + "  ✓");
+            } catch (MojoException e) {
+                // Re-throw scope failure; swallow other gh errors as warning
+                if (e.getMessage() != null
+                        && e.getMessage().startsWith("gh token lacks")) {
+                    throw e;
+                }
+                warnings.add("Could not verify gh permissions on " + issueRepo
+                        + ": " + e.getMessage());
+            }
+        }
+
+        // 4. pending-release label exists on issueRepo (#392) — warn.
+        if (ghAvailable && issueRepo != null && !issueRepo.isBlank()) {
+            try {
+                ReleaseSupport.execCapture(gitRoot, "gh", "api",
+                        "/repos/" + issueRepo + "/labels/pending-release");
+                getLog().info("  pending-rel label on " + issueRepo + "  ✓");
+            } catch (Exception e) {
+                warnings.add("Label 'pending-release' missing on "
+                        + issueRepo + " — label removal will be a no-op. "
+                        + "Create it: gh label create pending-release "
+                        + "--repo " + issueRepo
+                        + " --description \"Code complete; awaiting next release\"");
+                getLog().warn("  pending-rel label: missing on " + issueRepo);
+            }
+        }
+
+        // 5. Trailer compliance for commits in release range (#392) — warn.
+        if (hasOrigin) {
+            List<String> nonCompliant =
+                    findCommitsWithoutIssueTrailer(gitRoot);
+            if (nonCompliant.isEmpty()) {
+                getLog().info("  Trailer compliance: all commits ✓");
+            } else {
+                StringBuilder msg = new StringBuilder(nonCompliant.size()
+                        + " commit(s) in release range have no issue trailer "
+                        + "(IKE-COMMITS.md):");
+                for (String line : nonCompliant) {
+                    msg.append("\n      ").append(line);
+                }
+                msg.append("\n  Add Fixes/Refs <owner>/<repo>#N to comply.");
+                warnings.add(msg.toString());
+                getLog().warn("  Trailer compliance: " + nonCompliant.size()
+                        + " commit(s) without issue trailer");
+            }
+        }
+
+        // 6. Milestone for releaseVersion exists on issueRepo (#392) — warn.
+        if (ghAvailable && issueRepo != null && !issueRepo.isBlank()
+                && releaseVersion != null && !releaseVersion.isBlank()) {
+            String milestoneName = projectId + " v" + releaseVersion;
+            try {
+                String titles = ReleaseSupport.execCapture(gitRoot, "gh", "api",
+                        "/repos/" + issueRepo + "/milestones?state=open&per_page=100",
+                        "--jq", ".[].title");
+                boolean found = false;
+                for (String title : titles.split("\n")) {
+                    if (milestoneName.equals(title.trim())) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    getLog().info("  Milestone:   " + milestoneName + "  ✓");
+                } else {
+                    warnings.add("Milestone \"" + milestoneName
+                            + "\" not found on " + issueRepo
+                            + " — release will use auto-generated notes. "
+                            + "Create it: gh api /repos/" + issueRepo
+                            + "/milestones -f title='" + milestoneName + "'");
+                    getLog().warn("  Milestone:   " + milestoneName
+                            + " missing (auto-notes fallback)");
+                }
+            } catch (Exception e) {
+                warnings.add("Could not check milestone existence: "
+                        + e.getMessage());
+            }
+        }
+
+        // 7. Maven wrapper
         try {
             ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
             getLog().info("  Maven:       wrapper found  ✓");
@@ -919,6 +1027,60 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
         }
         getLog().info("");
+    }
+
+    /**
+     * Find commits in {@code <previous-tag>..HEAD} whose body contains
+     * no IKE-COMMITS.md issue trailer ({@code Fixes}, {@code Closes},
+     * {@code Resolves}, {@code Refs} and grammatical variants).
+     *
+     * <p>Uses NUL-delimited git-log output to handle commit messages
+     * containing arbitrary characters. Returns short SHA + subject for
+     * each non-compliant commit.
+     *
+     * <p>Returns an empty list (not an error) if the previous tag
+     * cannot be resolved — typical for first-release scenarios.
+     *
+     * @param gitRoot the git working tree
+     * @return list of "short-sha subject" strings, empty if all comply
+     */
+    private List<String> findCommitsWithoutIssueTrailer(File gitRoot) {
+        try {
+            String previousTag;
+            try {
+                previousTag = ReleaseSupport.execCapture(gitRoot,
+                        "git", "describe", "--tags", "--abbrev=0", "HEAD");
+            } catch (Exception e) {
+                getLog().debug("  No previous tag — skipping trailer compliance");
+                return List.of();
+            }
+            // Per-commit body separated by NUL byte (-z) so embedded
+            // newlines don't confuse the parser.
+            String log = ReleaseSupport.execCapture(gitRoot, "git", "log",
+                    "-z", "--format=%h%x00%B", previousTag + "..HEAD");
+            if (log.isBlank()) {
+                return List.of();
+            }
+            List<String> nonCompliant = new java.util.ArrayList<>();
+            // Stream is "<sha>\0<body>\0<sha>\0<body>\0..." after -z.
+            // Splitting on NUL gives alternating sha/body pairs.
+            String[] records = log.split("\u0000");
+            for (int i = 0; i + 1 < records.length; i += 2) {
+                String sha = records[i].trim();
+                String body = records[i + 1];
+                if (!ReleaseNotesSupport.hasAnyIssueTrailer(body)) {
+                    String firstLine = body.contains("\n")
+                            ? body.substring(0, body.indexOf('\n'))
+                            : body;
+                    nonCompliant.add(sha + " " + firstLine.trim());
+                }
+            }
+            return nonCompliant;
+        } catch (Exception e) {
+            getLog().debug("  Trailer compliance check failed: "
+                    + e.getMessage());
+            return List.of();
+        }
     }
 
     /**

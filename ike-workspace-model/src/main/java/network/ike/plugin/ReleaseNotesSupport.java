@@ -460,6 +460,20 @@ public final class ReleaseNotesSupport {
                     + "(?:([\\w.-]+)/([\\w.-]+))?#(\\d+)\\b");
 
     /**
+     * Matches any IKE-COMMITS.md issue-association trailer — closing
+     * keywords ({@code Fixes}, {@code Closes}, {@code Resolves} and
+     * variants) or {@code Refs} / {@code Ref} for partial or
+     * cross-repo references that should not auto-close.
+     *
+     * <p>Used by trailer-compliance preflight to verify every commit
+     * in a release range references at least one tracked issue.
+     */
+    private static final Pattern ANY_ISSUE_TRAILER_PATTERN = Pattern.compile(
+            "(?im)^\\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)"
+                    + "\\b\\s*:?\\s+"
+                    + "(?:[\\w.-]+/[\\w.-]+)?#\\d+\\b");
+
+    /**
      * Remove the {@code pending-release} label from every issue
      * referenced by a release-closing trailer ({@code Fixes},
      * {@code Closes}, {@code Resolves} and grammatical variants) in
@@ -576,6 +590,25 @@ public final class ReleaseNotesSupport {
         } catch (Exception e) {
             return new LinkedHashSet<>();
         }
+    }
+
+    /**
+     * Returns {@code true} if {@code commitMessage} contains at least
+     * one IKE-COMMITS.md issue trailer ({@code Fixes}, {@code Closes},
+     * {@code Resolves}, {@code Refs} and grammatical variants) with a
+     * {@code #N} or {@code <owner>/<repo>#N} reference.
+     *
+     * <p>Used by release-time preflight to flag commits that violate
+     * the "every commit references a tracked issue" rule.
+     *
+     * @param commitMessage commit message body, including subject and trailers
+     * @return true if any issue trailer is present
+     */
+    public static boolean hasAnyIssueTrailer(String commitMessage) {
+        if (commitMessage == null || commitMessage.isEmpty()) {
+            return false;
+        }
+        return ANY_ISSUE_TRAILER_PATTERN.matcher(commitMessage).find();
     }
 
     /**

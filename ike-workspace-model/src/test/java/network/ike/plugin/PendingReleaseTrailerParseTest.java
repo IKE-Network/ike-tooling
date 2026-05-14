@@ -192,4 +192,56 @@ class PendingReleaseTrailerParseTest {
 
         assertThat(refs).isEmpty();
     }
+
+    // ── hasAnyIssueTrailer (used by #392 trailer-compliance preflight) ─
+
+    @Test
+    void hasAnyIssueTrailer_accepts_closing_keywords() {
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nFixes IKE-Network/ike-issues#1\n")).isTrue();
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nCloses IKE-Network/ike-issues#2\n")).isTrue();
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nResolves IKE-Network/ike-issues#3\n")).isTrue();
+    }
+
+    @Test
+    void hasAnyIssueTrailer_accepts_refs_keyword() {
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nRefs IKE-Network/ike-issues#7\n")).isTrue();
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nRef ikmdev/komet-desktop#12\n")).isTrue();
+    }
+
+    @Test
+    void hasAnyIssueTrailer_accepts_bare_hash_with_keyword() {
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nFixes #5\n")).isTrue();
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nRefs #100\n")).isTrue();
+    }
+
+    @Test
+    void hasAnyIssueTrailer_rejects_no_trailer() {
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Bump test dep\n\nNo issue here.\n")).isFalse();
+    }
+
+    @Test
+    void hasAnyIssueTrailer_rejects_keyword_without_hash() {
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nRefs the design note in docs/...\n")).isFalse();
+    }
+
+    @Test
+    void hasAnyIssueTrailer_handles_empty_or_null() {
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(null)).isFalse();
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer("")).isFalse();
+    }
+
+    @Test
+    void hasAnyIssueTrailer_rejects_mid_word_match() {
+        assertThat(ReleaseNotesSupport.hasAnyIssueTrailer(
+                "Subject\n\nPrefixes #5\n")).isFalse();
+    }
 }
