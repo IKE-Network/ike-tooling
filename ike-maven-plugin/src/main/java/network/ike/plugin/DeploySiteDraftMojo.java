@@ -1,9 +1,11 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.MojoParamSupport;
+import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.Prompter;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -103,13 +105,22 @@ public class DeploySiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
     @Parameter(property = "publishToGhPages", defaultValue = "true")
     private boolean publishToGhPages;
 
+    /**
+     * Maven 4 prompter service used to read {@code siteType}
+     * interactively when not passed on the command line. Injected
+     * by the DI container; ike-issues#385.
+     */
+    @Inject
+    Prompter prompter;
+
     /** Creates this goal instance. */
     public DeploySiteDraftMojo() {}
 
     @Override
     public void execute() throws MojoException {
         siteType = MojoParamSupport.requireParam(siteType, "siteType",
-                "Site type (release, snapshot, or checkpoint)", getLog());
+                "Site type (release, snapshot, or checkpoint)",
+                prompter, getLog());
 
         File gitRoot = ReleaseSupport.gitRoot(new File("."));
         File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
