@@ -2,21 +2,26 @@
 
 import org.apache.maven.api.plugin.Log;
 import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.services.Prompter;
+import org.apache.maven.api.services.PrompterException;
 
 /**
  * Static utility for interactive parameter resolution in mojos
  * that implement {@link org.apache.maven.api.plugin.Mojo} directly
  * (no shared base class).
  *
- * &lt;p&gt;Tries {@code System.console()} first (real terminal), then
- * falls back to {@code System.in} (IntelliJ Maven runner — spawns
- * Maven as a child process with stdin wired to the Run console).
- * Fails fast with a clear error message when neither produces input
- * (CI, daemon mode).
+ * &lt;p&gt;Delegates to Maven 4's {@link Prompter} service for the
+ * interactive read, so the prompt label and input cursor render
+ * inline across terminal sessions and IntelliJ's Maven runner.
+ * Mojos that need to prompt must {@code @Inject} a Prompter and
+ * pass it in.
  *
  * &lt;p&gt;Moved from {@code network.ike.plugin} as part of the plugin
- * split (ike-issues #215) so both ike-maven-plugin and
- * ike-doc-maven-plugin can share it.
+ * split (ike-issues#215) so both ike-maven-plugin and
+ * ike-doc-maven-plugin can share it. Migrated to the Maven 4
+ * Prompter service in ike-issues#385 to match {@code ws:}-goal
+ * prompt UX — pre-migration this used {@code System.console} /
+ * {@code System.in} directly and bypassed the Prompter abstraction.
  */
 public final class MojoParamSupport {
 
@@ -24,52 +29,49 @@ public final class MojoParamSupport {
 
     /**
      * Resolve a required parameter: return the value if present,
-     * prompt interactively if possible, or fail fast.
+     * prompt interactively via the {@link Prompter} when not, or
+     * fail fast with a clear error when no value can be obtained.
      *
-     * @param currentValue the value from the {@code @Parameter} field (may be null)
+     * @param currentValue the value from the {@code @Parameter} field
+     *                     (may be null)
      * @param propertyName the {@code -D} property name (for the error message)
-     * @param promptLabel  human-readable label shown in the prompt
-     * @param log          Maven logger — prompt goes through the logger so
-     *                     IntelliJ renders it without a {@code [stdout]} prefix
+     * @param promptLabel  human-readable label shown in the prompt;
+     *                     the Prompter appends its own &quot;: &quot; separator
+     * @param prompter     the Maven 4 prompter service (DI-injected by
+     *                     the calling mojo); when null, falls back to
+     *                     a fail-fast error
+     * @param log          Maven logger (currently unused; kept for
+     *                     signature compatibility and future logging)
      * @return the resolved value — either the original or user-supplied
      * @throws MojoException if no value can be obtained
      */
     public static String requireParam(String currentValue, String propertyName,
-                                       String promptLabel, Log log)
+                                       String promptLabel, Prompter prompter,
+                                       Log log)
             throws MojoException {
-<span class="nc bnc" id="L40" title="All 4 branches missed.">        if (currentValue != null &amp;&amp; !currentValue.isBlank()) {</span>
-<span class="nc" id="L41">            return currentValue.trim();</span>
+<span class="nc bnc" id="L52" title="All 4 branches missed.">        if (currentValue != null &amp;&amp; !currentValue.isBlank()) {</span>
+<span class="nc" id="L53">            return currentValue.trim();</span>
         }
 
-        // Try System.console() first (real terminal)
-<span class="nc" id="L45">        java.io.Console console = System.console();</span>
-<span class="nc bnc" id="L46" title="All 2 branches missed.">        if (console != null) {</span>
-<span class="nc" id="L47">            String input = console.readLine(&quot;%s: &quot;, promptLabel);</span>
-<span class="nc bnc" id="L48" title="All 4 branches missed.">            if (input != null &amp;&amp; !input.isBlank()) {</span>
-<span class="nc" id="L49">                return input.trim();</span>
+<span class="nc bnc" id="L56" title="All 2 branches missed.">        if (prompter == null) {</span>
+<span class="nc" id="L57">            throw new MojoException(</span>
+                    propertyName + &quot; is required. Specify -D&quot; + propertyName
+                            + &quot;=&lt;value&gt; (no Prompter wired in this context).&quot;);
+        }
+
+        try {
+<span class="nc" id="L63">            String input = prompter.prompt(promptLabel);</span>
+<span class="nc bnc" id="L64" title="All 4 branches missed.">            if (input != null &amp;&amp; !input.isBlank()) {</span>
+<span class="nc" id="L65">                return input.trim();</span>
             }
-<span class="nc" id="L51">        } else {</span>
-            // IntelliJ's Maven runner spawns Maven as a child process
-            // with stdin/stdout wired to the Run console panel. System.console()
-            // is null (not a real terminal), but System.in is connected and
-            // interactive — the same mechanism the Plexus Prompter uses.
-            // Use System.out.print (not log.info) so the cursor stays on the
-            // prompt line — log.info adds a newline, forcing input onto a new line.
-<span class="nc" id="L58">            System.out.print(&quot;\u001B[33m&quot; + promptLabel + &quot;: \u001B[0m&quot;);</span>
-<span class="nc" id="L59">            System.out.flush();</span>
-            try {
-<span class="nc" id="L61">                java.io.BufferedReader reader = new java.io.BufferedReader(</span>
-                        new java.io.InputStreamReader(System.in));
-<span class="nc" id="L63">                String input = reader.readLine();</span>
-<span class="nc bnc" id="L64" title="All 4 branches missed.">                if (input != null &amp;&amp; !input.isBlank()) {</span>
-<span class="nc" id="L65">                    return input.trim();</span>
-                }
-<span class="nc" id="L67">            } catch (java.io.IOException e) {</span>
-                // Fall through to error
-<span class="nc" id="L69">            }</span>
-        }
+<span class="nc" id="L67">        } catch (PrompterException e) {</span>
+<span class="nc" id="L68">            throw new MojoException(</span>
+                    propertyName + &quot; is required. Specify -D&quot; + propertyName
+                            + &quot;=&lt;value&gt; or run interactively. (&quot;
+<span class="nc" id="L71">                            + e.getMessage() + &quot;)&quot;);</span>
+<span class="nc" id="L72">        }</span>
 
-<span class="nc" id="L72">        throw new MojoException(</span>
+<span class="nc" id="L74">        throw new MojoException(</span>
                 propertyName + &quot; is required. Specify -D&quot; + propertyName
                         + &quot;=&lt;value&gt; or run interactively.&quot;);
     }

@@ -1,12 +1,12 @@
 ---
-date_published: 2026-05-12
-date_modified: 2026-05-12
+date_published: 2026-05-13
+date_modified: 2026-05-13
 canonical_url: https://ike.network/ike-tooling/ike-workspace-model/built-with.html
 ---
 
 # Built With
 
-Open-source software that `ike-workspace-model` 172 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-workspace-model` 173 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 

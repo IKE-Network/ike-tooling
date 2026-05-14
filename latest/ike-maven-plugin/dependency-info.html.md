@@ -1,6 +1,6 @@
 ---
-date_published: 2026-05-12
-date_modified: 2026-05-12
+date_published: 2026-05-13
+date_modified: 2026-05-13
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/dependency-info.html
 ---
 
@@ -12,6 +12,6 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/dependency-info.
 <plugin>
   <groupId>network.ike.tooling</groupId>
   <artifactId>ike-maven-plugin</artifactId>
-  <version>172</version>
+  <version>173</version>
 </plugin>
 ```
