@@ -234,7 +234,6 @@ Run `ws:help` for the complete auto-discovered list.
 | `ws:cascade` | Show downstream impact of a change |
 | `ws:pull` | `git pull --rebase` across repos (requires clean trees) |
 | `ws:stignore` | Generate `.stignore` files for Syncthing |
-| `ws:fix` | Auto-fix issues found by verify |
 
 ### Version Alignment
 
