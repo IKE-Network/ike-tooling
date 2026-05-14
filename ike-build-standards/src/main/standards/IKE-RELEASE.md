@@ -156,7 +156,7 @@ closes the milestone automatically when a matching one is found.
 
 ### Commit Messages
 
-Do not add any AI-attribution trailer to commits — no `Assisted-by`,
-no `Co-Authored-By`, no `Generated-with`. The developer is the sole
-author. Normal trailers that would exist independent of AI tooling
-(`Signed-off-by`, `Reviewed-by`, issue refs) are still appropriate.
+See [IKE-COMMITS.md](IKE-COMMITS.md) for the full commit-message
+standard, including the mandatory issue-trailer rule (every commit
+references a tracked issue via `Fixes <owner>/<repo>#N` or
+`Refs <owner>/<repo>#N`) and the AI-attribution prohibition.

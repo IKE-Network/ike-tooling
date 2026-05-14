@@ -7,12 +7,15 @@ through `workspace.yaml` — a YAML manifest that declares all subprojects
 and their inter-repository dependencies.
 
 Workspace operations are implemented as Maven plugin goals in
-`ike-workspace-maven-plugin`, invokable via the `ws:` prefix (requires
-`network.ike.pipeline` in `~/.m2/settings.xml` `<pluginGroups>`).
+`ike-workspace-maven-plugin` (groupId `network.ike.platform`),
+invokable via the `ws:` prefix.
 
 Single-repo goals (release, setup, asciidoc, etc.) remain in
-`ike-maven-plugin` with the `ike:` prefix (requires
-`network.ike.tooling` in `<pluginGroups>`).
+`ike-maven-plugin` (groupId `network.ike.tooling`), invokable via
+the `ike:` prefix.
+
+Both prefixes require the corresponding groupIds in
+`~/.m2/settings.xml` `<pluginGroups>` — see Prerequisites below.
 
 ### Schema Migration (#150)
 
@@ -41,15 +44,20 @@ Never use `sed`, `awk`, or regex-based POM manipulation. Use:
 
 ### Maven Settings
 
-Add `network.ike` to `<pluginGroups>` in `~/.m2/settings.xml`:
+Add both IKE plugin groups to `<pluginGroups>` in `~/.m2/settings.xml`
+so the `ike:` and `ws:` prefixes resolve to the correct plugins:
 
 ```xml
 <settings>
   <pluginGroups>
-    <pluginGroup>network.ike</pluginGroup>
+    <pluginGroup>network.ike.tooling</pluginGroup>
+    <pluginGroup>network.ike.platform</pluginGroup>
   </pluginGroups>
 </settings>
 ```
+
+Maven matches `<pluginGroup>` entries as exact groupIds, not as
+namespace prefixes — both entries are required.
 
 ### Workspace POM
 
