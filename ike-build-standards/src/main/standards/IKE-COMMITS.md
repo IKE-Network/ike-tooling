@@ -83,6 +83,43 @@ repo's release lands.
 
 See [IKE-RELEASE.md](IKE-RELEASE.md) for the full release workflow.
 
+## Documentation Impact
+
+Every issue that introduces a new convention, renames or removes a
+goal, changes a plugin groupId or artifact name, or otherwise alters
+how users or agents interact with the project, must include a
+**Documentation Impact** section in the issue body before
+implementation begins. The section enumerates every documentation
+surface the change will touch, with a checklist that is part of the
+issue's close criteria.
+
+Documentation surfaces to consider:
+
+- `IKE-*.md` standards in `ike-build-standards/src/main/standards/`
+- `ike-workspace-conventions.adoc` and related `src/main/docs/*.adoc`
+- `README.md` files (every affected repo)
+- `CLAUDE.md` and `CLAUDE-<name>.md` files (every affected repo)
+- `src/site/asciidoc/index.adoc` (and friends) where applicable
+- `docs/design/*.md` design notes referencing the changed surface
+- Deployed Maven sites at `ike.network/<repo>/`
+- The `ike-network-site` landing page
+- Inline Javadoc (`@see`, `{@link}`, class-level summaries)
+- `workspace.yaml` bootstrap comments in example workspaces
+
+Mark each surface as **affected** (will be updated), **not affected**
+(sweep verified no references exist), or **deferred** (e.g., live
+site docs that update automatically via the next release cycle).
+Each affected surface gets a checklist item that must be checked off
+before the issue is closed.
+
+If the documentation impact is genuinely zero — a rare case for pure
+internal refactors with no surface change — state that explicitly
+with a one-sentence justification.
+
+This rule applies to all standards-changing issues, including the
+issue that introduces this rule. Reviewers should reject (or request
+amendment to) issues missing the section.
+
 ## AI attribution
 
 Do not add any AI-attribution trailer — no `Assisted-by`, no
