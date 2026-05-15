@@ -1,0 +1,46 @@
+# release-cascade.yaml — canonical IKE foundation release order.
+#
+# Single source of truth for the cross-repo release cascade. The
+# IKE foundation repos must be released in topological order because
+# each downstream repo consumes the artifacts of those above it via
+# property indirection (${ike-tooling.version}, ${ike-docs.version}).
+#
+# Consumed by:
+#   - ike:release-draft    — surfaces downstream repos this release
+#                            will make stale.
+#   - ike:release-publish  — prints the next cascade step after a
+#                            single-repo release completes.
+#   - ws:cascade-foundation-publish — walks this order, releasing
+#                            every foundation repo with changes.
+#
+# The release goals find this file via the standard Maven property
+# `ike.release.cascade.manifest` (declared in ike-parent's
+# <properties>, and in ike-tooling's own root POM). The location is
+# therefore visible in the POM, not discovered by filesystem magic.
+#
+# Cascade members are keyed off their Maven coordinates
+# (groupId + artifactId) — the same identity the releasing project
+# reports from its own POM. To change the cascade, edit this file;
+# it supersedes the hardcoded order that IKE-Network/ike-issues#375
+# baked into WsCascadeFoundationPublishMojo. Filed under
+# IKE-Network/ike-issues#402. See IKE-RELEASE.md for the workflow.
+
+# Filtered at assembly time to the concrete ike-tooling version.
+standards-version: ${project.version}
+
+# Topological order: each entry releases only after every groupId it
+# `consumes` has released. `repo` is the on-disk directory / GitHub
+# repo name used by ws:cascade-foundation-publish to locate sibling
+# checkouts; it defaults to `artifactId` when omitted.
+cascade:
+  - groupId: network.ike.tooling
+    artifactId: ike-tooling
+  - groupId: network.ike.docs
+    artifactId: ike-docs
+    consumes:
+      - network.ike.tooling
+  - groupId: network.ike.platform
+    artifactId: ike-platform
+    consumes:
+      - network.ike.tooling
+      - network.ike.docs

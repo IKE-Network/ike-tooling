@@ -1616,6 +1616,40 @@ public class ReleaseSupport {
     private static final Pattern ARTIFACT_ID_PATTERN =
             Pattern.compile("<artifactId>([^<]+)</artifactId>");
 
+    private static final Pattern GROUP_ID_PATTERN =
+            Pattern.compile("<groupId>([^<]+)</groupId>");
+
+    /**
+     * Read the project's own {@code <groupId>} from a POM file,
+     * skipping any {@code <groupId>} inside the {@code <parent>}
+     * block.
+     *
+     * <p>Used by cascade self-identification (IKE-Network/ike-issues#402):
+     * a reactor-root POM declares its own {@code <groupId>}, which the
+     * release goals match against {@code release-cascade.yaml} entries.
+     *
+     * @param pomFile the POM file to read
+     * @return the group ID string
+     * @throws MojoException if the file cannot be read or declares no
+     *                       own group ID
+     */
+    public static String readPomGroupId(File pomFile) throws MojoException {
+        try {
+            String content = Files.readString(
+                    pomFile.toPath(), StandardCharsets.UTF_8);
+            String stripped = content.replaceFirst(
+                    "(?s)<parent>.*?</parent>", "");
+            Matcher matcher = GROUP_ID_PATTERN.matcher(stripped);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+            throw new MojoException(
+                    "Could not extract <groupId> from " + pomFile);
+        } catch (IOException e) {
+            throw new MojoException("Failed to read " + pomFile, e);
+        }
+    }
+
     /**
      * Read the project's own {@code <artifactId>} from a POM file,
      * skipping any {@code <artifactId>} inside the {@code <parent>} block.

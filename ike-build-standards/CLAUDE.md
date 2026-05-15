@@ -35,6 +35,14 @@ This module produces seven classified ZIP artifacts:
                                    get the Curated narrative section on their
                                    `built-with.html` without authoring their own
                                    supplement (#340).
+- `classifier=cascade`          — declarative cross-repo release ordering
+                                   (`release-cascade.yaml`), unpacked at `validate` by
+                                   `ike-parent` to `target/release-cascade.yaml`. The
+                                   `ike:release-{draft,publish}` goals and
+                                   `ws:cascade-foundation-publish` read it as the single
+                                   source of truth for the foundation cascade
+                                   (`ike-tooling → ike-docs → ike-platform`), so a
+                                   downstream repo cannot be silently forgotten (#402).
 
 Consumer modules unpack the `claude` artifact at `validate` phase into
 `.claude/standards/` via `maven-dependency-plugin`.
@@ -52,8 +60,8 @@ the concrete artifact version into the lockfile.
 - Uses the ike-tooling reactor's single-segment integer version (e.g., `144-SNAPSHOT`)
 - Assembly descriptors live in `src/assembly/`: `claude-standards.xml`,
   `docs.xml`, `config.xml`, `asciidoctorconfig.xml`, `scaffold.xml`,
-  `site-theme.xml`, `built-with.xml`. Each maps to one classified ZIP
-  execution in `pom.xml`'s `maven-assembly-plugin` config.
+  `site-theme.xml`, `built-with.xml`, `cascade.xml`. Each maps to one
+  classified ZIP execution in `pom.xml`'s `maven-assembly-plugin` config.
 - Source content for each classifier lives in `src/main/<classifier>/`
   (e.g. `src/main/site-theme/css/site.css`).
 - Version is managed in `ike-parent`, which provides inline dependency management

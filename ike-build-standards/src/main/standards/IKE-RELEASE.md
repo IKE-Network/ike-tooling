@@ -156,6 +156,72 @@ for the full workflow, including draft previews, cascade updates,
 and recovery from failures (`ike:release-status` /
 `ws:release-status`).
 
+## Foundation Release Cascade
+
+The IKE foundation repos must be released in topological order
+because each downstream repo consumes the artifacts of those above
+it through property indirection (`${ike-tooling.version}`,
+`${ike-docs.version}`):
+
+    ike-tooling  →  ike-docs  →  ike-platform  →  workspace consumers
+
+This order is **declarative**, not folklore. It lives in
+`release-cascade.yaml` — the single source of truth, authored in
+`ike-build-standards/src/main/cascade/` and shipped as the
+`ike-build-standards` `cascade` classified artifact. `ike-parent`
+unpacks it at the `validate` phase to `target/release-cascade.yaml`.
+To change the cascade, edit that one file. Cascade members are
+keyed off their reactor-root Maven coordinates (`groupId` +
+`artifactId`) — the same identity a releasing project reports from
+its own POM.
+
+The manifest *location* is itself declared in the POM, not
+discovered by filesystem heuristics: the standard property
+`ike.release.cascade.manifest` (set in `ike-parent`'s
+`<properties>`, and in `ike-tooling`'s own root POM) names the
+path. Override it in any project's `<properties>` or with `-D`.
+
+The release goals read the manifest so the cascade cannot be
+silently forgotten:
+
+- **`ike:release-draft`** — when the project is a cascade member,
+  the draft preview enumerates the downstream repos this release
+  will make stale.
+- **`ike:release-publish`** — after a single-repo release completes,
+  a cascade footer names the next repo and the exact command to
+  continue (`cd ../<next> && mvn ike:release-publish`, or
+  `mvn ws:cascade-foundation-publish` for the whole loop).
+- **`ws:cascade-foundation-publish`** — walks the manifest order,
+  releasing every foundation repo that has unreleased changes, then
+  the workspace itself. `-Dfoundations=<csv>` overrides the order
+  for a partial run.
+
+A repo that is not a cascade member (an ordinary consumer) sees no
+cascade output — the manifest only orders the foundation.
+
+### Topology vs. execution
+
+The manifest declares *topology* — which repos, in what order — and
+is environment-neutral. *Execution* is environment-specific:
+
+- **Local workstation** — foundation repos are checked out as
+  siblings under one directory; `ws:cascade-foundation-publish`
+  walks them in a single process. Checkout locations are
+  property-driven: `ike.release.cascade.basedir` sets the base
+  directory, and the `cascadeRepoDirs` map parameter overrides
+  individual repos for non-standard layouts.
+- **CI server** — each foundation repo is its own build
+  configuration with its own checkout; `ws:cascade-foundation-publish`
+  is not used. The topology is mirrored as CI build-chain
+  dependencies, and each build runs the location-independent
+  `ike:release-publish`, whose cascade footer is the signal the
+  next stage triggers on. Artifact handoff is via Nexus, not the
+  filesystem.
+
+`release-cascade.yaml` is the single specification both models —
+and the CI build-chain wiring — derive from. See
+IKE-Network/ike-issues#402.
+
 ## Issue Tracking Discipline
 
 ### File Before Implementing
