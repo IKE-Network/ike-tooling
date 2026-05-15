@@ -91,10 +91,9 @@ Common interactions:
 
 * *Run a read-only goal* (`ike:help`, `ike:scan-logs`) — *double-click*
   the goal in the tree.
-* *Run a goal with parameters* (e.g. `ike:deploy-site-publish` needs
-  `-DsiteType=`...) — *right-click* the goal → *Modify Run
-  Configuration…* → fill `Properties` (e.g.
-  `siteType=release,siteVersion=21`) → *Run*.
+* *Run a goal with parameters* (e.g. `ike:site-publish` with
+  `-Dsite=removed` to uninstall) — *right-click* the goal → *Modify Run
+  Configuration…* → fill `Properties` → *Run*.
 * *Pin frequently-used invocations* — once a Run Configuration is
   saved, it appears in the toolbar dropdown for one-click access.
 * *Discover goals* — `ike:help` prints the registry, but the Maven
@@ -119,7 +118,7 @@ mvn ike:release-draft
 mvn ike:release-publish
 
 # Re-deploy the site for the current release without re-releasing
-mvn ike:deploy-site-publish -DsiteType=release
+mvn ike:site-publish
 
 # Apply scaffold convention upgrades
 mvn ike:scaffold-publish
@@ -136,10 +135,7 @@ mvn ike:versions-upgrade-publish
 
 | <<release-draft,release-{draft,publish}>>            | release    | Single-repo release: tag, deploy to Nexus + komet.sh + GitHub Pages, bump
 | <<verify-release-published,verify-release-published>>| release    | Verify all post-release publication targets (6 read-only HTTP checks)
-| <<deploy-site,deploy-site-{draft,publish}>>          | site       | Generate and deploy the Maven site (release / snapshot / checkpoint variants)
-| <<register-site,register-site-{draft,publish}>>      | site       | Register a project on the IKE Network org landing page (`https://ike.network/`)
-| <<deregister-site,deregister-site-{draft,publish}>>  | site       | Reverse of register-site
-| <<clean-site>>                                       | site       | Remove a deployed site directory
+| <<site,site-{draft,publish}>>                        | site       | Generate, deploy, and register the Maven site; `-Dsite=removed` uninstalls and deregisters
 | <<generate-bom>>                                     | bom        | Auto-generate a BOM POM from another module's dependency management
 | <<scaffold,scaffold-{draft,publish,revert}>>         | scaffold   | Apply the workspace scaffold manifest (gitignore, hooks, IDE settings)
 | <<versions-upgrade,versions-upgrade-{draft,publish}>>| upgrade    | Apply parent / property / plugin version upgrades
@@ -238,58 +234,32 @@ mvn ike:release-publish -DskipVerify=true   # skip mvn verify (faster retry)
 
 == Site goals
 
-[#deploy-site]
-=== ike:deploy-site-{draft,publish}
+[#site]
+=== ike:site-{draft,publish}
 
-Deploy the Maven site to one of three location types:
-
-* `siteType=release` — version-prefixed directory + `latest` symlink +
-  gh-pages push (matches what `release-publish` does for the site
-  portion)
-* `siteType=snapshot` — branch-keyed (e.g. `snapshot/main/`,
-  `snapshot/feature/foo/`)
-* `siteType=checkpoint` — immutable, version-keyed
+Generate, deploy, and register the project's Maven site in one
+converged goal (ike-issues#398). The publish variant builds the site,
+deploys it (version-prefixed directory + `latest` symlink + gh-pages
+push, matching what `release-publish` does for the site portion), and
+registers the project on the `IKE-Network/IKE-Network.github.io` org
+landing page (`https://ike.network/`). Registration is part of the
+default flow — no separate goal.
 
 Useful for re-deploying a site without re-releasing the artifact.
 
 [source,bash]
 ----
-mvn ike:deploy-site-publish -DsiteType=release            # POM version
-mvn ike:deploy-site-publish -DsiteType=release -DsiteVersion=21
-mvn ike:deploy-site-publish -DsiteType=snapshot
-mvn ike:deploy-site-publish -DsiteType=checkpoint -DsiteVersion=7-checkpoint.20260228.1
+mvn ike:site-publish                              # deploy + register
+mvn ike:site-publish -DupdateRegistration=false   # deploy only, skip org landing page
+mvn ike:site-publish -DupdateSite=false           # registration only, no site deploy
+mvn ike:site-publish -Dsite=removed               # uninstall: remove the deployed
+                                                  # site directory and deregister
 ----
 
-[#register-site]
-=== ike:register-site-{draft,publish}
-
-Register a project on the `IKE-Network/IKE-Network.github.io` org
-landing page. Writes an AsciiDoc fragment for this project, regenerates
-the master index, builds the site, and pushes to the org repo.
-
-Designed to be called as part of the release ceremony, after
-`ike:deploy-site-publish` has populated the project's own gh-pages.
-
-[#deregister-site]
-=== ike:deregister-site-{draft,publish}
-
-Symmetric reverse of `register-site` — removes the project's fragment
-from the org index.
-
-[#clean-site]
-=== ike:clean-site
-
-Remove a deployed site directory. Used for manual cleanup of stale
-snapshot or checkpoint sites that didn't get auto-cleaned by
-`feature-finish` or `release`.
-
-[source,bash]
-----
-mvn ike:clean-site -DsiteType=snapshot                       # current branch
-mvn ike:clean-site -DsiteType=snapshot -Dbranch=feature/old
-mvn ike:clean-site -DsiteType=checkpoint -DsiteVersion=7-checkpoint.20260228.1
-mvn ike:clean-site -DsiteType=release -DsiteVersion=18       # specific version
-----
+The `-Dsite=removed` form replaces both the old `clean-site` (stale
+snapshot/checkpoint cleanup) and `deregister-site` goals — uninstall
+includes stale-dir cleanup and org-index removal. Use `ike:site-draft`
+to preview any of these without writing.
 
 == BOM generation
 

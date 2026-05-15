@@ -11,8 +11,7 @@ version upgrades, and build-time utilities for IKE Network projects.
 mvn ike:release-status               # diagnose any in-flight release
 mvn ike:release-draft                # preview a release
 mvn ike:release-publish              # execute a release
-mvn ike:deploy-site-publish -DsiteType=release
-                                     # ad-hoc site re-deploy
+mvn ike:site-publish                 # ad-hoc site re-deploy
 mvn ike:scaffold-draft               # preview scaffold updates
 mvn ike:versions-upgrade-draft       # preview version upgrades
 ```
