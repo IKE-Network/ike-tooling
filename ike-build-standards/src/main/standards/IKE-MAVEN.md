@@ -188,7 +188,8 @@ The `main` branch retains the unqualified version:
 
     1.2.0-SNAPSHOT
 
-The `ws:init` goal sets this automatically at workspace creation.
+The `ws:scaffold-init` goal sets this automatically at workspace
+bootstrap.
 See the IKE Workspace Conventions document for the full rationale.
 
 ### Standards Artifact Versioning
@@ -290,8 +291,8 @@ Every IKE project should include `.mvn/jvm.config` with standard JVM
 flags. This file is read by Maven before the POM is parsed — it cannot
 be inherited from a parent POM or unpacked at build time.
 
-`ws:init` generates this file automatically when initializing workspace
-components. Standard contents:
+`ws:scaffold-init` generates this file automatically when bootstrapping
+workspace subprojects. Standard contents:
 
 ```
 -Dpolyglotimpl.AttachLibraryFailureAction=ignore

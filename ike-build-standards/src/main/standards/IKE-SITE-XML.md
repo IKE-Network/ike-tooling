@@ -124,7 +124,7 @@ and any subproject for a child example.
 
 ## Validation
 
-A future preflight (`ws:release-publish` and `ws:verify`) is
+A future preflight (`ws:release-publish` and `ws:scaffold-draft`) is
 expected to fail when any subproject of a multi-module reactor
 lacks `src/site/site.xml`. Until that lands, the manual check is:
 

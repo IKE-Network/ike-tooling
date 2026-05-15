@@ -33,8 +33,12 @@ idempotent — running it twice is a no-op.
 
 Never use `sed`, `awk`, or regex-based POM manipulation. Use:
 
-- **`ws:align-publish`** for parent version bumps and inter-subproject
-  dependency version alignment
+- **`ws:scaffold-publish`** for routine workspace-state reconciliation
+  (parent cascade, inter-subproject alignment, denormalized field
+  sync, scaffold conventions). Pin a specific non-current parent
+  version with `-DparentVersion=<v>`.
+- **`ws:align-publish`** as the standalone shortcut when only
+  inter-subproject dependency-version alignment is needed.
 - **OpenRewrite** for structural migrations:
   `mvn rewrite:run -Drewrite.activeRecipes=network.ike.MigrateGroupIds`
 - **`PomRewriter`** (programmatic API in ike-workspace-maven-plugin) for
@@ -222,12 +226,12 @@ Most mutating goals come in `-draft` / `-publish` pairs.
 Draft previews the operation; publish executes it.
 Run `ws:help` for the complete auto-discovered list.
 
-### Workspace Management
+### Inspection & Setup
 
 | Goal | Description |
 |------|-------------|
-| `ws:init` | Clone/initialize repos; fetches and rebases existing clones |
-| `ws:scaffold-draft` | Validate manifest consistency (folds the retired `ws:verify` per #393) |
+| `ws:scaffold-init` | Bootstrap a workspace: create `workspace.yaml` if absent, clone declared-but-missing subprojects (folds the retired `ws:create` and `ws:init` per #393) |
+| `ws:scaffold-draft` | Drift report — manifest consistency, denormalized field sync, parent cascade, scaffold conventions, alignment (folds the retired `ws:fix`, `ws:verify`, `ws:set-parent` (draft), `ws:scaffold-upgrade` (draft) per #393) |
 | `ws:verify-convergence` | Transitive dependency convergence (slow) |
 | `ws:overview` | Dashboard: manifest, graph, status, cascade |
 | `ws:graph` | Print dependency graph (text or `-Dformat=dot`) |
@@ -235,12 +239,24 @@ Run `ws:help` for the complete auto-discovered list.
 | `ws:pull` | `git pull --rebase` across repos (requires clean trees) |
 | `ws:stignore` | Generate `.stignore` files for Syncthing |
 
-### Version Alignment
+### Manifest Management (convergence pattern)
 
-| Goal | Description |
-|------|-------------|
-| `ws:align-draft` / `-publish` | Align inter-subproject dependency versions; migrates legacy schema |
-| `ws:scaffold-publish -DparentVersion=<v>` | Pin parent to specific version and cascade across workspace |
+`ws:scaffold-publish` is the routine workspace-state reconciler. It
+drives the `ReconcilerRegistry` and converges field normalization,
+parent cascade, scaffold conventions, and inter-subproject alignment
+in a single pass. Each reconciler can be individually disabled.
+
+| Invocation | Description |
+|------------|-------------|
+| `ws:scaffold-publish` | Apply all reconcilers (the default). |
+| `ws:scaffold-publish -DparentVersion=<v>` | Pin the parent cascade to a specific non-current version (replaces the retired `ws:set-parent`). |
+| `ws:scaffold-publish -DupdateFields=false` | Skip the field-normalization reconciler (the FieldNormalizationReconciler that folded `ws:fix`). |
+| `ws:scaffold-publish -DupdateParent=false` | Skip the parent-cascade reconciler. |
+| `ws:scaffold-publish -DupdateScaffold=false` | Skip the scaffold-convention reconciler (folded the retired `ws:scaffold-upgrade`). |
+| `ws:scaffold-publish -DupdateAlignment=false` | Skip the alignment reconciler (use `ws:align-publish` standalone for the alignment-only case). |
+| `ws:align-draft` / `-publish` | Standalone shortcut for the alignment-only case; shares `AlignmentReconciler` logic with `ws:scaffold-publish` and the feature/release lifecycles. |
+| `ws:reconcile-branches-draft` / `-publish` | Reconcile `workspace.yaml` branch fields against on-disk git state (recovery / rare use). |
+| `ws:versions-upgrade-draft` / `-publish` | Plan-driven upgrades of parent/property/plugin versions when the scaffold manifest does not cover the upgrade. |
 
 ### Feature Branching
 
@@ -278,8 +294,12 @@ Run `ws:help` for the complete auto-discovered list.
 | `-Dsubproject=<name>` | `ws:add`, `ws:remove`, `ws:release-publish` | Restrict to named subproject |
 | `-Dfeature=<name>` | feature-start, feature-finish, feature-abandon | Feature name |
 | `-DtargetBranch=<name>` | feature-finish, switch | Target branch (default: `main`) |
-| `-DnewVersion=<v>` | set-parent | Target parent version |
-| `-Dmessage=<msg>` | commit, feature-finish, set-parent | Commit message |
+| `-DparentVersion=<v>` | scaffold-publish | Pin the parent cascade to a specific non-current version |
+| `-DupdateFields=false` | scaffold-publish | Skip the field-normalization reconciler |
+| `-DupdateParent=false` | scaffold-publish | Skip the parent-cascade reconciler |
+| `-DupdateScaffold=false` | scaffold-publish | Skip the scaffold-convention reconciler |
+| `-DupdateAlignment=false` | scaffold-publish | Skip the alignment reconciler |
+| `-Dmessage=<msg>` | commit, feature-finish | Commit message |
 | `-Dlabel=<name>` | checkpoint | Checkpoint label (auto-derived if omitted) |
 | `-DskipCheckpoint=true` | release-publish | Skip pre-release checkpoint |
 | `-Dforce=true` | feature-abandon, cleanup, remove | Skip confirmation prompt |
@@ -295,9 +315,9 @@ fails immediately with a list of affected repos and files, along with
 the specific `ws:commit` command to resolve it. No partial
 modifications occur.
 
-**Publish goals with hard preflight:** `release`, `align`, `set-parent`,
-`checkpoint`, `pull`, `switch`, `feature-start`, `feature-finish-*`,
-`feature-abandon`, `update-feature`
+**Publish goals with hard preflight:** `release`, `align`,
+`scaffold-publish`, `checkpoint`, `pull`, `switch`, `feature-start`,
+`feature-finish-*`, `feature-abandon`, `update-feature`
 
 **Draft goals:** warn about uncommitted changes that would block the
 corresponding `-publish` goal, but still run the preview.
@@ -323,8 +343,8 @@ messages compiler-visible and guarded by `WsGoalExhaustivenessTest`.
 
 Exceptions:
 
-* Pure help / bootstrap goals (`ws:help`, `ws:create`) print directly
-  to the console; no per-goal report file.
+* Pure help / bootstrap goals (`ws:help`, `ws:scaffold-init`) print
+  directly to the console; no per-goal report file.
 * Aggregator goals (`ws:report`) aggregate the other per-goal reports
   rather than producing their own.
 * Publish mojos that extend a draft parent (e.g.
@@ -377,9 +397,9 @@ Use `ws:stignore` to generate deterministic `.stignore` files that exclude:
 - `**/.mvn/local-repo`
 
 Each machine has independent Git state, build output, and IDE config.
-`ws:init` is Syncthing-aware: when a directory already exists (synced by
-Syncthing but not yet a git repo), it runs `git init` + `git reset` instead
-of `git clone`.
+`ws:scaffold-init` is Syncthing-aware: when a directory already exists
+(synced by Syncthing but not yet a git repo), it runs `git init` +
+`git reset` instead of `git clone`.
 
 ## Partial Checkout
 
@@ -390,7 +410,7 @@ only cloned subprojects participate in the reactor. This supports:
   modules appear in the project tree.
 - **Selective `mvn -pl -am`**: Build a specific subproject and its
   dependencies within the workspace.
-- **New developer onboarding**: Clone workspace, run `ws:init`,
+- **New developer onboarding**: Clone workspace, run `ws:scaffold-init`,
   build immediately with the set that has been checked out.
 
 ## Checkpoint Files
@@ -670,10 +690,10 @@ Draft goals warn about uncommitted changes but still run the preview.
 
 ### Stale Clones on CI
 
-`ws:init` fetches and rebases existing clones when the working tree
-is clean. If clones are stale (e.g., parent POM bumps not applied),
-re-run `ws:init`. If rebase conflicts occur, delete the subproject
-directory and let `ws:init` re-clone.
+`ws:scaffold-init` fetches and rebases existing clones when the
+working tree is clean. If clones are stale (e.g., parent POM bumps
+not applied), re-run `ws:scaffold-init`. If rebase conflicts occur,
+delete the subproject directory and let `ws:scaffold-init` re-clone.
 
 ### Recovery from Failed `ws-release`
 

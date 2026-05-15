@@ -7,7 +7,7 @@
 :topic-status: draft
 :topic-keywords: workspace, versioning, Maven 4, defense-in-depth, Swiss cheese, SyncthingOk,
 :topic-scope-note: Rationale and conventions for multi-machine IKE development. \
-  For workspace management, see the ike-workspace-maven-plugin goals (ws:init, ws:overview, ws:sync).
+  For workspace management, see the ike-workspace-maven-plugin goals (ws:scaffold-init, ws:overview, ws:sync).
 
 [[ike-workspace-conventions]]
 = IKE Workspace Conventions
@@ -147,7 +147,7 @@ an artifact's version string tells you which branch produced it.
 
 *Where the holes are:*
 Someone could forget to set the branch-qualified version.
-The `ws:init` goal automates this,
+The `ws:scaffold-init` goal automates this,
 but a manual `git clone` bypasses the goal.
 
 === Layer 4: Syncthing with Git Isolation
@@ -397,32 +397,25 @@ The `main` branch workspace, if present, is named `main/`.
 
 === Creation
 
-The `ws:init` goal creates workspaces:
+The `ws:scaffold-init` goal bootstraps workspaces:
 
 [source,bash]
 ----
-# Create a workspace branching from origin/main
-mvn ws:init -Dbranch=shield/terminology-refresh
-
-# Create a workspace branching from the current workspace's branch
-mvn ws:init -Dbranch=shield/terminology-mappings -DfromHere
-
-# Show workspace status
-mvn ws:status
+# Bootstrap the current directory as a workspace (creates
+# workspace.yaml if absent) and clone any declared-but-missing
+# subprojects.
+mvn ws:scaffold-init
 
 # Show workspace dashboard
 mvn ws:overview
 ----
 
-When `-DfromHere` is used,
-the goal pushes the current branch to the remote
-before creating the new workspace.
-This ensures that the branch point is recorded in Git history.
-
-After cloning and checking out the branch,
-the goal sets the branch-qualified version
-by editing the version in `ike-parent/pom.xml`
-and committing the change.
+The goal is idempotent — safe to re-run any time a new subproject is
+declared in `workspace.yaml` to clone the declared-but-missing one.
+Coordinated branching across subprojects (the original feature-flow
+use case for per-branch workspace directories) is now driven by
+`ws:feature-start-publish`, which creates `feature/<name>` in every
+subproject with a consistent branch-qualified version.
 
 === Syncthing Configuration
 
@@ -523,7 +516,7 @@ in IntelliJ's Maven tool window with parameter prompts.
 The plugin provides:
 
 * *Discoverability.* Goals appear in the IDE.
-  A developer browsing the Maven tool window sees `ws:init`,
+  A developer browsing the Maven tool window sees `ws:scaffold-init`,
   `ws:overview`, `ws:feature-finish-squash-publish`,
   `ike:release-publish` — clickable, runnable targets.
 * *Transparency.* Release logic lives in `ReleaseSupport.java`,
@@ -547,8 +540,8 @@ that must be managed through the development lifecycle:
 
 Key transitions:
 
-* *Workspace creation:* `1.2.0-SNAPSHOT` → `1.2.0-shield-terminology-SNAPSHOT`.
-  Automated by `mvn ws:init`.
+* *Feature branch creation:* `1.2.0-SNAPSHOT` → `1.2.0-shield-terminology-SNAPSHOT`.
+  Automated by `mvn ws:feature-start-publish -Dfeature=shield-terminology`.
 * *Checkpoint creation:* `1.2.0-shield-terminology-SNAPSHOT`
   → `1.2.0-shield-terminology-checkpoint.20250222.1`.
   Automated by `mvn ws:checkpoint-publish -Dlabel=...`.
@@ -577,8 +570,11 @@ names default to a non-mutating preview.
 |===
 |Goal |Purpose
 
-|`ws:init`
-|Clone all subprojects declared in `workspace.yaml`
+|`ws:scaffold-init`
+|Bootstrap a workspace — create `workspace.yaml` if absent and clone declared-but-missing subprojects
+
+|`ws:scaffold-{draft,publish}`
+|Routine workspace-state reconciler (ike-issues#393 convergence pattern): drift report and apply for manifest consistency, denormalized field sync, parent cascade, scaffold conventions, and inter-subproject alignment
 
 |`ws:overview`
 |Consolidated workspace dashboard (manifest + graph + git status + cascade impact)
@@ -616,8 +612,8 @@ names default to a non-mutating preview.
 |`ike:generate-bom`
 |Auto-generate a standalone BOM POM from `ike-parent` dependency management
 
-|`ws:verify` / `ws:lint`
-|Workspace pre-flight gates (manifest consistency / hygiene checks)
+|`ws:lint`
+|Workspace preflight hygiene gate (report-only — typo'd jvm.config, leaking SNAPSHOT properties)
 |===
 
 Shared utility logic lives in `ReleaseSupport.java` in the
