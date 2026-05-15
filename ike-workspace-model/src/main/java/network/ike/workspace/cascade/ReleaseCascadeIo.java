@@ -100,13 +100,15 @@ public final class ReleaseCascadeIo {
                         "each 'cascade' entry must have an 'artifactId'");
             }
             String repo = stringOrNull(e.get("repo"));
+            String url = stringOrNull(e.get("url"));
             List<String> consumes = new ArrayList<>();
             if (e.get("consumes") instanceof List<?> raw) {
                 for (Object c : raw) {
                     consumes.add(String.valueOf(c));
                 }
             }
-            repos.add(new CascadeRepo(groupId, artifactId, repo, consumes));
+            repos.add(new CascadeRepo(
+                    groupId, artifactId, repo, url, consumes));
         }
         return new ReleaseCascade(standardsVersion, repos);
     }

@@ -25,12 +25,15 @@ class ReleaseCascadeTest {
             cascade:
               - groupId: network.ike.tooling
                 artifactId: ike-tooling
+                url: https://github.com/IKE-Network/ike-tooling.git
               - groupId: network.ike.docs
                 artifactId: ike-docs
+                url: https://github.com/IKE-Network/ike-docs.git
                 consumes:
                   - network.ike.tooling
               - groupId: network.ike.platform
                 artifactId: ike-platform
+                url: https://github.com/IKE-Network/ike-platform.git
                 consumes:
                   - network.ike.tooling
                   - network.ike.docs
@@ -51,6 +54,9 @@ class ReleaseCascadeTest {
         assertThat(cascade.find("network.ike.docs")).get()
                 .extracting(CascadeRepo::ga)
                 .isEqualTo("network.ike.docs:ike-docs");
+        assertThat(cascade.find("network.ike.tooling")).get()
+                .extracting(CascadeRepo::url)
+                .isEqualTo("https://github.com/IKE-Network/ike-tooling.git");
     }
 
     @Test
@@ -63,6 +69,16 @@ class ReleaseCascadeTest {
                 """));
         assertThat(cascade.repos().get(0).repo())
                 .isEqualTo("ike-tooling-checkout");
+    }
+
+    @Test
+    void url_is_optional() {
+        ReleaseCascade cascade = ReleaseCascadeIo.read(new StringReader("""
+                cascade:
+                  - groupId: network.ike.tooling
+                    artifactId: ike-tooling
+                """));
+        assertThat(cascade.repos().get(0).url()).isNull();
     }
 
     @Test

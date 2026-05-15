@@ -24,13 +24,19 @@ import java.util.List;
  *                   (e.g. {@code ike-tooling})
  * @param repo       the on-disk directory / GitHub repo name; defaults
  *                   to {@code artifactId} when omitted in the manifest
+ * @param url        the canonical upstream git URL of this repo, or
+ *                   {@code null} when the manifest omits it. The
+ *                   reference origin — local checkouts and CI VCS
+ *                   roots may legitimately use a different remote (a
+ *                   fork, an SSH alias, an internal mirror)
  * @param consumes   groupIds of upstream cascade members whose
  *                   artifacts this repo depends on; never {@code null}
  *                   (an empty list means the repo is at the root of
  *                   the cascade)
  */
 public record CascadeRepo(String groupId, String artifactId,
-                           String repo, List<String> consumes) {
+                           String repo, String url,
+                           List<String> consumes) {
 
     /**
      * Canonical constructor — validates the identity coordinates,
