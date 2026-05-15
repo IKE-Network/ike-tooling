@@ -79,9 +79,38 @@ shipping it in a release.
    tags, deploys to Nexus + komet.sh + GitHub Pages, and bumps the
    version. Use `ike:release-draft` / `ws:release-draft` to preview
    without writing.
-5. **Close issues** — After the release, close all issues in the
-   milestone. Remove `pending-release` labels.
-6. **Close milestone** — Mark the milestone as closed.
+5. **Automatic close + label removal** — `ike:release-publish` does
+   this for you as of #390:
+   - Closes the milestone matching `<projectId> v<version>`.
+   - Walks commits in `<previous-tag>..v<version>`, parses
+     `Fixes`/`Closes`/`Resolves` trailers, and removes the
+     `pending-release` label from every referenced issue (including
+     cross-org references in `<owner>/<repo>#N` form).
+   - GitHub auto-closes issues referenced by `Fixes`/`Closes` trailers
+     in the same org. Cross-org issues need a manual close once the
+     consuming repo's release lands.
+
+## Release Preflight
+
+`ike:release-publish` runs a sequence of preflight checks before any
+mutation. From #392:
+
+- **Git push auth** — fail-fast if `git push --dry-run` can't reach
+  `origin`.
+- **gh CLI authenticated** — warn-only; GitHub Release creation
+  needs `gh` but is skipped cleanly without it.
+- **gh write permission on `issueRepo`** — fail-fast. Required so
+  the auto-close + label-removal step (above) doesn't 403 mid-release.
+- **`pending-release` label exists on `issueRepo`** — warn if missing;
+  label removal becomes a no-op without it.
+- **Trailer compliance** — walk commits in the release range; warn
+  on any without a `Fixes`/`Closes`/`Resolves`/`Refs` trailer per
+  [IKE-COMMITS.md](IKE-COMMITS.md). Warn-only initially; promotes to
+  fail-fast after a release cycle of adoption.
+- **Milestone exists for the release** — warn if the
+  `<projectId> v<version>` milestone is absent; release falls back
+  to auto-generated notes.
+- **Maven wrapper present** — fail-fast.
 
 ## Release Notes
 

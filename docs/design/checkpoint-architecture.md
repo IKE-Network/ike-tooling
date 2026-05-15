@@ -56,6 +56,40 @@ checkpoint:
       sha: "abc1234..."
 ```
 
+## Issue reporting (since-last-release)
+
+As of `IKE-Network/ike-issues#394`, `ws:checkpoint-{draft,publish}`
+walks commits in `<previous-v-tag>..HEAD` per subproject and includes
+the closing-keyword trailer issue references in both outputs:
+
+**Per-subproject YAML** under each snapshot:
+
+```yaml
+checkpoint:
+  ...
+  subprojects:
+    tinkar-core:
+      version: "1.127.2-SNAPSHOT"
+      sha: "..."
+      branch: "main"
+      issues-since-last-release:
+        - "IKE-Network/ike-issues#387"
+        - "ikmdev/komet-desktop#22"
+```
+
+**Markdown report** — new `## Issues since last release` section
+with per-subproject sub-sections listing each ref.
+
+The standard for this behavior — including the explicit rule that
+**checkpoint does not close issues or remove `pending-release` labels**
+— lives in
+[IKE-COMMITS.md](../../ike-build-standards/src/main/standards/IKE-COMMITS.md)'s
+"Checkpoint and Release Reporting" section.
+
+The trailer parser is `ReleaseNotesSupport.parseClosingTrailers`,
+shared with `ike:release-publish`'s label-removal step (#390) so the
+two operations agree on what constitutes a closing trailer.
+
 ## Design Notes / Future Work
 
 - **`ike:checkpoint` visibility**: Currently user-facing but primarily

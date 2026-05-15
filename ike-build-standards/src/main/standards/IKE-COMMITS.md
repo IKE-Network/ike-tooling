@@ -78,10 +78,50 @@ shipped:
 
 The trailer is the durable, queryable record of the link; the label
 is the live state. `ike:release-publish` closes the milestone when one
-matches; cross-org issues need a manual close once the consuming
-repo's release lands.
+matches and (per #390) removes `pending-release` from every issue
+referenced by a closing trailer in the release range — including
+cross-org references. GitHub auto-closes within-org issues; cross-org
+issues need a manual close once the consuming repo's release lands.
 
 See [IKE-RELEASE.md](IKE-RELEASE.md) for the full release workflow.
+
+## Checkpoint and Release Reporting
+
+Checkpoints and releases differ in their relationship to issues:
+
+**Checkpoints** report what's accumulated since the last release tag.
+They:
+
+- Walk commits in `<previous-v-tag>..HEAD` per subproject.
+- Parse `Fixes`/`Closes`/`Resolves` trailers and include the issue
+  list in the checkpoint coordinate YAML (under each subproject's
+  `issues-since-last-release:` array) and the checkpoint markdown
+  report.
+- **Do not close any issues.**
+- **Do not remove `pending-release` labels.**
+
+A checkpoint is a snapshot for testing or internal consumption — it
+does not claim that any issue is "released." Issues remain
+`pending-release` until an actual release ships.
+
+**Releases** report what shipped and close it. They:
+
+- Generate release notes from the GitHub milestone when one matches.
+- Close that milestone automatically.
+- Remove the `pending-release` label from every issue referenced by
+  closing trailers in the release range (#390).
+- Use `Fixes`/`Closes`/`Resolves` trailers as the authoritative
+  record of what shipped.
+
+The distinction matters: a `Fixes IKE-Network/ike-issues#123` trailer
+that lands in a commit between releases gets:
+
+1. **At commit time** — issue auto-closes on push to the default
+   branch (GitHub behavior); `pending-release` label applied per
+   the convention above.
+2. **At checkpoint time** — reported in the per-subproject
+   "issues since last release" list. Nothing is closed or unlabeled.
+3. **At release time** — `pending-release` is removed.
 
 ## Documentation Impact
 
