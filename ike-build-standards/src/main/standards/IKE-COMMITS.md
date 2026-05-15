@@ -146,11 +146,28 @@ Documentation surfaces to consider:
 - Inline Javadoc (`@see`, `{@link}`, class-level summaries)
 - `workspace.yaml` bootstrap comments in example workspaces
 
-Mark each surface as **affected** (will be updated), **not affected**
-(sweep verified no references exist), or **deferred** (e.g., live
-site docs that update automatically via the next release cycle).
-Each affected surface gets a checklist item that must be checked off
-before the issue is closed.
+Mark each surface as **affected** (the doc edit lands in the same
+commit or PR as the code change) or **not affected** (verified no
+references exist). Each affected surface gets a checklist item that
+must be checked off before the issue is closed.
+
+**The doc edit is never deferred.** It lands in the same change as
+the code it documents — so every release is self-consistent: the
+docs in release N describe the code in release N. The only thing
+that legitimately defers is *deployment* — a site's published copy
+at `ike.network/<repo>/` refreshes when that repo next releases.
+But the edit to the `.adoc`/`.md` source is always part of the
+change itself.
+
+Site `.adoc` and standards `.md` files do **not** update
+automatically; a human commits the edit. Marking a doc surface
+"deferred" and landing the edit in a later sweep produces a release
+whose docs contradict its own code — exactly the stale-docs failure
+this rule exists to prevent. IKE-Network/ike-issues#398 did this
+(shipped the `ike:site-*` convergence code in v175, deferred the
+site docs to a later sweep, leaving v175's site documenting deleted
+goals); IKE-Network/ike-issues#401 closed the loophole. Do not
+defer doc edits.
 
 If the documentation impact is genuinely zero — a rare case for pure
 internal refactors with no surface change — state that explicitly
