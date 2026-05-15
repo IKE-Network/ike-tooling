@@ -5,7 +5,7 @@ package network.ike.workspace;
  *
  * <p>Persisted under the {@code workspace-root:} block in
  * {@code workspace.yaml} (schema 1.1+), populated by
- * {@code ws:create -Dgroup=...} (ike-issues#183). Provides a single
+ * {@code ws:scaffold-init -Dgroup=...} (ike-issues#183). Provides a single
  * source of truth for the aggregator artifact's
  * GAV so downstream goals — {@code ws:release-publish} (#185),
  * {@code ws:align-publish}, site deploy (#186) — can reference the

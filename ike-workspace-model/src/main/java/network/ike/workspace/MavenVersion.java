@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  * </ul>
  *
  * <p>Single typed entry point so every consumer of a version
- * argument ({@code ws:create -Dversion=…},
+ * argument ({@code ws:scaffold-init -Dversion=…},
  * {@code ws:scaffold-publish -DparentVersion=…},
  * {@code ws:release -DreleaseVersion=…},
  * {@code ws:post-release -DnextVersion=…}) gets identical validation.
