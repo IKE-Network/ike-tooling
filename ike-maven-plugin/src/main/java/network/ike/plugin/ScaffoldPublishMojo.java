@@ -225,7 +225,8 @@ public class ScaffoldPublishMojo
         // standard properties at the moment this ike-tooling version
         // was released, so applying them is a single-command "bump
         // foundation to current" operation that subsumes the routine
-        // use case of ws:set-parent-publish + ws:versions-upgrade.
+        // use case of ws:scaffold-publish's parent + version-upgrade
+        // reconcilers.
         if (projRoot != null && manifest.foundation() != null) {
             applyFoundationDrift(projRoot, manifest.foundation());
         }

@@ -240,7 +240,7 @@ Run `ws:help` for the complete auto-discovered list.
 | Goal | Description |
 |------|-------------|
 | `ws:align-draft` / `-publish` | Align inter-subproject dependency versions; migrates legacy schema |
-| `ws:set-parent-draft` / `-publish` | Update parent version across workspace |
+| `ws:scaffold-publish -DparentVersion=<v>` | Pin parent to specific version and cascade across workspace |
 
 ### Feature Branching
 
