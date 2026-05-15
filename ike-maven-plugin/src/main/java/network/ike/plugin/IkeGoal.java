@@ -26,9 +26,6 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:asciidoc} — render AsciiDoc to HTML. */
     ASCIIDOC("asciidoc", AsciidocMojo.class,
             "Render AsciiDoc to HTML."),
-    /** {@code ike:clean-site} — clear stale site content before redeployment. */
-    CLEAN_SITE("clean-site", CleanSiteMojo.class,
-            "Clear stale site content before redeployment."),
     /** {@code ike:codesign-natives} — sign macOS native binaries in a runtime image. */
     CODESIGN_NATIVES("codesign-natives", CodesignNativesMojo.class,
             "Sign macOS native libraries and executables inside a runtime image."),
@@ -41,18 +38,6 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:copy-docs} — copy rendered docs into the site. */
     COPY_DOCS("copy-docs", CopyDocsToSiteMojo.class,
             "Copy rendered docs into the site."),
-    /** {@code ike:deploy-site-draft} — preview deploying the aggregated site. */
-    DEPLOY_SITE_DRAFT("deploy-site-draft", DeploySiteDraftMojo.class,
-            "Preview deploying the aggregated site to its target."),
-    /** {@code ike:deploy-site-publish} — deploy the aggregated site to its target. */
-    DEPLOY_SITE_PUBLISH("deploy-site-publish", DeploySitePublishMojo.class,
-            "Deploy the aggregated site to its target."),
-    /** {@code ike:deregister-site-draft} — preview deregistering a site alias. */
-    DEREGISTER_SITE_DRAFT("deregister-site-draft", DeregisterSiteDraftMojo.class,
-            "Preview deregistering a site alias from the site registry."),
-    /** {@code ike:deregister-site-publish} — deregister a site alias. */
-    DEREGISTER_SITE_PUBLISH("deregister-site-publish", DeregisterSitePublishMojo.class,
-            "Deregister a site alias from the site registry."),
     /** {@code ike:fix-svg} — post-process SVGs for PDF renderer compatibility. */
     FIX_SVG("fix-svg", FixSvgMojo.class,
             "Post-process generated SVGs to work in all PDF renderers."),
@@ -77,12 +62,6 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:prepare-renderer-output} — prepare per-renderer output dirs. */
     PREPARE_RENDERER_OUTPUT("prepare-renderer-output", PrepareRendererOutputMojo.class,
             "Prepare per-renderer output directories."),
-    /** {@code ike:register-site-draft} — preview registering a site alias. */
-    REGISTER_SITE_DRAFT("register-site-draft", RegisterSiteDraftMojo.class,
-            "Preview registering a site alias in the site registry."),
-    /** {@code ike:register-site-publish} — register a site alias. */
-    REGISTER_SITE_PUBLISH("register-site-publish", RegisterSitePublishMojo.class,
-            "Register a site alias in the site registry."),
     /** {@code ike:release-draft} — preview releasing the current project. */
     RELEASE_DRAFT("release-draft", ReleaseDraftMojo.class,
             "Preview releasing the current project."),
@@ -131,6 +110,18 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:scan-logs} — scan renderer logs for warnings and errors. */
     SCAN_LOGS("scan-logs", ScanRendererLogsMojo.class,
             "Scan renderer logs for warnings and errors."),
+    /** {@code ike:site-draft} — report deployed-site drift (#398). */
+    SITE_DRAFT("site-draft", IkeSiteDraftMojo.class,
+            "Report drift in deployed-site state — version on "
+                    + "server vs current project version, landing-page "
+                    + "registration status — with copy-paste opt-out "
+                    + "commands inline."),
+    /** {@code ike:site-publish} — apply deployed-site convergence (#398). */
+    SITE_PUBLISH("site-publish", IkeSitePublishMojo.class,
+            "Deploy the current version to gh-pages and update the "
+                    + "IKE Network landing page registration. Flags: "
+                    + "-DupdateSite=false, -DupdateRegistration=false, "
+                    + "-Dsite=removed (uninstall: deregister + cleanup)."),
     /** {@code ike:setup} — one-time setup for an IKE development machine. */
     SETUP("setup", SetupMojo.class,
             "One-time setup for an IKE development machine."),

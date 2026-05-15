@@ -8,9 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
-import org.testcontainers.utility.MountableFile;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -308,12 +306,7 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
                 .isEqualTo("scpexe://proxy/srv/ike-site/proj/release.staging");
     }
 
-    @Test
-    void toPublicSiteUrl_convertsScpToHttp() {
-        String result = DeploySiteDraftMojo.toPublicSiteUrl(
-                "scpexe://proxy/srv/ike-site/ike-pipeline/release");
-        assertThat(result).isEqualTo("http://ike.komet.sh/ike-pipeline/release");
-    }
+    // toPublicSiteUrl_convertsScpToHttp removed with DeploySiteDraftMojo (#398).
 
     // ── ReleaseSupport SSH methods against container ─────────────────
 
@@ -378,169 +371,10 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
                 .isEqualTo("first");
     }
 
-    // ── CleanSiteMojo tests ─────────────────────────────────────────
-
-    @Test
-    void cleanSiteMojo_dryRunDoesNotDelete(@TempDir Path workDir)
-            throws Exception {
-        // Create a git repo with a pom.xml so CleanSiteMojo can resolve projectId
-        File gitDir = workDir.resolve("project").toFile();
-        gitDir.mkdirs();
-        initGitRepoWithPom(gitDir, "test-project");
-
-        CleanSiteMojo mojo = createMojo(CleanSiteMojo.class);
-        // Set fields via package-private access (same package)
-        setField(mojo, "siteType", "snapshot");
-        setField(mojo, "branch", "feature/old-work");
-        setField(mojo, "dryRun", true);
-
-        // Create the directory on the remote so we can verify it's NOT deleted
-        String expectedPath = "/srv/ike-site/test-project/snapshot/feature/old-work";
-        sshExec("mkdir -p " + expectedPath + " && echo keep > "
-                + expectedPath + "/index.html");
-
-        // Execute in the git repo directory
-        String origDir = System.getProperty("user.dir");
-        try {
-            System.setProperty("user.dir", gitDir.getAbsolutePath());
-            mojo.execute();
-        } finally {
-            System.setProperty("user.dir", origDir);
-        }
-
-        // Directory should still exist (draft)
-        assertThat(sshExecRaw("test -d " + expectedPath)).isZero();
-    }
-
-    @Test
-    void cleanSiteMojo_rejectsInvalidSiteType(@TempDir Path workDir)
-            throws Exception {
-        File gitDir = workDir.resolve("project").toFile();
-        gitDir.mkdirs();
-        initGitRepoWithPom(gitDir, "test-project");
-
-        CleanSiteMojo mojo = createMojo(CleanSiteMojo.class);
-        setField(mojo, "siteType", "invalid");
-
-        String origDir = System.getProperty("user.dir");
-        try {
-            System.setProperty("user.dir", gitDir.getAbsolutePath());
-            assertThatThrownBy(mojo::execute)
-                    .isInstanceOf(MojoException.class)
-                    .hasMessageContaining("Invalid siteType");
-        } finally {
-            System.setProperty("user.dir", origDir);
-        }
-    }
-
-    @Test
-    void cleanSiteMojo_checkpointRequiresSiteVersion(@TempDir Path workDir)
-            throws Exception {
-        File gitDir = workDir.resolve("project").toFile();
-        gitDir.mkdirs();
-        initGitRepoWithPom(gitDir, "test-project");
-
-        CleanSiteMojo mojo = createMojo(CleanSiteMojo.class);
-        setField(mojo, "siteType", "checkpoint");
-        // siteVersion is null — should fail
-
-        String origDir = System.getProperty("user.dir");
-        try {
-            System.setProperty("user.dir", gitDir.getAbsolutePath());
-            assertThatThrownBy(mojo::execute)
-                    .isInstanceOf(MojoException.class)
-                    .hasMessageContaining("siteVersion is required");
-        } finally {
-            System.setProperty("user.dir", origDir);
-        }
-    }
-
-    // ── DeploySiteDraftMojo tests ────────────────────────────────────────
-
-    @Test
-    void deploySiteMojo_dryRunLogsPlan(@TempDir Path workDir) throws Exception {
-        File gitDir = workDir.resolve("project").toFile();
-        gitDir.mkdirs();
-        initGitRepoWithPom(gitDir, "test-project");
-
-        DeploySiteDraftMojo mojo = createMojo(DeploySiteDraftMojo.class);
-        setField(mojo, "siteType", "release");
-        setField(mojo, "dryRun", true);
-        setField(mojo, "skipBuild", true);
-
-        String origDir = System.getProperty("user.dir");
-        try {
-            System.setProperty("user.dir", gitDir.getAbsolutePath());
-            // Should complete without error (draft)
-            mojo.execute();
-        } finally {
-            System.setProperty("user.dir", origDir);
-        }
-    }
-
-    @Test
-    void deploySiteMojo_rejectsInvalidSiteType(@TempDir Path workDir)
-            throws Exception {
-        File gitDir = workDir.resolve("project").toFile();
-        gitDir.mkdirs();
-        initGitRepoWithPom(gitDir, "test-project");
-
-        DeploySiteDraftMojo mojo = createMojo(DeploySiteDraftMojo.class);
-        setField(mojo, "siteType", "bogus");
-        setField(mojo, "dryRun", true);
-
-        String origDir = System.getProperty("user.dir");
-        try {
-            System.setProperty("user.dir", gitDir.getAbsolutePath());
-            assertThatThrownBy(mojo::execute)
-                    .isInstanceOf(MojoException.class)
-                    .hasMessageContaining("Invalid siteType");
-        } finally {
-            System.setProperty("user.dir", origDir);
-        }
-    }
-
-    @Test
-    void deploySiteMojo_snapshotDryRun(@TempDir Path workDir) throws Exception {
-        File gitDir = workDir.resolve("project").toFile();
-        gitDir.mkdirs();
-        initGitRepoWithPom(gitDir, "test-project");
-
-        DeploySiteDraftMojo mojo = createMojo(DeploySiteDraftMojo.class);
-        setField(mojo, "siteType", "snapshot");
-        setField(mojo, "branch", "feature/kec-test");
-        setField(mojo, "dryRun", true);
-        setField(mojo, "skipBuild", true);
-
-        String origDir = System.getProperty("user.dir");
-        try {
-            System.setProperty("user.dir", gitDir.getAbsolutePath());
-            mojo.execute();
-        } finally {
-            System.setProperty("user.dir", origDir);
-        }
-    }
-
-    @Test
-    void deploySiteMojo_checkpointDryRun(@TempDir Path workDir) throws Exception {
-        File gitDir = workDir.resolve("project").toFile();
-        gitDir.mkdirs();
-        initGitRepoWithPom(gitDir, "test-project");
-
-        DeploySiteDraftMojo mojo = createMojo(DeploySiteDraftMojo.class);
-        setField(mojo, "siteType", "checkpoint");
-        setField(mojo, "siteVersion", "7-checkpoint.20260301.1");
-        setField(mojo, "dryRun", true);
-        setField(mojo, "skipBuild", true);
-
-        String origDir = System.getProperty("user.dir");
-        try {
-            System.setProperty("user.dir", gitDir.getAbsolutePath());
-            mojo.execute();
-        } finally {
-            System.setProperty("user.dir", origDir);
-        }
-    }
+    // CleanSiteMojo / DeploySiteDraftMojo per-mojo tests removed with
+    // the mojos themselves (#398 site convergence). The underlying
+    // ReleaseSupport SSH primitives are still covered by the
+    // cleanRemoteSiteDir / swapRemoteSiteDir tests above.
 
     // ── Test helpers ────────────────────────────────────────────────
 
@@ -561,68 +395,10 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         };
     }
 
-    /**
-     * Initialize a git repo with a minimal pom.xml for Mojo testing.
-     */
-    private void initGitRepoWithPom(File dir, String artifactId) throws Exception {
-        // Create pom.xml
-        String pom = """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                    <modelVersion>4.0.0</modelVersion>
-                    <groupId>network.ike</groupId>
-                    <artifactId>%s</artifactId>
-                    <version>1-SNAPSHOT</version>
-                </project>
-                """.formatted(artifactId);
-        Files.writeString(dir.toPath().resolve("pom.xml"), pom);
-
-        // Initialize git repo
-        Process init = new ProcessBuilder("git", "init", "-b", "main")
-                .directory(dir).redirectErrorStream(true).start();
-        init.getInputStream().readAllBytes();
-        assertThat(init.waitFor()).isZero();
-
-        Process config1 = new ProcessBuilder("git", "config", "user.email", "test@test.com")
-                .directory(dir).redirectErrorStream(true).start();
-        config1.getInputStream().readAllBytes();
-        config1.waitFor();
-
-        Process config2 = new ProcessBuilder("git", "config", "user.name", "Test")
-                .directory(dir).redirectErrorStream(true).start();
-        config2.getInputStream().readAllBytes();
-        config2.waitFor();
-
-        Process add = new ProcessBuilder("git", "add", "pom.xml")
-                .directory(dir).redirectErrorStream(true).start();
-        add.getInputStream().readAllBytes();
-        add.waitFor();
-
-        Process commit = new ProcessBuilder(
-                "git", "commit", "-m", "initial")
-                .directory(dir).redirectErrorStream(true).start();
-        commit.getInputStream().readAllBytes();
-        assertThat(commit.waitFor()).isZero();
-    }
-
-    /**
-     * Set a field on a Mojo via reflection.
-     */
-    private static void setField(Object obj, String fieldName, Object value)
-            throws Exception {
-        Class<?> cls = obj.getClass();
-        while (cls != null) {
-            try {
-                java.lang.reflect.Field field = cls.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                field.set(obj, value);
-                return;
-            } catch (NoSuchFieldException e) {
-                cls = cls.getSuperclass();
-            }
-        }
-        throw new NoSuchFieldException(fieldName + " not found on " + obj.getClass());
-    }
+    // initGitRepoWithPom / setField / createMojo helpers removed with
+    // the per-mojo tests they supported (#398 site convergence). The
+    // remaining tests exercise ReleaseSupport static methods directly
+    // and don't need Mojo construction.
 
     // ── SSH helpers (key-based, no sshpass) ──────────────────────────
 
@@ -665,16 +441,4 @@ class SshDeployIntegrationTest extends ContainerTestSupport {
         return output;
     }
 
-    /** Create a Mojo with log injected (Maven 4 uses @Inject, not setLog). */
-    private static <T> T createMojo(Class<T> type) {
-        try {
-            T mojo = type.getDeclaredConstructor().newInstance();
-            var field = type.getDeclaredField("log");
-            field.setAccessible(true);
-            field.set(mojo, new TestLog());
-            return mojo;
-        } catch (ReflectiveOperationException e) {
-            throw new RuntimeException("Cannot create " + type.getSimpleName(), e);
-        }
-    }
 }

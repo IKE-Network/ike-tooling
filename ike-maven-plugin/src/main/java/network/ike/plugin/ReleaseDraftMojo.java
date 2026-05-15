@@ -102,10 +102,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     /**
      * Skip the org-site registration step that runs at the end of a
      * successful release-publish. By default each release invokes
-     * {@code ike:register-site-publish} so the IKE Network landing
-     * page at https://ike.network/ picks up the just-released
-     * version automatically. Pass {@code -Dike.skip.orgSite=true}
-     * to skip when batching releases or working offline.
+     * {@code ike:site-publish -DupdateSite=false} (#398) so the IKE
+     * Network landing page at https://ike.network/ picks up the
+     * just-released version automatically. Pass
+     * {@code -Dike.skip.orgSite=true} to skip when batching releases
+     * or working offline.
      *
      * <p>Best-effort: failure of the org-site step warns but does
      * not fail the release. ike-issues#367.
@@ -386,10 +387,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         //
         // Note: only `mvn site` / `mvn site:stage` invocations pass
         // the property. Other release-flow `mvn` calls (verify, deploy,
-        // register-site-publish, etc.) stay outside the profile and
-        // resolve plugin coords via pluginManagement — the standard
-        // self-host pattern, which works because pluginManagement
-        // does not create reactor edges the way live <plugins> does.
+        // site-publish, etc.) stay outside the profile and resolve
+        // plugin coords via pluginManagement — the standard self-host
+        // pattern, which works because pluginManagement does not
+        // create reactor edges the way live <plugins> does.
         if (publishSite) {
             getLog().info("Building site (pre-flight check)...");
             List<String> siteArgs = new ArrayList<>();
@@ -573,32 +574,40 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 }
 
                 // Auto-register this release on the IKE Network org-site
-                // (ike-issues#367). Placed here, inside the try block,
-                // for one specific reason: the working tree is checked
-                // out at the `v<releaseVersion>` tag right now, so the
-                // pom version reads as <releaseVersion> (not the
-                // post-release SNAPSHOT bump). That means
-                // `mvn ike:register-site-publish` (short prefix)
-                // resolves the plugin via ${project.version} and
-                // naturally lands on the just-installed plugin
-                // version — no explicit coordinate pin needed.
+                // (ike-issues#367; #398 folded into ike:site-publish).
+                // Placed here, inside the try block, for one specific
+                // reason: the working tree is checked out at the
+                // `v<releaseVersion>` tag right now, so the pom version
+                // reads as <releaseVersion> (not the post-release
+                // SNAPSHOT bump). That means
+                // `mvn ike:site-publish` (short prefix) resolves the
+                // plugin via ${project.version} and naturally lands on
+                // the just-installed plugin version — no explicit
+                // coordinate pin needed.
                 //
                 // Gates: publishSite + ghPagesPublished prevent
                 // advertising a release whose canonical URL 404s;
                 // hasOrigin skips the call for local-only repos;
                 // skipOrgSite is the operator's opt-out.
                 //
-                // Best-effort: register-site failure warns but does
-                // not abort the release. Nexus deploy still runs.
+                // Best-effort: site-publish failure warns but does not
+                // abort the release. Nexus deploy still runs.
                 if (publishSite && ghPagesPublished
                         && !skipOrgSite && hasOrigin) {
                     getLog().info("");
                     getLog().info("Registering release on IKE Network "
-                            + "landing page (#367)...");
+                            + "landing page (#367; via ike:site-publish "
+                            + "after #398)...");
                     try {
+                        // #398: site convergence — registration is the
+                        // LandingPageRegistrationReconciler dimension of
+                        // ike:site-publish. The site itself was already
+                        // pushed to gh-pages above, so opt out of the
+                        // DeployedSiteReconciler with -DupdateSite=false.
                         ReleaseSupport.exec(gitRoot, getLog(),
                                 mvnw.getAbsolutePath(),
-                                "ike:register-site-publish",
+                                "ike:site-publish",
+                                "-DupdateSite=false",
                                 "-B");
                     } catch (Exception e) {
                         getLog().warn("  ⚠ Org-site registration "
@@ -607,7 +616,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                                 + "complete. To retry: cd to a checkout "
                                 + "at the v" + releaseVersion
                                 + " tag and run "
-                                + "mvn ike:register-site-publish");
+                                + "mvn ike:site-publish -DupdateSite=false");
                     }
                 }
             }
@@ -694,9 +703,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 // success line unconditionally; ike-issues#329.
                 getLog().warn("  GitHub Pages: ❌ publish failed "
                         + "(see WARNING above)");
-                getLog().warn("    Retry: mvn ike:deploy-site-publish "
-                        + "-DsiteType=release -DsiteVersion=" + releaseVersion
-                        + " -DskipBuild=true");
+                getLog().warn("    Retry: mvn ike:site-publish "
+                        + "-DupdateRegistration=false "
+                        + "-DreleaseVersion=" + releaseVersion);
             }
         }
         getLog().info("  Merged to main");
@@ -1326,9 +1335,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     }
                     getLog().warn("    To retry: from a checkout of v"
                             + version + " with 'origin' remote, run "
-                            + "mvn ike:deploy-site-publish -DsiteType=release "
-                            + "-DsiteVersion=" + version
-                            + " -DskipBuild=true");
+                            + "mvn ike:site-publish "
+                            + "-DupdateRegistration=false "
+                            + "-DreleaseVersion=" + version);
                 }
             }
         }

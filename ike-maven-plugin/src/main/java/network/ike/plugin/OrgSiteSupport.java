@@ -113,7 +113,7 @@ public final class OrgSiteSupport {
 
         var sb = new StringBuilder();
         sb.append("// IKE Project Registration Fragment\n");
-        sb.append("// Managed by ike:register-site — do not edit manually.\n");
+        sb.append("// Managed by ike:site-publish — do not edit manually.\n");
         sb.append("//\n");
         sb.append("// project-id: ").append(artifactId).append('\n');
         sb.append("// project-version: ").append(version).append('\n');

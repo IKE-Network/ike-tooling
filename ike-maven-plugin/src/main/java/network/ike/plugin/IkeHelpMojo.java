@@ -63,8 +63,8 @@ public class IkeHelpMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("  ike:help                                        This help message");
         getLog().info("  ike:release-draft                               Preview release + bump to next SNAPSHOT");
         getLog().info("  ike:generate-bom                                Auto-generate BOM from ike-parent");
-        getLog().info("  ike:deploy-site-draft                           Preview site deployment to versioned URL");
-        getLog().info("  ike:clean-site                                  Remove a deployed site from the server");
+        getLog().info("  ike:site-draft                                  Report deployed-site drift (version, registration)");
+        getLog().info("  ike:site-publish                                Deploy + register; -Dsite=removed to uninstall");
         getLog().info("");
         getLog().info("Options for ike:adocstudio:");
         getLog().info("  -Dadocstudio.sourceDir=<path>   Assembly root (default: current dir)");
@@ -111,19 +111,11 @@ public class IkeHelpMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("  -DallowBranch=<name>   Allow release from non-main branch");
         getLog().info("  -DdeploySite=false     Skip site deployment");
         getLog().info("");
-        getLog().info("Options for ike:deploy-site:");
-        getLog().info("  -DsiteType=<type>      One of: release, snapshot, checkpoint");
-        getLog().info("  -Dbranch=<name>        Branch for snapshot path (auto-detected)");
-        getLog().info("  -DsiteVersion=<v>      Version for checkpoint URL path");
-        getLog().info("  -Dpublish=true          Execute (default is preview)");
-        getLog().info("  -DskipBuild=true       Skip 'mvnw clean verify'");
-        getLog().info("  -DskipSwap=true        Deploy directly (no atomic swap)");
-        getLog().info("");
-        getLog().info("Options for ike:clean-site:");
-        getLog().info("  -DsiteType=<type>      One of: release, snapshot, checkpoint");
-        getLog().info("  -Dbranch=<name>        Branch for snapshot (auto-detected)");
-        getLog().info("  -DsiteVersion=<v>      Version for checkpoint cleanup");
-        getLog().info("  -Dpublish=true          Execute (default is preview)");
+        getLog().info("Options for ike:site-{draft,publish} (#398):");
+        getLog().info("  -DupdateSite=false           Skip the gh-pages site deploy");
+        getLog().info("  -DupdateRegistration=false   Skip the landing-page registration");
+        getLog().info("  -Dsite=removed               Uninstall: deregister + remove site");
+        getLog().info("  -DreleaseVersion=<v>         Override version (default: POM, -SNAPSHOT stripped)");
         getLog().info("");
     }
 }
