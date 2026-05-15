@@ -225,7 +225,11 @@ is environment-neutral. *Execution* is environment-specific:
   dependencies, and each build runs the location-independent
   `ike:release-publish`, whose cascade footer is the signal the
   next stage triggers on. Artifact handoff is via Nexus, not the
-  filesystem.
+  filesystem. The build-chain edges are not hand-wired: a CI
+  meta-runner generates them from the manifest via
+  `ike:cascade-export` (`-Dformat=json` or `properties`), so the CI
+  graph derives from `release-cascade.yaml` rather than drifting
+  from it.
 
 `release-cascade.yaml` is the single specification both models —
 and the CI build-chain wiring — derive from. See

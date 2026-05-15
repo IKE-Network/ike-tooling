@@ -26,6 +26,12 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:asciidoc} — render AsciiDoc to HTML. */
     ASCIIDOC("asciidoc", AsciidocMojo.class,
             "Render AsciiDoc to HTML."),
+    /** {@code ike:cascade-export} — export the release cascade topology for CI. */
+    CASCADE_EXPORT("cascade-export", IkeCascadeExportMojo.class,
+            "Export the foundation release cascade topology as JSON "
+                    + "or .properties so a CI meta-runner can generate "
+                    + "build-chain edges from release-cascade.yaml "
+                    + "instead of hand-wiring them."),
     /** {@code ike:codesign-natives} — sign macOS native binaries in a runtime image. */
     CODESIGN_NATIVES("codesign-natives", CodesignNativesMojo.class,
             "Sign macOS native libraries and executables inside a runtime image."),
