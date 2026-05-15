@@ -87,9 +87,10 @@ public final class ManifestReader {
         Map<String, Subproject> subprojects = parseSubprojects(
                 mapField(root, "subprojects"), defaults);
         IdeSettings ide = parseIdeSettings(mapField(root, "ide"));
-        // Schema 1.1 (#183): typed workspace-root coordinates. Absent on
-        // legacy manifests; callers that need it check for null and
-        // suggest ws:adopt-root (#184).
+        // Schema 1.1 (#183): typed workspace-root coordinates. Only
+        // null on legacy pre-#183 manifests; callers that need it
+        // check for null and direct the user to manually populate
+        // the workspace-root: block.
         WorkspaceRoot workspaceRoot = parseWorkspaceRoot(
                 mapField(root, "workspace-root"));
 

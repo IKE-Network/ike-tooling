@@ -30,7 +30,6 @@ import java.util.regex.Pattern;
  *
  * <p>Single typed entry point so every consumer of a version
  * argument ({@code ws:create -Dversion=…},
- * {@code ws:adopt-root -Dversion=…},
  * {@code ws:set-parent -Dparent.version=…},
  * {@code ws:release -DreleaseVersion=…},
  * {@code ws:post-release -DnextVersion=…}) gets identical validation.

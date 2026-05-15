@@ -13,11 +13,8 @@ import java.util.Map;
  * @param generated       date string when the manifest was last updated
  * @param defaults        default values for subproject fields
  * @param workspaceRoot   the workspace root POM's published GAV
- *                        (schema 1.1+, ike-issues#183); {@code null} on
- *                        legacy manifests that still carry the
- *                        {@code local.aggregate:<name>:1.0.0-SNAPSHOT}
- *                        placeholder — run {@code ws:adopt-root} (#184)
- *                        to migrate
+ *                        (schema 1.1+, ike-issues#183); {@code null} only
+ *                        on legacy manifests pre-dating that schema bump
  * @param subprojects     named subproject definitions (insertion-ordered)
  * @param ide             optional IntelliJ project settings shared across
  *                        collaborators; {@link IdeSettings#EMPTY} when absent
