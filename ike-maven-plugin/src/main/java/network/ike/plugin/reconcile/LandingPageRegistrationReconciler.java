@@ -43,6 +43,9 @@ import java.util.regex.Pattern;
  */
 public class LandingPageRegistrationReconciler implements SiteReconciler {
 
+    /** Creates this reconciler instance. */
+    public LandingPageRegistrationReconciler() {}
+
     /** Default org-site SOURCE repo (kept here as a fallback). */
     static final String DEFAULT_SRC_REPO =
             "https://github.com/IKE-Network/ike-network-site.git";

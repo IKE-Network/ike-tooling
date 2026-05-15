@@ -34,6 +34,9 @@ import java.util.List;
  */
 public class StaleSiteCleanupReconciler implements SiteReconciler {
 
+    /** Creates this reconciler instance. */
+    public StaleSiteCleanupReconciler() {}
+
     @Override
     public String dimension() {
         return "Stale deployed-site directories";

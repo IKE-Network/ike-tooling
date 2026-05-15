@@ -46,6 +46,9 @@ import java.util.regex.Pattern;
  */
 public class DeployedSiteReconciler implements SiteReconciler {
 
+    /** Creates this reconciler instance. */
+    public DeployedSiteReconciler() {}
+
     /** Pattern to extract the deployed version from the rendered site HTML. */
     private static final Pattern DEPLOYED_VERSION_PATTERN = Pattern.compile(
             "(?:Version|version)\\s*[:|]\\s*<[^>]*>?\\s*([0-9][^<\\s]*)");
