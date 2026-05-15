@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldPlanner.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">ScaffoldPlanner.java</span></div><h1>ScaffoldPlanner.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Turn a {@link ScaffoldManifest} plus the current disk state and
+ * {@link ScaffoldLockfile} into a {@link ScaffoldPlan}.
+ *
+ * &lt;p&gt;The planner performs read-only disk I/O: it reads current file
+ * bytes at each {@code dest}. It never writes. Decisions are
+ * delegated to:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@link TierHandler} for file-based tiers;&lt;/li&gt;
+ *   &lt;li&gt;{@link ModelAdapter} for model-managed tiers.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;The caller decides which scope ({@link ScaffoldScope#PROJECT} or
+ * {@link ScaffoldScope#USER}) to plan — typical usage plans project
+ * scope when the goal runs inside a reactor and user scope when the
+ * same goal runs with {@code projectRequired = false} for a
+ * fresh-machine bootstrap.
+ */
+public final class ScaffoldPlanner {
+
+    private final TierHandlers tierHandlers;
+    private final ModelAdapters modelAdapters;
+
+    /**
+     * Construct a planner with the given handler registries. The
+     * planner selects a tier handler for file-based tiers and a model
+     * adapter for {@link ScaffoldTier#MODEL_MANAGED} entries based on
+     * each entry's declared tier and (for model-managed entries) its
+     * declared model name.
+     *
+     * @param tierHandlers  registry of file-based tier handlers
+     * @param modelAdapters registry of model adapters
+     */
+    public ScaffoldPlanner(
+            TierHandlers tierHandlers,
+<span class="fc" id="L45">            ModelAdapters modelAdapters) {</span>
+<span class="fc" id="L46">        this.tierHandlers = tierHandlers;</span>
+<span class="fc" id="L47">        this.modelAdapters = modelAdapters;</span>
+<span class="fc" id="L48">    }</span>
+
+    /**
+     * Build a plan.
+     *
+     * @param manifest        the manifest to plan
+     * @param currentLockfile the current lockfile (may be
+     *                        {@link ScaffoldLockfile#empty()})
+     * @param scope           the scope to plan — entries outside this
+     *                        scope are ignored
+     * @param pathResolver    resolver for {@code dest} → absolute path
+     * @param templates       source of template bytes for file-based
+     *                        tiers
+     * @return the plan
+     */
+    public ScaffoldPlan plan(
+            ScaffoldManifest manifest,
+            ScaffoldLockfile currentLockfile,
+            ScaffoldScope scope,
+            PathResolver pathResolver,
+            TemplateSource templates) {
+
+<span class="fc" id="L70">        List&lt;PlannedEntry&gt; entries = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        for (ManifestEntry entry : manifest.entriesInScope(scope)) {</span>
+<span class="fc" id="L72">            Path dest = pathResolver.resolve(entry);</span>
+<span class="fc" id="L73">            byte[] current = readIfExists(dest);</span>
+<span class="fc" id="L74">            LockfileEntry prior =</span>
+<span class="fc" id="L75">                    currentLockfile.files().get(entry.dest());</span>
+
+<span class="fc bfc" id="L77" title="All 2 branches covered.">            if (entry.tier() == ScaffoldTier.MODEL_MANAGED) {</span>
+<span class="fc" id="L78">                ModelAdapter adapter = modelAdapters.require(</span>
+<span class="fc" id="L79">                        entry.model());</span>
+<span class="fc" id="L80">                ModelPlanResult result = adapter.plan(</span>
+                        entry, dest, current, prior,
+<span class="fc" id="L82">                        manifest.standardsVersion());</span>
+<span class="fc" id="L83">                entries.add(new PlannedEntry(</span>
+<span class="fc" id="L84">                        entry, result.action(),</span>
+<span class="fc" id="L85">                        result.managedElements()));</span>
+<span class="fc" id="L86">            } else {</span>
+<span class="fc" id="L87">                TierHandler handler = tierHandlers.require(entry.tier());</span>
+<span class="fc" id="L88">                byte[] templateBytes = templates.read(entry.source());</span>
+<span class="fc" id="L89">                TierAction action = handler.plan(</span>
+                        entry, dest, current,
+                        templateBytes, prior);
+<span class="fc" id="L92">                entries.add(new PlannedEntry(entry, action, List.of()));</span>
+            }
+<span class="fc" id="L94">        }</span>
+
+<span class="fc" id="L96">        return new ScaffoldPlan(</span>
+<span class="fc" id="L97">                manifest.standardsVersion(), entries);</span>
+    }
+
+    private static byte[] readIfExists(Path p) {
+<span class="fc bfc" id="L101" title="All 2 branches covered.">        if (!Files.isRegularFile(p)) {</span>
+<span class="fc" id="L102">            return null;</span>
+        }
+        try {
+<span class="fc" id="L105">            return Files.readAllBytes(p);</span>
+<span class="nc" id="L106">        } catch (IOException e) {</span>
+<span class="nc" id="L107">            throw new ScaffoldException(</span>
+                    &quot;cannot read &quot; + p, e);
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

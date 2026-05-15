@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IkeSiteDraftMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">IkeSiteDraftMojo.java</span></div><h1>IkeSiteDraftMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.reconcile.SiteContext;
+import network.ike.plugin.reconcile.SiteDriftReport;
+import network.ike.plugin.reconcile.SiteReconciler;
+import network.ike.plugin.reconcile.SiteReconcilerOptions;
+import network.ike.plugin.reconcile.SiteReconcilerRegistry;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Diagnostic that reports drift in the project's deployed-site state.
+ *
+ * &lt;p&gt;Reads the current deployed site at
+ * {@code https://ike.network/&lt;artifactId&gt;/} and the project's entry on
+ * the IKE Network landing page, compares them to the current POM
+ * version, and prints a drift report with copy-paste opt-out commands
+ * inline.
+ *
+ * &lt;p&gt;Read-only — no remote mutation. Use {@link IkeSitePublishMojo}
+ * to apply.
+ *
+ * &lt;p&gt;Subsumes the retired {@code ike:deploy-site-draft},
+ * {@code ike:register-site-draft}, {@code ike:deregister-site-draft},
+ * and {@code ike:clean-site} (in their preview-only roles) goals. See
+ * IKE-Network/ike-issues#398.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;{@code
+ * mvn ike:site-draft        # report deployed-site drift
+ * mvn ike:site-publish      # apply (deploy + register)
+ * }&lt;/pre&gt;
+ *
+ * @see IkeSitePublishMojo
+ */
+@Mojo(name = &quot;site-draft&quot;, projectRequired = true, aggregator = true)
+public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L52">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /**
+     * Git URL of the org-site SOURCE repository (has the Maven pom
+     * and src/site/ tree where per-project fragments live).
+     */
+    @Parameter(property = &quot;srcRepo&quot;,
+               defaultValue = &quot;https://github.com/IKE-Network/ike-network-site.git&quot;)
+    String srcRepo;
+
+    /** Branch for source content in the source repo. */
+    @Parameter(property = &quot;srcBranch&quot;, defaultValue = &quot;main&quot;)
+    String srcBranch;
+
+    /**
+     * Git URL of the org-site PUBLISH repository (rendered HTML
+     * served at https://ike.network/).
+     */
+    @Parameter(property = &quot;pubRepo&quot;,
+               defaultValue = &quot;https://github.com/IKE-Network/IKE-Network.github.io.git&quot;)
+    String pubRepo;
+
+    /** Branch for rendered content in the publish repo. */
+    @Parameter(property = &quot;pubBranch&quot;, defaultValue = &quot;main&quot;)
+    String pubBranch;
+
+    /**
+     * Human-readable project name. Defaults to the project's POM
+     * {@code &lt;name&gt;}. Read at execute time because
+     * {@code defaultValue = &quot;${project.name}&quot;} does not interpolate
+     * under Maven 4 with {@code aggregator = true} (the field arrives
+     * as a literal {@code null} — same bug the retired
+     * {@code RegisterSiteDraftMojo} worked around before #398).
+     */
+    @Parameter(property = &quot;projectName&quot;)
+    String projectName;
+
+    /** One-line project description. Same caveat as {@link #projectName}. */
+    @Parameter(property = &quot;projectDescription&quot;)
+    String projectDescription;
+
+    /** Site URL on ike.network. Derived from artifact ID if not set. */
+    @Parameter(property = &quot;projectSiteUrl&quot;)
+    String projectSiteUrl;
+
+    /** GitHub repository URL. Derived from artifact ID if not set. */
+    @Parameter(property = &quot;githubUrl&quot;)
+    String githubUrl;
+
+    /** Version to reconcile against. Defaults to release version (SNAPSHOT stripped). */
+    @Parameter(property = &quot;releaseVersion&quot;)
+    String releaseVersion;
+
+    /**
+     * Internal toggle: {@code true} for {@code site-publish},
+     * {@code false} for {@code site-draft}.
+     */
+    @Parameter(property = &quot;publish&quot;, defaultValue = &quot;false&quot;)
+    boolean publish;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L113">    public IkeSiteDraftMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc" id="L117">        SiteContext ctx = buildContext();</span>
+
+<span class="nc" id="L119">        getLog().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">        getLog().info(publish ? &quot;ike:site-publish&quot; : &quot;ike:site-draft&quot;);</span>
+<span class="nc" id="L121">        getLog().info(&quot;══════════════════════════════════════════════════════════════&quot;);</span>
+<span class="nc" id="L122">        getLog().info(&quot;  Project:        &quot; + ctx.projectId());</span>
+<span class="nc" id="L123">        getLog().info(&quot;  Version:        &quot; + ctx.projectVersion());</span>
+<span class="nc" id="L124">        getLog().info(&quot;  Site URL:       &quot; + ctx.projectSiteUrl());</span>
+<span class="nc bnc" id="L125" title="All 4 branches missed.">        if (publish &amp;&amp; ctx.options().isUninstall()) {</span>
+<span class="nc" id="L126">            getLog().info(&quot;  Mode:           uninstall (-Dsite=removed)&quot;);</span>
+        }
+<span class="nc" id="L128">        getLog().info(&quot;&quot;);</span>
+
+<span class="nc bnc" id="L130" title="All 2 branches missed.">        if (publish) {</span>
+<span class="nc" id="L131">            runPublish(ctx);</span>
+        } else {
+<span class="nc" id="L133">            runDraft(ctx);</span>
+        }
+<span class="nc" id="L135">    }</span>
+
+    /** Iterate reconcilers in detect-mode and render reports. */
+    private void runDraft(SiteContext ctx) {
+<span class="nc" id="L139">        int driftCount = 0;</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        for (SiteReconciler reconciler : SiteReconcilerRegistry.all()) {</span>
+<span class="nc" id="L141">            SiteDriftReport report = reconciler.detect(ctx);</span>
+<span class="nc" id="L142">            printDriftReport(report);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">            if (report.hasDrift()) driftCount++;</span>
+<span class="nc" id="L144">        }</span>
+<span class="nc" id="L145">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L146">        getLog().info(&quot;══════════════════════════════════════════════════════════════&quot;);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">        if (driftCount == 0) {</span>
+<span class="nc" id="L148">            getLog().info(&quot;  No drift detected.&quot;);</span>
+        } else {
+<span class="nc" id="L150">            getLog().info(&quot;  &quot; + driftCount + &quot; dimension(s) drift; &quot;</span>
+                    + &quot;run ike:site-publish to apply.&quot;);
+        }
+<span class="nc" id="L153">    }</span>
+
+    /** Iterate reconcilers in apply-mode (or uninstall when -Dsite=removed). */
+    private void runPublish(SiteContext ctx) {
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        if (ctx.options().isUninstall()) {</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">            for (SiteReconciler reconciler : SiteReconcilerRegistry.uninstallOrder()) {</span>
+<span class="nc" id="L159">                reconciler.uninstall(ctx);</span>
+<span class="nc" id="L160">            }</span>
+        } else {
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            for (SiteReconciler reconciler : SiteReconcilerRegistry.all()) {</span>
+<span class="nc" id="L163">                reconciler.apply(ctx);</span>
+<span class="nc" id="L164">            }</span>
+        }
+<span class="nc" id="L166">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L167">        getLog().info(&quot;══════════════════════════════════════════════════════════════&quot;);</span>
+<span class="nc" id="L168">        getLog().info(&quot;  Done.&quot;);</span>
+<span class="nc" id="L169">    }</span>
+
+    /**
+     * Build the {@link SiteContext} from current Mojo parameters and
+     * the project's POM. Mirrors the parameter-resolution logic of the
+     * retired {@code RegisterSiteDraftMojo}.
+     */
+    private SiteContext buildContext() throws MojoException {
+<span class="nc" id="L177">        File gitRoot = ReleaseSupport.gitRoot(new File(&quot;.&quot;));</span>
+<span class="nc" id="L178">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+<span class="nc" id="L179">        String projectId = ReleaseSupport.readPomArtifactId(rootPom);</span>
+
+        String version;
+<span class="nc bnc" id="L182" title="All 4 branches missed.">        if (releaseVersion != null &amp;&amp; !releaseVersion.isBlank()) {</span>
+<span class="nc" id="L183">            version = releaseVersion;</span>
+        } else {
+<span class="nc" id="L185">            String pomVersion = ReleaseSupport.readPomVersion(rootPom);</span>
+<span class="nc" id="L186">            version = pomVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+        }
+
+<span class="nc" id="L189">        String resolvedName = projectName;</span>
+<span class="nc bnc" id="L190" title="All 4 branches missed.">        if (resolvedName == null || resolvedName.isBlank()) {</span>
+<span class="nc" id="L191">            resolvedName = ReleaseSupport.readPomName(rootPom);</span>
+<span class="nc bnc" id="L192" title="All 4 branches missed.">            if (resolvedName == null || resolvedName.isBlank()) {</span>
+<span class="nc" id="L193">                resolvedName = projectId;</span>
+            }
+        }
+
+<span class="nc" id="L197">        String resolvedDescription = projectDescription;</span>
+<span class="nc bnc" id="L198" title="All 4 branches missed.">        if (resolvedDescription == null || resolvedDescription.isBlank()) {</span>
+<span class="nc" id="L199">            resolvedDescription = ReleaseSupport.readPomDescription(rootPom);</span>
+        }
+
+<span class="nc" id="L202">        String resolvedSiteUrl = projectSiteUrl;</span>
+<span class="nc bnc" id="L203" title="All 4 branches missed.">        if (resolvedSiteUrl == null || resolvedSiteUrl.isBlank()) {</span>
+<span class="nc" id="L204">            resolvedSiteUrl = &quot;https://ike.network/&quot; + projectId + &quot;/&quot;;</span>
+        }
+
+<span class="nc" id="L207">        String resolvedGithub = githubUrl;</span>
+<span class="nc bnc" id="L208" title="All 4 branches missed.">        if (resolvedGithub == null || resolvedGithub.isBlank()) {</span>
+<span class="nc" id="L209">            resolvedGithub = &quot;https://github.com/IKE-Network/&quot; + projectId;</span>
+        }
+
+<span class="nc" id="L212">        return new SiteContext(</span>
+                gitRoot, projectId, version,
+                resolvedName, resolvedDescription,
+                resolvedSiteUrl, resolvedGithub,
+                srcRepo, srcBranch, pubRepo, pubBranch,
+<span class="nc" id="L217">                readReconcilerOptions(), getLog());</span>
+    }
+
+    /**
+     * Collect Maven system properties into a {@link SiteReconcilerOptions}
+     * bag so reconcilers can query their opt-out flags
+     * (e.g., {@code -DupdateSite=false}) and the {@code -Dsite=removed}
+     * uninstall switch.
+     */
+    private static SiteReconcilerOptions readReconcilerOptions() {
+<span class="nc" id="L227">        Map&lt;String, String&gt; flags = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        for (String name : System.getProperties().stringPropertyNames()) {</span>
+<span class="nc" id="L229">            flags.put(name, System.getProperty(name));</span>
+<span class="nc" id="L230">        }</span>
+<span class="nc" id="L231">        return new SiteReconcilerOptions(flags);</span>
+    }
+
+    /**
+     * Render a {@link SiteDriftReport} for {@code site-draft} output
+     * with the copy-paste opt-out command inline. Identical formatting
+     * shape to {@code ws:scaffold-draft}'s {@code printDriftReport}.
+     */
+    private void printDriftReport(SiteDriftReport report) {
+<span class="nc" id="L240">        getLog().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        if (!report.hasDrift()) {</span>
+<span class="nc" id="L242">            getLog().info(&quot;  ✓ &quot; + report.dimension());</span>
+<span class="nc" id="L243">            return;</span>
+        }
+<span class="nc" id="L245">        getLog().info(&quot;  ⚠ &quot; + report.dimension());</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (!report.summary().isEmpty()) {</span>
+<span class="nc" id="L247">            getLog().info(&quot;     &quot; + report.summary());</span>
+        }
+<span class="nc bnc" id="L249" title="All 2 branches missed.">        for (String line : report.detailLines()) {</span>
+<span class="nc" id="L250">            getLog().info(&quot;       &quot; + line);</span>
+<span class="nc" id="L251">        }</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        if (!report.defaultAction().isEmpty()) {</span>
+<span class="nc" id="L253">            getLog().info(&quot;     Default: &quot; + report.defaultAction());</span>
+        }
+<span class="nc bnc" id="L255" title="All 2 branches missed.">        if (!report.optOutCommand().isEmpty()) {</span>
+<span class="nc" id="L256">            getLog().info(&quot;     Opt out: &quot; + report.optOutCommand());</span>
+        }
+<span class="nc" id="L258">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

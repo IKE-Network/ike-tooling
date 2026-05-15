@@ -178,58 +178,6 @@ public final class PomRewriter {
     }
 
     /**
-     * Update the workspace root POM's own coordinates — its top-level
-     * {@code &lt;groupId&gt;}, {@code &lt;artifactId&gt;}, and {@code &lt;version&gt;}
-     * elements (the ones not nested under {@code &lt;parent&gt;} or any
-     * {@code &lt;dependency&gt;} / {@code &lt;plugin&gt;}). Used by
-     * {@code WsAdoptRootMojo} to migrate the legacy
-     * {@code local.aggregate:&lt;name&gt;:1.0.0-SNAPSHOT} placeholder to a
-     * real GAV (ike-issues#184).
-     *
-     * &lt;p&gt;Pass {@code null} for any field to leave it unchanged; pass a
-     * non-null replacement to rewrite that single element. Top-level
-     * matching uses the XPath {@code /project/&lt;element&gt;} so nested
-     * artifact references are not affected.
-     *
-     * @param pomContent    the raw POM text
-     * @param newGroupId    the project's new groupId, or null to skip
-     * @param newArtifactId the project's new artifactId, or null to skip
-     * @param newVersion    the project's new version, or null to skip
-     * @return updated POM text, or unchanged when no element matches
-     *         and no rewrite was attempted
-     */
-    public static String updateProjectCoordinates(String pomContent,
-                                                  String newGroupId,
-                                                  String newArtifactId,
-                                                  String newVersion) {
-<span class="nc" id="L205">        Xml.Document doc = parse(pomContent);</span>
-<span class="nc bnc" id="L206" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
-
-<span class="nc" id="L208">        XPathMatcher gidMatcher = new XPathMatcher(&quot;/project/groupId&quot;);</span>
-<span class="nc" id="L209">        XPathMatcher aidMatcher = new XPathMatcher(&quot;/project/artifactId&quot;);</span>
-<span class="nc" id="L210">        XPathMatcher verMatcher = new XPathMatcher(&quot;/project/version&quot;);</span>
-
-<span class="nc" id="L212">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
-            @Override
-            public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
-<span class="nc" id="L215">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
-<span class="nc bnc" id="L216" title="All 4 branches missed.">                if (newGroupId != null &amp;&amp; gidMatcher.matches(getCursor())) {</span>
-<span class="nc" id="L217">                    return t.withValue(newGroupId);</span>
-                }
-<span class="nc bnc" id="L219" title="All 4 branches missed.">                if (newArtifactId != null &amp;&amp; aidMatcher.matches(getCursor())) {</span>
-<span class="nc" id="L220">                    return t.withValue(newArtifactId);</span>
-                }
-<span class="nc bnc" id="L222" title="All 4 branches missed.">                if (newVersion != null &amp;&amp; verMatcher.matches(getCursor())) {</span>
-<span class="nc" id="L223">                    return t.withValue(newVersion);</span>
-                }
-<span class="nc" id="L225">                return t;</span>
-            }
-<span class="nc" id="L227">        }.visitNonNull(doc, 0);</span>
-
-<span class="nc" id="L229">        return print(updated);</span>
-    }
-
-    /**
      * Remove the {@code &lt;version&gt;} child from a dependency matched by
      * {@code groupId:artifactId}. Used to eliminate intra-reactor
      * version pins where the reactor resolves the version automatically.
@@ -242,31 +190,31 @@ public final class PomRewriter {
     public static String removeDependencyVersion(String pomContent,
                                                   String groupId,
                                                   String artifactId) {
-<span class="nc" id="L245">        Xml.Document doc = parse(pomContent);</span>
-<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
+<span class="nc" id="L193">        Xml.Document doc = parse(pomContent);</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
 
-<span class="nc" id="L248">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
+<span class="nc" id="L196">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
             @Override
             public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
-<span class="nc" id="L251">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
-<span class="nc bnc" id="L252" title="All 2 branches missed.">                if (!&quot;dependency&quot;.equals(t.getName())) return t;</span>
+<span class="nc" id="L199">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">                if (!&quot;dependency&quot;.equals(t.getName())) return t;</span>
 
-<span class="nc" id="L254">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
-<span class="nc" id="L255">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
-<span class="nc bnc" id="L256" title="All 4 branches missed.">                if (groupId.equals(gid) &amp;&amp; artifactId.equals(aid)</span>
-<span class="nc bnc" id="L257" title="All 2 branches missed.">                        &amp;&amp; t.getChild(&quot;version&quot;).isPresent()) {</span>
+<span class="nc" id="L202">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
+<span class="nc" id="L203">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
+<span class="nc bnc" id="L204" title="All 4 branches missed.">                if (groupId.equals(gid) &amp;&amp; artifactId.equals(aid)</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">                        &amp;&amp; t.getChild(&quot;version&quot;).isPresent()) {</span>
                     // Filter out the &lt;version&gt; element from content
-<span class="nc" id="L259">                    var filtered = t.getContent().stream()</span>
-<span class="nc" id="L260">                            .filter(c -&gt; !(c instanceof Xml.Tag child</span>
-<span class="nc bnc" id="L261" title="All 6 branches missed.">                                    &amp;&amp; &quot;version&quot;.equals(child.getName())))</span>
-<span class="nc" id="L262">                            .toList();</span>
-<span class="nc" id="L263">                    return t.withContent(filtered);</span>
+<span class="nc" id="L207">                    var filtered = t.getContent().stream()</span>
+<span class="nc" id="L208">                            .filter(c -&gt; !(c instanceof Xml.Tag child</span>
+<span class="nc bnc" id="L209" title="All 6 branches missed.">                                    &amp;&amp; &quot;version&quot;.equals(child.getName())))</span>
+<span class="nc" id="L210">                            .toList();</span>
+<span class="nc" id="L211">                    return t.withContent(filtered);</span>
                 }
-<span class="nc" id="L265">                return t;</span>
+<span class="nc" id="L213">                return t;</span>
             }
-<span class="nc" id="L267">        }.visitNonNull(doc, 0);</span>
+<span class="nc" id="L215">        }.visitNonNull(doc, 0);</span>
 
-<span class="nc" id="L269">        return print(updated);</span>
+<span class="nc" id="L217">        return print(updated);</span>
     }
 
     /**
@@ -276,10 +224,10 @@ public final class PomRewriter {
      * @return parsed document, or {@code null} if parsing failed
      */
     private static Xml.Document parse(String pomContent) {
-<span class="nc" id="L279">        return PARSER.parse(pomContent)</span>
-<span class="nc" id="L280">                .findFirst()</span>
-<span class="nc" id="L281">                .map(t -&gt; (Xml.Document) t)</span>
-<span class="nc" id="L282">                .orElse(null);</span>
+<span class="nc" id="L227">        return PARSER.parse(pomContent)</span>
+<span class="nc" id="L228">                .findFirst()</span>
+<span class="nc" id="L229">                .map(t -&gt; (Xml.Document) t)</span>
+<span class="nc" id="L230">                .orElse(null);</span>
     }
 
     /**
@@ -289,7 +237,7 @@ public final class PomRewriter {
      * @return the document's textual form
      */
     private static String print(Xml.Document doc) {
-<span class="nc" id="L292">        return doc.printAll();</span>
+<span class="nc" id="L240">        return doc.printAll();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

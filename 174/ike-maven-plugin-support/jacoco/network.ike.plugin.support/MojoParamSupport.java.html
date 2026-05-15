@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MojoParamSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin Support</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.support</a> &gt; <span class="el_source">MojoParamSupport.java</span></div><h1>MojoParamSupport.java</h1><pre class="source lang-java linenums">package network.ike.plugin.support;
+
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.services.Prompter;
+import org.apache.maven.api.services.PrompterException;
+
+/**
+ * Static utility for interactive parameter resolution in mojos
+ * that implement {@link org.apache.maven.api.plugin.Mojo} directly
+ * (no shared base class).
+ *
+ * &lt;p&gt;Delegates to Maven 4's {@link Prompter} service for the
+ * interactive read, so the prompt label and input cursor render
+ * inline across terminal sessions and IntelliJ's Maven runner.
+ * Mojos that need to prompt must {@code @Inject} a Prompter and
+ * pass it in.
+ *
+ * &lt;p&gt;Moved from {@code network.ike.plugin} as part of the plugin
+ * split (ike-issues#215) so both ike-maven-plugin and
+ * ike-doc-maven-plugin can share it. Migrated to the Maven 4
+ * Prompter service in ike-issues#385 to match {@code ws:}-goal
+ * prompt UX — pre-migration this used {@code System.console} /
+ * {@code System.in} directly and bypassed the Prompter abstraction.
+ */
+public final class MojoParamSupport {
+
+    private MojoParamSupport() {}
+
+    /**
+     * Resolve a required parameter: return the value if present,
+     * prompt interactively via the {@link Prompter} when not, or
+     * fail fast with a clear error when no value can be obtained.
+     *
+     * @param currentValue the value from the {@code @Parameter} field
+     *                     (may be null)
+     * @param propertyName the {@code -D} property name (for the error message)
+     * @param promptLabel  human-readable label shown in the prompt;
+     *                     the Prompter appends its own &quot;: &quot; separator
+     * @param prompter     the Maven 4 prompter service (DI-injected by
+     *                     the calling mojo); when null, falls back to
+     *                     a fail-fast error
+     * @param log          Maven logger (currently unused; kept for
+     *                     signature compatibility and future logging)
+     * @return the resolved value — either the original or user-supplied
+     * @throws MojoException if no value can be obtained
+     */
+    public static String requireParam(String currentValue, String propertyName,
+                                       String promptLabel, Prompter prompter,
+                                       Log log)
+            throws MojoException {
+<span class="nc bnc" id="L52" title="All 4 branches missed.">        if (currentValue != null &amp;&amp; !currentValue.isBlank()) {</span>
+<span class="nc" id="L53">            return currentValue.trim();</span>
+        }
+
+<span class="nc bnc" id="L56" title="All 2 branches missed.">        if (prompter == null) {</span>
+<span class="nc" id="L57">            throw new MojoException(</span>
+                    propertyName + &quot; is required. Specify -D&quot; + propertyName
+                            + &quot;=&lt;value&gt; (no Prompter wired in this context).&quot;);
+        }
+
+        try {
+<span class="nc" id="L63">            String input = prompter.prompt(promptLabel);</span>
+<span class="nc bnc" id="L64" title="All 4 branches missed.">            if (input != null &amp;&amp; !input.isBlank()) {</span>
+<span class="nc" id="L65">                return input.trim();</span>
+            }
+<span class="nc" id="L67">        } catch (PrompterException e) {</span>
+<span class="nc" id="L68">            throw new MojoException(</span>
+                    propertyName + &quot; is required. Specify -D&quot; + propertyName
+                            + &quot;=&lt;value&gt; or run interactively. (&quot;
+<span class="nc" id="L71">                            + e.getMessage() + &quot;)&quot;);</span>
+<span class="nc" id="L72">        }</span>
+
+<span class="nc" id="L74">        throw new MojoException(</span>
+                propertyName + &quot; is required. Specify -D&quot; + propertyName
+                        + &quot;=&lt;value&gt; or run interactively.&quot;);
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

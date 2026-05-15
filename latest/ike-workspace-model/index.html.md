@@ -1,6 +1,6 @@
 ---
-date_published: 2026-05-13
-date_modified: 2026-05-13
+date_published: 2026-05-14
+date_modified: 2026-05-14
 canonical_url: https://ike.network/ike-tooling/ike-workspace-model/index.html
 ---
 
@@ -37,7 +37,7 @@ A `Subproject` describes one repository within the workspace:
 - `state` — alignment state (see below).
 - `type` — `release` or `checkpoint` (the artifact-cadence).
 
-The denormalized fields (groupId, version) are kept in sync with the on-disk POM by `ws:fix` and `ws:verify --update`. They’re cached in the YAML so workspace-wide reads (graph traversal, ordering) don’t require parsing every POM.
+The denormalized fields (groupId, version) are kept in sync with the on-disk POM by `ws:scaffold-publish’s field-normalization reconciler (see ike-issues#393). They’re cached in the YAML so workspace-wide reads (graph traversal, ordering) don’t require parsing every POM.
 
 ## [#alignment-states](#alignment-states)Alignment states
 

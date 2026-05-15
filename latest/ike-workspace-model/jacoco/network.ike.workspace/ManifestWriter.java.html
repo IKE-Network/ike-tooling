@@ -100,6 +100,10 @@ public final class ManifestWriter {
      * Update a field in a subproject block, or insert it after a reference
      * field if it doesn't exist yet.
      *
+     * &lt;p&gt;If the field exists multiple times in the block (a corrupted state
+     * from a prior version of this writer, see #387), all duplicates are
+     * collapsed into a single entry with the new value.
+     *
      * @param yaml           full YAML content
      * @param subprojectName the subproject key
      * @param field          the field name to update or insert
@@ -110,27 +114,199 @@ public final class ManifestWriter {
     public static String addOrUpdateSubprojectField(String yaml, String subprojectName,
                                                     String field, String newValue,
                                                     String afterField) {
-        // Try update first
-<span class="fc" id="L114">        String updated = updateSubprojectField(yaml, subprojectName, field, newValue);</span>
-<span class="fc bfc" id="L115" title="All 2 branches covered.">        if (!updated.equals(yaml)) {</span>
-<span class="fc" id="L116">            return updated; // field existed and was updated</span>
-        }
+<span class="fc" id="L117">        SubprojectBlockBounds bounds = findSubprojectBlockBounds(yaml, subprojectName);</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">        if (bounds == null) return yaml;</span>
 
-        // Field doesn't exist — insert after afterField
-<span class="fc" id="L120">        String escapedName = Pattern.quote(subprojectName);</span>
-<span class="fc" id="L121">        String escapedAfter = Pattern.quote(afterField);</span>
+<span class="fc" id="L120">        int blockStart = bounds.start();</span>
+<span class="fc" id="L121">        int blockEnd = bounds.end();</span>
+<span class="fc" id="L122">        String block = yaml.substring(blockStart, blockEnd);</span>
 
-<span class="fc" id="L123">        Pattern insertPattern = Pattern.compile(</span>
-            &quot;(^  &quot; + escapedName + &quot;:\\s*$.*?^    &quot; + escapedAfter + &quot;:\\s*\\S+.*?)$&quot;,
-            Pattern.MULTILINE | Pattern.DOTALL
+        // Strip ALL existing occurrences of the field in this block. Handles
+        // both the normal &quot;one existing entry&quot; case and the corrupted
+        // &quot;multiple duplicate entries&quot; case (#387) idempotently.
+<span class="fc" id="L127">        Pattern fieldLine = Pattern.compile(</span>
+<span class="fc" id="L128">            &quot;(?m)^    &quot; + Pattern.quote(field) + &quot;:[^\\n]*\\n?&quot;</span>
         );
+<span class="fc" id="L130">        String stripped = fieldLine.matcher(block).replaceAll(&quot;&quot;);</span>
 
-<span class="fc" id="L128">        Matcher m = insertPattern.matcher(yaml);</span>
-<span class="fc bfc" id="L129" title="All 2 branches covered.">        if (m.find()) {</span>
-<span class="fc" id="L130">            String insertion = m.group(0) + &quot;\n    &quot; + field + &quot;: &quot; + newValue;</span>
-<span class="fc" id="L131">            return yaml.substring(0, m.start()) + insertion + yaml.substring(m.end());</span>
+        // Insert one canonical entry after the reference field.
+<span class="fc" id="L133">        Pattern afterLine = Pattern.compile(</span>
+<span class="fc" id="L134">            &quot;(?m)^    &quot; + Pattern.quote(afterField) + &quot;:[^\\n]*$&quot;</span>
+        );
+<span class="fc" id="L136">        Matcher afterMatcher = afterLine.matcher(stripped);</span>
+        String rebuilt;
+<span class="fc bfc" id="L138" title="All 2 branches covered.">        if (afterMatcher.find()) {</span>
+<span class="fc" id="L139">            rebuilt = stripped.substring(0, afterMatcher.end())</span>
+                    + &quot;\n    &quot; + field + &quot;: &quot; + newValue
+<span class="fc" id="L141">                    + stripped.substring(afterMatcher.end());</span>
+        } else {
+            // Reference field not present in block — fall back to inserting
+            // the new field at the end of the block content (before the next
+            // sibling subproject's start).
+<span class="fc" id="L146">            String trimmed = stripped.replaceAll(&quot;\\s+$&quot;, &quot;&quot;);</span>
+<span class="fc" id="L147">            rebuilt = trimmed + &quot;\n    &quot; + field + &quot;: &quot; + newValue + &quot;\n&quot;;</span>
         }
-<span class="fc" id="L133">        return yaml;</span>
+
+<span class="fc" id="L150">        return yaml.substring(0, blockStart) + rebuilt + yaml.substring(blockEnd);</span>
+    }
+
+    /**
+     * Half-open character offsets of a subproject's body in the YAML
+     * text. {@code start} is the position immediately after the
+     * {@code &quot;  &lt;name&gt;:&quot;} header line's newline, so
+     * {@code yaml.substring(start, end)} contains only the field
+     * lines under the subproject.
+     *
+     * @param start inclusive start offset (first byte of body)
+     * @param end   exclusive end offset (first byte of next sibling
+     *              subproject, next top-level key, or end of file)
+     */
+<span class="fc" id="L164">    public record SubprojectBlockBounds(int start, int end) {}</span>
+
+    /**
+     * Locate a subproject's body in the YAML text.
+     *
+     * @param yaml           full YAML content
+     * @param subprojectName the subproject key to locate
+     * @return bounds of the subproject's body, or null if absent
+     */
+    static SubprojectBlockBounds findSubprojectBlockBounds(String yaml,
+                                                            String subprojectName) {
+<span class="fc" id="L175">        Pattern header = Pattern.compile(</span>
+<span class="fc" id="L176">            &quot;(?m)^  &quot; + Pattern.quote(subprojectName) + &quot;:\\s*$&quot;</span>
+        );
+<span class="fc" id="L178">        Matcher headerMatcher = header.matcher(yaml);</span>
+<span class="fc bfc" id="L179" title="All 2 branches covered.">        if (!headerMatcher.find()) return null;</span>
+<span class="fc" id="L180">        int start = headerMatcher.end();</span>
+        // Skip the newline that terminates the header line, if present.
+<span class="pc bpc" id="L182" title="2 of 4 branches missed.">        if (start &lt; yaml.length() &amp;&amp; yaml.charAt(start) == '\n') {</span>
+<span class="fc" id="L183">            start++;</span>
+        }
+
+        // Block ends at the next sibling subproject (&quot;^  &lt;key&gt;:&quot;) or any
+        // top-level (zero-indent) key, whichever comes first.
+<span class="fc" id="L188">        Pattern boundary = Pattern.compile(</span>
+            &quot;(?m)^(?:  \\S[^:\\n]*:\\s*$|\\S)&quot;
+        );
+<span class="fc" id="L191">        Matcher boundaryMatcher = boundary.matcher(yaml);</span>
+<span class="fc" id="L192">        int end = yaml.length();</span>
+<span class="fc bfc" id="L193" title="All 2 branches covered.">        if (boundaryMatcher.find(start)) {</span>
+<span class="fc" id="L194">            end = boundaryMatcher.start();</span>
+        }
+<span class="fc" id="L196">        return new SubprojectBlockBounds(start, end);</span>
+    }
+
+    /**
+     * Return whether the given field exists in the given subproject's
+     * block. Block-bounded scan so a same-named field in a sibling
+     * subproject does not produce a false positive.
+     *
+     * &lt;p&gt;This is the explicit replacement for the historical pattern
+     * of calling {@link #updateSubprojectField} and comparing the
+     * result to the original yaml — that approach (still used inside
+     * the pre-fix {@link #addOrUpdateSubprojectField}) couldn't
+     * distinguish &quot;field absent&quot; from &quot;field present with same value&quot;
+     * and produced the duplicate-key bug fixed in
+     * IKE-Network/ike-issues#387.
+     *
+     * @param yaml           full YAML content
+     * @param subprojectName the subproject key
+     * @param field          the field name
+     * @return true if the field appears at least once in the subproject's block
+     */
+    public static boolean subprojectFieldExists(String yaml, String subprojectName,
+                                                  String field) {
+<span class="fc" id="L219">        SubprojectBlockBounds bounds = findSubprojectBlockBounds(yaml, subprojectName);</span>
+<span class="fc bfc" id="L220" title="All 2 branches covered.">        if (bounds == null) return false;</span>
+<span class="fc" id="L221">        String block = yaml.substring(bounds.start(), bounds.end());</span>
+<span class="fc" id="L222">        Pattern fieldLine = Pattern.compile(</span>
+<span class="fc" id="L223">            &quot;(?m)^    &quot; + Pattern.quote(field) + &quot;:&quot;</span>
+        );
+<span class="fc" id="L225">        return fieldLine.matcher(block).find();</span>
+    }
+
+    /**
+     * Collapse duplicate field entries in every subproject block.
+     *
+     * &lt;p&gt;For each subproject, if any field name appears more than once
+     * in the block, keep only the LAST occurrence (matches YAML
+     * last-wins semantics for duplicate keys) and remove the rest.
+     *
+     * &lt;p&gt;Safety-net cleanup for workspaces affected by the pre-fix
+     * duplicate-key bug (#387). Idempotent: running on a clean file
+     * is a no-op.
+     *
+     * @param yaml full YAML content
+     * @return yaml with duplicates collapsed
+     */
+    public static String collapseDuplicateSubprojectFields(String yaml) {
+        // Find every subproject header to know the block bounds.
+<span class="fc" id="L244">        Pattern subprojectHeader = Pattern.compile(</span>
+            &quot;(?m)^  (\\S[^:\\n]*):\\s*$&quot;
+        );
+<span class="fc" id="L247">        Matcher headerMatcher = subprojectHeader.matcher(yaml);</span>
+<span class="fc" id="L248">        java.util.List&lt;String&gt; names = new java.util.ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L249" title="All 2 branches covered.">        while (headerMatcher.find()) {</span>
+<span class="fc" id="L250">            names.add(headerMatcher.group(1));</span>
+        }
+
+<span class="fc" id="L253">        String result = yaml;</span>
+<span class="fc bfc" id="L254" title="All 2 branches covered.">        for (String name : names) {</span>
+<span class="fc" id="L255">            result = collapseDuplicatesInBlock(result, name);</span>
+<span class="fc" id="L256">        }</span>
+<span class="fc" id="L257">        return result;</span>
+    }
+
+    /**
+     * Helper for {@link #collapseDuplicateSubprojectFields}: collapse
+     * duplicate field keys in one subproject block, keeping the last
+     * occurrence of each field.
+     */
+    private static String collapseDuplicatesInBlock(String yaml, String subprojectName) {
+<span class="fc" id="L266">        SubprojectBlockBounds bounds = findSubprojectBlockBounds(yaml, subprojectName);</span>
+<span class="pc bpc" id="L267" title="1 of 2 branches missed.">        if (bounds == null) return yaml;</span>
+<span class="fc" id="L268">        int blockStart = bounds.start();</span>
+<span class="fc" id="L269">        int blockEnd = bounds.end();</span>
+<span class="fc" id="L270">        String block = yaml.substring(blockStart, blockEnd);</span>
+
+        // Find every &quot;    &lt;field&gt;: &lt;value&gt;&quot; line in encounter order,
+        // tracking the LAST occurrence per field name.
+<span class="fc" id="L274">        Pattern fieldLine = Pattern.compile(</span>
+            &quot;(?m)^    (\\S[^:\\n]*):[^\\n]*$&quot;
+        );
+<span class="fc" id="L277">        Matcher fieldMatcher = fieldLine.matcher(block);</span>
+        // Map field name → list of {start, end, lineWithNewline} for each occurrence.
+<span class="fc" id="L279">        java.util.Map&lt;String, java.util.List&lt;int[]&gt;&gt; occurrences =</span>
+                new java.util.LinkedHashMap&lt;&gt;();
+<span class="fc bfc" id="L281" title="All 2 branches covered.">        while (fieldMatcher.find()) {</span>
+<span class="fc" id="L282">            String name = fieldMatcher.group(1);</span>
+<span class="fc" id="L283">            int s = fieldMatcher.start();</span>
+<span class="fc" id="L284">            int e = fieldMatcher.end();</span>
+            // Include trailing newline if present so removal is clean.
+<span class="pc bpc" id="L286" title="2 of 4 branches missed.">            if (e &lt; block.length() &amp;&amp; block.charAt(e) == '\n') {</span>
+<span class="fc" id="L287">                e++;</span>
+            }
+<span class="fc" id="L289">            occurrences.computeIfAbsent(name, k -&gt; new java.util.ArrayList&lt;&gt;())</span>
+<span class="fc" id="L290">                    .add(new int[]{s, e});</span>
+<span class="fc" id="L291">        }</span>
+
+        // Determine which character ranges to remove: all but the last
+        // occurrence for each duplicated field.
+<span class="fc" id="L295">        java.util.List&lt;int[]&gt; toRemove = new java.util.ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L296" title="All 2 branches covered.">        for (java.util.List&lt;int[]&gt; list : occurrences.values()) {</span>
+<span class="fc bfc" id="L297" title="All 2 branches covered.">            if (list.size() &lt;= 1) continue;</span>
+<span class="fc bfc" id="L298" title="All 2 branches covered.">            for (int i = 0; i &lt; list.size() - 1; i++) {</span>
+<span class="fc" id="L299">                toRemove.add(list.get(i));</span>
+            }
+<span class="fc" id="L301">        }</span>
+<span class="fc bfc" id="L302" title="All 2 branches covered.">        if (toRemove.isEmpty()) return yaml;</span>
+
+<span class="fc" id="L304">        toRemove.sort((a, b) -&gt; Integer.compare(b[0], a[0]));</span>
+<span class="fc" id="L305">        StringBuilder sb = new StringBuilder(block);</span>
+<span class="fc bfc" id="L306" title="All 2 branches covered.">        for (int[] r : toRemove) {</span>
+<span class="fc" id="L307">            sb.delete(r[0], r[1]);</span>
+<span class="fc" id="L308">        }</span>
+<span class="fc" id="L309">        return yaml.substring(0, blockStart) + sb + yaml.substring(blockEnd);</span>
     }
 
     /**
@@ -142,16 +318,16 @@ public final class ManifestWriter {
      * @return updated YAML content
      */
     static String updateDefaultField(String yaml, String field, String newValue) {
-<span class="nc" id="L145">        String escapedField = Pattern.quote(field);</span>
-<span class="nc" id="L146">        Pattern pattern = Pattern.compile(</span>
+<span class="nc" id="L321">        String escapedField = Pattern.quote(field);</span>
+<span class="nc" id="L322">        Pattern pattern = Pattern.compile(</span>
             &quot;(^  &quot; + escapedField + &quot;:\\s*)(\\S+.*?)$&quot;,
             Pattern.MULTILINE
         );
-<span class="nc" id="L150">        Matcher m = pattern.matcher(yaml);</span>
-<span class="nc bnc" id="L151" title="All 2 branches missed.">        if (m.find()) {</span>
-<span class="nc" id="L152">            return m.replaceFirst(&quot;$1&quot; + Matcher.quoteReplacement(newValue));</span>
+<span class="nc" id="L326">        Matcher m = pattern.matcher(yaml);</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">        if (m.find()) {</span>
+<span class="nc" id="L328">            return m.replaceFirst(&quot;$1&quot; + Matcher.quoteReplacement(newValue));</span>
         }
-<span class="nc" id="L154">        return yaml;</span>
+<span class="nc" id="L330">        return yaml;</span>
     }
 
     /**
@@ -165,19 +341,19 @@ public final class ManifestWriter {
      */
     public static String updateSubprojectField(String yaml, String subprojectName,
                                         String field, String newValue) {
-<span class="fc" id="L168">        String escapedName = Pattern.quote(subprojectName);</span>
-<span class="fc" id="L169">        String escapedField = Pattern.quote(field);</span>
+<span class="nc" id="L344">        String escapedName = Pattern.quote(subprojectName);</span>
+<span class="nc" id="L345">        String escapedField = Pattern.quote(field);</span>
 
-<span class="fc" id="L171">        Pattern blockPattern = Pattern.compile(</span>
+<span class="nc" id="L347">        Pattern blockPattern = Pattern.compile(</span>
             &quot;(^  &quot; + escapedName + &quot;:\\s*$.*?^    &quot; + escapedField + &quot;:\\s*)(\\S+.*?)$&quot;,
             Pattern.MULTILINE | Pattern.DOTALL
         );
 
-<span class="fc" id="L176">        Matcher m = blockPattern.matcher(yaml);</span>
-<span class="fc bfc" id="L177" title="All 2 branches covered.">        if (m.find()) {</span>
-<span class="fc" id="L178">            return m.replaceFirst(&quot;$1&quot; + Matcher.quoteReplacement(newValue));</span>
+<span class="nc" id="L352">        Matcher m = blockPattern.matcher(yaml);</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">        if (m.find()) {</span>
+<span class="nc" id="L354">            return m.replaceFirst(&quot;$1&quot; + Matcher.quoteReplacement(newValue));</span>
         }
-<span class="fc" id="L180">        return yaml;</span>
+<span class="nc" id="L356">        return yaml;</span>
     }
 
     /**
@@ -192,7 +368,7 @@ public final class ManifestWriter {
      * @return updated YAML content (unchanged if the subproject is absent)
      */
     public static String updateSubprojectBranch(String yaml, String subprojectName, String newBranch) {
-<span class="fc" id="L195">        return addOrUpdateSubprojectField(yaml, subprojectName, &quot;branch&quot;, newBranch, &quot;repo&quot;);</span>
+<span class="fc" id="L371">        return addOrUpdateSubprojectField(yaml, subprojectName, &quot;branch&quot;, newBranch, &quot;repo&quot;);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
