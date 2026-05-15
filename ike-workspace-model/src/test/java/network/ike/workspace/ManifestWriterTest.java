@@ -305,6 +305,60 @@ class ManifestWriterTest {
     }
 
     @Test
+    void subprojectFieldExists_true_when_field_present() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                    sha: "abc"
+                """;
+        assertThat(ManifestWriter.subprojectFieldExists(yaml, "tinkar-core", "sha"))
+                .isTrue();
+        assertThat(ManifestWriter.subprojectFieldExists(yaml, "tinkar-core", "branch"))
+                .isTrue();
+    }
+
+    @Test
+    void subprojectFieldExists_false_when_field_absent() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                """;
+        assertThat(ManifestWriter.subprojectFieldExists(yaml, "tinkar-core", "sha"))
+                .isFalse();
+    }
+
+    @Test
+    void subprojectFieldExists_false_when_subproject_absent() {
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                """;
+        assertThat(ManifestWriter.subprojectFieldExists(yaml, "komet", "branch"))
+                .isFalse();
+    }
+
+    @Test
+    void subprojectFieldExists_is_block_bounded() {
+        // Field exists in komet but not tinkar-core — must not leak across blocks.
+        String yaml = """
+                subprojects:
+                  tinkar-core:
+                    branch: main
+                  komet:
+                    branch: main
+                    sha: "komet-only"
+                """;
+        assertThat(ManifestWriter.subprojectFieldExists(yaml, "tinkar-core", "sha"))
+                .as("sha is in komet's block, not tinkar-core's")
+                .isFalse();
+        assertThat(ManifestWriter.subprojectFieldExists(yaml, "komet", "sha"))
+                .isTrue();
+    }
+
+    @Test
     void collapseDuplicates_is_noop_on_clean_yaml() {
         String yaml = """
                 subprojects:

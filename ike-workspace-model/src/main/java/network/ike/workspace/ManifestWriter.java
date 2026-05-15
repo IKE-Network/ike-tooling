@@ -114,11 +114,11 @@ public final class ManifestWriter {
     public static String addOrUpdateSubprojectField(String yaml, String subprojectName,
                                                     String field, String newValue,
                                                     String afterField) {
-        int[] bounds = findSubprojectBlockBounds(yaml, subprojectName);
+        SubprojectBlockBounds bounds = findSubprojectBlockBounds(yaml, subprojectName);
         if (bounds == null) return yaml;
 
-        int blockStart = bounds[0];
-        int blockEnd = bounds[1];
+        int blockStart = bounds.start();
+        int blockEnd = bounds.end();
         String block = yaml.substring(blockStart, blockEnd);
 
         // Strip ALL existing occurrences of the field in this block. Handles
@@ -151,20 +151,27 @@ public final class ManifestWriter {
     }
 
     /**
-     * Return the [start, end) character offsets of a subproject's body in
-     * the YAML text — the region between the {@code "  <name>:"} header
-     * line and the next sibling subproject (or the next top-level key, or
-     * end of file). Returns {@code null} if the subproject is not present.
+     * Half-open character offsets of a subproject's body in the YAML
+     * text. {@code start} is the position immediately after the
+     * {@code "  <name>:"} header line's newline, so
+     * {@code yaml.substring(start, end)} contains only the field
+     * lines under the subproject.
      *
-     * <p>{@code start} is the position immediately after the header line's
-     * newline, so the slice {@code yaml.substring(start, end)} contains
-     * only the field lines under the subproject.
+     * @param start inclusive start offset (first byte of body)
+     * @param end   exclusive end offset (first byte of next sibling
+     *              subproject, next top-level key, or end of file)
+     */
+    public record SubprojectBlockBounds(int start, int end) {}
+
+    /**
+     * Locate a subproject's body in the YAML text.
      *
      * @param yaml           full YAML content
      * @param subprojectName the subproject key to locate
-     * @return two-element {@code int[]} {start, end}, or null if absent
+     * @return bounds of the subproject's body, or null if absent
      */
-    static int[] findSubprojectBlockBounds(String yaml, String subprojectName) {
+    static SubprojectBlockBounds findSubprojectBlockBounds(String yaml,
+                                                            String subprojectName) {
         Pattern header = Pattern.compile(
             "(?m)^  " + Pattern.quote(subprojectName) + ":\\s*$"
         );
@@ -186,7 +193,36 @@ public final class ManifestWriter {
         if (boundaryMatcher.find(start)) {
             end = boundaryMatcher.start();
         }
-        return new int[]{start, end};
+        return new SubprojectBlockBounds(start, end);
+    }
+
+    /**
+     * Return whether the given field exists in the given subproject's
+     * block. Block-bounded scan so a same-named field in a sibling
+     * subproject does not produce a false positive.
+     *
+     * <p>This is the explicit replacement for the historical pattern
+     * of calling {@link #updateSubprojectField} and comparing the
+     * result to the original yaml — that approach (still used inside
+     * the pre-fix {@link #addOrUpdateSubprojectField}) couldn't
+     * distinguish "field absent" from "field present with same value"
+     * and produced the duplicate-key bug fixed in
+     * IKE-Network/ike-issues#387.
+     *
+     * @param yaml           full YAML content
+     * @param subprojectName the subproject key
+     * @param field          the field name
+     * @return true if the field appears at least once in the subproject's block
+     */
+    public static boolean subprojectFieldExists(String yaml, String subprojectName,
+                                                  String field) {
+        SubprojectBlockBounds bounds = findSubprojectBlockBounds(yaml, subprojectName);
+        if (bounds == null) return false;
+        String block = yaml.substring(bounds.start(), bounds.end());
+        Pattern fieldLine = Pattern.compile(
+            "(?m)^    " + Pattern.quote(field) + ":"
+        );
+        return fieldLine.matcher(block).find();
     }
 
     /**
@@ -227,10 +263,10 @@ public final class ManifestWriter {
      * occurrence of each field.
      */
     private static String collapseDuplicatesInBlock(String yaml, String subprojectName) {
-        int[] bounds = findSubprojectBlockBounds(yaml, subprojectName);
+        SubprojectBlockBounds bounds = findSubprojectBlockBounds(yaml, subprojectName);
         if (bounds == null) return yaml;
-        int blockStart = bounds[0];
-        int blockEnd = bounds[1];
+        int blockStart = bounds.start();
+        int blockEnd = bounds.end();
         String block = yaml.substring(blockStart, blockEnd);
 
         // Find every "    <field>: <value>" line in encounter order,
