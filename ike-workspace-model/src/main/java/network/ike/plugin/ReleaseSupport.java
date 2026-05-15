@@ -1675,6 +1675,36 @@ public class ReleaseSupport {
     }
 
     /**
+     * Read a {@code <properties>} value from a POM file by element
+     * name.
+     *
+     * <p>Used by cascade resolution (IKE-Network/ike-issues#404) to
+     * read {@code ike-tooling.version} — the version at which a
+     * foundation repo resolves the {@code ike-build-standards}
+     * {@code cascade} artifact.
+     *
+     * @param pomFile      the POM file to read
+     * @param propertyName the property element name (e.g.
+     *                     {@code ike-tooling.version})
+     * @return the property value, or {@code null} if the POM declares
+     *         no such property
+     * @throws MojoException if the file cannot be read
+     */
+    public static String readPomProperty(File pomFile, String propertyName)
+            throws MojoException {
+        try {
+            String content = Files.readString(
+                    pomFile.toPath(), StandardCharsets.UTF_8);
+            Matcher matcher = Pattern.compile(
+                    "<" + Pattern.quote(propertyName) + ">([^<]+)</"
+                    + Pattern.quote(propertyName) + ">").matcher(content);
+            return matcher.find() ? matcher.group(1) : null;
+        } catch (IOException e) {
+            throw new MojoException("Failed to read " + pomFile, e);
+        }
+    }
+
+    /**
      * Check whether a directory has no entries. Returns {@code true}
      * if the path is a directory with zero entries; {@code false} if
      * it has at least one entry. Throws if the path is not a

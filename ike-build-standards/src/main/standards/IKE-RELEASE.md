@@ -181,6 +181,15 @@ discovered by filesystem heuristics: the standard property
 `<properties>`, and in `ike-tooling`'s own root POM) names the
 path. Override it in any project's `<properties>` or with `-D`.
 
+When no on-disk manifest is found — the case for `ike-docs` and
+`ike-platform`, which sit upstream of `ike-parent` and so inherit
+neither the unpack execution nor the property — the release goals
+resolve the `ike-build-standards` `cascade` artifact through the
+Maven session and read `release-cascade.yaml` from inside it. This
+runtime resolution is the universal fallback: every foundation repo
+already consumes `ike-build-standards`, so the cascade is always
+reachable regardless of checkout layout.
+
 The release goals read the manifest so the cascade cannot be
 silently forgotten:
 

@@ -3,6 +3,7 @@ package network.ike.workspace.cascade;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -12,6 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /**
  * Reads the {@code release-cascade.yaml} manifest
@@ -111,6 +114,41 @@ public final class ReleaseCascadeIo {
                     groupId, artifactId, repo, url, consumes));
         }
         return new ReleaseCascade(standardsVersion, repos);
+    }
+
+    /**
+     * Reads the cascade manifest from inside the
+     * {@code ike-build-standards} {@code cascade} classified artifact
+     * (a ZIP containing {@code release-cascade.yaml} at its root).
+     *
+     * <p>This is the resolution path for foundation repos that cannot
+     * see the manifest on disk — {@code ike-docs} and {@code ike-platform}
+     * are upstream of {@code ike-parent} and so neither inherit the
+     * unpack execution nor carry the manifest in-tree
+     * (IKE-Network/ike-issues#404). The caller resolves the artifact
+     * (via the Maven session) and passes its ZIP path here.
+     *
+     * @param zipPath path to the {@code cascade} classified ZIP
+     * @return the parsed cascade
+     * @throws UncheckedIOException if the ZIP cannot be read
+     * @throws IllegalArgumentException if the ZIP has no
+     *         {@code release-cascade.yaml} entry or it is malformed
+     */
+    public static ReleaseCascade readFromZip(Path zipPath) {
+        try (ZipFile zip = new ZipFile(zipPath.toFile())) {
+            ZipEntry entry = zip.getEntry(MANIFEST_NAME);
+            if (entry == null) {
+                throw new IllegalArgumentException(
+                        "no " + MANIFEST_NAME + " entry in " + zipPath);
+            }
+            try (Reader reader = new InputStreamReader(
+                    zip.getInputStream(entry), StandardCharsets.UTF_8)) {
+                return read(reader);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(
+                    "Cannot read cascade manifest from " + zipPath, e);
+        }
     }
 
     /**

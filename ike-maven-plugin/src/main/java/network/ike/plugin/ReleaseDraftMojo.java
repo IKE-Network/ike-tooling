@@ -5,6 +5,10 @@ import network.ike.workspace.cascade.CascadeRepo;
 import network.ike.workspace.cascade.CascadeReporter;
 import network.ike.workspace.cascade.ReleaseCascade;
 import network.ike.workspace.cascade.ReleaseCascadeIo;
+import org.apache.maven.api.ArtifactCoordinates;
+import org.apache.maven.api.DownloadedArtifact;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -142,6 +146,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      */
     @Parameter(property = "ike.release.cascade.manifest")
     String cascadeManifest;
+
+    /**
+     * Maven session — used by the cascade footer to resolve the
+     * {@code ike-build-standards} {@code cascade} artifact at runtime
+     * when no on-disk manifest is available (IKE-Network/ike-issues#404).
+     */
+    @Inject
+    Session session;
 
     /** Override working directory for tests. If null, uses current directory. */
     File baseDir;
@@ -766,6 +778,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             Optional<ReleaseCascade> loaded =
                     ReleaseCascadeIo.load(manifestPath);
             if (loaded.isEmpty()) {
+                // No on-disk manifest. ike-docs and ike-platform are
+                // upstream of ike-parent, so they have neither the
+                // unpacked copy nor an in-tree manifest — resolve the
+                // ike-build-standards cascade artifact at runtime
+                // (IKE-Network/ike-issues#404).
+                loaded = resolveCascadeFromArtifact(gitRoot);
+            }
+            if (loaded.isEmpty()) {
                 return;
             }
             ReleaseCascade cascade = loaded.get();
@@ -787,6 +807,46 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         } catch (RuntimeException e) {
             getLog().warn("Release cascade report skipped: "
                     + e.getMessage());
+        }
+    }
+
+    /**
+     * Resolves {@code release-cascade.yaml} by fetching the
+     * {@code ike-build-standards} {@code cascade} classified artifact
+     * through the Maven session (IKE-Network/ike-issues#404).
+     *
+     * <p>This is the location-independent fallback for foundation
+     * repos with no on-disk manifest. The artifact version is the
+     * repo's own {@code ike-tooling.version} property; a repo that
+     * declares no such property (i.e. {@code ike-tooling} itself) is
+     * skipped — it already resolves the manifest from its in-tree
+     * source.
+     *
+     * @param gitRoot the releasing repository's git root
+     * @return the parsed cascade, or empty if the repo declares no
+     *         {@code ike-tooling.version} or the artifact cannot be
+     *         resolved
+     */
+    private Optional<ReleaseCascade> resolveCascadeFromArtifact(
+            File gitRoot) {
+        File rootPom = new File(gitRoot, "pom.xml");
+        String ikeToolingVersion =
+                ReleaseSupport.readPomProperty(rootPom, "ike-tooling.version");
+        if (ikeToolingVersion == null || ikeToolingVersion.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            ArtifactCoordinates coords = session.createArtifactCoordinates(
+                    "network.ike.tooling", "ike-build-standards",
+                    ikeToolingVersion, "cascade", "zip", "zip");
+            DownloadedArtifact artifact = session.resolveArtifact(coords);
+            return Optional.of(
+                    ReleaseCascadeIo.readFromZip(artifact.getPath()));
+        } catch (RuntimeException e) {
+            getLog().warn("Could not resolve release-cascade.yaml from "
+                    + "ike-build-standards:" + ikeToolingVersion
+                    + ":cascade — " + e.getMessage());
+            return Optional.empty();
         }
     }
 

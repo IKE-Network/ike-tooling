@@ -10,6 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -129,6 +131,36 @@ class ReleaseCascadeTest {
         Optional<ReleaseCascade> loaded = ReleaseCascadeIo.load(manifest);
         assertThat(loaded).get()
                 .extracting(c -> c.repos().size()).isEqualTo(3);
+    }
+
+    @Test
+    void readFromZip_reads_manifest_from_cascade_artifact(
+            @TempDir Path tmp) throws IOException {
+        Path zip = tmp.resolve("ike-build-standards-177-cascade.zip");
+        try (ZipOutputStream zos = new ZipOutputStream(
+                Files.newOutputStream(zip))) {
+            zos.putNextEntry(new ZipEntry("release-cascade.yaml"));
+            zos.write(FOUNDATION.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+        ReleaseCascade cascade = ReleaseCascadeIo.readFromZip(zip);
+        assertThat(cascade.repos()).hasSize(3);
+        assertThat(cascade.find("network.ike.docs")).isPresent();
+    }
+
+    @Test
+    void readFromZip_rejects_a_zip_without_the_manifest(@TempDir Path tmp)
+            throws IOException {
+        Path zip = tmp.resolve("no-manifest.zip");
+        try (ZipOutputStream zos = new ZipOutputStream(
+                Files.newOutputStream(zip))) {
+            zos.putNextEntry(new ZipEntry("other.txt"));
+            zos.write("x".getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+        assertThatThrownBy(() -> ReleaseCascadeIo.readFromZip(zip))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("release-cascade.yaml");
     }
 
     @Test
