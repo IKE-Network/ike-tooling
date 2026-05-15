@@ -620,14 +620,17 @@ public final class ReleaseNotesSupport {
      * resolved against {@code fallbackRepo}; if {@code fallbackRepo} is
      * null, bare references are ignored.
      *
-     * <p>Exposed package-private to enable testing without a git repo.
+     * <p>Public so the workspace plugin (in a different module) can
+     * call this from {@code ws:checkpoint-publish} per
+     * IKE-Network/ike-issues#394 — checkpoint reporting needs the
+     * same trailer parser that release-time label removal uses.
      *
      * @param commitMessages concatenated commit message bodies
      * @param fallbackRepo   {@code owner/repo} for bare references, or null
      * @return ordered set of unique issue references found
      */
-    static Set<IssueRef> parseClosingTrailers(String commitMessages,
-                                               String fallbackRepo) {
+    public static Set<IssueRef> parseClosingTrailers(String commitMessages,
+                                                      String fallbackRepo) {
         Set<IssueRef> refs = new LinkedHashSet<>();
         if (commitMessages == null || commitMessages.isEmpty()) {
             return refs;
