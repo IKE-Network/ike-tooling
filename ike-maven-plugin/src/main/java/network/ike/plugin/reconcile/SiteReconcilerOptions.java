@@ -32,6 +32,9 @@ public record SiteReconcilerOptions(Map<String, String> rawFlags) {
     public static final String SITE_REMOVED = "removed";
 
     /**
+     * Tests whether a reconciler has been opted out via
+     * {@code -D<flag>=false}.
+     *
      * @param flag flag name (without {@code -D} prefix)
      * @return true if the flag is present with value {@code "false"}
      */
@@ -40,6 +43,9 @@ public record SiteReconcilerOptions(Map<String, String> rawFlags) {
     }
 
     /**
+     * Returns the user-supplied pin value for a reconciler that
+     * supports pinning to a specific version or target.
+     *
      * @param flag pin-flag name (without {@code -D} prefix)
      * @return the pinned value, or empty if no pin was provided
      */
@@ -48,6 +54,9 @@ public record SiteReconcilerOptions(Map<String, String> rawFlags) {
     }
 
     /**
+     * Tests whether the user requested the uninstall pass via
+     * {@code -Dsite=removed}.
+     *
      * @return true if {@code -Dsite=removed} was supplied — the
      *         publish pass should run as an uninstall instead of a
      *         forward deploy
@@ -57,6 +66,8 @@ public record SiteReconcilerOptions(Map<String, String> rawFlags) {
     }
 
     /**
+     * Convenience factory for callers that have no flags to pass.
+     *
      * @return an options bag with no flags set
      */
     public static SiteReconcilerOptions empty() {
