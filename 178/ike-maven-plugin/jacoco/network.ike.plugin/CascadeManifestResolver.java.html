@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CascadeManifestResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">CascadeManifestResolver.java</span></div><h1>CascadeManifestResolver.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.workspace.cascade.ReleaseCascade;
+import network.ike.workspace.cascade.ReleaseCascadeIo;
+import org.apache.maven.api.ArtifactCoordinates;
+import org.apache.maven.api.DownloadedArtifact;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.Log;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.util.Optional;
+
+/**
+ * Resolves the {@code release-cascade.yaml} manifest for a foundation
+ * repository (IKE-Network/ike-issues#402, #404).
+ *
+ * &lt;p&gt;Two strategies, tried in order:
+ * &lt;ol&gt;
+ *   &lt;li&gt;&lt;b&gt;On-disk&lt;/b&gt; — the path named by the
+ *       {@code ike.release.cascade.manifest} property, falling back to
+ *       {@code &lt;gitRoot&gt;/target/release-cascade.yaml}. Works for
+ *       {@code ike-tooling} and for {@code ike-parent}-inheriting
+ *       consumers.&lt;/li&gt;
+ *   &lt;li&gt;&lt;b&gt;Artifact resolution&lt;/b&gt; — fetch the {@code ike-build-standards}
+ *       {@code cascade} classified ZIP through the Maven session, keyed
+ *       off the repo's {@code ike-tooling.version}. The
+ *       location-independent fallback for {@code ike-docs} and
+ *       {@code ike-platform}, which carry no on-disk manifest.&lt;/li&gt;
+ * &lt;/ol&gt;
+ *
+ * &lt;p&gt;Shared by {@link ReleaseDraftMojo}'s cascade footer and
+ * {@code ike:cascade-export}.
+ */
+public final class CascadeManifestResolver {
+
+    private CascadeManifestResolver() {}
+
+    /**
+     * Resolves and parses the cascade manifest.
+     *
+     * @param session              the Maven session, used for the
+     *                             artifact-resolution fallback
+     * @param gitRoot              the repository's git root
+     * @param manifestPathOverride explicit manifest path (from the
+     *                             {@code ike.release.cascade.manifest}
+     *                             property); may be {@code null}/blank
+     * @param log                  logger for the non-fatal warning
+     *                             emitted when artifact resolution fails
+     * @return the parsed cascade, or empty if no manifest can be found
+     */
+    public static Optional&lt;ReleaseCascade&gt; resolve(
+            Session session, File gitRoot, String manifestPathOverride,
+            Log log) {
+        Path manifestPath =
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">                (manifestPathOverride != null</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">                        &amp;&amp; !manifestPathOverride.isBlank())</span>
+<span class="nc" id="L58">                        ? Path.of(manifestPathOverride)</span>
+                        : new File(gitRoot, &quot;target/release-cascade.yaml&quot;)
+<span class="fc" id="L60">                                .toPath();</span>
+<span class="fc" id="L61">        Optional&lt;ReleaseCascade&gt; onDisk = ReleaseCascadeIo.load(manifestPath);</span>
+<span class="pc bpc" id="L62" title="1 of 2 branches missed.">        if (onDisk.isPresent()) {</span>
+<span class="nc" id="L63">            return onDisk;</span>
+        }
+<span class="fc" id="L65">        return resolveFromArtifact(session, gitRoot, log);</span>
+    }
+
+    private static Optional&lt;ReleaseCascade&gt; resolveFromArtifact(
+            Session session, File gitRoot, Log log) {
+<span class="fc" id="L70">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+<span class="fc" id="L71">        String ikeToolingVersion = ReleaseSupport.readPomProperty(</span>
+                rootPom, &quot;ike-tooling.version&quot;);
+<span class="pc bpc" id="L73" title="3 of 4 branches missed.">        if (ikeToolingVersion == null || ikeToolingVersion.isBlank()) {</span>
+<span class="fc" id="L74">            return Optional.empty();</span>
+        }
+        try {
+<span class="nc" id="L77">            ArtifactCoordinates coords = session.createArtifactCoordinates(</span>
+                    &quot;network.ike.tooling&quot;, &quot;ike-build-standards&quot;,
+                    ikeToolingVersion, &quot;cascade&quot;, &quot;zip&quot;, &quot;zip&quot;);
+<span class="nc" id="L80">            DownloadedArtifact artifact = session.resolveArtifact(coords);</span>
+<span class="nc" id="L81">            return Optional.of(</span>
+<span class="nc" id="L82">                    ReleaseCascadeIo.readFromZip(artifact.getPath()));</span>
+<span class="nc" id="L83">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L84">            log.warn(&quot;Could not resolve release-cascade.yaml from &quot;</span>
+                    + &quot;ike-build-standards:&quot; + ikeToolingVersion
+<span class="nc" id="L86">                    + &quot;:cascade — &quot; + e.getMessage());</span>
+<span class="nc" id="L87">            return Optional.empty();</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
