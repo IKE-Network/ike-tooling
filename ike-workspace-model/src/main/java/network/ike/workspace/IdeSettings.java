@@ -5,9 +5,10 @@ package network.ike.workspace;
  * across collaborators via {@code workspace.yaml}.
  *
  * <p>These values drive the curated slice of {@code .idea/} files
- * that workspace tooling keeps in sync (see the {@code ws:upgrade}
- * goal). When a field is {@code null}, the corresponding IDE setting
- * is left untouched.
+ * that workspace tooling keeps in sync (see the
+ * {@code ws:scaffold-publish} goal's
+ * {@code ScaffoldConventionReconciler}). When a field is
+ * {@code null}, the corresponding IDE setting is left untouched.
  *
  * <p>Typical usage in {@code workspace.yaml}:
  *
