@@ -65,7 +65,7 @@ where `X` is the version we’re about to release.
 
 During release flow, submodules are set to `X` (the release version). A `<plugins>` reference to the plugin at `X-SNAPSHOT` is a reference to a **different GAV** than any submodule — no graph edge to a submodule — no reactor cycle.
 
-If we used `175` here, we’d be back to `X`, and the cycle would return. The whole point is that `X-SNAPSHOT` and `X` are different artifacts as far as Maven’s reactor graph is concerned.
+If we used `176` here, we’d be back to `X`, and the cycle would return. The whole point is that `X-SNAPSHOT` and `X` are different artifacts as far as Maven’s reactor graph is concerned.
 
 ### [#why-x-snapshot-is-guaranteed-in--m2](#why-x-snapshot-is-guaranteed-in--m2)Why X-SNAPSHOT is guaranteed in `~/.m2`
 
@@ -93,7 +93,7 @@ The pattern is implemented in two cooperating places. Both carry cross-reference
 
 [ReleaseDraftMojo.java](https://github.com/IKE-Network/ike-tooling/blob/main/ike-maven-plugin/src/main/java/network/ike/plugin/ReleaseDraftMojo.java)[2] captures `oldVersion` (the pre-release pom version, = X-SNAPSHOT) at the top of the release flow, then passes `-Drelease.bootstrap.version= ${oldVersion}` on three site invocations: pre-flight `mvn site`, external-phase `mvn site`, external-phase `mvn site:stage`. Search for **"X-SNAPSHOT bootstrap (2 of 2)"**.
 
-Note that **other** release-flow mvn calls (`verify`, `clean deploy`, `ike:register-site-publish`, etc.) do **not** pass the property. They stay outside the profile and resolve plugin coordinates through ordinary `pluginManagement` — which is fine, because `pluginManagement` does not create reactor edges the way live `<plugins>` does.
+Note that **other** release-flow mvn calls (`verify`, `clean deploy`, `ike:site-publish`, etc.) do **not** pass the property. They stay outside the profile and resolve plugin coordinates through ordinary `pluginManagement` — which is fine, because `pluginManagement` does not create reactor edges the way live `<plugins>` does.
 
 ## [#when-does-another-reactor-need-this](#when-does-another-reactor-need-this)When does another reactor need this?
 
