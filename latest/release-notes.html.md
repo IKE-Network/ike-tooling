@@ -6,7 +6,7 @@ canonical_url: https://ike.network/ike-tooling/release-notes.html
 
 # Release Notes
 
-## [ike-tooling v174](#ike-tooling-v174)
+## [ike-tooling v175](#ike-tooling-v175)
 
 ### [Fixes](#fixes)
 

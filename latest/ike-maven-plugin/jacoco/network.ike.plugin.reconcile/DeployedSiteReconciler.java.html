@@ -44,60 +44,63 @@ import java.util.regex.Pattern;
  * paired {@link StaleSiteCleanupReconciler} handles legacy scpexe
  * cleanup.
  */
-<span class="nc" id="L47">public class DeployedSiteReconciler implements SiteReconciler {</span>
+public class DeployedSiteReconciler implements SiteReconciler {
+
+    /** Creates this reconciler instance. */
+<span class="nc" id="L50">    public DeployedSiteReconciler() {}</span>
 
     /** Pattern to extract the deployed version from the rendered site HTML. */
-<span class="nc" id="L50">    private static final Pattern DEPLOYED_VERSION_PATTERN = Pattern.compile(</span>
+<span class="nc" id="L53">    private static final Pattern DEPLOYED_VERSION_PATTERN = Pattern.compile(</span>
             &quot;(?:Version|version)\\s*[:|]\\s*&lt;[^&gt;]*&gt;?\\s*([0-9][^&lt;\\s]*)&quot;);
 
     /** HTTP timeout for drift probes. Kept tight to keep draft snappy. */
-<span class="nc" id="L54">    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(5);</span>
+<span class="nc" id="L57">    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(5);</span>
 
     @Override
     public String dimension() {
-<span class="nc" id="L58">        return &quot;Deployed site version&quot;;</span>
+<span class="nc" id="L61">        return &quot;Deployed site version&quot;;</span>
     }
 
     @Override
     public String optOutFlag() {
-<span class="nc" id="L63">        return &quot;updateSite&quot;;</span>
+<span class="nc" id="L66">        return &quot;updateSite&quot;;</span>
     }
 
     @Override
     public SiteDriftReport detect(SiteContext ctx) {
-<span class="nc" id="L68">        String currentVersion = ctx.projectVersion();</span>
-<span class="nc" id="L69">        String deployedUrl = ctx.projectSiteUrl();</span>
-<span class="nc bnc" id="L70" title="All 4 branches missed.">        if (deployedUrl == null || deployedUrl.isBlank()) {</span>
-<span class="nc" id="L71">            return SiteDriftReport.noDrift(dimension());</span>
+<span class="nc" id="L71">        String currentVersion = ctx.projectVersion();</span>
+<span class="nc" id="L72">        String deployedUrl = ctx.projectSiteUrl();</span>
+<span class="nc bnc" id="L73" title="All 4 branches missed.">        if (deployedUrl == null || deployedUrl.isBlank()) {</span>
+<span class="nc" id="L74">            return SiteDriftReport.noDrift(dimension());</span>
         }
 
-<span class="nc" id="L74">        Probe probe = probeDeployedVersion(deployedUrl);</span>
+<span class="nc" id="L77">        Probe probe = probeDeployedVersion(deployedUrl);</span>
 
-<span class="nc bnc" id="L76" title="All 2 branches missed.">        if (!probe.reachable) {</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (!probe.reachable) {</span>
             // Treat unreachable as drift — apply will deploy fresh.
-<span class="nc" id="L78">            List&lt;String&gt; detail = List.of(</span>
+<span class="nc" id="L81">            List&lt;String&gt; detail = List.of(</span>
                     &quot;Deployed URL: &quot; + deployedUrl,
                     &quot;Status: unreachable (&quot; + probe.detail + &quot;)&quot;);
-<span class="nc" id="L81">            String optOut = &quot;mvn ike:site-publish -D&quot; + optOutFlag() + &quot;=false&quot;;</span>
-<span class="nc" id="L82">            return new SiteDriftReport(</span>
-<span class="nc" id="L83">                    dimension(), true,</span>
+<span class="nc" id="L84">            String optOut = &quot;mvn ike:site-publish -D&quot; + optOutFlag() + &quot;=false&quot;;</span>
+<span class="nc" id="L85">            return new SiteDriftReport(</span>
+<span class="nc" id="L86">                    dimension(), true,</span>
                     &quot;Site at &quot; + deployedUrl + &quot; is unreachable&quot;,
                     detail,
                     &quot;deploy current version &quot; + currentVersion + &quot; on site-publish&quot;,
                     optOut);
         }
 
-<span class="nc bnc" id="L90" title="All 4 branches missed.">        if (probe.version != null &amp;&amp; probe.version.equals(currentVersion)) {</span>
-<span class="nc" id="L91">            return SiteDriftReport.noDrift(dimension());</span>
+<span class="nc bnc" id="L93" title="All 4 branches missed.">        if (probe.version != null &amp;&amp; probe.version.equals(currentVersion)) {</span>
+<span class="nc" id="L94">            return SiteDriftReport.noDrift(dimension());</span>
         }
 
-<span class="nc bnc" id="L94" title="All 2 branches missed.">        String deployed = probe.version != null ? probe.version : &quot;(unknown)&quot;;</span>
-<span class="nc" id="L95">        List&lt;String&gt; detail = List.of(</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        String deployed = probe.version != null ? probe.version : &quot;(unknown)&quot;;</span>
+<span class="nc" id="L98">        List&lt;String&gt; detail = List.of(</span>
                 &quot;Current: &quot; + deployedUrl + &quot; serves &quot; + deployed,
                 &quot;         → project is at &quot; + currentVersion);
-<span class="nc" id="L98">        String optOut = &quot;mvn ike:site-publish -D&quot; + optOutFlag() + &quot;=false&quot;;</span>
-<span class="nc" id="L99">        return new SiteDriftReport(</span>
-<span class="nc" id="L100">                dimension(), true,</span>
+<span class="nc" id="L101">        String optOut = &quot;mvn ike:site-publish -D&quot; + optOutFlag() + &quot;=false&quot;;</span>
+<span class="nc" id="L102">        return new SiteDriftReport(</span>
+<span class="nc" id="L103">                dimension(), true,</span>
                 deployed + &quot; deployed vs &quot; + currentVersion + &quot; in project&quot;,
                 detail,
                 &quot;deploy &quot; + currentVersion + &quot; on site-publish&quot;,
@@ -106,48 +109,48 @@ import java.util.regex.Pattern;
 
     @Override
     public void apply(SiteContext ctx) {
-<span class="nc bnc" id="L109" title="All 2 branches missed.">        if (ctx.options().isOptedOut(optOutFlag())) {</span>
-<span class="nc" id="L110">            ctx.log().info(&quot;  &quot; + dimension() + &quot;: skipped (opted out via -D&quot;</span>
-<span class="nc" id="L111">                    + optOutFlag() + &quot;=false)&quot;);</span>
-<span class="nc" id="L112">            return;</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">        if (ctx.options().isOptedOut(optOutFlag())) {</span>
+<span class="nc" id="L113">            ctx.log().info(&quot;  &quot; + dimension() + &quot;: skipped (opted out via -D&quot;</span>
+<span class="nc" id="L114">                    + optOutFlag() + &quot;=false)&quot;);</span>
+<span class="nc" id="L115">            return;</span>
         }
 
-<span class="nc" id="L115">        File gitRoot = ctx.gitRoot();</span>
-<span class="nc" id="L116">        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, ctx.log());</span>
+<span class="nc" id="L118">        File gitRoot = ctx.gitRoot();</span>
+<span class="nc" id="L119">        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, ctx.log());</span>
 
         // Build + stage in a single mvnw invocation. Mirrors the pre-#398
         // DeploySiteDraftMojo path: `mvn site site:stage` produces
         // target/staging/ from which we force-push to gh-pages.
-<span class="nc" id="L121">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
-<span class="nc" id="L122">                mvnw.getAbsolutePath(), &quot;site&quot;, &quot;site:stage&quot;, &quot;-B&quot;);</span>
+<span class="nc" id="L124">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L125">                mvnw.getAbsolutePath(), &quot;site&quot;, &quot;site:stage&quot;, &quot;-B&quot;);</span>
 
-<span class="nc" id="L124">        String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, &quot;origin&quot;);</span>
-<span class="nc bnc" id="L125" title="All 2 branches missed.">        if (remoteUrl == null) {</span>
-<span class="nc" id="L126">            ctx.log().info(&quot;  &quot; + dimension()</span>
+<span class="nc" id="L127">        String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, &quot;origin&quot;);</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        if (remoteUrl == null) {</span>
+<span class="nc" id="L129">            ctx.log().info(&quot;  &quot; + dimension()</span>
                     + &quot;: skipped (no 'origin' remote)&quot;);
-<span class="nc" id="L128">            return;</span>
+<span class="nc" id="L131">            return;</span>
         }
 
-<span class="nc" id="L131">        Path stagingDir = gitRoot.toPath()</span>
-<span class="nc" id="L132">                .resolve(&quot;target&quot;).resolve(&quot;staging&quot;);</span>
+<span class="nc" id="L134">        Path stagingDir = gitRoot.toPath()</span>
+<span class="nc" id="L135">                .resolve(&quot;target&quot;).resolve(&quot;staging&quot;);</span>
         try {
-<span class="nc" id="L134">            ReleaseSupport.publishProjectSiteToGhPages(</span>
-<span class="nc" id="L135">                    stagingDir, remoteUrl, ctx.log(),</span>
-<span class="nc" id="L136">                    ctx.projectId(), ctx.projectVersion());</span>
-<span class="nc" id="L137">            ctx.log().info(&quot;  &quot; + dimension()</span>
-<span class="nc" id="L138">                    + &quot;: deployed &quot; + ctx.projectVersion()</span>
-<span class="nc" id="L139">                    + &quot; to &quot; + ctx.projectSiteUrl());</span>
-<span class="nc" id="L140">        } catch (MojoException e) {</span>
-<span class="nc" id="L141">            ctx.log().warn(&quot;  ⚠ &quot; + dimension()</span>
+<span class="nc" id="L137">            ReleaseSupport.publishProjectSiteToGhPages(</span>
+<span class="nc" id="L138">                    stagingDir, remoteUrl, ctx.log(),</span>
+<span class="nc" id="L139">                    ctx.projectId(), ctx.projectVersion());</span>
+<span class="nc" id="L140">            ctx.log().info(&quot;  &quot; + dimension()</span>
+<span class="nc" id="L141">                    + &quot;: deployed &quot; + ctx.projectVersion()</span>
+<span class="nc" id="L142">                    + &quot; to &quot; + ctx.projectSiteUrl());</span>
+<span class="nc" id="L143">        } catch (MojoException e) {</span>
+<span class="nc" id="L144">            ctx.log().warn(&quot;  ⚠ &quot; + dimension()</span>
                     + &quot;: gh-pages publish failed (non-fatal): &quot;
-<span class="nc" id="L143">                    + e.getMessage());</span>
-<span class="nc" id="L144">        }</span>
-<span class="nc" id="L145">    }</span>
+<span class="nc" id="L146">                    + e.getMessage());</span>
+<span class="nc" id="L147">        }</span>
+<span class="nc" id="L148">    }</span>
 
     // ── Drift probe ─────────────────────────────────────────────────
 
     /** Result of a deployed-site HTTP probe. */
-<span class="nc" id="L150">    private record Probe(boolean reachable, String version, String detail) {}</span>
+<span class="nc" id="L153">    private record Probe(boolean reachable, String version, String detail) {}</span>
 
     /**
      * Probe the deployed site root and try to extract the current
@@ -156,33 +159,33 @@ import java.util.regex.Pattern;
      * found (common for non-IKE-rendered sites).
      */
     private static Probe probeDeployedVersion(String url) {
-<span class="nc" id="L159">        try (HttpClient client = HttpClient.newBuilder()</span>
-<span class="nc" id="L160">                .connectTimeout(PROBE_TIMEOUT)</span>
-<span class="nc" id="L161">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
-<span class="nc" id="L162">                .build()) {</span>
-<span class="nc" id="L163">            HttpRequest req = HttpRequest.newBuilder(URI.create(url))</span>
-<span class="nc" id="L164">                    .timeout(PROBE_TIMEOUT)</span>
-<span class="nc" id="L165">                    .GET()</span>
-<span class="nc" id="L166">                    .build();</span>
-<span class="nc" id="L167">            HttpResponse&lt;String&gt; resp = client.send(req,</span>
-<span class="nc" id="L168">                    HttpResponse.BodyHandlers.ofString());</span>
-<span class="nc bnc" id="L169" title="All 2 branches missed.">            if (resp.statusCode() / 100 != 2) {</span>
-<span class="nc" id="L170">                return new Probe(false, null, &quot;HTTP &quot; + resp.statusCode());</span>
+<span class="nc" id="L162">        try (HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L163">                .connectTimeout(PROBE_TIMEOUT)</span>
+<span class="nc" id="L164">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
+<span class="nc" id="L165">                .build()) {</span>
+<span class="nc" id="L166">            HttpRequest req = HttpRequest.newBuilder(URI.create(url))</span>
+<span class="nc" id="L167">                    .timeout(PROBE_TIMEOUT)</span>
+<span class="nc" id="L168">                    .GET()</span>
+<span class="nc" id="L169">                    .build();</span>
+<span class="nc" id="L170">            HttpResponse&lt;String&gt; resp = client.send(req,</span>
+<span class="nc" id="L171">                    HttpResponse.BodyHandlers.ofString());</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">            if (resp.statusCode() / 100 != 2) {</span>
+<span class="nc" id="L173">                return new Probe(false, null, &quot;HTTP &quot; + resp.statusCode());</span>
             }
-<span class="nc" id="L172">            String body = resp.body();</span>
-<span class="nc" id="L173">            Matcher m = DEPLOYED_VERSION_PATTERN.matcher(body);</span>
-<span class="nc bnc" id="L174" title="All 2 branches missed.">            if (m.find()) {</span>
-<span class="nc" id="L175">                return new Probe(true, m.group(1).trim(), &quot;&quot;);</span>
+<span class="nc" id="L175">            String body = resp.body();</span>
+<span class="nc" id="L176">            Matcher m = DEPLOYED_VERSION_PATTERN.matcher(body);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">            if (m.find()) {</span>
+<span class="nc" id="L178">                return new Probe(true, m.group(1).trim(), &quot;&quot;);</span>
             }
             // Reachable but no version pattern matched — treat as
             // probe-inconclusive (no drift reported).
-<span class="nc" id="L179">            return new Probe(true, null, &quot;no version marker found&quot;);</span>
-<span class="nc bnc" id="L180" title="All 4 branches missed.">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L181" title="All 2 branches missed.">            if (e instanceof InterruptedException) {</span>
-<span class="nc" id="L182">                Thread.currentThread().interrupt();</span>
+<span class="nc" id="L182">            return new Probe(true, null, &quot;no version marker found&quot;);</span>
+<span class="nc bnc" id="L183" title="All 4 branches missed.">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">            if (e instanceof InterruptedException) {</span>
+<span class="nc" id="L185">                Thread.currentThread().interrupt();</span>
             }
-<span class="nc" id="L184">            return new Probe(false, null,</span>
-<span class="nc" id="L185">                    e.getClass().getSimpleName() + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L187">            return new Probe(false, null,</span>
+<span class="nc" id="L188">                    e.getClass().getSimpleName() + &quot;: &quot; + e.getMessage());</span>
         }
     }
 
@@ -194,8 +197,8 @@ import java.util.regex.Pattern;
      * @return the detected version string, or {@code null}
      */
     static String extractDeployedVersion(String html) {
-<span class="nc" id="L197">        Matcher m = DEPLOYED_VERSION_PATTERN.matcher(html);</span>
-<span class="nc bnc" id="L198" title="All 2 branches missed.">        return m.find() ? m.group(1).trim() : null;</span>
+<span class="nc" id="L200">        Matcher m = DEPLOYED_VERSION_PATTERN.matcher(html);</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        return m.find() ? m.group(1).trim() : null;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
