@@ -227,8 +227,8 @@ Run `ws:help` for the complete auto-discovered list.
 | Goal | Description |
 |------|-------------|
 | `ws:init` | Clone/initialize repos; fetches and rebases existing clones |
-| `ws:verify` | Validate manifest consistency |
-| `ws:verify-convergence` | Full verify + transitive dependency convergence |
+| `ws:scaffold-draft` | Validate manifest consistency (folds the retired `ws:verify` per #393) |
+| `ws:verify-convergence` | Transitive dependency convergence (slow) |
 | `ws:overview` | Dashboard: manifest, graph, status, cascade |
 | `ws:graph` | Print dependency graph (text or `-Dformat=dot`) |
 | `ws:cascade` | Show downstream impact of a change |

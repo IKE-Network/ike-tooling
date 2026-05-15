@@ -39,8 +39,9 @@ import java.util.List;
  * @param mavenVersion Maven version for the wrapper (e.g., "4.0.0-rc-5"),
  *                     overrides {@link Defaults#mavenVersion()}. Null to inherit.
  * @param parent       subproject name of the Maven parent POM, or null if the
- *                     parent is not a workspace subproject. Used by ws:verify
- *                     and ws:align-publish to enforce parent version alignment.
+ *                     parent is not a workspace subproject. Used by
+ *                     ws:scaffold-draft (which folds verify per #393) and
+ *                     ws:align-publish to enforce parent version alignment.
  * @param sha          git commit SHA to check out. When present, {@code ws:init}
  *                     checks out this exact commit instead of branch HEAD.
  *                     Written by {@code ws:checkpoint-publish}. Null means use
