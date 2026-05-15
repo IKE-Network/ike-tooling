@@ -250,7 +250,7 @@ in a single pass. Each reconciler can be individually disabled.
 |------------|-------------|
 | `ws:scaffold-publish` | Apply all reconcilers (the default). |
 | `ws:scaffold-publish -DparentVersion=<v>` | Pin the parent cascade to a specific non-current version (replaces the retired `ws:set-parent`). |
-| `ws:scaffold-publish -DupdateFields=false` | Skip the field-normalization reconciler (the FieldNormalizationReconciler that folded `ws:fix`). |
+| `ws:scaffold-publish -DupdateFields=false` | Skip the field-normalization reconciler (the FieldNormalizationReconciler that folded `ws:fix`; also collapses pre-existing duplicate subproject keys — the #387 safety net). |
 | `ws:scaffold-publish -DupdateParent=false` | Skip the parent-cascade reconciler. |
 | `ws:scaffold-publish -DupdateScaffold=false` | Skip the scaffold-convention reconciler (folded the retired `ws:scaffold-upgrade`). |
 | `ws:scaffold-publish -DupdateAlignment=false` | Skip the alignment reconciler (use `ws:align-publish` standalone for the alignment-only case). |
