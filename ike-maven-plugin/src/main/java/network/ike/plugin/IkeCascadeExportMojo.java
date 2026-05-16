@@ -3,9 +3,11 @@ package network.ike.plugin;
 import network.ike.plugin.support.AbstractGoalMojo;
 import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
+import network.ike.workspace.cascade.CascadeAssembler;
+import network.ike.workspace.cascade.CascadeEdge;
+import network.ike.workspace.cascade.ProjectCascade;
+import network.ike.workspace.cascade.ProjectCascadeIo;
 import network.ike.workspace.cascade.ReleaseCascade;
-import org.apache.maven.api.Session;
-import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -18,14 +20,19 @@ import java.nio.file.Path;
 
 /**
  * Exports the foundation release cascade topology in a machine-readable
- * format (IKE-Network/ike-issues#403).
+ * format (IKE-Network/ike-issues#403, #420).
  *
- * <p>Read-only. Resolves {@code release-cascade.yaml} — the declarative
- * cascade ordering from {@code ike-build-standards} (#402) — and writes
- * it as JSON or {@code .properties} so a CI meta-runner can generate
- * the build-chain edges from the manifest instead of hand-wiring them.
- * That keeps the CI build graph derived from the single source of
- * truth rather than drifting from it.
+ * <p>Read-only. The cascade is decentralized — each foundation repo
+ * version-controls its own {@code src/main/cascade/release-cascade.yaml}
+ * declaring only its own edges (#420). This goal reads the local
+ * repo's manifest, walks the edges into its sibling checkouts to
+ * assemble the full ordered graph, and writes it as JSON or
+ * {@code .properties} so a CI meta-runner can derive the build-chain
+ * edges from the cascade instead of hand-wiring them.
+ *
+ * <p>The traversal expects every cascade member to be checked out as
+ * a sibling directory alongside the repo this goal runs in, named by
+ * the edge's {@code repo} field.
  *
  * <p>Usage:
  * <pre>
@@ -48,19 +55,6 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
     @Parameter(property = "outputFile")
     String outputFile;
 
-    /**
-     * Path to the {@code release-cascade.yaml} manifest. Bound to the
-     * standard {@code ike.release.cascade.manifest} property; when
-     * unset the manifest is resolved from {@code target/} or the
-     * {@code ike-build-standards} cascade artifact (#402, #404).
-     */
-    @Parameter(property = "ike.release.cascade.manifest")
-    String cascadeManifest;
-
-    /** Maven session — used to resolve the cascade artifact. */
-    @Inject
-    Session session;
-
     /** Override working directory for tests. If null, uses current directory. */
     File baseDir;
 
@@ -79,14 +73,7 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
             throw new MojoException(e.getMessage());
         }
 
-        ReleaseCascade cascade = CascadeManifestResolver
-                .resolve(session, gitRoot, cascadeManifest, getLog())
-                .orElseThrow(() -> new MojoException(
-                        "No release-cascade.yaml found. Pass "
-                        + "-Dike.release.cascade.manifest=<path>, or run "
-                        + "from a foundation repo that can resolve the "
-                        + "ike-build-standards cascade artifact."));
-
+        ReleaseCascade cascade = assembleCascade(gitRoot);
         String rendered = exportFormat.render(cascade);
         String formatLabel = exportFormat.name().toLowerCase();
 
@@ -112,11 +99,47 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
 
         String report = new GoalReportBuilder()
                 .section("Cascade export")
-                .paragraph("Exported `release-cascade.yaml` as **"
-                        + formatLabel + "**, " + location + ".")
+                .paragraph("Assembled the release cascade from the"
+                        + " per-project `release-cascade.yaml` manifests"
+                        + " and exported it as **" + formatLabel + "**, "
+                        + location + ".")
                 .codeBlock(formatLabel, rendered)
                 .build();
         return new GoalReportSpec(IkeGoal.CASCADE_EXPORT,
                 startDir.toPath(), report);
+    }
+
+    /**
+     * Reads the local repo's {@code release-cascade.yaml} and assembles
+     * the full cascade graph by walking its edges into the sibling
+     * checkouts.
+     */
+    private ReleaseCascade assembleCascade(File gitRoot) {
+        Path localManifest = gitRoot.toPath().resolve(
+                ProjectCascadeIo.MANIFEST_RELATIVE_PATH);
+        ProjectCascade local = ProjectCascadeIo.load(localManifest)
+                .orElseThrow(() -> new MojoException(
+                        "No " + ProjectCascadeIo.MANIFEST_RELATIVE_PATH
+                        + " in " + gitRoot + " — run ike:cascade-export"
+                        + " from a foundation cascade repo."));
+
+        File rootPom = new File(gitRoot, "pom.xml");
+        CascadeEdge start = new CascadeEdge(
+                ReleaseSupport.readPomGroupId(rootPom),
+                ReleaseSupport.readPomArtifactId(rootPom),
+                gitRoot.getName(), null, null);
+
+        File siblings = gitRoot.getParentFile();
+        try {
+            return CascadeAssembler.assemble(start, local, edge -> {
+                Path p = siblings.toPath().resolve(edge.repo())
+                        .resolve(ProjectCascadeIo.MANIFEST_RELATIVE_PATH);
+                return ProjectCascadeIo.read(p);
+            });
+        } catch (RuntimeException e) {
+            throw new MojoException(
+                    "Cannot assemble the release cascade: "
+                    + e.getMessage(), e);
+        }
     }
 }

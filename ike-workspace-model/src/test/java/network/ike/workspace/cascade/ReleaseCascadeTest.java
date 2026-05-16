@@ -1,95 +1,91 @@
 package network.ike.workspace.cascade;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.StringReader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for the {@code release-cascade.yaml} model and IO
- * (IKE-Network/ike-issues#402).
+ * Tests for the assembled release cascade graph and
+ * {@link CascadeAssembler} (IKE-Network/ike-issues#402, #420).
  */
 class ReleaseCascadeTest {
 
-    private static final String FOUNDATION = """
-            standards-version: 177
-            cascade:
-              - groupId: network.ike.tooling
-                artifactId: ike-tooling
-                url: https://github.com/IKE-Network/ike-tooling.git
-              - groupId: network.ike.docs
-                artifactId: ike-docs
-                url: https://github.com/IKE-Network/ike-docs.git
-                consumes:
-                  - network.ike.tooling
-              - groupId: network.ike.platform
-                artifactId: ike-platform
-                url: https://github.com/IKE-Network/ike-platform.git
-                consumes:
-                  - network.ike.tooling
-                  - network.ike.docs
-                terminal: true
-            """;
+    private static final CascadeEdge TOOLING = new CascadeEdge(
+            "network.ike.tooling", "ike-tooling", "ike-tooling",
+            "https://github.com/IKE-Network/ike-tooling.git", null);
+    private static final CascadeEdge DOCS = new CascadeEdge(
+            "network.ike.docs", "ike-docs", "ike-docs",
+            "https://github.com/IKE-Network/ike-docs.git", null);
+    private static final CascadeEdge PLATFORM = new CascadeEdge(
+            "network.ike.platform", "ike-platform", "ike-platform",
+            "https://github.com/IKE-Network/ike-platform.git", null);
+
+    /**
+     * ike-tooling: head — downstream ike-docs and ike-platform (both
+     * carry {@code ${ike-tooling.version}}, so both are reciprocal
+     * downstream edges).
+     */
+    private static final ProjectCascade TOOLING_CASCADE = new ProjectCascade(
+            1, true, List.of(), false, List.of(DOCS, PLATFORM));
+    /** ike-docs: middle — upstream ike-tooling, downstream ike-platform. */
+    private static final ProjectCascade DOCS_CASCADE = new ProjectCascade(
+            1, false, List.of(upstream(TOOLING, "ike-tooling.version")),
+            false, List.of(PLATFORM));
+    /** ike-platform: terminal — upstream ike-tooling + ike-docs. */
+    private static final ProjectCascade PLATFORM_CASCADE = new ProjectCascade(
+            1, false,
+            List.of(upstream(TOOLING, "ike-tooling.version"),
+                    upstream(DOCS, "ike-docs.version")),
+            true, List.of());
+
+    private static final Map<String, ProjectCascade> FOUNDATION = Map.of(
+            "network.ike.tooling", TOOLING_CASCADE,
+            "network.ike.docs", DOCS_CASCADE,
+            "network.ike.platform", PLATFORM_CASCADE);
+
+    private static CascadeEdge upstream(CascadeEdge identity,
+                                        String versionProperty) {
+        return new CascadeEdge(identity.groupId(), identity.artifactId(),
+                identity.repo(), identity.url(), versionProperty);
+    }
+
+    private static ReleaseCascade assembleFrom(CascadeEdge start,
+                                               ProjectCascade startCascade,
+                                               Map<String, ProjectCascade> all) {
+        return CascadeAssembler.assemble(start, startCascade,
+                edge -> all.get(edge.groupId()));
+    }
 
     @Test
-    void parses_the_foundation_manifest() {
-        ReleaseCascade cascade = ReleaseCascadeIo.read(
-                new StringReader(FOUNDATION));
+    void assembles_the_foundation_in_topological_order() {
+        ReleaseCascade cascade = assembleFrom(
+                TOOLING, TOOLING_CASCADE, FOUNDATION);
 
-        assertThat(cascade.standardsVersion()).isEqualTo("177");
-        assertThat(cascade.repos()).hasSize(3);
-        assertThat(cascade.repos().stream().map(CascadeRepo::artifactId))
-                .containsExactly("ike-tooling", "ike-docs", "ike-platform");
-        // repo defaults to artifactId when omitted.
-        assertThat(cascade.repos().stream().map(CascadeRepo::repo))
+        assertThat(cascade.repos()).extracting(CascadeRepo::artifactId)
                 .containsExactly("ike-tooling", "ike-docs", "ike-platform");
         assertThat(cascade.find("network.ike.docs")).get()
                 .extracting(CascadeRepo::ga)
                 .isEqualTo("network.ike.docs:ike-docs");
-        assertThat(cascade.find("network.ike.tooling")).get()
-                .extracting(CascadeRepo::url)
-                .isEqualTo("https://github.com/IKE-Network/ike-tooling.git");
     }
 
     @Test
-    void repo_field_overrides_artifactId_default() {
-        ReleaseCascade cascade = ReleaseCascadeIo.read(new StringReader("""
-                cascade:
-                  - groupId: network.ike.tooling
-                    artifactId: ike-tooling
-                    repo: ike-tooling-checkout
-                    terminal: true
-                """));
-        assertThat(cascade.repos().get(0).repo())
-                .isEqualTo("ike-tooling-checkout");
-    }
+    void assembles_the_whole_graph_from_a_middle_repo() {
+        // Starting at ike-docs still walks upstream and downstream.
+        ReleaseCascade cascade = assembleFrom(
+                DOCS, DOCS_CASCADE, FOUNDATION);
 
-    @Test
-    void url_is_optional() {
-        ReleaseCascade cascade = ReleaseCascadeIo.read(new StringReader("""
-                cascade:
-                  - groupId: network.ike.tooling
-                    artifactId: ike-tooling
-                    terminal: true
-                """));
-        assertThat(cascade.repos().get(0).url()).isNull();
+        assertThat(cascade.repos()).extracting(CascadeRepo::artifactId)
+                .containsExactly("ike-tooling", "ike-docs", "ike-platform");
     }
 
     @Test
     void downstreamOf_returns_transitive_consumers_in_order() {
-        ReleaseCascade cascade = ReleaseCascadeIo.read(
-                new StringReader(FOUNDATION));
+        ReleaseCascade cascade = assembleFrom(
+                TOOLING, TOOLING_CASCADE, FOUNDATION);
 
         assertThat(cascade.downstreamOf("network.ike.tooling")
                         .stream().map(CascadeRepo::artifactId))
@@ -98,158 +94,76 @@ class ReleaseCascadeTest {
                         .stream().map(CascadeRepo::artifactId))
                 .containsExactly("ike-platform");
         assertThat(cascade.downstreamOf("network.ike.platform")).isEmpty();
-    }
-
-    @Test
-    void downstreamOf_unknown_groupId_is_empty() {
-        ReleaseCascade cascade = ReleaseCascadeIo.read(
-                new StringReader(FOUNDATION));
-
         assertThat(cascade.downstreamOf("dev.ikm.komet")).isEmpty();
         assertThat(cascade.contains("dev.ikm.komet")).isFalse();
     }
 
     @Test
-    void malformed_manifest_is_rejected() {
-        assertThatThrownBy(() -> ReleaseCascadeIo.read(
-                new StringReader("standards-version: 1\n")))
+    void terminal_node_is_marked() {
+        ReleaseCascade cascade = assembleFrom(
+                TOOLING, TOOLING_CASCADE, FOUNDATION);
+
+        assertThat(cascade.find("network.ike.platform")).get()
+                .extracting(CascadeRepo::terminal).isEqualTo(true);
+        assertThat(cascade.find("network.ike.tooling")).get()
+                .extracting(CascadeRepo::head).isEqualTo(true);
+    }
+
+    @Test
+    void one_sided_downstream_edge_is_rejected() {
+        // ike-tooling claims ike-docs downstream, but this ike-docs
+        // manifest declares itself the head with no upstream edge.
+        ProjectCascade orphanDocs = new ProjectCascade(
+                1, true, List.of(), false, List.of(PLATFORM));
+        Map<String, ProjectCascade> broken = Map.of(
+                "network.ike.tooling", TOOLING_CASCADE,
+                "network.ike.docs", orphanDocs,
+                "network.ike.platform", PLATFORM_CASCADE);
+
+        assertThatThrownBy(() -> assembleFrom(
+                TOOLING, TOOLING_CASCADE, broken))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cascade");
-        assertThatThrownBy(() -> ReleaseCascadeIo.read(
-                new StringReader("cascade:\n  - artifactId: x\n")))
+                .hasMessageContaining("one-sided cascade edge");
+    }
+
+    @Test
+    void unresolvable_edge_is_rejected() {
+        Map<String, ProjectCascade> missing = Map.of(
+                "network.ike.tooling", TOOLING_CASCADE,
+                "network.ike.docs", DOCS_CASCADE);
+
+        assertThatThrownBy(() -> assembleFrom(
+                TOOLING, TOOLING_CASCADE, missing))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("groupId");
-        assertThatThrownBy(() -> ReleaseCascadeIo.read(
-                new StringReader("cascade:\n  - groupId: x\n")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("artifactId");
-    }
-
-    @Test
-    void terminal_marker_must_be_declared_on_the_cascade_leaf() {
-        // ike-platform has no downstream consumer but omits the marker.
-        assertThatThrownBy(() -> ReleaseCascadeIo.read(new StringReader("""
-                cascade:
-                  - groupId: network.ike.tooling
-                    artifactId: ike-tooling
-                  - groupId: network.ike.platform
-                    artifactId: ike-platform
-                    consumes:
-                      - network.ike.tooling
-                """)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("terminal");
-    }
-
-    @Test
-    void terminal_marker_rejected_on_a_repo_with_consumers() {
-        // ike-tooling is marked terminal but ike-platform consumes it.
-        assertThatThrownBy(() -> ReleaseCascadeIo.read(new StringReader("""
-                cascade:
-                  - groupId: network.ike.tooling
-                    artifactId: ike-tooling
-                    terminal: true
-                  - groupId: network.ike.platform
-                    artifactId: ike-platform
-                    terminal: true
-                    consumes:
-                      - network.ike.tooling
-                """)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("downstream consumers");
-    }
-
-    @Test
-    void load_reads_a_manifest_at_the_given_path(@TempDir Path tmp)
-            throws IOException {
-        Path manifest = tmp.resolve("release-cascade.yaml");
-        Files.writeString(manifest, FOUNDATION, StandardCharsets.UTF_8);
-
-        Optional<ReleaseCascade> loaded = ReleaseCascadeIo.load(manifest);
-        assertThat(loaded).get()
-                .extracting(c -> c.repos().size()).isEqualTo(3);
-    }
-
-    @Test
-    void readFromZip_reads_manifest_from_cascade_artifact(
-            @TempDir Path tmp) throws IOException {
-        Path zip = tmp.resolve("ike-build-standards-177-cascade.zip");
-        try (ZipOutputStream zos = new ZipOutputStream(
-                Files.newOutputStream(zip))) {
-            zos.putNextEntry(new ZipEntry("release-cascade.yaml"));
-            zos.write(FOUNDATION.getBytes(StandardCharsets.UTF_8));
-            zos.closeEntry();
-        }
-        ReleaseCascade cascade = ReleaseCascadeIo.readFromZip(zip);
-        assertThat(cascade.repos()).hasSize(3);
-        assertThat(cascade.find("network.ike.docs")).isPresent();
-    }
-
-    @Test
-    void readFromZip_rejects_a_zip_without_the_manifest(@TempDir Path tmp)
-            throws IOException {
-        Path zip = tmp.resolve("no-manifest.zip");
-        try (ZipOutputStream zos = new ZipOutputStream(
-                Files.newOutputStream(zip))) {
-            zos.putNextEntry(new ZipEntry("other.txt"));
-            zos.write("x".getBytes(StandardCharsets.UTF_8));
-            zos.closeEntry();
-        }
-        assertThatThrownBy(() -> ReleaseCascadeIo.readFromZip(zip))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("release-cascade.yaml");
-    }
-
-    @Test
-    void load_degrades_gracefully_when_absent(@TempDir Path tmp) {
-        assertThat(ReleaseCascadeIo.load(
-                tmp.resolve("release-cascade.yaml"))).isEmpty();
-        assertThat(ReleaseCascadeIo.load(null)).isEmpty();
-    }
-
-    @Test
-    void reporter_self_resolves_by_coordinates_then_groupId() {
-        ReleaseCascade cascade = ReleaseCascadeIo.read(
-                new StringReader(FOUNDATION));
-
-        // Exact GA match.
-        assertThat(CascadeReporter.self(cascade,
-                        "network.ike.docs", "ike-docs"))
-                .get().extracting(CascadeRepo::artifactId)
-                .isEqualTo("ike-docs");
-        // groupId-only fallback (artifactId is a submodule, not the
-        // reactor root, but the groupId still resolves uniquely).
-        assertThat(CascadeReporter.self(cascade,
-                        "network.ike.tooling", "ike-maven-plugin"))
-                .get().extracting(CascadeRepo::artifactId)
-                .isEqualTo("ike-tooling");
-        // Ordinary consumer — not a cascade member.
-        assertThat(CascadeReporter.self(cascade,
-                        "dev.ikm.komet", "komet-desktop")).isEmpty();
+                .hasMessageContaining("ike-platform");
     }
 
     @Test
     void reporter_publish_footer_names_downstream_and_next_step() {
-        ReleaseCascade cascade = ReleaseCascadeIo.read(
-                new StringReader(FOUNDATION));
-        CascadeRepo self = cascade.find("network.ike.tooling").orElseThrow();
-
-        List<String> footer = CascadeReporter.publishFooter(cascade, self);
+        List<String> footer = CascadeReporter.publishFooter(
+                TOOLING_CASCADE, "ike-tooling");
 
         assertThat(footer).anyMatch(l -> l.contains("ike-tooling released"));
         assertThat(footer).anyMatch(l -> l.contains("cd ../ike-docs"));
-        assertThat(footer).anyMatch(
-                l -> l.contains("ws:cascade-foundation-publish"));
+        assertThat(footer).anyMatch(l -> l.contains("ike:release-cascade"));
     }
 
     @Test
     void reporter_publish_footer_marks_end_of_cascade() {
-        ReleaseCascade cascade = ReleaseCascadeIo.read(
-                new StringReader(FOUNDATION));
-        CascadeRepo self = cascade.find("network.ike.platform").orElseThrow();
-
-        List<String> footer = CascadeReporter.publishFooter(cascade, self);
+        List<String> footer = CascadeReporter.publishFooter(
+                PLATFORM_CASCADE, "ike-platform");
 
         assertThat(footer).anyMatch(l -> l.contains("End of the foundation"));
+    }
+
+    @Test
+    void reporter_draft_preview_names_downstream_repos() {
+        List<String> preview = CascadeReporter.draftPreview(
+                TOOLING_CASCADE, "ike-tooling");
+
+        assertThat(preview).anyMatch(l -> l.contains("ike-docs"));
+        assertThat(preview).anyMatch(l -> l.contains("ike-platform"));
+        assertThat(preview).anyMatch(
+                l -> l.contains("ike:release-cascade"));
     }
 }

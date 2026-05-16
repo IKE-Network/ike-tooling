@@ -3,12 +3,12 @@ package network.ike.workspace.cascade;
 import java.util.List;
 
 /**
- * Renders a {@link ReleaseCascade} into machine-readable formats for
- * CI consumption (IKE-Network/ike-issues#403).
+ * Renders an assembled {@link ReleaseCascade} into machine-readable
+ * formats for CI consumption (IKE-Network/ike-issues#403, #420).
  *
  * <p>A CI meta-runner that generates build-chain edges from the
  * cascade topology consumes one of these outputs, so the CI build
- * graph derives from {@code release-cascade.yaml} rather than being
+ * graph derives from the assembled cascade rather than being
  * hand-wired and drifting from it.
  *
  * <ul>
@@ -23,28 +23,27 @@ public final class CascadeExporter {
     private CascadeExporter() {}
 
     /**
-     * Renders the cascade as a JSON document: a {@code standards-version}
-     * string and a {@code cascade} array of
-     * {@code {groupId, artifactId, repo, url, consumes[]}} objects in
-     * topological order.
+     * Renders the cascade as a JSON document: a {@code cascade} array
+     * of {@code {groupId, artifactId, repo, url, consumes[], terminal}}
+     * objects in topological order.
      *
-     * @param cascade the parsed cascade
+     * @param cascade the assembled cascade
      * @return a JSON document string (newline-terminated)
      */
     public static String toJson(ReleaseCascade cascade) {
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
-        sb.append("  \"standards-version\": ")
-                .append(jsonString(cascade.standardsVersion())).append(",\n");
         sb.append("  \"cascade\": [\n");
         List<CascadeRepo> repos = cascade.repos();
         for (int i = 0; i < repos.size(); i++) {
             CascadeRepo r = repos.get(i);
             sb.append("    {\"groupId\": ").append(jsonString(r.groupId()))
-                    .append(", \"artifactId\": ").append(jsonString(r.artifactId()))
+                    .append(", \"artifactId\": ")
+                    .append(jsonString(r.artifactId()))
                     .append(", \"repo\": ").append(jsonString(r.repo()))
                     .append(", \"url\": ").append(jsonString(r.url()))
                     .append(", \"consumes\": ").append(jsonArray(r.consumes()))
+                    .append(", \"terminal\": ").append(r.terminal())
                     .append("}");
             if (i < repos.size() - 1) {
                 sb.append(",");
@@ -61,17 +60,13 @@ public final class CascadeExporter {
      * release order, then per-repo coordinates and {@code consumes}
      * edges keyed by repo name.
      *
-     * @param cascade the parsed cascade
+     * @param cascade the assembled cascade
      * @return a properties document string (newline-terminated)
      */
     public static String toProperties(ReleaseCascade cascade) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# release-cascade.yaml exported as properties"
+        sb.append("# release cascade exported as properties"
                 + " (IKE-Network/ike-issues#403)\n");
-        if (cascade.standardsVersion() != null) {
-            sb.append("cascade.standards-version=")
-                    .append(cascade.standardsVersion()).append("\n");
-        }
         sb.append("cascade.repos=")
                 .append(String.join(",", cascade.repos().stream()
                         .map(CascadeRepo::repo).toList()))
@@ -88,6 +83,8 @@ public final class CascadeExporter {
             }
             sb.append(prefix).append("consumes=")
                     .append(String.join(",", r.consumes())).append("\n");
+            sb.append(prefix).append("terminal=")
+                    .append(r.terminal()).append("\n");
         }
         return sb.toString();
     }

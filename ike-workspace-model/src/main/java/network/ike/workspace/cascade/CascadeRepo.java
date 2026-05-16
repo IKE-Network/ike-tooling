@@ -3,64 +3,53 @@ package network.ike.workspace.cascade;
 import java.util.List;
 
 /**
- * One repository entry in the IKE foundation release cascade.
+ * One node in the assembled IKE release cascade graph
+ * (IKE-Network/ike-issues#402, #420).
  *
- * <p>Backs the declarative {@code release-cascade.yaml} manifest
- * introduced by IKE-Network/ike-issues#402. Entries appear in the
- * manifest in topological order: a repo is released only after every
- * groupId it {@linkplain #consumes() consumes} has released.
+ * <p>A node pairs a project's identity — its reactor-root Maven
+ * coordinates and repository locators — with the {@link ProjectCascade}
+ * parsed from that project's own {@code src/main/cascade/release-cascade.yaml}.
+ * Nodes are produced only by {@link CascadeAssembler}, which traverses
+ * the per-project manifests and stitches them into a single ordered
+ * {@link ReleaseCascade}.
  *
- * <p>Cascade members are keyed off their Maven coordinates
- * ({@code groupId} + {@code artifactId}) — the same identity a
- * releasing project reports from its own reactor-root POM. The
- * {@code repo} field is a pure on-disk locator (a directory name),
- * distinct from identity, used by {@code ws:cascade-foundation-publish}
- * to find sibling checkouts.
+ * <p>Identity is keyed off the Maven {@code groupId} +
+ * {@code artifactId}. The {@code repo} and {@code url} fields are pure
+ * locators — the on-disk directory and the canonical git URL the
+ * cascade executor uses to reach the project.
  *
- * @param groupId    the reactor-root Maven {@code groupId} this repo
- *                   releases under (e.g. {@code network.ike.tooling});
+ * @param groupId    the project's reactor-root Maven {@code groupId};
  *                   the primary identity key
- * @param artifactId the reactor-root Maven {@code artifactId}
- *                   (e.g. {@code ike-tooling})
- * @param repo       the on-disk directory / GitHub repo name; defaults
- *                   to {@code artifactId} when omitted in the manifest
- * @param url        the canonical upstream git URL of this repo, or
- *                   {@code null} when the manifest omits it. The
- *                   reference origin — local checkouts and CI VCS
- *                   roots may legitimately use a different remote (a
- *                   fork, an SSH alias, an internal mirror)
- * @param consumes   groupIds of upstream cascade members whose
- *                   artifacts this repo depends on; never {@code null}
- *                   (an empty list means the repo is at the root of
- *                   the cascade)
- * @param terminal   {@code true} when this repo positively declares
- *                   itself the end of the cascade — it has no
- *                   downstream consumer and the cascade stops here.
- *                   Asserted in the manifest rather than inferred from
- *                   the absence of consumers, so a forgotten downstream
- *                   edge surfaces as a validation error
- *                   (IKE-Network/ike-issues#419)
+ * @param artifactId the project's reactor-root Maven {@code artifactId}
+ * @param repo       the on-disk directory / GitHub repo name
+ * @param url        the canonical upstream git URL, or {@code null}
+ *                   when unknown
+ * @param cascade    the project's own parsed {@code release-cascade.yaml}
  */
 public record CascadeRepo(String groupId, String artifactId,
                            String repo, String url,
-                           List<String> consumes, boolean terminal) {
+                           ProjectCascade cascade) {
 
     /**
-     * Canonical constructor — validates the identity coordinates,
-     * defaults {@code repo} to {@code artifactId}, and defensively
-     * copies {@code consumes}.
+     * Canonical constructor — validates the identity coordinates and
+     * the embedded {@link ProjectCascade}.
      */
     public CascadeRepo {
         if (groupId == null || groupId.isBlank()) {
             throw new IllegalArgumentException(
-                    "cascade entry requires a groupId");
+                    "cascade node requires a groupId");
         }
         if (artifactId == null || artifactId.isBlank()) {
             throw new IllegalArgumentException(
-                    "cascade entry requires an artifactId");
+                    "cascade node requires an artifactId");
         }
-        repo = (repo == null || repo.isBlank()) ? artifactId : repo;
-        consumes = consumes == null ? List.of() : List.copyOf(consumes);
+        if (repo == null || repo.isBlank()) {
+            repo = artifactId;
+        }
+        if (cascade == null) {
+            throw new IllegalArgumentException(
+                    "cascade node requires a ProjectCascade");
+        }
     }
 
     /**
@@ -70,5 +59,52 @@ public record CascadeRepo(String groupId, String artifactId,
      */
     public String ga() {
         return groupId + ":" + artifactId;
+    }
+
+    /**
+     * The upstream edges — the projects this one consumes.
+     *
+     * @return this project's {@code upstream} edges; never {@code null}
+     */
+    public List<CascadeEdge> upstream() {
+        return cascade.upstream();
+    }
+
+    /**
+     * The downstream edges — the projects that consume this one.
+     *
+     * @return this project's {@code downstream} edges; never {@code null}
+     */
+    public List<CascadeEdge> downstream() {
+        return cascade.downstream();
+    }
+
+    /**
+     * The groupIds this project consumes, drawn from its
+     * {@code upstream} edges.
+     *
+     * @return the upstream groupIds; never {@code null}
+     */
+    public List<String> consumes() {
+        return cascade.upstream().stream()
+                .map(CascadeEdge::groupId).toList();
+    }
+
+    /**
+     * Whether this project is the head of the cascade.
+     *
+     * @return {@code true} if it declares no upstream edge
+     */
+    public boolean head() {
+        return cascade.head();
+    }
+
+    /**
+     * Whether this project is the terminus of the cascade.
+     *
+     * @return {@code true} if it declares no downstream edge
+     */
+    public boolean terminal() {
+        return cascade.terminal();
     }
 }

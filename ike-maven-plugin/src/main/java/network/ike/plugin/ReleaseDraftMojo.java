@@ -7,11 +7,9 @@ import network.ike.plugin.support.AbstractGoalMojo;
 import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
 import network.ike.plugin.support.version.SessionCandidateVersionResolver;
-import network.ike.workspace.cascade.CascadeRepo;
 import network.ike.workspace.cascade.CascadeReporter;
-import network.ike.workspace.cascade.ReleaseCascade;
-import org.apache.maven.api.Session;
-import org.apache.maven.api.di.Inject;
+import network.ike.workspace.cascade.ProjectCascade;
+import network.ike.workspace.cascade.ProjectCascadeIo;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -135,28 +133,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      */
     @Parameter(property = "issueRepo", defaultValue = "IKE-Network/ike-issues")
     String issueRepo;
-
-    /**
-     * Path to the {@code release-cascade.yaml} manifest
-     * (IKE-Network/ike-issues#402). Bound to the standard
-     * {@code ike.release.cascade.manifest} property, which
-     * {@code ike-parent} declares in its {@code <properties>}
-     * (pointing at {@code target/release-cascade.yaml}, where the
-     * {@code ike-build-standards} cascade artifact is unpacked) and
-     * {@code ike-tooling}'s own root POM declares pointing at the
-     * in-tree manifest source. When the property is unset the goal
-     * falls back to {@code <gitRoot>/target/release-cascade.yaml}.
-     */
-    @Parameter(property = "ike.release.cascade.manifest")
-    String cascadeManifest;
-
-    /**
-     * Maven session — used by the cascade footer to resolve the
-     * {@code ike-build-standards} {@code cascade} artifact at runtime
-     * when no on-disk manifest is available (IKE-Network/ike-issues#404).
-     */
-    @Inject
-    Session session;
 
     /** Override working directory for tests. If null, uses current directory. */
     File baseDir;
@@ -762,17 +738,15 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
 
     /**
      * Prints the foundation release cascade section
-     * (IKE-Network/ike-issues#402).
+     * (IKE-Network/ike-issues#402, #420).
      *
-     * <p>When the releasing repository is a member of the
-     * {@code release-cascade.yaml} manifest — matched on its own
-     * reactor-root POM coordinates ({@code groupId} +
-     * {@code artifactId}) — this surfaces the downstream repos the
-     * release affects: a preview in draft mode, a "what's next"
-     * footer in publish mode. Non-member repositories (ordinary
-     * consumers) and a missing or unreadable manifest are silently
-     * skipped — cascade reporting is purely advisory and never fails
-     * or blocks a release.
+     * <p>When the releasing repository version-controls its own
+     * {@code src/main/cascade/release-cascade.yaml} it is a cascade
+     * member: this surfaces the downstream repos the release affects
+     * — a preview in draft mode, a "what's next" footer in publish
+     * mode. A repository with no such file (an ordinary consumer) or
+     * an unreadable manifest is silently skipped — cascade reporting
+     * is purely advisory and never fails or blocks a release.
      *
      * @param gitRoot the releasing repository's git root
      * @param draft   {@code true} for the draft preview, {@code false}
@@ -780,25 +754,18 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      */
     private void reportCascade(File gitRoot, boolean draft) {
         try {
-            Optional<ReleaseCascade> loaded = CascadeManifestResolver.resolve(
-                    session, gitRoot, cascadeManifest, getLog());
+            Optional<ProjectCascade> loaded = ProjectCascadeIo.load(
+                    gitRoot.toPath().resolve(
+                            ProjectCascadeIo.MANIFEST_RELATIVE_PATH));
             if (loaded.isEmpty()) {
+                // No release-cascade.yaml — an ordinary consumer, not
+                // a foundation cascade member. Nothing to report.
                 return;
             }
-            ReleaseCascade cascade = loaded.get();
-            File rootPom = new File(gitRoot, "pom.xml");
-            Optional<CascadeRepo> self = CascadeReporter.self(cascade,
-                    ReleaseSupport.readPomGroupId(rootPom),
-                    ReleaseSupport.readPomArtifactId(rootPom));
-            if (self.isEmpty()) {
-                // Not a foundation cascade member — an ordinary
-                // consumer. The cascade only orders the foundation,
-                // so there is nothing to report.
-                return;
-            }
+            String repo = gitRoot.getName();
             List<String> lines = draft
-                    ? CascadeReporter.draftPreview(cascade, self.get())
-                    : CascadeReporter.publishFooter(cascade, self.get());
+                    ? CascadeReporter.draftPreview(loaded.get(), repo)
+                    : CascadeReporter.publishFooter(loaded.get(), repo);
             getLog().info("");
             lines.forEach(getLog()::info);
         } catch (RuntimeException e) {
