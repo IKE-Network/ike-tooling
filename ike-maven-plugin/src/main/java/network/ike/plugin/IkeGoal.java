@@ -80,6 +80,13 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:release-publish} — release the current project (tag + publish). */
     RELEASE_PUBLISH("release-publish", ReleasePublishMojo.class,
             "Release the current project (tag + publish)."),
+    /** {@code ike:release-cascade} — release the whole foundation cascade in order. */
+    RELEASE_CASCADE("release-cascade", IkeReleaseCascadeMojo.class,
+            "Walk the decentralized release cascade assembled from "
+                    + "the per-project release-cascade.yaml manifests "
+                    + "and run ike:release-publish on every foundation "
+                    + "repo that has unreleased changes, in topological "
+                    + "order."),
     /** {@code ike:rename} — rename output files to a canonical pattern. */
     RENAME("rename", RenameMojo.class,
             "Rename output files to a canonical pattern."),
