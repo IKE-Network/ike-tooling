@@ -278,16 +278,15 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
             getLog().info("  " + behind + " behind, " + ahead + " ahead, "
                     + absent + " not declared.");
             if (behind > 0 || absent > 0) {
-                getLog().info("  Update behind/absent values via"
-                        + " ws:versions-upgrade-publish or a manual edit.");
+                getLog().info("  Apply behind/absent values with"
+                        + " ike:scaffold-publish"
+                        + " -Dike.scaffold.apply-foundation=true.");
             }
             if (ahead > 0) {
                 getLog().info("  Ahead values mean the unpacked"
                         + " ike-build-standards is stale — refresh the"
                         + " foundation; do not downgrade this POM.");
             }
-            getLog().info("  Foundation apply is not yet wired into"
-                    + " ike:scaffold-publish (#345 follow-up).");
         }
     }
 
