@@ -218,36 +218,85 @@ public class ScaffoldDraftMojo
         }
         if (entries.isEmpty()) return;
 
-        long drifted = entries.stream()
-                .filter(FoundationDriftChecker.Entry::isDrifted)
-                .count();
-
         getLog().info("");
         getLog().info("IKE Foundation Drift:");
+        getLog().info("  Compares this POM against the foundation snapshot");
+        getLog().info("  pinned in the unpacked ike-build-standards ("
+                + foundation.parent() + ").");
+
+        int behind = 0;
+        int ahead = 0;
+        int absent = 0;
         for (FoundationDriftChecker.Entry e : entries) {
             String label = e.kind() == FoundationDriftChecker.Kind.PARENT
                     ? "<parent> " + e.name()
                     : "${" + e.name() + "}";
-            String line;
             switch (e.state()) {
-                case ALIGNED -> line = "  ✓ " + label + ": " + e.actual();
-                case ABSENT -> line = "  · " + label + ": (absent) → "
-                        + e.expected() + "  [inherited from parent?]";
-                case DIFFERS -> line = "  ✗ " + label + ": " + e.actual()
-                        + " → " + e.expected();
-                default -> line = "  ? " + label;
+                case ALIGNED ->
+                    getLog().info("  ✓ " + label + ": " + e.actual());
+                case ABSENT -> {
+                    absent++;
+                    getLog().info("  · " + label + ": not declared here"
+                            + " (snapshot: " + e.expected() + ") — likely"
+                            + " inherited from the parent");
+                }
+                case DIFFERS -> {
+                    int dir = versionDirection(e.actual(), e.expected());
+                    if (dir < 0) {
+                        behind++;
+                        getLog().info("  ⬆ " + label + ": " + e.actual()
+                                + " → " + e.expected() + " (behind — upgrade)");
+                    } else if (dir > 0) {
+                        ahead++;
+                        getLog().info("  ℹ " + label + ": " + e.actual()
+                                + " (snapshot pins " + e.expected() + ") —"
+                                + " AHEAD; the scaffold is stale, not this POM");
+                    } else {
+                        behind++;
+                        getLog().info("  ✗ " + label + ": " + e.actual()
+                                + " → " + e.expected() + " (differs)");
+                    }
+                }
+                default -> getLog().info("  ? " + label);
             }
-            getLog().info(line);
         }
-        if (drifted > 0) {
+
+        if (behind > 0 || ahead > 0 || absent > 0) {
             getLog().info("");
-            getLog().info("  " + drifted + " value(s) behind the "
-                    + "compatibility snapshot baked into "
-                    + "ike-build-standards " + foundation.parent());
-            getLog().info("  Foundation apply is not yet wired into "
-                    + "ike:scaffold-publish (#345 follow-up); for now,");
-            getLog().info("  update these values via "
-                    + "ws:versions-upgrade-publish or manual edit.");
+            getLog().info("  " + behind + " behind, " + ahead + " ahead, "
+                    + absent + " not declared.");
+            if (behind > 0 || absent > 0) {
+                getLog().info("  Update behind/absent values via"
+                        + " ws:versions-upgrade-publish or a manual edit.");
+            }
+            if (ahead > 0) {
+                getLog().info("  Ahead values mean the unpacked"
+                        + " ike-build-standards is stale — refresh the"
+                        + " foundation; do not downgrade this POM.");
+            }
+            getLog().info("  Foundation apply is not yet wired into"
+                    + " ike:scaffold-publish (#345 follow-up).");
+        }
+    }
+
+    /**
+     * Compare two foundation version strings.
+     *
+     * @param actual   the project's POM value
+     * @param expected the scaffold snapshot's pinned value
+     * @return negative when {@code actual} is behind {@code expected},
+     *         positive when ahead, {@code 0} when the direction cannot
+     *         be determined (non-numeric versions). IKE foundation
+     *         versions are single-segment integers, so this is a
+     *         numeric comparison.
+     */
+    private static int versionDirection(String actual, String expected) {
+        try {
+            return Integer.signum(Long.compare(
+                    Long.parseLong(actual.trim()),
+                    Long.parseLong(expected.trim())));
+        } catch (NumberFormatException | NullPointerException ex) {
+            return 0;
         }
     }
 
