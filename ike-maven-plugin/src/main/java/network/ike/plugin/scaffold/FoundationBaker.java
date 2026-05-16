@@ -1,7 +1,7 @@
 package network.ike.plugin.scaffold;
 
-import network.ike.plugin.support.upgrade.CandidateVersionResolver;
-import network.ike.plugin.support.upgrade.MavenVersionComparator;
+import network.ike.plugin.support.version.CandidateVersionResolver;
+import network.ike.plugin.support.version.MavenVersionComparator;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

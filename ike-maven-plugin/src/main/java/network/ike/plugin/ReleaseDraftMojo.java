@@ -6,7 +6,7 @@ import network.ike.plugin.scaffold.ScaffoldManifestIo;
 import network.ike.plugin.support.AbstractGoalMojo;
 import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
-import network.ike.plugin.support.upgrade.SessionCandidateVersionResolver;
+import network.ike.plugin.support.version.SessionCandidateVersionResolver;
 import network.ike.workspace.cascade.CascadeRepo;
 import network.ike.workspace.cascade.CascadeReporter;
 import network.ike.workspace.cascade.ReleaseCascade;

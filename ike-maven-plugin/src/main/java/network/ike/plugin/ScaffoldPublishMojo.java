@@ -20,7 +20,7 @@ import network.ike.plugin.scaffold.TierHandlers;
 import network.ike.plugin.support.AbstractGoalMojo;
 import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
-import network.ike.plugin.support.upgrade.SessionCandidateVersionResolver;
+import network.ike.plugin.support.version.SessionCandidateVersionResolver;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;

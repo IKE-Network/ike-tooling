@@ -1,14 +1,13 @@
-package network.ike.plugin.support.upgrade;
+package network.ike.plugin.support.version;
 
 /**
  * Thrown when a {@link CandidateVersionResolver} cannot reach its
  * backing repository or fails to resolve a coordinate.
  *
- * <p>Distinct from {@link network.ike.workspace.VersionUpgradePlanException}
- * (plan parsing) and {@link network.ike.workspace.VersionUpgradeRulesException}
- * (ruleset parsing) so the calling mojo can render a targeted error
- * — typically a "check your Nexus settings" hint rather than a YAML
- * parse failure.
+ * <p>Surfaced rather than swallowed so the calling goal can render a
+ * targeted error — typically a "check your remote repository settings"
+ * hint — instead of silently treating an unreachable repository as
+ * "no released versions".
  */
 public class VersionResolverFailureException extends RuntimeException {
 

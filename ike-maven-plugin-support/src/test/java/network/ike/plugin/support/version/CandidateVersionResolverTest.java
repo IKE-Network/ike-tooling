@@ -1,4 +1,4 @@
-package network.ike.plugin.support.upgrade;
+package network.ike.plugin.support.version;
 
 import org.junit.jupiter.api.Test;
 

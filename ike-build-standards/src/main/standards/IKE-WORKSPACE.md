@@ -256,7 +256,6 @@ in a single pass. Each reconciler can be individually disabled.
 | `ws:scaffold-publish -DupdateAlignment=false` | Skip the alignment reconciler (use `ws:align-publish` standalone for the alignment-only case). |
 | `ws:align-draft` / `-publish` | Standalone shortcut for the alignment-only case; shares `AlignmentReconciler` logic with `ws:scaffold-publish` and the feature/release lifecycles. |
 | `ws:reconcile-branches-draft` / `-publish` | Reconcile `workspace.yaml` branch fields against on-disk git state (recovery / rare use). |
-| `ws:versions-upgrade-draft` / `-publish` | Plan-driven upgrades of parent/property/plugin versions when the scaffold manifest does not cover the upgrade. |
 
 ### Feature Branching
 

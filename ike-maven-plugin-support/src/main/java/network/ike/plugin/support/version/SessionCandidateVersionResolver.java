@@ -1,4 +1,4 @@
-package network.ike.plugin.support.upgrade;
+package network.ike.plugin.support.version;
 
 import org.apache.maven.api.ArtifactCoordinates;
 import org.apache.maven.api.Session;

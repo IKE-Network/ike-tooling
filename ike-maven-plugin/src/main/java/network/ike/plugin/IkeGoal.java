@@ -147,15 +147,7 @@ public enum IkeGoal implements GoalRef {
                     + "reachable for the current project + version: "
                     + "site (current/versioned/latest), org-site "
                     + "landing, Nexus artifact, GitHub release tag. "
-                    + "Read-only; exits non-zero on any failure."),
-    /** {@code ike:versions-upgrade-draft} — preview proposed version upgrades. */
-    VERSIONS_UPGRADE_DRAFT("versions-upgrade-draft",
-            VersionsUpgradeDraftMojo.class,
-            "Preview version upgrades against the configured ruleset."),
-    /** {@code ike:versions-upgrade-publish} — apply the version-upgrade plan. */
-    VERSIONS_UPGRADE_PUBLISH("versions-upgrade-publish",
-            VersionsUpgradePublishMojo.class,
-            "Apply the version-upgrade plan to the project's POM.");
+                    + "Read-only; exits non-zero on any failure.");
 
     /** Shared {@code ike:} prefix for all goals in this plugin. */
     public static final String PLUGIN_PREFIX = "ike";

@@ -1,12 +1,12 @@
-package network.ike.plugin.support.upgrade;
+package network.ike.plugin.support.version;
 
 import java.util.List;
 
 /**
  * Resolves the available released versions of a Maven coordinate.
  *
- * <p>Pure interface so {@code VersionUpgradePlanBuilder} can be unit
- * tested with a fake (no Maven session, no network). The
+ * <p>Pure interface so {@code FoundationBaker} can be unit tested
+ * with a fake (no Maven session, no network). The
  * {@link SessionCandidateVersionResolver} implementation queries the
  * Maven 4 {@code VersionRangeResolver} service against the configured
  * remote and local repositories.

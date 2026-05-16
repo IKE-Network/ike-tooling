@@ -1,6 +1,6 @@
 package network.ike.plugin.scaffold;
 
-import network.ike.plugin.support.upgrade.CandidateVersionResolver;
+import network.ike.plugin.support.version.CandidateVersionResolver;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
