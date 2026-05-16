@@ -16,8 +16,9 @@ import network.ike.plugin.scaffold.ScaffoldPlanner;
 import network.ike.plugin.scaffold.ScaffoldScope;
 import network.ike.plugin.scaffold.TemplateSource;
 import network.ike.plugin.scaffold.TierHandlers;
+import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportSpec;
 import org.apache.maven.api.Session;
-import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -59,28 +60,7 @@ import java.util.List;
  */
 @Mojo(name = "scaffold-publish", projectRequired = false,
       aggregator = true)
-public class ScaffoldPublishMojo
-        implements org.apache.maven.api.plugin.Mojo {
-
-    @Inject
-    private org.apache.maven.api.plugin.Log log;
-
-    /**
-     * Maven 4 session — used to derive the project root from
-     * {@link Session#getTopDirectory()} when {@code projectRoot} is
-     * not supplied. Maven's parameter-default expansion does not
-     * interpolate {@code ${project.basedir}} for goals annotated
-     * {@code projectRequired = false}, so we resolve it here.
-     */
-    @Inject
-    private Session session;
-
-    /**
-     * Access the Maven logger.
-     *
-     * @return the logger
-     */
-    protected org.apache.maven.api.plugin.Log getLog() { return log; }
+public class ScaffoldPublishMojo extends AbstractGoalMojo {
 
     /**
      * Path to an unpacked scaffold tree containing
@@ -131,15 +111,15 @@ public class ScaffoldPublishMojo
     public ScaffoldPublishMojo() {}
 
     @Override
-    public void execute() throws MojoException {
+    protected GoalReportSpec runGoal() throws MojoException {
         try {
-            runPublish();
+            return runPublish();
         } catch (ScaffoldException e) {
             throw new MojoException(e.getMessage(), e);
         }
     }
 
-    private void runPublish() {
+    private GoalReportSpec runPublish() {
         Path scaffoldRoot = Path.of(scaffoldDir);
         ScaffoldManifest manifest =
                 ScaffoldMojoSupport.loadManifest(scaffoldRoot);
@@ -147,7 +127,7 @@ public class ScaffoldPublishMojo
                 new DirectoryTemplateSource(scaffoldRoot);
         Path home = Path.of(userHome);
         Path projRoot = ScaffoldMojoSupport.resolveProjectRoot(
-                projectRoot, session);
+                projectRoot, getSession());
         PathResolver resolver = new PathResolver(home, projRoot);
         ScaffoldPlanner planner = new ScaffoldPlanner(
                 new TierHandlers(), new ModelAdapters());
@@ -230,6 +210,44 @@ public class ScaffoldPublishMojo
         if (projRoot != null && manifest.foundation() != null) {
             applyFoundationDrift(projRoot, manifest.foundation());
         }
+
+        return new GoalReportSpec(IkeGoal.SCAFFOLD_PUBLISH,
+                projRoot != null ? projRoot : home,
+                buildReport(manifest, userCounts, projectCounts));
+    }
+
+    /**
+     * Build the Markdown report body for {@code ike:scaffold-publish}.
+     *
+     * @param manifest      the scaffold manifest
+     * @param userCounts    applied-action counts for the user scope
+     * @param projectCounts applied-action counts for the project
+     *                      scope, or {@code null} on a fresh machine
+     * @return the report body
+     */
+    private static String buildReport(ScaffoldManifest manifest,
+                                       Counts userCounts,
+                                       Counts projectCounts) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Applied the scaffold manifest to disk.\n\n");
+        sb.append("- standards version: `")
+          .append(manifest.standardsVersion()).append("`\n");
+        sb.append("- user scope: ").append(userCounts.summary())
+          .append("\n");
+        if (projectCounts != null) {
+            sb.append("- project scope: ")
+              .append(projectCounts.summary()).append("\n");
+        } else {
+            sb.append("- project scope: (none — fresh machine)\n");
+        }
+        int totalSkipped = userCounts.skip()
+                + (projectCounts != null ? projectCounts.skip() : 0);
+        if (totalSkipped > 0) {
+            sb.append("\n").append(totalSkipped)
+              .append(" entry(ies) skipped (user-edited) — run")
+              .append(" `ike:scaffold-draft` for details.\n");
+        }
+        return sb.toString();
     }
 
     /**

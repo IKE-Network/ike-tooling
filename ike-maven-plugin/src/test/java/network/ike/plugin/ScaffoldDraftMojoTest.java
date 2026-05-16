@@ -118,9 +118,23 @@ class ScaffoldDraftMojoTest {
 
     static void inject(Object target, String fieldName, Object value)
             throws Exception {
-        Field f = target.getClass().getDeclaredField(fieldName);
-        f.setAccessible(true);
-        f.set(target, value);
+        // Walk the class hierarchy: scaffold mojos extend
+        // AbstractGoalMojo, so injected fields such as `log` are
+        // declared on a superclass (ike-issues#413).
+        Class<?> c = target.getClass();
+        NoSuchFieldException notFound = null;
+        while (c != null) {
+            try {
+                Field f = c.getDeclaredField(fieldName);
+                f.setAccessible(true);
+                f.set(target, value);
+                return;
+            } catch (NoSuchFieldException e) {
+                notFound = e;
+                c = c.getSuperclass();
+            }
+        }
+        throw notFound;
     }
 
     static final class RecordingLog implements Log {

@@ -49,6 +49,20 @@ public abstract class AbstractGoalMojo implements Mojo {
     }
 
     /**
+     * Access the Maven session injected by Maven 4's plugin DI.
+     *
+     * <p>Goals annotated {@code projectRequired = false} use it to
+     * derive the invocation directory from
+     * {@link Session#getTopDirectory()}, since Maven does not
+     * interpolate {@code ${project.basedir}} for them.
+     *
+     * @return the injected session (may be {@code null} in unit tests)
+     */
+    protected Session getSession() {
+        return session;
+    }
+
+    /**
      * The {@link IkePrompter} for this goal — built lazily from the
      * session's interactive flag (IKE-Network/ike-issues#385).
      * Renders an inline prompt on a real terminal, an own-line prompt

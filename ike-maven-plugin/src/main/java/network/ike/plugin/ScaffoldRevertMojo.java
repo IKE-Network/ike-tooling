@@ -10,8 +10,9 @@ import network.ike.plugin.scaffold.ScaffoldMojoSupport;
 import network.ike.plugin.scaffold.ScaffoldReverter;
 import network.ike.plugin.scaffold.ScaffoldScope;
 import network.ike.plugin.scaffold.TierHandlers;
+import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportSpec;
 import org.apache.maven.api.Session;
-import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -54,28 +55,7 @@ import java.nio.file.Path;
  */
 @Mojo(name = "scaffold-revert", projectRequired = false,
       aggregator = true)
-public class ScaffoldRevertMojo
-        implements org.apache.maven.api.plugin.Mojo {
-
-    @Inject
-    private org.apache.maven.api.plugin.Log log;
-
-    /**
-     * Maven 4 session — used to derive the project root from
-     * {@link Session#getTopDirectory()} when {@code projectRoot} is
-     * not supplied. Maven's parameter-default expansion does not
-     * interpolate {@code ${project.basedir}} for goals annotated
-     * {@code projectRequired = false}, so we resolve it here.
-     */
-    @Inject
-    private Session session;
-
-    /**
-     * Access the Maven logger.
-     *
-     * @return the logger
-     */
-    protected org.apache.maven.api.plugin.Log getLog() { return log; }
+public class ScaffoldRevertMojo extends AbstractGoalMojo {
 
     /**
      * Path to an unpacked scaffold tree containing
@@ -114,21 +94,21 @@ public class ScaffoldRevertMojo
     public ScaffoldRevertMojo() {}
 
     @Override
-    public void execute() throws MojoException {
+    protected GoalReportSpec runGoal() throws MojoException {
         try {
-            runRevert();
+            return runRevert();
         } catch (ScaffoldException e) {
             throw new MojoException(e.getMessage(), e);
         }
     }
 
-    private void runRevert() {
+    private GoalReportSpec runRevert() {
         Path scaffoldRoot = Path.of(scaffoldDir);
         ScaffoldManifest manifest =
                 ScaffoldMojoSupport.loadManifest(scaffoldRoot);
         Path home = Path.of(userHome);
         Path projRoot = ScaffoldMojoSupport.resolveProjectRoot(
-                projectRoot, session);
+                projectRoot, getSession());
         PathResolver resolver = new PathResolver(home, projRoot);
 
         // Instantiate the registries so adapter-specific revert
@@ -219,6 +199,45 @@ public class ScaffoldRevertMojo
         if (projRoot != null) {
             restoreFoundationBackup(projRoot);
         }
+
+        return new GoalReportSpec(IkeGoal.SCAFFOLD_REVERT,
+                projRoot != null ? projRoot : home,
+                buildReport(manifest, userDeleted, userSkipped,
+                        projRoot != null, projectDeleted,
+                        projectSkipped));
+    }
+
+    /**
+     * Build the Markdown report body for {@code ike:scaffold-revert}.
+     *
+     * @param manifest        the scaffold manifest
+     * @param userDeleted     files deleted in the user scope
+     * @param userSkipped     entries skipped in the user scope
+     * @param hasProject      whether a project scope was processed
+     * @param projectDeleted  files deleted in the project scope
+     * @param projectSkipped  entries skipped in the project scope
+     * @return the report body
+     */
+    private static String buildReport(ScaffoldManifest manifest,
+                                       int userDeleted, int userSkipped,
+                                       boolean hasProject,
+                                       int projectDeleted,
+                                       int projectSkipped) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Reverted a previous `ike:scaffold-publish`.\n\n");
+        sb.append("- standards version: `")
+          .append(manifest.standardsVersion()).append("`\n");
+        sb.append("- user scope: ").append(userDeleted)
+          .append(" deleted, ").append(userSkipped)
+          .append(" skipped\n");
+        if (hasProject) {
+            sb.append("- project scope: ").append(projectDeleted)
+              .append(" deleted, ").append(projectSkipped)
+              .append(" skipped\n");
+        } else {
+            sb.append("- project scope: (none — fresh machine)\n");
+        }
+        return sb.toString();
     }
 
     /**
