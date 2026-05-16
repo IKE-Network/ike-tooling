@@ -21,7 +21,7 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin-support/index.ht
 - Consistent goal-result reporting (the per-goal markdown reports).
 - Shared parameter parsing and validation.
 - The compile-time goal registry that catches mojo / enum drift.
-- Version-upgrade plan computation (used by both `ws:versions-upgrade` and `ike:versions-upgrade`).
+- Released-version resolution — discovering the latest released version of an artifact (used by the scaffold foundation bake in both plugins).
 
 Having one plugin depend on the other would create an awkward release-order constraint and a circular conceptual reference. Pulling the shared code into a third library keeps the dependency direction clean: both plugins depend on `ike-maven-plugin-support`, which depends on neither.
 
@@ -33,7 +33,7 @@ Having one plugin depend on the other would create an awkward release-order cons
 | `GoalReport` | Builder for the structured markdown reports goals emit. Sections, tables, callouts. |
 | `GoalRef` | Type-safe reference to a goal (rather than a string literal). Lets the compiler catch typo’d goal names in `@see` and similar references. |
 | `MojoParamSupport` | Shared parameter parsing — coercion of `-Dprop=val` strings into typed values, with consistent error messages on bad input. |
-| `support.upgrade.*` | The version-upgrade plan model: scanner, candidate resolver, plan builder, plan applier. Used by both plugins. |
+| `support.version.*` | Released-version resolution: `CandidateVersionResolver`, `SessionCandidateVersionResolver`, `MavenVersionComparator`, `VersionResolverFailureException`. Used by the scaffold foundation bake in both plugins. |
 
 ## [#the-goal-registry-pattern](#the-goal-registry-pattern)The goal registry pattern
 

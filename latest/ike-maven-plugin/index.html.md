@@ -6,7 +6,7 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/index.html
 
 # IKE Maven Plugin
 
-The `ike-maven-plugin` provides the `ike:*` goal prefix — 34 goals covering single-repo release orchestration, site deploy + publishing, scaffolding, version upgrades, the AsciiDoc rendering pipeline, native packaging utilities, and BOM generation.
+The `ike-maven-plugin` provides the `ike:*` goal prefix — 32 goals covering single-repo release orchestration, site deploy + publishing, scaffolding, the AsciiDoc rendering pipeline, native packaging utilities, and BOM generation.
 
 | Coordinate | Value |
 | --- | --- |
@@ -76,9 +76,6 @@ mvn ike:site-publish
 
 # Apply scaffold convention upgrades
 mvn ike:scaffold-publish
-
-# Apply build-tool version upgrades
-mvn ike:versions-upgrade-publish
 ```
 
 ## [#quick-reference](#quick-reference)Quick reference
@@ -90,7 +87,6 @@ mvn ike:versions-upgrade-publish
 | [site-{draft,publish}](#site) | site | Generate, deploy, and register the Maven site; `-Dsite=removed` uninstalls and deregisters |
 | [ike:generate-bom](#generate-bom) | bom | Auto-generate a BOM POM from another module’s dependency management |
 | [scaffold-{draft,publish,revert}](#scaffold) | scaffold | Apply the workspace scaffold manifest (gitignore, hooks, IDE settings) |
-| [versions-upgrade-{draft,publish}](#versions-upgrade) | upgrade | Apply parent / property / plugin version upgrades |
 | [ike:asciidoc](#asciidoc) | docs | Render AsciiDoc to HTML / PDF (replaces asciidoctor-maven-plugin) |
 | [ike:adocstudio](#adocstudio) | docs | Generate Adoc Studio sidecar projects |
 | [ike:render-pdf](#render-pdf) | docs | Wrap external PDF renderers (Prince, AH, FOP, weasyprint, xep) |
@@ -198,12 +194,6 @@ Generate a standalone BOM POM from another module’s `<dependencyManagement>`. 
 Apply (or revert) the workspace scaffold — the conventional non-source files that every IKE workspace shares: `.gitignore`, git hooks under `~/.git-hooks/`, `.mvn/maven.config`, IDE settings (`.idea/`, `.vscode/`). The scaffold manifest is shipped as the `scaffold` classifier of `ike-build-standards`.
 
 `scaffold-revert` undoes a previous `scaffold-publish` per the tier policy in the manifest (some files are tool-owned and revertible, others are tracked in version control and not touched on revert).
-
-## [#version-upgrades](#version-upgrades)Version upgrades
-
-### [#ike-versions-upgrade--draft-publish](#ike-versions-upgrade--draft-publish)ike:versions-upgrade-{draft,publish}
-
-Apply build-tool version upgrades to the project’s POMs: `<parent><version>`, version properties, literal plugin and dependency versions. Driven by a workspace-level `versions-upgrade-rules.yaml` that states the target version for each ecosystem family. POM writes go through OpenRewrite (LST), never sed/regex.
 
 ## [#asciidoc-rendering-pipeline](#asciidoc-rendering-pipeline)AsciiDoc rendering pipeline
 

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IkeCascadeExportMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">IkeCascadeExportMojo.java</span></div><h1>IkeCascadeExportMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
+import network.ike.plugin.support.GoalReportSpec;
 import network.ike.workspace.cascade.ReleaseCascade;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.di.Inject;
@@ -63,47 +65,59 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
     File baseDir;
 
     /** Creates this goal instance. */
-<span class="fc" id="L66">    public IkeCascadeExportMojo() {}</span>
+<span class="fc" id="L68">    public IkeCascadeExportMojo() {}</span>
 
     @Override
-    public void execute() throws MojoException {
-<span class="nc bnc" id="L70" title="All 2 branches missed.">        File startDir = baseDir != null ? baseDir : new File(&quot;.&quot;);</span>
-<span class="nc" id="L71">        File gitRoot = ReleaseSupport.gitRoot(startDir);</span>
+    protected GoalReportSpec runGoal() throws MojoException {
+<span class="nc bnc" id="L72" title="All 2 branches missed.">        File startDir = baseDir != null ? baseDir : new File(&quot;.&quot;);</span>
+<span class="nc" id="L73">        File gitRoot = ReleaseSupport.gitRoot(startDir);</span>
 
         CascadeExportFormat exportFormat;
         try {
-<span class="nc" id="L75">            exportFormat = CascadeExportFormat.fromString(format);</span>
-<span class="nc" id="L76">        } catch (IllegalArgumentException e) {</span>
-<span class="nc" id="L77">            throw new MojoException(e.getMessage());</span>
-<span class="nc" id="L78">        }</span>
+<span class="nc" id="L77">            exportFormat = CascadeExportFormat.fromString(format);</span>
+<span class="nc" id="L78">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L79">            throw new MojoException(e.getMessage());</span>
+<span class="nc" id="L80">        }</span>
 
-<span class="nc" id="L80">        ReleaseCascade cascade = CascadeManifestResolver</span>
-<span class="nc" id="L81">                .resolve(session, gitRoot, cascadeManifest, getLog())</span>
-<span class="nc" id="L82">                .orElseThrow(() -&gt; new MojoException(</span>
+<span class="nc" id="L82">        ReleaseCascade cascade = CascadeManifestResolver</span>
+<span class="nc" id="L83">                .resolve(session, gitRoot, cascadeManifest, getLog())</span>
+<span class="nc" id="L84">                .orElseThrow(() -&gt; new MojoException(</span>
                         &quot;No release-cascade.yaml found. Pass &quot;
                         + &quot;-Dike.release.cascade.manifest=&lt;path&gt;, or run &quot;
                         + &quot;from a foundation repo that can resolve the &quot;
                         + &quot;ike-build-standards cascade artifact.&quot;));
 
-<span class="nc" id="L88">        String rendered = exportFormat.render(cascade);</span>
-<span class="nc" id="L89">        String formatLabel = exportFormat.name().toLowerCase();</span>
+<span class="nc" id="L90">        String rendered = exportFormat.render(cascade);</span>
+<span class="nc" id="L91">        String formatLabel = exportFormat.name().toLowerCase();</span>
 
-<span class="nc bnc" id="L91" title="All 4 branches missed.">        if (outputFile != null &amp;&amp; !outputFile.isBlank()) {</span>
-<span class="nc" id="L92">            Path out = Path.of(outputFile);</span>
+        String location;
+<span class="nc bnc" id="L94" title="All 4 branches missed.">        if (outputFile != null &amp;&amp; !outputFile.isBlank()) {</span>
+<span class="nc" id="L95">            Path out = Path.of(outputFile);</span>
             try {
-<span class="nc bnc" id="L94" title="All 2 branches missed.">                if (out.getParent() != null) {</span>
-<span class="nc" id="L95">                    Files.createDirectories(out.getParent());</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">                if (out.getParent() != null) {</span>
+<span class="nc" id="L98">                    Files.createDirectories(out.getParent());</span>
                 }
-<span class="nc" id="L97">                Files.writeString(out, rendered, StandardCharsets.UTF_8);</span>
-<span class="nc" id="L98">            } catch (IOException e) {</span>
-<span class="nc" id="L99">                throw new MojoException(</span>
-<span class="nc" id="L100">                        &quot;Could not write &quot; + out + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L101">            }</span>
-<span class="nc" id="L102">            getLog().info(&quot;Cascade exported (&quot; + formatLabel + &quot;) to &quot; + out);</span>
-<span class="nc" id="L103">        } else {</span>
-<span class="nc" id="L104">            getLog().info(&quot;Cascade export (&quot; + formatLabel + &quot;):&quot;);</span>
-<span class="nc" id="L105">            rendered.lines().forEach(getLog()::info);</span>
+<span class="nc" id="L100">                Files.writeString(out, rendered, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L101">            } catch (IOException e) {</span>
+<span class="nc" id="L102">                throw new MojoException(</span>
+<span class="nc" id="L103">                        &quot;Could not write &quot; + out + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L104">            }</span>
+<span class="nc" id="L105">            getLog().info(&quot;Cascade exported (&quot; + formatLabel + &quot;) to &quot; + out);</span>
+<span class="nc" id="L106">            location = &quot;written to `&quot; + out + &quot;`&quot;;</span>
+<span class="nc" id="L107">        } else {</span>
+<span class="nc" id="L108">            getLog().info(&quot;Cascade export (&quot; + formatLabel + &quot;):&quot;);</span>
+<span class="nc" id="L109">            rendered.lines().forEach(getLog()::info);</span>
+<span class="nc" id="L110">            location = &quot;printed to the build log&quot;;</span>
         }
-<span class="nc" id="L107">    }</span>
+
+<span class="nc" id="L113">        String report = new GoalReportBuilder()</span>
+<span class="nc" id="L114">                .section(&quot;Cascade export&quot;)</span>
+<span class="nc" id="L115">                .paragraph(&quot;Exported `release-cascade.yaml` as **&quot;</span>
+                        + formatLabel + &quot;**, &quot; + location + &quot;.&quot;)
+<span class="nc" id="L117">                .codeBlock(formatLabel, rendered)</span>
+<span class="nc" id="L118">                .build();</span>
+<span class="nc" id="L119">        return new GoalReportSpec(IkeGoal.CASCADE_EXPORT,</span>
+<span class="nc" id="L120">                startDir.toPath(), report);</span>
+    }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

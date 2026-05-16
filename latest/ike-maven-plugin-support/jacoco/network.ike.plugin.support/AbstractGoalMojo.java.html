@@ -4,15 +4,17 @@ import org.apache.maven.api.Session;
 import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.Log;
 import org.apache.maven.api.plugin.Mojo;
-
-import java.nio.file.Path;
+import org.apache.maven.api.plugin.MojoException;
 
 /**
- * Common base class for IKE plugin mojos. Provides the injected Maven
- * logger and a {@link #writeReport(GoalRef, Path, String)} helper so
- * every goal can emit a markdown session report to
+ * Common base class for IKE plugin mojos. Implements {@code execute()}
+ * as a {@code final} template: every goal does its work in
+ * {@link #runGoal()} and returns a {@link GoalReportSpec}, and the
+ * base class writes exactly one markdown session report to
  * {@code &lt;projectRoot&gt;/&lt;prefix&gt;꞉&lt;goal&gt;.md} (e.g.
- * {@code ike꞉release-publish.md}, {@code idoc꞉asciidoc.md}).
+ * {@code ike꞉release-publish.md}, {@code idoc꞉asciidoc.md}). Because
+ * the report is a required return value, a goal cannot be written
+ * that silently produces none (IKE-Network/ike-issues#413, #407).
  *
  * &lt;p&gt;The report writer self-heals {@code .gitignore} to keep reports
  * out of source control — see {@link GoalReport}. A single base class
@@ -25,7 +27,7 @@ import java.nio.file.Path;
 public abstract class AbstractGoalMojo implements Mojo {
 
     /** Default constructor — subclasses are instantiated by Maven's DI. */
-<span class="nc" id="L28">    protected AbstractGoalMojo() {}</span>
+<span class="nc" id="L30">    protected AbstractGoalMojo() {}</span>
 
     @Inject
     private Log log;
@@ -43,7 +45,21 @@ public abstract class AbstractGoalMojo implements Mojo {
      * @return the injected logger
      */
     protected Log getLog() {
-<span class="nc" id="L46">        return log;</span>
+<span class="nc" id="L48">        return log;</span>
+    }
+
+    /**
+     * Access the Maven session injected by Maven 4's plugin DI.
+     *
+     * &lt;p&gt;Goals annotated {@code projectRequired = false} use it to
+     * derive the invocation directory from
+     * {@link Session#getTopDirectory()}, since Maven does not
+     * interpolate {@code ${project.basedir}} for them.
+     *
+     * @return the injected session (may be {@code null} in unit tests)
+     */
+    protected Session getSession() {
+<span class="nc" id="L62">        return session;</span>
     }
 
     /**
@@ -55,14 +71,14 @@ public abstract class AbstractGoalMojo implements Mojo {
      * @return the prompter (never {@code null})
      */
     protected IkePrompter getPrompter() {
-<span class="nc bnc" id="L58" title="All 2 branches missed.">        if (prompter == null) {</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (prompter == null) {</span>
             // No session (unit tests) or batch mode -&gt; not interactive,
             // so the prompter declines rather than blocking on stdin.
-<span class="nc bnc" id="L61" title="All 2 branches missed.">            boolean interactive = session != null</span>
-<span class="nc bnc" id="L62" title="All 2 branches missed.">                    &amp;&amp; session.getSettings().isInteractiveMode();</span>
-<span class="nc" id="L63">            prompter = new ConsoleIkePrompter(getLog(), interactive);</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">            boolean interactive = session != null</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">                    &amp;&amp; session.getSettings().isInteractiveMode();</span>
+<span class="nc" id="L79">            prompter = new ConsoleIkePrompter(getLog(), interactive);</span>
         }
-<span class="nc" id="L65">        return prompter;</span>
+<span class="nc" id="L81">        return prompter;</span>
     }
 
     /**
@@ -72,21 +88,45 @@ public abstract class AbstractGoalMojo implements Mojo {
      * @param prompter the prompter implementation to use
      */
     void setPrompter(IkePrompter prompter) {
-<span class="nc" id="L75">        this.prompter = prompter;</span>
-<span class="nc" id="L76">    }</span>
+<span class="nc" id="L91">        this.prompter = prompter;</span>
+<span class="nc" id="L92">    }</span>
 
     /**
-     * Write a goal's report to its per-goal file at the given project
-     * root. Overwrites any previous content and self-heals
-     * {@code .gitignore} in the nearest git ancestor.
+     * Run the goal and write its report.
      *
-     * @param goal        the goal whose output is being reported
-     * @param projectRoot the Maven project root the goal executed from
-     * @param content     markdown content to write
+     * &lt;p&gt;This method is {@code final}: every IKE goal follows the same
+     * template — do the work, then write exactly one report. Subclasses
+     * supply the work and the report content by implementing
+     * {@link #runGoal()}; they cannot override {@code execute()} to
+     * skip the report. That is what makes report-writing structural —
+     * a goal that compiles necessarily writes a report (the #407 bug
+     * class becomes impossible; IKE-Network/ike-issues#413).
+     *
+     * @throws MojoException if the goal fails
      */
-    protected void writeReport(GoalRef goal, Path projectRoot,
-                                String content) {
-<span class="nc" id="L89">        GoalReport.write(projectRoot, goal, content, getLog());</span>
-<span class="nc" id="L90">    }</span>
+    @Override
+    public final void execute() throws MojoException {
+<span class="nc" id="L109">        GoalReportSpec report = runGoal();</span>
+<span class="nc" id="L110">        GoalReport.write(report.projectRoot(), report.goal(),</span>
+<span class="nc" id="L111">                report.content(), getLog());</span>
+<span class="nc" id="L112">    }</span>
+
+    /**
+     * Run this goal's work and return the report it produced.
+     *
+     * &lt;p&gt;Implementations do the goal's actual work here and return a
+     * {@link GoalReportSpec} — the goal identity, the directory the
+     * report file lands in, and the Markdown body. The base class
+     * writes it. A goal cannot be implemented without producing a
+     * report, which is the structural fix for the missing-report bug
+     * class (IKE-Network/ike-issues#413 / #407).
+     *
+     * &lt;p&gt;On failure, throw {@link MojoException} as usual — a failed
+     * goal produces no report, and Maven surfaces the exception.
+     *
+     * @return the report this goal produced (never {@code null})
+     * @throws MojoException if the goal fails
+     */
+    protected abstract GoalReportSpec runGoal() throws MojoException;
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

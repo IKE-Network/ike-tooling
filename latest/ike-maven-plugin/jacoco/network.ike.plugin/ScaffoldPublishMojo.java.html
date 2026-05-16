@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldPublishMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ScaffoldPublishMojo.java</span></div><h1>ScaffoldPublishMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
 
 import network.ike.plugin.scaffold.DirectoryTemplateSource;
+import network.ike.plugin.scaffold.FoundationBaker;
 import network.ike.plugin.scaffold.FoundationDriftChecker;
 import network.ike.plugin.scaffold.ModelAdapters;
 import network.ike.plugin.scaffold.PathResolver;
@@ -16,8 +17,11 @@ import network.ike.plugin.scaffold.ScaffoldPlanner;
 import network.ike.plugin.scaffold.ScaffoldScope;
 import network.ike.plugin.scaffold.TemplateSource;
 import network.ike.plugin.scaffold.TierHandlers;
+import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
+import network.ike.plugin.support.GoalReportSpec;
+import network.ike.plugin.support.version.SessionCandidateVersionResolver;
 import org.apache.maven.api.Session;
-import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -59,28 +63,7 @@ import java.util.List;
  */
 @Mojo(name = &quot;scaffold-publish&quot;, projectRequired = false,
       aggregator = true)
-public class ScaffoldPublishMojo
-        implements org.apache.maven.api.plugin.Mojo {
-
-    @Inject
-    private org.apache.maven.api.plugin.Log log;
-
-    /**
-     * Maven 4 session — used to derive the project root from
-     * {@link Session#getTopDirectory()} when {@code projectRoot} is
-     * not supplied. Maven's parameter-default expansion does not
-     * interpolate {@code ${project.basedir}} for goals annotated
-     * {@code projectRequired = false}, so we resolve it here.
-     */
-    @Inject
-    private Session session;
-
-    /**
-     * Access the Maven logger.
-     *
-     * @return the logger
-     */
-<span class="fc" id="L83">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+public class ScaffoldPublishMojo extends AbstractGoalMojo {
 
     /**
      * Path to an unpacked scaffold tree containing
@@ -127,91 +110,134 @@ public class ScaffoldPublishMojo
                defaultValue = &quot;false&quot;)
     boolean applyFoundation;
 
+    /**
+     * When {@code true}, resolve the &lt;em&gt;latest released&lt;/em&gt; foundation
+     * versions from the remote repository and apply those, instead of
+     * the snapshot baked into the scaffold zip's {@code foundation:}
+     * block.
+     *
+     * &lt;p&gt;This is the escape hatch for the scaffold bootstrap loop: a
+     * consumer's scaffold plugin and scaffold zip are both pinned by the
+     * very {@code ike-parent} the foundation apply is meant to bump, so
+     * the baked snapshot can only ever advance a consumer one
+     * tested-together cycle per run. With this flag a stale consumer
+     * jumps straight to the current foundation in a single run — at the
+     * cost of the &quot;tested-together snapshot&quot; guarantee the baked block
+     * carries.
+     *
+     * &lt;p&gt;Only meaningful together with
+     * {@code -Dike.scaffold.apply-foundation=true}; on its own it just
+     * changes what the dry-run reports. A transient resolver failure is
+     * non-fatal — the goal falls back to the baked snapshot.
+     */
+    @Parameter(property = &quot;ike.scaffold.resolve-foundation&quot;,
+               defaultValue = &quot;false&quot;)
+    boolean resolveFoundation;
+
+    /**
+     * When {@code true}, the foundation-apply skips the {@code &lt;parent&gt;}
+     * pin and rewrites only the property pins ({@code ike-tooling.version},
+     * {@code ike-docs.version}, {@code ike-platform.version}).
+     *
+     * &lt;p&gt;{@code ws:scaffold-publish} forwards this: in a workspace the
+     * {@code &lt;parent&gt;} version is owned by the workspace's
+     * {@code ParentVersionReconciler}, which cascades one coherent
+     * version across the whole reactor. Without this flag the
+     * per-subproject foundation-apply would run after the reconciler
+     * and overwrite its cascade with the baked snapshot's parent
+     * version (IKE-Network/ike-issues#418). Standalone
+     * {@code ike:scaffold-publish} leaves it {@code false} and keeps
+     * writing {@code &lt;parent&gt;} from the snapshot.
+     */
+    @Parameter(property = &quot;ike.scaffold.skip-parent&quot;,
+               defaultValue = &quot;false&quot;)
+    boolean skipParent;
+
     /** Creates this goal instance. */
-<span class="fc" id="L131">    public ScaffoldPublishMojo() {}</span>
+<span class="fc" id="L157">    public ScaffoldPublishMojo() {}</span>
 
     @Override
-    public void execute() throws MojoException {
+    protected GoalReportSpec runGoal() throws MojoException {
         try {
-<span class="fc" id="L136">            runPublish();</span>
-<span class="fc" id="L137">        } catch (ScaffoldException e) {</span>
-<span class="fc" id="L138">            throw new MojoException(e.getMessage(), e);</span>
-<span class="fc" id="L139">        }</span>
-<span class="fc" id="L140">    }</span>
+<span class="fc" id="L162">            return runPublish();</span>
+<span class="fc" id="L163">        } catch (ScaffoldException e) {</span>
+<span class="fc" id="L164">            throw new MojoException(e.getMessage(), e);</span>
+        }
+    }
 
-    private void runPublish() {
-<span class="fc" id="L143">        Path scaffoldRoot = Path.of(scaffoldDir);</span>
-<span class="fc" id="L144">        ScaffoldManifest manifest =</span>
-<span class="fc" id="L145">                ScaffoldMojoSupport.loadManifest(scaffoldRoot);</span>
-<span class="fc" id="L146">        TemplateSource templates =</span>
+    private GoalReportSpec runPublish() {
+<span class="fc" id="L169">        Path scaffoldRoot = Path.of(scaffoldDir);</span>
+<span class="fc" id="L170">        ScaffoldManifest manifest =</span>
+<span class="fc" id="L171">                ScaffoldMojoSupport.loadManifest(scaffoldRoot);</span>
+<span class="fc" id="L172">        TemplateSource templates =</span>
                 new DirectoryTemplateSource(scaffoldRoot);
-<span class="fc" id="L148">        Path home = Path.of(userHome);</span>
-<span class="fc" id="L149">        Path projRoot = ScaffoldMojoSupport.resolveProjectRoot(</span>
-                projectRoot, session);
-<span class="fc" id="L151">        PathResolver resolver = new PathResolver(home, projRoot);</span>
-<span class="fc" id="L152">        ScaffoldPlanner planner = new ScaffoldPlanner(</span>
+<span class="fc" id="L174">        Path home = Path.of(userHome);</span>
+<span class="fc" id="L175">        Path projRoot = ScaffoldMojoSupport.resolveProjectRoot(</span>
+<span class="fc" id="L176">                projectRoot, getSession());</span>
+<span class="fc" id="L177">        PathResolver resolver = new PathResolver(home, projRoot);</span>
+<span class="fc" id="L178">        ScaffoldPlanner planner = new ScaffoldPlanner(</span>
                 new TierHandlers(), new ModelAdapters());
-<span class="fc" id="L154">        ScaffoldApplier applier = new ScaffoldApplier();</span>
+<span class="fc" id="L180">        ScaffoldApplier applier = new ScaffoldApplier();</span>
 
-<span class="fc" id="L156">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L157">        getLog().info(&quot;ike:scaffold-publish&quot;);</span>
-<span class="fc" id="L158">        getLog().info(&quot;  scaffold dir:      &quot; + scaffoldRoot);</span>
-<span class="fc" id="L159">        getLog().info(&quot;  standards version: &quot;</span>
-<span class="fc" id="L160">                + manifest.standardsVersion());</span>
-<span class="fc" id="L161">        getLog().info(&quot;  user home:         &quot; + home);</span>
-<span class="fc" id="L162">        getLog().info(&quot;  project root:      &quot;</span>
-<span class="fc bfc" id="L163" title="All 2 branches covered.">                + (projRoot == null ? &quot;(none — fresh machine)&quot;</span>
-<span class="fc" id="L164">                        : projRoot));</span>
-<span class="fc" id="L165">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L182">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L183">        getLog().info(&quot;ike:scaffold-publish&quot;);</span>
+<span class="fc" id="L184">        getLog().info(&quot;  scaffold dir:      &quot; + scaffoldRoot);</span>
+<span class="fc" id="L185">        getLog().info(&quot;  standards version: &quot;</span>
+<span class="fc" id="L186">                + manifest.standardsVersion());</span>
+<span class="fc" id="L187">        getLog().info(&quot;  user home:         &quot; + home);</span>
+<span class="fc" id="L188">        getLog().info(&quot;  project root:      &quot;</span>
+<span class="fc bfc" id="L189" title="All 2 branches covered.">                + (projRoot == null ? &quot;(none — fresh machine)&quot;</span>
+<span class="fc" id="L190">                        : projRoot));</span>
+<span class="fc" id="L191">        getLog().info(&quot;&quot;);</span>
 
         // User scope
-<span class="fc" id="L168">        Path userLock = ScaffoldMojoSupport.userLockfilePath(home);</span>
-<span class="fc" id="L169">        ScaffoldLockfile userLockfile =</span>
-<span class="fc" id="L170">                ScaffoldMojoSupport.loadLockfileOrEmpty(userLock);</span>
-<span class="fc" id="L171">        ScaffoldPlan userPlan = planner.plan(</span>
+<span class="fc" id="L194">        Path userLock = ScaffoldMojoSupport.userLockfilePath(home);</span>
+<span class="fc" id="L195">        ScaffoldLockfile userLockfile =</span>
+<span class="fc" id="L196">                ScaffoldMojoSupport.loadLockfileOrEmpty(userLock);</span>
+<span class="fc" id="L197">        ScaffoldPlan userPlan = planner.plan(</span>
                 manifest, userLockfile, ScaffoldScope.USER,
                 resolver, templates);
-<span class="fc" id="L174">        ScaffoldMojoSupport.logLines(getLog(),</span>
-<span class="fc" id="L175">                ScaffoldMojoSupport.renderPlanReport(</span>
+<span class="fc" id="L200">        ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="fc" id="L201">                ScaffoldMojoSupport.renderPlanReport(</span>
                         userPlan, ScaffoldScope.USER));
-<span class="fc" id="L177">        ScaffoldLockfile updatedUser = applier.apply(</span>
+<span class="fc" id="L203">        ScaffoldLockfile updatedUser = applier.apply(</span>
                 userPlan, userLockfile);
-<span class="fc" id="L179">        ScaffoldLockfileIo.write(updatedUser, userLock);</span>
-<span class="fc" id="L180">        getLog().info(&quot;  → &quot; + userLock);</span>
+<span class="fc" id="L205">        ScaffoldLockfileIo.write(updatedUser, userLock);</span>
+<span class="fc" id="L206">        getLog().info(&quot;  → &quot; + userLock);</span>
 
         // Project scope (only if we have a project)
-<span class="fc" id="L183">        Counts projectCounts = null;</span>
-<span class="fc bfc" id="L184" title="All 2 branches covered.">        if (projRoot != null) {</span>
-<span class="fc" id="L185">            Path projLock =</span>
-<span class="fc" id="L186">                    ScaffoldMojoSupport.projectLockfilePath(projRoot);</span>
-<span class="fc" id="L187">            ScaffoldLockfile projLockfile =</span>
-<span class="fc" id="L188">                    ScaffoldMojoSupport.loadLockfileOrEmpty(projLock);</span>
-<span class="fc" id="L189">            ScaffoldPlan projectPlan = planner.plan(</span>
+<span class="fc" id="L209">        Counts projectCounts = null;</span>
+<span class="fc bfc" id="L210" title="All 2 branches covered.">        if (projRoot != null) {</span>
+<span class="fc" id="L211">            Path projLock =</span>
+<span class="fc" id="L212">                    ScaffoldMojoSupport.projectLockfilePath(projRoot);</span>
+<span class="fc" id="L213">            ScaffoldLockfile projLockfile =</span>
+<span class="fc" id="L214">                    ScaffoldMojoSupport.loadLockfileOrEmpty(projLock);</span>
+<span class="fc" id="L215">            ScaffoldPlan projectPlan = planner.plan(</span>
                     manifest, projLockfile, ScaffoldScope.PROJECT,
                     resolver, templates);
-<span class="fc" id="L192">            ScaffoldMojoSupport.logLines(getLog(),</span>
-<span class="fc" id="L193">                    ScaffoldMojoSupport.renderPlanReport(</span>
+<span class="fc" id="L218">            ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="fc" id="L219">                    ScaffoldMojoSupport.renderPlanReport(</span>
                             projectPlan, ScaffoldScope.PROJECT));
-<span class="fc" id="L195">            ScaffoldLockfile updatedProj = applier.apply(</span>
+<span class="fc" id="L221">            ScaffoldLockfile updatedProj = applier.apply(</span>
                     projectPlan, projLockfile);
-<span class="fc" id="L197">            ScaffoldLockfileIo.write(updatedProj, projLock);</span>
-<span class="fc" id="L198">            getLog().info(&quot;  → &quot; + projLock);</span>
-<span class="fc" id="L199">            projectCounts = ScaffoldMojoSupport</span>
-<span class="fc" id="L200">                    .countActions(projectPlan);</span>
+<span class="fc" id="L223">            ScaffoldLockfileIo.write(updatedProj, projLock);</span>
+<span class="fc" id="L224">            getLog().info(&quot;  → &quot; + projLock);</span>
+<span class="fc" id="L225">            projectCounts = ScaffoldMojoSupport</span>
+<span class="fc" id="L226">                    .countActions(projectPlan);</span>
         }
 
-<span class="fc" id="L203">        Counts userCounts = ScaffoldMojoSupport.countActions(userPlan);</span>
-<span class="fc" id="L204">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L205">        getLog().info(&quot;Publish summary:&quot;);</span>
-<span class="fc" id="L206">        getLog().info(&quot;  user:    &quot; + userCounts.summary());</span>
-<span class="fc bfc" id="L207" title="All 2 branches covered.">        if (projectCounts != null) {</span>
-<span class="fc" id="L208">            getLog().info(&quot;  project: &quot; + projectCounts.summary());</span>
+<span class="fc" id="L229">        Counts userCounts = ScaffoldMojoSupport.countActions(userPlan);</span>
+<span class="fc" id="L230">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L231">        getLog().info(&quot;Publish summary:&quot;);</span>
+<span class="fc" id="L232">        getLog().info(&quot;  user:    &quot; + userCounts.summary());</span>
+<span class="fc bfc" id="L233" title="All 2 branches covered.">        if (projectCounts != null) {</span>
+<span class="fc" id="L234">            getLog().info(&quot;  project: &quot; + projectCounts.summary());</span>
         }
-<span class="fc" id="L210">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L211">        int totalSkipped = userCounts.skip()</span>
-<span class="fc bfc" id="L212" title="All 2 branches covered.">                + (projectCounts != null ? projectCounts.skip() : 0);</span>
-<span class="pc bpc" id="L213" title="1 of 2 branches missed.">        if (totalSkipped &gt; 0) {</span>
-<span class="nc" id="L214">            getLog().info(</span>
+<span class="fc" id="L236">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L237">        int totalSkipped = userCounts.skip()</span>
+<span class="fc bfc" id="L238" title="All 2 branches covered.">                + (projectCounts != null ? projectCounts.skip() : 0);</span>
+<span class="pc bpc" id="L239" title="1 of 2 branches missed.">        if (totalSkipped &gt; 0) {</span>
+<span class="nc" id="L240">            getLog().info(</span>
                     totalSkipped + &quot; entry(ies) were skipped &quot;
                             + &quot;(user-edited). &quot;
                             + &quot;Run ike:scaffold-draft for details.&quot;);
@@ -227,10 +253,46 @@ public class ScaffoldPublishMojo
         // foundation to current&quot; operation that subsumes the routine
         // use case of ws:scaffold-publish's parent + version-upgrade
         // reconcilers.
-<span class="fc bfc" id="L230" title="All 4 branches covered.">        if (projRoot != null &amp;&amp; manifest.foundation() != null) {</span>
-<span class="fc" id="L231">            applyFoundationDrift(projRoot, manifest.foundation());</span>
+<span class="fc bfc" id="L256" title="All 4 branches covered.">        if (projRoot != null &amp;&amp; manifest.foundation() != null) {</span>
+<span class="fc" id="L257">            applyFoundationDrift(projRoot, manifest.foundation());</span>
         }
-<span class="fc" id="L233">    }</span>
+
+<span class="fc" id="L260">        return new GoalReportSpec(IkeGoal.SCAFFOLD_PUBLISH,</span>
+<span class="fc bfc" id="L261" title="All 2 branches covered.">                projRoot != null ? projRoot : home,</span>
+<span class="fc" id="L262">                buildReport(manifest, userCounts, projectCounts));</span>
+    }
+
+    /**
+     * Build the Markdown report body for {@code ike:scaffold-publish}.
+     *
+     * @param manifest      the scaffold manifest
+     * @param userCounts    applied-action counts for the user scope
+     * @param projectCounts applied-action counts for the project
+     *                      scope, or {@code null} on a fresh machine
+     * @return the report body
+     */
+    private static String buildReport(ScaffoldManifest manifest,
+                                       Counts userCounts,
+                                       Counts projectCounts) {
+<span class="fc" id="L277">        GoalReportBuilder report = new GoalReportBuilder();</span>
+<span class="fc" id="L278">        report.paragraph(&quot;Applied the scaffold manifest to disk.&quot;);</span>
+<span class="fc" id="L279">        report.bullet(&quot;standards version: `&quot;</span>
+<span class="fc" id="L280">                + manifest.standardsVersion() + &quot;`&quot;);</span>
+<span class="fc" id="L281">        report.bullet(&quot;user scope: &quot; + userCounts.summary());</span>
+<span class="fc bfc" id="L282" title="All 2 branches covered.">        if (projectCounts != null) {</span>
+<span class="fc" id="L283">            report.bullet(&quot;project scope: &quot; + projectCounts.summary());</span>
+        } else {
+<span class="fc" id="L285">            report.bullet(&quot;project scope: (none — fresh machine)&quot;);</span>
+        }
+<span class="fc" id="L287">        int totalSkipped = userCounts.skip()</span>
+<span class="fc bfc" id="L288" title="All 2 branches covered.">                + (projectCounts != null ? projectCounts.skip() : 0);</span>
+<span class="pc bpc" id="L289" title="1 of 2 branches missed.">        if (totalSkipped &gt; 0) {</span>
+<span class="nc" id="L290">            report.paragraph(totalSkipped</span>
+                    + &quot; entry(ies) skipped (user-edited) — run&quot;
+                    + &quot; `ike:scaffold-draft` for details.&quot;);
+        }
+<span class="fc" id="L294">        return report.build();</span>
+    }
 
     /**
      * Apply foundation-drift bumps to the project's {@code pom.xml}.
@@ -262,94 +324,123 @@ public class ScaffoldPublishMojo
     private void applyFoundationDrift(
             Path projRoot,
             ScaffoldManifest.Foundation foundation) {
-<span class="fc" id="L265">        Path pomPath = projRoot.resolve(&quot;pom.xml&quot;);</span>
-        List&lt;FoundationDriftChecker.Entry&gt; entries;
-        try {
-<span class="fc" id="L268">            entries = FoundationDriftChecker.checkPomFile(</span>
-                    pomPath, foundation);
-<span class="nc" id="L270">        } catch (IOException e) {</span>
-<span class="nc" id="L271">            getLog().warn(&quot;Could not read POM for foundation drift &quot;</span>
-<span class="nc" id="L272">                    + &quot;apply: &quot; + e.getMessage());</span>
-<span class="nc" id="L273">            return;</span>
-<span class="fc" id="L274">        }</span>
-
-<span class="fc" id="L276">        List&lt;FoundationDriftChecker.Entry&gt; toApply = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L277" title="All 2 branches covered.">        for (FoundationDriftChecker.Entry e : entries) {</span>
-<span class="fc bfc" id="L278" title="All 2 branches covered.">            if (e.state() == FoundationDriftChecker.State.DIFFERS) {</span>
-<span class="fc" id="L279">                toApply.add(e);</span>
-            }
-<span class="fc" id="L281">        }</span>
-<span class="fc bfc" id="L282" title="All 2 branches covered.">        if (toApply.isEmpty()) {</span>
-<span class="fc" id="L283">            getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L284">            getLog().info(&quot;Foundation: aligned with scaffold &quot;</span>
-                    + &quot;(no drift to apply).&quot;);
-<span class="fc" id="L286">            return;</span>
+<span class="pc bpc" id="L327" title="1 of 2 branches missed.">        if (resolveFoundation) {</span>
+<span class="nc" id="L328">            getLog().info(&quot;&quot;);</span>
+            try {
+<span class="nc" id="L330">                foundation = FoundationBaker.latestFoundation(foundation,</span>
+<span class="nc" id="L331">                        new SessionCandidateVersionResolver(getSession()));</span>
+<span class="nc" id="L332">                getLog().info(&quot;Foundation: resolved latest released &quot;</span>
+                        + &quot;versions (resolve-foundation mode).&quot;);
+<span class="nc" id="L334">            } catch (RuntimeException e) {</span>
+<span class="nc" id="L335">                getLog().warn(&quot;Foundation: could not resolve latest &quot;</span>
+<span class="nc" id="L336">                        + &quot;versions (&quot; + e.getMessage() + &quot;) — falling &quot;</span>
+                        + &quot;back to the baked scaffold snapshot.&quot;);
+<span class="nc" id="L338">            }</span>
         }
 
-<span class="fc" id="L289">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L290">        getLog().info(&quot;IKE Foundation Apply:&quot;);</span>
-<span class="fc bfc" id="L291" title="All 2 branches covered.">        if (!applyFoundation) {</span>
-<span class="fc" id="L292">            getLog().info(&quot;  (dry-run — pass -Dike.scaffold.apply-foundation=true to apply)&quot;);</span>
+<span class="fc" id="L341">        Path pomPath = projRoot.resolve(&quot;pom.xml&quot;);</span>
+        List&lt;FoundationDriftChecker.Entry&gt; entries;
+        try {
+<span class="fc" id="L344">            entries = FoundationDriftChecker.checkPomFile(</span>
+                    pomPath, foundation);
+<span class="nc" id="L346">        } catch (IOException e) {</span>
+<span class="nc" id="L347">            getLog().warn(&quot;Could not read POM for foundation drift &quot;</span>
+<span class="nc" id="L348">                    + &quot;apply: &quot; + e.getMessage());</span>
+<span class="nc" id="L349">            return;</span>
+<span class="fc" id="L350">        }</span>
+
+<span class="fc" id="L352">        List&lt;FoundationDriftChecker.Entry&gt; toApply = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L353">        int parentSkipped = 0;</span>
+<span class="fc bfc" id="L354" title="All 2 branches covered.">        for (FoundationDriftChecker.Entry e : entries) {</span>
+<span class="fc bfc" id="L355" title="All 2 branches covered.">            if (e.state() != FoundationDriftChecker.State.DIFFERS) {</span>
+<span class="fc" id="L356">                continue;</span>
+            }
+            // #418: in a workspace the &lt;parent&gt; cascade is owned by
+            // ParentVersionReconciler; skip the parent pin so this
+            // per-subproject apply does not overwrite it.
+<span class="fc bfc" id="L361" title="All 2 branches covered.">            if (skipParent</span>
+<span class="fc bfc" id="L362" title="All 2 branches covered.">                    &amp;&amp; e.kind() == FoundationDriftChecker.Kind.PARENT) {</span>
+<span class="fc" id="L363">                parentSkipped++;</span>
+<span class="fc" id="L364">                continue;</span>
+            }
+<span class="fc" id="L366">            toApply.add(e);</span>
+<span class="fc" id="L367">        }</span>
+<span class="fc bfc" id="L368" title="All 2 branches covered.">        if (parentSkipped &gt; 0) {</span>
+<span class="fc" id="L369">            getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L370">            getLog().info(&quot;Foundation: &lt;parent&gt; left to the workspace &quot;</span>
+                    + &quot;(ParentVersionReconciler owns the parent cascade).&quot;);
+        }
+<span class="fc bfc" id="L373" title="All 2 branches covered.">        if (toApply.isEmpty()) {</span>
+<span class="fc" id="L374">            getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L375">            getLog().info(&quot;Foundation: aligned with scaffold &quot;</span>
+                    + &quot;(no drift to apply).&quot;);
+<span class="fc" id="L377">            return;</span>
+        }
+
+<span class="fc" id="L380">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L381">        getLog().info(&quot;IKE Foundation Apply:&quot;);</span>
+<span class="fc bfc" id="L382" title="All 2 branches covered.">        if (!applyFoundation) {</span>
+<span class="fc" id="L383">            getLog().info(&quot;  (dry-run — pass -Dike.scaffold.apply-foundation=true to apply)&quot;);</span>
         }
         String content;
         try {
-<span class="fc" id="L296">            content = Files.readString(pomPath, StandardCharsets.UTF_8);</span>
-<span class="nc" id="L297">        } catch (IOException e) {</span>
-<span class="nc" id="L298">            getLog().warn(&quot;Could not read &quot; + pomPath + &quot;: &quot;</span>
-<span class="nc" id="L299">                    + e.getMessage());</span>
-<span class="nc" id="L300">            return;</span>
-<span class="fc" id="L301">        }</span>
+<span class="fc" id="L387">            content = Files.readString(pomPath, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L388">        } catch (IOException e) {</span>
+<span class="nc" id="L389">            getLog().warn(&quot;Could not read &quot; + pomPath + &quot;: &quot;</span>
+<span class="nc" id="L390">                    + e.getMessage());</span>
+<span class="nc" id="L391">            return;</span>
+<span class="fc" id="L392">        }</span>
 
-<span class="fc" id="L303">        String updated = content;</span>
-<span class="fc bfc" id="L304" title="All 2 branches covered.">        for (FoundationDriftChecker.Entry e : toApply) {</span>
+<span class="fc" id="L394">        String updated = content;</span>
+<span class="fc bfc" id="L395" title="All 2 branches covered.">        for (FoundationDriftChecker.Entry e : toApply) {</span>
             String label;
-<span class="fc bfc" id="L306" title="All 2 branches covered.">            if (e.kind() == FoundationDriftChecker.Kind.PARENT) {</span>
-<span class="fc" id="L307">                String[] ga = e.name().split(&quot;:&quot;, 2);</span>
-<span class="pc bpc" id="L308" title="1 of 2 branches missed.">                if (ga.length == 2) {</span>
-<span class="fc" id="L309">                    updated = PomRewriter.updateParentVersion(</span>
-<span class="fc" id="L310">                            updated, ga[0], ga[1], e.expected());</span>
+<span class="fc bfc" id="L397" title="All 2 branches covered.">            if (e.kind() == FoundationDriftChecker.Kind.PARENT) {</span>
+<span class="fc" id="L398">                String[] ga = e.name().split(&quot;:&quot;, 2);</span>
+<span class="pc bpc" id="L399" title="1 of 2 branches missed.">                if (ga.length == 2) {</span>
+<span class="fc" id="L400">                    updated = PomRewriter.updateParentVersion(</span>
+<span class="fc" id="L401">                            updated, ga[0], ga[1], e.expected());</span>
                 }
-<span class="fc" id="L312">                label = &quot;&lt;parent&gt; &quot; + e.name();</span>
-<span class="fc" id="L313">            } else {</span>
-<span class="fc" id="L314">                updated = PomRewriter.updateProperty(</span>
-<span class="fc" id="L315">                        updated, e.name(), e.expected());</span>
-<span class="fc" id="L316">                label = &quot;${&quot; + e.name() + &quot;}&quot;;</span>
+<span class="fc" id="L403">                label = &quot;&lt;parent&gt; &quot; + e.name();</span>
+<span class="fc" id="L404">            } else {</span>
+<span class="fc" id="L405">                updated = PomRewriter.updateProperty(</span>
+<span class="fc" id="L406">                        updated, e.name(), e.expected());</span>
+<span class="fc" id="L407">                label = &quot;${&quot; + e.name() + &quot;}&quot;;</span>
             }
-<span class="fc bfc" id="L318" title="All 2 branches covered.">            getLog().info(&quot;  &quot; + (applyFoundation ? &quot;✓ &quot; : &quot;→ &quot;)</span>
-<span class="fc" id="L319">                    + label + &quot;: &quot; + e.actual() + &quot; → &quot; + e.expected());</span>
-<span class="fc" id="L320">        }</span>
+<span class="fc bfc" id="L409" title="All 2 branches covered.">            getLog().info(&quot;  &quot; + (applyFoundation ? &quot;✓ &quot; : &quot;→ &quot;)</span>
+<span class="fc" id="L410">                    + label + &quot;: &quot; + e.actual() + &quot; → &quot; + e.expected());</span>
+<span class="fc" id="L411">        }</span>
 
-<span class="fc bfc" id="L322" title="All 2 branches covered.">        if (!applyFoundation) {</span>
-<span class="fc" id="L323">            return;</span>
+<span class="fc bfc" id="L413" title="All 2 branches covered.">        if (!applyFoundation) {</span>
+<span class="fc" id="L414">            return;</span>
         }
-<span class="pc bpc" id="L325" title="1 of 2 branches missed.">        if (updated.equals(content)) {</span>
-<span class="nc" id="L326">            getLog().info(&quot;  (no textual change — values already &quot;</span>
+<span class="pc bpc" id="L416" title="1 of 2 branches missed.">        if (updated.equals(content)) {</span>
+<span class="nc" id="L417">            getLog().info(&quot;  (no textual change — values already &quot;</span>
                     + &quot;matched at the LST level)&quot;);
-<span class="nc" id="L328">            return;</span>
+<span class="nc" id="L419">            return;</span>
         }
         // #349: capture pre-apply POM as a backup so
         // ike:scaffold-revert can restore. One-shot — the next
         // foundation apply overwrites this, and revert deletes
         // it on success.
-<span class="fc" id="L334">        Path backup = projRoot.resolve(&quot;.ike&quot;)</span>
-<span class="fc" id="L335">                .resolve(&quot;foundation-revert.pom.xml&quot;);</span>
+<span class="fc" id="L425">        Path backup = projRoot.resolve(&quot;.ike&quot;)</span>
+<span class="fc" id="L426">                .resolve(&quot;foundation-revert.pom.xml&quot;);</span>
         try {
-<span class="fc" id="L337">            Files.createDirectories(backup.getParent());</span>
-<span class="fc" id="L338">            Files.writeString(backup, content, StandardCharsets.UTF_8);</span>
-<span class="fc" id="L339">            getLog().info(&quot;  → backup: &quot; + backup);</span>
-<span class="nc" id="L340">        } catch (IOException e) {</span>
-<span class="nc" id="L341">            getLog().warn(&quot;Could not write foundation revert backup: &quot;</span>
-<span class="nc" id="L342">                    + e.getMessage());</span>
+<span class="fc" id="L428">            Files.createDirectories(backup.getParent());</span>
+<span class="fc" id="L429">            Files.writeString(backup, content, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L430">            getLog().info(&quot;  → backup: &quot; + backup);</span>
+<span class="nc" id="L431">        } catch (IOException e) {</span>
+<span class="nc" id="L432">            getLog().warn(&quot;Could not write foundation revert backup: &quot;</span>
+<span class="nc" id="L433">                    + e.getMessage());</span>
             // Still attempt the apply — losing revert capability is
             // worse than no foundation update.
-<span class="fc" id="L345">        }</span>
+<span class="fc" id="L436">        }</span>
         try {
-<span class="fc" id="L347">            Files.writeString(pomPath, updated, StandardCharsets.UTF_8);</span>
-<span class="fc" id="L348">            getLog().info(&quot;  → wrote &quot; + pomPath);</span>
-<span class="nc" id="L349">        } catch (IOException e) {</span>
-<span class="nc" id="L350">            getLog().warn(&quot;Could not write updated POM: &quot;</span>
-<span class="nc" id="L351">                    + e.getMessage());</span>
-<span class="fc" id="L352">        }</span>
-<span class="fc" id="L353">    }</span>
+<span class="fc" id="L438">            Files.writeString(pomPath, updated, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L439">            getLog().info(&quot;  → wrote &quot; + pomPath);</span>
+<span class="nc" id="L440">        } catch (IOException e) {</span>
+<span class="nc" id="L441">            getLog().warn(&quot;Could not write updated POM: &quot;</span>
+<span class="nc" id="L442">                    + e.getMessage());</span>
+<span class="fc" id="L443">        }</span>
+<span class="fc" id="L444">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

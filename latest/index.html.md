@@ -19,8 +19,8 @@ Build tooling for the IKE Network: workspace management, release orchestration, 
 | --- | --- |
 | [IKE Build Standards](ike-build-standards/index.html)[1] | Versioned reference material distributed as classified ZIP artifacts: AI-assistant standards, convention documents, shared build configuration, AsciiDoc IDE-preview config, and the workspace scaffold manifest. |
 | [IKE Workspace Model](ike-workspace-model/index.html)[2] | Data model and conventions for an IKE workspace. Consumed by both `ike-workspace-maven-plugin` and `ike-maven-plugin` so the two plugins share a single source of truth for what a workspace is. Includes the four-state alignment model (snapshot / tag-aligned-release / tag-aligned-checkpoint / external-consumer / unrelated) and graph algorithms for topological ordering. |
-| [IKE Maven Plugin Support](ike-maven-plugin-support/index.html)[3] | Shared library used by `ike-maven-plugin` and `ike-workspace-maven-plugin` (which lives in `ike-platform`). Goal-registry helper, base mojo with markdown-report writing, parameter parsing, and the version-upgrade plan model. |
-| [IKE Maven Plugin](ike-maven-plugin/index.html)[4] | The `ike:*` plugin — release orchestration, scaffolding, site deploy, version upgrades, AsciiDoc rendering, and build-time utilities. ~30 goals. |
+| [IKE Maven Plugin Support](ike-maven-plugin-support/index.html)[3] | Shared library used by `ike-maven-plugin` and `ike-workspace-maven-plugin` (which lives in `ike-platform`). Goal-registry helper, base mojo with markdown-report writing, parameter parsing, and released-version resolution. |
+| [IKE Maven Plugin](ike-maven-plugin/index.html)[4] | The `ike:*` plugin — release orchestration, scaffolding, site deploy, AsciiDoc rendering, and build-time utilities. ~30 goals. |
 
 ## [#quick-start](#quick-start)Quick Start
 
@@ -42,9 +42,6 @@ mvn ike:site-publish
 
 # Apply scaffold convention upgrades (gitignore, hooks, IDE settings)
 mvn ike:scaffold-publish
-
-# Apply build-tool version upgrades (parents, plugins, dependencies)
-mvn ike:versions-upgrade-publish
 ```
 
 For workspace-spanning operations (`ws:*` prefix), see the [ws plugin docs](https://ike.network/ike-platform/ike-workspace-maven-plugin/)[5] in `ike-platform`.
