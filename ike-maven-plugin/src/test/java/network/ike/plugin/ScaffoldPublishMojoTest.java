@@ -180,6 +180,72 @@ class ScaffoldPublishMojoTest {
     }
 
     @Test
+    void foundationApply_skipParent_rewritesPropertyNotParent(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files: []
+                        foundation:
+                          parent:
+                            groupId: network.ike.platform
+                            artifactId: ike-parent
+                            version: "36"
+                          properties:
+                            ike-tooling.version: "152"
+                            ike-docs.version: "14"
+                        """);
+        Files.writeString(project.resolve("pom.xml"),
+                """
+                        <?xml version="1.0"?>
+                        <project>
+                            <parent>
+                                <groupId>network.ike.platform</groupId>
+                                <artifactId>ike-parent</artifactId>
+                                <version>35</version>
+                            </parent>
+                            <artifactId>some-consumer</artifactId>
+                            <version>1-SNAPSHOT</version>
+                            <properties>
+                                <ike-tooling.version>151</ike-tooling.version>
+                                <ike-docs.version>13</ike-docs.version>
+                            </properties>
+                        </project>
+                        """);
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+        inject(mojo, "applyFoundation", true);
+        inject(mojo, "skipParent", true);
+
+        mojo.execute();
+
+        String updated = Files.readString(project.resolve("pom.xml"));
+        // Property pins are applied …
+        assertThat(updated)
+                .contains("<ike-tooling.version>152</ike-tooling.version>")
+                .contains("<ike-docs.version>14</ike-docs.version>");
+        // … but <parent> is left untouched — the workspace owns it (#418).
+        assertThat(updated)
+                .contains("<version>35</version>")
+                .doesNotContain("<version>36</version>");
+        assertThat(log.infos)
+                .anyMatch(s -> s.contains("left to the workspace"));
+    }
+
+    @Test
     void foundationApply_dryRunByDefault_doesNotMutatePom(
             @TempDir Path tmp) throws Exception {
         Path scaffold = tmp.resolve("scaffold");

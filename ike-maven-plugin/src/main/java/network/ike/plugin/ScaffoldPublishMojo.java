@@ -134,6 +134,25 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
                defaultValue = "false")
     boolean resolveFoundation;
 
+    /**
+     * When {@code true}, the foundation-apply skips the {@code <parent>}
+     * pin and rewrites only the property pins ({@code ike-tooling.version},
+     * {@code ike-docs.version}, {@code ike-platform.version}).
+     *
+     * <p>{@code ws:scaffold-publish} forwards this: in a workspace the
+     * {@code <parent>} version is owned by the workspace's
+     * {@code ParentVersionReconciler}, which cascades one coherent
+     * version across the whole reactor. Without this flag the
+     * per-subproject foundation-apply would run after the reconciler
+     * and overwrite its cascade with the baked snapshot's parent
+     * version (IKE-Network/ike-issues#418). Standalone
+     * {@code ike:scaffold-publish} leaves it {@code false} and keeps
+     * writing {@code <parent>} from the snapshot.
+     */
+    @Parameter(property = "ike.scaffold.skip-parent",
+               defaultValue = "false")
+    boolean skipParent;
+
     /** Creates this goal instance. */
     public ScaffoldPublishMojo() {}
 
@@ -331,10 +350,25 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
         }
 
         List<FoundationDriftChecker.Entry> toApply = new ArrayList<>();
+        int parentSkipped = 0;
         for (FoundationDriftChecker.Entry e : entries) {
-            if (e.state() == FoundationDriftChecker.State.DIFFERS) {
-                toApply.add(e);
+            if (e.state() != FoundationDriftChecker.State.DIFFERS) {
+                continue;
             }
+            // #418: in a workspace the <parent> cascade is owned by
+            // ParentVersionReconciler; skip the parent pin so this
+            // per-subproject apply does not overwrite it.
+            if (skipParent
+                    && e.kind() == FoundationDriftChecker.Kind.PARENT) {
+                parentSkipped++;
+                continue;
+            }
+            toApply.add(e);
+        }
+        if (parentSkipped > 0) {
+            getLog().info("");
+            getLog().info("Foundation: <parent> left to the workspace "
+                    + "(ParentVersionReconciler owns the parent cascade).");
         }
         if (toApply.isEmpty()) {
             getLog().info("");
