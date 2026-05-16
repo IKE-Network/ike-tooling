@@ -33,10 +33,17 @@ import java.util.List;
  *                   artifacts this repo depends on; never {@code null}
  *                   (an empty list means the repo is at the root of
  *                   the cascade)
+ * @param terminal   {@code true} when this repo positively declares
+ *                   itself the end of the cascade — it has no
+ *                   downstream consumer and the cascade stops here.
+ *                   Asserted in the manifest rather than inferred from
+ *                   the absence of consumers, so a forgotten downstream
+ *                   edge surfaces as a validation error
+ *                   (IKE-Network/ike-issues#419)
  */
 public record CascadeRepo(String groupId, String artifactId,
                            String repo, String url,
-                           List<String> consumes) {
+                           List<String> consumes, boolean terminal) {
 
     /**
      * Canonical constructor — validates the identity coordinates,

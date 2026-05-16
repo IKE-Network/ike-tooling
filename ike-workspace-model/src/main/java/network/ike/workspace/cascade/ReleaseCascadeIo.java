@@ -110,8 +110,9 @@ public final class ReleaseCascadeIo {
                     consumes.add(String.valueOf(c));
                 }
             }
+            boolean terminal = Boolean.TRUE.equals(e.get("terminal"));
             repos.add(new CascadeRepo(
-                    groupId, artifactId, repo, url, consumes));
+                    groupId, artifactId, repo, url, consumes, terminal));
         }
         return new ReleaseCascade(standardsVersion, repos);
     }

@@ -35,11 +35,32 @@ public record ReleaseCascade(String standardsVersion,
                               List<CascadeRepo> repos) {
 
     /**
-     * Canonical constructor — defensively copies {@code repos} and
-     * substitutes an empty list for {@code null}.
+     * Canonical constructor — defensively copies {@code repos},
+     * substitutes an empty list for {@code null}, and validates the
+     * {@code terminal} markers: every cascade leaf (a repo no other
+     * repo consumes) must positively declare {@code terminal: true},
+     * and no repo with a downstream consumer may declare it. The
+     * marker is asserted, never inferred, so a forgotten downstream
+     * edge is a manifest error rather than a silent omission
+     * (IKE-Network/ike-issues#419).
      */
     public ReleaseCascade {
         repos = repos == null ? List.of() : List.copyOf(repos);
+        for (CascadeRepo repo : repos) {
+            boolean hasConsumer = repos.stream().anyMatch(
+                    other -> other.consumes().contains(repo.groupId()));
+            if (hasConsumer && repo.terminal()) {
+                throw new IllegalArgumentException(
+                        "cascade entry " + repo.ga() + " is marked"
+                        + " terminal but has downstream consumers");
+            }
+            if (!hasConsumer && !repo.terminal()) {
+                throw new IllegalArgumentException(
+                        "cascade entry " + repo.ga() + " has no"
+                        + " downstream consumer and must declare"
+                        + " 'terminal: true'");
+            }
+        }
     }
 
     /**

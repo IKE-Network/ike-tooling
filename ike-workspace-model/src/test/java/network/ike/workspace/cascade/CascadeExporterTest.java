@@ -24,6 +24,7 @@ class CascadeExporterTest {
                 url: https://github.com/IKE-Network/ike-docs.git
                 consumes:
                   - network.ike.tooling
+                terminal: true
             """));
 
     @Test

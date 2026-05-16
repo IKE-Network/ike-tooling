@@ -39,6 +39,7 @@ class ReleaseCascadeTest {
                 consumes:
                   - network.ike.tooling
                   - network.ike.docs
+                terminal: true
             """;
 
     @Test
@@ -68,6 +69,7 @@ class ReleaseCascadeTest {
                   - groupId: network.ike.tooling
                     artifactId: ike-tooling
                     repo: ike-tooling-checkout
+                    terminal: true
                 """));
         assertThat(cascade.repos().get(0).repo())
                 .isEqualTo("ike-tooling-checkout");
@@ -79,6 +81,7 @@ class ReleaseCascadeTest {
                 cascade:
                   - groupId: network.ike.tooling
                     artifactId: ike-tooling
+                    terminal: true
                 """));
         assertThat(cascade.repos().get(0).url()).isNull();
     }
@@ -120,6 +123,40 @@ class ReleaseCascadeTest {
                 new StringReader("cascade:\n  - groupId: x\n")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("artifactId");
+    }
+
+    @Test
+    void terminal_marker_must_be_declared_on_the_cascade_leaf() {
+        // ike-platform has no downstream consumer but omits the marker.
+        assertThatThrownBy(() -> ReleaseCascadeIo.read(new StringReader("""
+                cascade:
+                  - groupId: network.ike.tooling
+                    artifactId: ike-tooling
+                  - groupId: network.ike.platform
+                    artifactId: ike-platform
+                    consumes:
+                      - network.ike.tooling
+                """)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("terminal");
+    }
+
+    @Test
+    void terminal_marker_rejected_on_a_repo_with_consumers() {
+        // ike-tooling is marked terminal but ike-platform consumes it.
+        assertThatThrownBy(() -> ReleaseCascadeIo.read(new StringReader("""
+                cascade:
+                  - groupId: network.ike.tooling
+                    artifactId: ike-tooling
+                    terminal: true
+                  - groupId: network.ike.platform
+                    artifactId: ike-platform
+                    terminal: true
+                    consumes:
+                      - network.ike.tooling
+                """)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("downstream consumers");
     }
 
     @Test
