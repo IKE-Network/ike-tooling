@@ -44,6 +44,12 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:copy-docs} — copy rendered docs into the site. */
     COPY_DOCS("copy-docs", CopyDocsToSiteMojo.class,
             "Copy rendered docs into the site."),
+    /** {@code ike:env} — print runtime environment / terminal diagnostics. */
+    ENV("env", IkeEnvMojo.class,
+            "Print runtime environment diagnostics — terminal/console "
+                    + "capability, stdin, and relevant system properties. "
+                    + "Run from both IntelliJ's Maven tool window and the "
+                    + "Terminal tool window to compare (ike-issues#385)."),
     /** {@code ike:fix-svg} — post-process SVGs for PDF renderer compatibility. */
     FIX_SVG("fix-svg", FixSvgMojo.class,
             "Post-process generated SVGs to work in all PDF renderers."),

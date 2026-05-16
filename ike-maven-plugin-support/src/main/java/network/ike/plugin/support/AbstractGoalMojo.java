@@ -1,5 +1,6 @@
 package network.ike.plugin.support;
 
+import org.apache.maven.api.Session;
 import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.Log;
 import org.apache.maven.api.plugin.Mojo;
@@ -29,6 +30,13 @@ public abstract class AbstractGoalMojo implements Mojo {
     @Inject
     private Log log;
 
+    /** Maven session — consulted for interactive mode (#385). */
+    @Inject
+    private Session session;
+
+    /** Interactive prompter, lazily built (IKE-Network/ike-issues#385). */
+    private IkePrompter prompter;
+
     /**
      * Access the Maven logger injected by Maven 4's plugin DI.
      *
@@ -36,6 +44,33 @@ public abstract class AbstractGoalMojo implements Mojo {
      */
     protected Log getLog() {
         return log;
+    }
+
+    /**
+     * The {@link IkePrompter} for this goal — built lazily from the
+     * session's interactive flag (IKE-Network/ike-issues#385).
+     * Renders an inline prompt on a real terminal, an own-line prompt
+     * in a piped IDE runner, and declines in batch mode.
+     *
+     * @return the prompter (never {@code null})
+     */
+    protected IkePrompter getPrompter() {
+        if (prompter == null) {
+            boolean interactive = session == null
+                    || session.getSettings().isInteractiveMode();
+            prompter = new ConsoleIkePrompter(getLog(), interactive);
+        }
+        return prompter;
+    }
+
+    /**
+     * Inject an {@link IkePrompter} (typically a
+     * {@link ScriptedIkePrompter}) for tests.
+     *
+     * @param prompter the prompter implementation to use
+     */
+    void setPrompter(IkePrompter prompter) {
+        this.prompter = prompter;
     }
 
     /**

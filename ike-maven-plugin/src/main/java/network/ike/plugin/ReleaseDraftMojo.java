@@ -1074,44 +1074,17 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
             getLog().info("");
 
-            // In batch mode (-B), log warnings and continue — batch mode
-            // means non-interactive, so prompting would hang or abort.
-            // In interactive mode, ask the user to confirm.
-            boolean batchMode = System.console() == null
-                    && System.getProperty("maven.batch-mode") != null;
-            // Also check if stdin is unlikely to be connected (common
-            // in CI and Maven subprocess invocations with -B)
-            if (batchMode || java.util.Arrays.asList(
-                    System.getProperty("sun.java.command", "").split(" "))
-                    .contains("-B")) {
-                getLog().warn("  Batch mode (-B): proceeding with "
+            // Batch mode is non-interactive — log the warnings
+            // and continue. Interactive mode asks the user to
+            // confirm, routed through IkePrompter (ike-issues#385).
+            if (!getPrompter().isInteractive()) {
+                getLog().warn("  Batch mode: proceeding with "
                         + warnings.size() + " warning(s).");
-            } else {
-                // Prompt for confirmation
-                String answer = null;
-                java.io.Console console = System.console();
-                if (console != null) {
-                    answer = console.readLine(
-                            "  Continue with %d warning(s)? (yes/no): ",
-                            warnings.size());
-                } else {
-                    System.out.print("\u001B[33m  Continue with " + warnings.size()
-                            + " warning(s)? (yes/no): \u001B[0m");
-                    System.out.flush();
-                    try {
-                        answer = new java.io.BufferedReader(
-                                new java.io.InputStreamReader(System.in))
-                                .readLine();
-                    } catch (java.io.IOException e) {
-                        // Fall through — treat as "no"
-                    }
-                }
-
-                if (answer == null
-                        || !answer.trim().equalsIgnoreCase("yes")) {
-                    throw new MojoException(
-                            "Release aborted. Resolve warnings and retry.");
-                }
+            } else if (!getPrompter().confirm(
+                    "  Continue with " + warnings.size() + " warning(s)?",
+                    false)) {
+                throw new MojoException(
+                        "Release aborted. Resolve warnings and retry.");
             }
         }
         getLog().info("");
