@@ -6,7 +6,10 @@ import network.ike.plugin.scaffold.ScaffoldManifestIo;
 import network.ike.plugin.support.AbstractGoalMojo;
 import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
+import network.ike.plugin.support.version.CandidateVersionResolver;
+import network.ike.plugin.support.version.MavenVersionComparator;
 import network.ike.plugin.support.version.SessionCandidateVersionResolver;
+import network.ike.workspace.cascade.CascadeEdge;
 import network.ike.workspace.cascade.CascadeReporter;
 import network.ike.workspace.cascade.ProjectCascade;
 import network.ike.workspace.cascade.ProjectCascadeIo;
@@ -256,6 +259,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // foundation: block to the latest released versions so the
         // scaffold zip ships a current compatibility snapshot.
         bakeFoundationSnapshot(gitRoot, draft);
+
+        // Release-prep upstream cascade alignment (#419): bump this
+        // repo's ${X.version} pins to the latest released upstreams so
+        // a single-repo release never ships on a stale foundation.
+        alignUpstreamProperties(gitRoot, draft);
 
         // Derive timestamp from the current HEAD commit, not wall-clock time.
         // This ensures two independent builds from the same tag produce the
@@ -1002,6 +1010,144 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 "ike-build-standards/src/main/scaffold/scaffold-manifest.yaml");
         ReleaseSupport.exec(gitRoot, getLog(), "git", "commit", "-m",
                 "release: bake foundation snapshot to latest GA");
+    }
+
+    /**
+     * Aligns this repository's upstream-cascade {@code ${X.version}}
+     * properties to the latest released version of each upstream
+     * (IKE-Network/ike-issues#419, #420).
+     *
+     * <p>Before a foundation repo is released it must carry current
+     * upstream pins, or it ships a stale foundation. This reads the
+     * repo's own {@code src/main/cascade/release-cascade.yaml} and, for
+     * every {@code upstream} edge, resolves the latest released (GA)
+     * version of that upstream and bumps the edge's
+     * {@code version-property} when the POM is behind. A property is
+     * only advanced, never lowered.
+     *
+     * <p>The cascade head (no upstream edges) and ordinary consumers
+     * (no {@code release-cascade.yaml}) are no-ops. In draft mode the
+     * alignment is reported but not applied; in publish mode the bumps
+     * are written and committed before the release branch is cut, so a
+     * plain single-repo {@code ike:release-publish} is correct on its
+     * own.
+     *
+     * @param gitRoot the release repository root
+     * @param draft   {@code true} to report only; {@code false} to
+     *                rewrite the POM and commit
+     * @throws MojoException on an unresolvable upstream or a missing
+     *                       {@code version-property} in publish mode,
+     *                       or on an I/O failure
+     */
+    private void alignUpstreamProperties(File gitRoot, boolean draft)
+            throws MojoException {
+        Optional<ProjectCascade> loaded = ProjectCascadeIo.load(
+                gitRoot.toPath().resolve(
+                        ProjectCascadeIo.MANIFEST_RELATIVE_PATH));
+        if (loaded.isEmpty() || loaded.get().upstream().isEmpty()) {
+            // Not a cascade member, or the cascade head — nothing
+            // upstream to align.
+            return;
+        }
+
+        File pomFile = new File(gitRoot, "pom.xml");
+        String content;
+        try {
+            content = Files.readString(pomFile.toPath(),
+                    StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new MojoException("Could not read " + pomFile
+                    + " for upstream cascade alignment: "
+                    + e.getMessage(), e);
+        }
+
+        CandidateVersionResolver resolver =
+                new SessionCandidateVersionResolver(getSession());
+        List<String> bumps = new ArrayList<>();
+        List<String> problems = new ArrayList<>();
+        String updated = content;
+
+        for (CascadeEdge up : loaded.get().upstream()) {
+            String property = up.versionProperty();
+            String current = ReleaseSupport.readPomProperty(
+                    pomFile, property);
+            if (current == null) {
+                problems.add(up.ga() + ": POM has no <" + property
+                        + "> property.");
+                continue;
+            }
+            if (current.contains("${")) {
+                continue;
+            }
+            String latest;
+            try {
+                List<String> candidates = resolver.resolveCandidates(
+                        up.groupId(), up.artifactId(), null);
+                latest = candidates.isEmpty() ? null
+                        : candidates.get(candidates.size() - 1);
+            } catch (RuntimeException e) {
+                problems.add(up.ga() + ": could not resolve latest"
+                        + " release — " + e.getMessage());
+                continue;
+            }
+            if (latest == null) {
+                problems.add(up.ga()
+                        + ": no released version resolved.");
+                continue;
+            }
+            if (MavenVersionComparator.INSTANCE
+                    .compare(latest, current) <= 0) {
+                continue;
+            }
+            String after = PomRewriter.updateProperty(
+                    updated, property, latest);
+            if (!after.equals(updated)) {
+                updated = after;
+                bumps.add("<" + property + ">: " + current
+                        + " -> " + latest);
+            }
+        }
+
+        if (!problems.isEmpty()) {
+            StringBuilder msg = new StringBuilder("Upstream cascade"
+                    + " alignment found unresolvable upstream pin(s):\n");
+            for (String p : problems) {
+                msg.append("  ").append(p).append('\n');
+            }
+            msg.append("Verify the remote repository and the upstream"
+                    + " edges in release-cascade.yaml before releasing.");
+            if (!draft) {
+                throw new MojoException(msg.toString());
+            }
+            getLog().warn(msg.toString());
+        }
+
+        if (bumps.isEmpty()) {
+            getLog().info("Upstream cascade alignment: ${X.version}"
+                    + " pins already at the latest released versions.");
+            return;
+        }
+
+        getLog().info("Upstream cascade alignment:");
+        for (String b : bumps) {
+            getLog().info("  " + (draft ? "→ " : "✓ ") + b);
+        }
+        if (draft) {
+            getLog().info("  [DRAFT] pom.xml not modified — publish"
+                    + " would rewrite and commit it.");
+            return;
+        }
+
+        try {
+            Files.writeString(pomFile.toPath(), updated,
+                    StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new MojoException("Could not write aligned " + pomFile
+                    + ": " + e.getMessage(), e);
+        }
+        ReleaseSupport.exec(gitRoot, getLog(), "git", "add", "pom.xml");
+        ReleaseSupport.exec(gitRoot, getLog(), "git", "commit", "-m",
+                "release: align upstream cascade versions");
     }
 
     /**
