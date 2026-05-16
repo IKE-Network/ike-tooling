@@ -1,0 +1,201 @@
+package network.ike.plugin.scaffold;
+
+import network.ike.plugin.support.upgrade.CandidateVersionResolver;
+import network.ike.plugin.support.upgrade.MavenVersionComparator;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Release-time refresh of the scaffold manifest's {@code foundation:}
+ * block (IKE-Network/ike-issues#414).
+ *
+ * <p>The {@code foundation:} block in
+ * {@code ike-build-standards/src/main/scaffold/scaffold-manifest.yaml}
+ * is the tested-together compatibility snapshot a consumer picks up
+ * with a given {@code ike-tooling} scaffold. {@code ike-tooling.version}
+ * is filtered from {@code ${project.version}} and so is always correct;
+ * {@code ike-parent}, {@code ike-docs}, and {@code ike-platform} were
+ * hand-maintained literals. This class resolves their latest released
+ * (GA) versions from the configured remote repositories and rewrites
+ * the block, so the scaffold zip always ships a current snapshot
+ * without a manual edit.
+ *
+ * <p>This is the <em>discovery</em> half of foundation currency — the
+ * scaffold {@code foundation:} block can only propagate a snapshot, it
+ * cannot find out a newer upstream version exists. Moving discovery to
+ * release-time bake here is what lets the scaffold mechanism own
+ * foundation currency end to end (the precondition for retiring the
+ * {@code versions-upgrade} subsystem, ike-issues#415).
+ */
+public final class FoundationBaker {
+
+    /** A foundation artifact whose pin is baked at release time. */
+    public record Coordinate(String label, String groupId,
+                              String artifactId) {
+    }
+
+    /**
+     * {@code ike-parent} — carried in the {@code foundation.parent}
+     * block. {@code ike-tooling.version} is deliberately absent: it is
+     * filtered from {@code ${project.version}} and never baked.
+     */
+    public static final Coordinate IKE_PARENT = new Coordinate(
+            "ike-parent", "network.ike.platform", "ike-parent");
+
+    /** {@code ike-docs} — the {@code ike-docs.version} property pin. */
+    public static final Coordinate IKE_DOCS = new Coordinate(
+            "ike-docs", "network.ike.docs", "ike-docs");
+
+    /** {@code ike-platform} — the {@code ike-platform.version} pin. */
+    public static final Coordinate IKE_PLATFORM = new Coordinate(
+            "ike-platform", "network.ike.platform", "ike-platform");
+
+    /** Classification of a foundation pin against its latest GA. */
+    public enum Status {
+        /** Latest GA is newer than the pin — a bake is needed. */
+        AHEAD,
+        /** Pin already equals the latest GA. */
+        CURRENT,
+        /** Pin is newer than any GA — a backward bake; release fails. */
+        BEHIND,
+        /** No released version could be resolved for the coordinate. */
+        UNRESOLVED
+    }
+
+    /**
+     * The assessment of one foundation pin.
+     *
+     * @param coordinate the artifact this pin tracks
+     * @param current    the version currently pinned in the manifest
+     * @param latest     the latest resolved GA, or {@code null} when
+     *                   {@link Status#UNRESOLVED}
+     * @param status     how {@code latest} relates to {@code current}
+     */
+    public record Finding(Coordinate coordinate, String current,
+                           String latest, Status status) {
+    }
+
+    private FoundationBaker() {
+    }
+
+    /**
+     * Assess every baked foundation pin against the latest GA versions
+     * the resolver can see.
+     *
+     * @param foundation the manifest's current {@code foundation:} block
+     * @param resolver   resolves released versions for a coordinate
+     * @return one {@link Finding} per pin, in
+     *         {@code ike-parent, ike-docs, ike-platform} order
+     */
+    public static List<Finding> assess(ScaffoldManifest.Foundation foundation,
+                                        CandidateVersionResolver resolver) {
+        List<Finding> findings = new ArrayList<>(3);
+        findings.add(assessOne(IKE_PARENT,
+                foundation.parent().version(), resolver));
+        findings.add(assessOne(IKE_DOCS,
+                foundation.properties().get("ike-docs.version"), resolver));
+        findings.add(assessOne(IKE_PLATFORM,
+                foundation.properties().get("ike-platform.version"),
+                resolver));
+        return findings;
+    }
+
+    private static Finding assessOne(Coordinate coord, String current,
+                                     CandidateVersionResolver resolver) {
+        List<String> candidates = resolver.resolveCandidates(
+                coord.groupId(), coord.artifactId(), current);
+        if (candidates.isEmpty()) {
+            return new Finding(coord, current, null, Status.UNRESOLVED);
+        }
+        // resolveCandidates returns ascending GA-only versions.
+        String latest = candidates.get(candidates.size() - 1);
+        int cmp = current == null ? 1
+                : MavenVersionComparator.INSTANCE.compare(latest, current);
+        Status status = cmp > 0 ? Status.AHEAD
+                : cmp == 0 ? Status.CURRENT
+                : Status.BEHIND;
+        return new Finding(coord, current, latest, status);
+    }
+
+    /**
+     * Rewrite the {@code foundation:} block of a scaffold-manifest YAML
+     * document, applying every {@link Status#AHEAD} finding. Only the
+     * version values change — comments, indentation, key order, and the
+     * rest of the document are byte-preserved.
+     *
+     * @param manifestYaml the full scaffold-manifest.yaml content
+     * @param findings      the assessment from {@link #assess}
+     * @return the rewritten content; identical to the input when no
+     *         finding is {@link Status#AHEAD}
+     */
+    public static String rewrite(String manifestYaml,
+                                 List<Finding> findings) {
+        String parentTarget = aheadTarget(findings, IKE_PARENT);
+        String docsTarget = aheadTarget(findings, IKE_DOCS);
+        String platformTarget = aheadTarget(findings, IKE_PLATFORM);
+        if (parentTarget == null && docsTarget == null
+                && platformTarget == null) {
+            return manifestYaml;
+        }
+
+        String[] lines = manifestYaml.split("\n", -1);
+        boolean inFoundation = false;
+        boolean parentDone = false;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String trimmed = line.strip();
+
+            if (trimmed.equals("foundation:")) {
+                inFoundation = true;
+                continue;
+            }
+            if (!inFoundation) {
+                continue;
+            }
+            // Foundation block ends at the next column-0 key.
+            if (!line.isBlank() && !line.startsWith(" ")
+                    && !trimmed.startsWith("#")) {
+                break;
+            }
+
+            if (parentTarget != null && !parentDone
+                    && trimmed.startsWith("version:")) {
+                // The only bare `version:` key in the block is the
+                // parent's — property pins are `<name>.version:`.
+                lines[i] = replaceValue(line, parentTarget);
+                parentDone = true;
+            } else if (docsTarget != null
+                    && trimmed.startsWith("ike-docs.version:")) {
+                lines[i] = replaceValue(line, docsTarget);
+            } else if (platformTarget != null
+                    && trimmed.startsWith("ike-platform.version:")) {
+                lines[i] = replaceValue(line, platformTarget);
+            }
+        }
+        return String.join("\n", lines);
+    }
+
+    /**
+     * The latest version for {@code coord} when its finding is
+     * {@link Status#AHEAD}, else {@code null}.
+     */
+    private static String aheadTarget(List<Finding> findings,
+                                      Coordinate coord) {
+        for (Finding f : findings) {
+            if (f.coordinate().equals(coord) && f.status() == Status.AHEAD) {
+                return f.latest();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Replace the quoted value of a {@code key: "value"} YAML line,
+     * preserving the leading indentation and the key.
+     */
+    private static String replaceValue(String line, String newValue) {
+        int colon = line.indexOf(':');
+        return line.substring(0, colon + 1) + " \"" + newValue + "\"";
+    }
+}

@@ -1,8 +1,12 @@
 package network.ike.plugin;
 
+import network.ike.plugin.scaffold.FoundationBaker;
+import network.ike.plugin.scaffold.ScaffoldManifest;
+import network.ike.plugin.scaffold.ScaffoldManifestIo;
 import network.ike.plugin.support.AbstractGoalMojo;
 import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
+import network.ike.plugin.support.upgrade.SessionCandidateVersionResolver;
 import network.ike.workspace.cascade.CascadeRepo;
 import network.ike.workspace.cascade.CascadeReporter;
 import network.ike.workspace.cascade.ReleaseCascade;
@@ -270,6 +274,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
             getLog().warn(msg);
         }
+
+        // Release-prep foundation bake (#414): when this release owns
+        // the scaffold manifest (the ike-tooling release), refresh its
+        // foundation: block to the latest released versions so the
+        // scaffold zip ships a current compatibility snapshot.
+        bakeFoundationSnapshot(gitRoot, draft);
 
         // Derive timestamp from the current HEAD commit, not wall-clock time.
         // This ensures two independent builds from the same tag produce the
@@ -900,6 +910,131 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     .withZone(ZoneOffset.UTC)
                     .format(Instant.now());
         }
+    }
+
+    /**
+     * Release-prep foundation bake (IKE-Network/ike-issues#414).
+     *
+     * <p>When the release being cut owns the scaffold manifest — i.e.
+     * this is the {@code ike-tooling} release — refresh the manifest's
+     * {@code foundation:} block to the latest released {@code ike-parent},
+     * {@code ike-docs}, and {@code ike-platform} versions, so the
+     * scaffold zip {@code ike-tooling} ships always carries a current
+     * compatibility snapshot with no manual edit. A no-op for every
+     * other project's release (no scaffold manifest present).
+     *
+     * <p>A pin newer than any resolvable GA, or one that cannot be
+     * resolved at all, fails a publish (warns a draft): staleness or a
+     * misconfigured remote must never be silently baked into the zip.
+     *
+     * @param gitRoot the release repository root
+     * @param draft   {@code true} to report only; {@code false} to
+     *                rewrite the manifest and commit it
+     * @throws MojoException on a backward or unresolvable pin in
+     *                       publish mode, or on an I/O failure
+     */
+    private void bakeFoundationSnapshot(File gitRoot, boolean draft)
+            throws MojoException {
+        File manifestFile = new File(gitRoot,
+                "ike-build-standards/src/main/scaffold/scaffold-manifest.yaml");
+        if (!manifestFile.isFile()) {
+            // Not the ike-tooling release — nothing to bake.
+            return;
+        }
+
+        String content;
+        ScaffoldManifest manifest;
+        try {
+            content = Files.readString(manifestFile.toPath(),
+                    StandardCharsets.UTF_8);
+            manifest = ScaffoldManifestIo.read(manifestFile.toPath());
+        } catch (IOException e) {
+            throw new MojoException("Could not read scaffold manifest "
+                    + manifestFile + ": " + e.getMessage(), e);
+        }
+        if (manifest.foundation() == null) {
+            getLog().warn("Foundation bake: scaffold manifest has no "
+                    + "foundation: block — skipping.");
+            return;
+        }
+
+        List<FoundationBaker.Finding> findings;
+        try {
+            findings = FoundationBaker.assess(manifest.foundation(),
+                    new SessionCandidateVersionResolver(getSession()));
+        } catch (RuntimeException e) {
+            String msg = "Foundation bake: could not resolve latest "
+                    + "released versions — " + e.getMessage();
+            if (publish) {
+                throw new MojoException(msg, e);
+            }
+            getLog().warn(msg);
+            return;
+        }
+
+        List<FoundationBaker.Finding> problems = new ArrayList<>();
+        List<FoundationBaker.Finding> bumps = new ArrayList<>();
+        for (FoundationBaker.Finding f : findings) {
+            switch (f.status()) {
+                case AHEAD -> bumps.add(f);
+                case BEHIND, UNRESOLVED -> problems.add(f);
+                case CURRENT -> { }
+            }
+        }
+
+        if (!problems.isEmpty()) {
+            StringBuilder msg = new StringBuilder(
+                    "Foundation bake found pin(s) that cannot be baked:\n");
+            for (FoundationBaker.Finding f : problems) {
+                msg.append("  ").append(f.coordinate().label()).append(": ");
+                if (f.status() == FoundationBaker.Status.UNRESOLVED) {
+                    msg.append("no released version resolved (current pin ")
+                            .append(f.current()).append(").");
+                } else {
+                    msg.append("pin ").append(f.current())
+                            .append(" is newer than the latest released ")
+                            .append(f.latest()).append(" — a backward bake.");
+                }
+                msg.append('\n');
+            }
+            msg.append("Verify the remote repository and the manifest "
+                    + "foundation: block before releasing.");
+            if (publish) {
+                throw new MojoException(msg.toString());
+            }
+            getLog().warn(msg.toString());
+        }
+
+        if (bumps.isEmpty()) {
+            getLog().info("Foundation bake: scaffold foundation: block "
+                    + "already at the latest released versions.");
+            return;
+        }
+
+        getLog().info("Foundation bake:");
+        for (FoundationBaker.Finding f : bumps) {
+            getLog().info("  " + (draft ? "→ " : "✓ ")
+                    + f.coordinate().label() + ": "
+                    + f.current() + " -> " + f.latest());
+        }
+        if (draft) {
+            getLog().info("  [DRAFT] manifest not modified — publish would "
+                    + "rewrite and commit scaffold-manifest.yaml.");
+            return;
+        }
+
+        String updated = FoundationBaker.rewrite(content, findings);
+        try {
+            Files.writeString(manifestFile.toPath(), updated,
+                    StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new MojoException("Could not write baked scaffold "
+                    + "manifest " + manifestFile + ": " + e.getMessage(), e);
+        }
+        ReleaseSupport.exec(gitRoot, getLog(), "git", "add",
+                "ike-build-standards/src/main/scaffold/scaffold-manifest.yaml");
+        ReleaseSupport.exec(gitRoot, getLog(), "git", "commit", "-m",
+                "release: bake foundation snapshot to latest GA");
     }
 
     /**
