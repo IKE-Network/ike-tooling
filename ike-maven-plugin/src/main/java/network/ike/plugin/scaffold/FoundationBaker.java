@@ -4,7 +4,9 @@ import network.ike.plugin.support.upgrade.CandidateVersionResolver;
 import network.ike.plugin.support.upgrade.MavenVersionComparator;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Release-time refresh of the scaffold manifest's {@code foundation:}
@@ -60,6 +62,18 @@ public final class FoundationBaker {
      */
     public static final Coordinate IKE_PLATFORM = new Coordinate(
             "ike-platform", "network.ike.platform", "ike-platform");
+
+    /**
+     * {@code ike-tooling} — tracks the {@code ike-tooling.version}
+     * property pin (the version line {@code ike-build-standards},
+     * {@code ike-maven-plugin} and the rest of the ike-tooling reactor
+     * share). Resolved only for the consumer-side
+     * {@link #latestFoundation} path; the release-time {@link #assess}
+     * never touches it — there it is {@code ${project.version}},
+     * correct by construction.
+     */
+    public static final Coordinate IKE_TOOLING = new Coordinate(
+            "ike-tooling", "network.ike.tooling", "ike-tooling");
 
     /** Classification of a foundation pin against its latest GA. */
     public enum Status {
@@ -130,6 +144,62 @@ public final class FoundationBaker {
                 coord.groupId(), coord.artifactId(), null);
         return candidates.isEmpty() ? null
                 : candidates.get(candidates.size() - 1);
+    }
+
+    /**
+     * Resolve the latest released versions for every foundation pin and
+     * return a {@link ScaffoldManifest.Foundation} carrying them — the
+     * input snapshot with each version advanced to the latest GA the
+     * resolver can see.
+     *
+     * <p>The consumer-side counterpart to {@link #assess}: it lets
+     * {@code ike:scaffold-publish}'s opt-in resolve-latest mode apply
+     * <em>current</em> foundation pins instead of the (possibly stale,
+     * parent-pinned) snapshot baked into the scaffold zip — the escape
+     * hatch for the bootstrap loop where a consumer's scaffold tooling
+     * is itself gated by the {@code ike-parent} it needs to bump.
+     *
+     * <p>A pin is only advanced, never lowered: when the resolved GA is
+     * not newer than the baked value, or cannot be resolved, the baked
+     * value is kept. A value containing {@code ${...}} is left verbatim.
+     *
+     * @param baked    the foundation snapshot from the scaffold zip
+     * @param resolver resolves released versions for a coordinate
+     * @return a foundation with each pin at the latest released version
+     */
+    public static ScaffoldManifest.Foundation latestFoundation(
+            ScaffoldManifest.Foundation baked,
+            CandidateVersionResolver resolver) {
+        String platform = resolveLatest(IKE_PARENT, resolver);
+        String docs = resolveLatest(IKE_DOCS, resolver);
+        String tooling = resolveLatest(IKE_TOOLING, resolver);
+
+        ScaffoldManifest.ParentRef p = baked.parent();
+        ScaffoldManifest.ParentRef parent = new ScaffoldManifest.ParentRef(
+                p.groupId(), p.artifactId(), higher(p.version(), platform));
+
+        Map<String, String> props = new LinkedHashMap<>(baked.properties());
+        props.computeIfPresent("ike-tooling.version",
+                (k, v) -> higher(v, tooling));
+        props.computeIfPresent("ike-docs.version",
+                (k, v) -> higher(v, docs));
+        props.computeIfPresent("ike-platform.version",
+                (k, v) -> higher(v, platform));
+        return new ScaffoldManifest.Foundation(parent, props);
+    }
+
+    /**
+     * The higher of the baked and resolved versions. The baked value
+     * wins when the resolved one is {@code null}, when the baked value
+     * is an unresolved {@code ${...}} placeholder, or when the resolved
+     * one is not strictly newer — a pin is advanced, never lowered.
+     */
+    private static String higher(String baked, String resolved) {
+        if (resolved == null || baked == null || baked.contains("${")) {
+            return baked;
+        }
+        return MavenVersionComparator.INSTANCE.compare(resolved, baked) > 0
+                ? resolved : baked;
     }
 
     /** Classify a pin's current value against the resolved latest GA. */

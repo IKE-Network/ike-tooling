@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.scaffold.DirectoryTemplateSource;
+import network.ike.plugin.scaffold.FoundationBaker;
 import network.ike.plugin.scaffold.FoundationDriftChecker;
 import network.ike.plugin.scaffold.ModelAdapters;
 import network.ike.plugin.scaffold.PathResolver;
@@ -19,6 +20,7 @@ import network.ike.plugin.scaffold.TierHandlers;
 import network.ike.plugin.support.AbstractGoalMojo;
 import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
+import network.ike.plugin.support.upgrade.SessionCandidateVersionResolver;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
@@ -107,6 +109,30 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
     @Parameter(property = "ike.scaffold.apply-foundation",
                defaultValue = "false")
     boolean applyFoundation;
+
+    /**
+     * When {@code true}, resolve the <em>latest released</em> foundation
+     * versions from the remote repository and apply those, instead of
+     * the snapshot baked into the scaffold zip's {@code foundation:}
+     * block.
+     *
+     * <p>This is the escape hatch for the scaffold bootstrap loop: a
+     * consumer's scaffold plugin and scaffold zip are both pinned by the
+     * very {@code ike-parent} the foundation apply is meant to bump, so
+     * the baked snapshot can only ever advance a consumer one
+     * tested-together cycle per run. With this flag a stale consumer
+     * jumps straight to the current foundation in a single run — at the
+     * cost of the "tested-together snapshot" guarantee the baked block
+     * carries.
+     *
+     * <p>Only meaningful together with
+     * {@code -Dike.scaffold.apply-foundation=true}; on its own it just
+     * changes what the dry-run reports. A transient resolver failure is
+     * non-fatal — the goal falls back to the baked snapshot.
+     */
+    @Parameter(property = "ike.scaffold.resolve-foundation",
+               defaultValue = "false")
+    boolean resolveFoundation;
 
     /** Creates this goal instance. */
     public ScaffoldPublishMojo() {}
@@ -279,6 +305,20 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
     private void applyFoundationDrift(
             Path projRoot,
             ScaffoldManifest.Foundation foundation) {
+        if (resolveFoundation) {
+            getLog().info("");
+            try {
+                foundation = FoundationBaker.latestFoundation(foundation,
+                        new SessionCandidateVersionResolver(getSession()));
+                getLog().info("Foundation: resolved latest released "
+                        + "versions (resolve-foundation mode).");
+            } catch (RuntimeException e) {
+                getLog().warn("Foundation: could not resolve latest "
+                        + "versions (" + e.getMessage() + ") — falling "
+                        + "back to the baked scaffold snapshot.");
+            }
+        }
+
         Path pomPath = projRoot.resolve("pom.xml");
         List<FoundationDriftChecker.Entry> entries;
         try {

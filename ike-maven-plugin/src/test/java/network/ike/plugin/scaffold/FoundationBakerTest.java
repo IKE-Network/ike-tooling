@@ -24,10 +24,22 @@ class FoundationBakerTest {
                         "ike-platform.version", ikePlatform));
     }
 
+    private static ScaffoldManifest.Foundation foundationWith(
+            String parent, String tooling, String docs, String platform) {
+        return new ScaffoldManifest.Foundation(
+                new ScaffoldManifest.ParentRef(
+                        "network.ike.platform", "ike-parent", parent),
+                Map.of(
+                        "ike-tooling.version", tooling,
+                        "ike-docs.version", docs,
+                        "ike-platform.version", platform));
+    }
+
     /**
      * A fake resolver mapping {@code groupId:artifactId} to candidates.
-     * Only {@code ike-parent} and {@code ike-docs} are ever queried —
-     * the ike-platform pin shares the ike-parent resolution.
+     * {@link FoundationBaker#assess} queries {@code ike-parent} and
+     * {@code ike-docs}; {@link FoundationBaker#latestFoundation} also
+     * queries {@code ike-tooling}.
      */
     private static CandidateVersionResolver resolver(
             Map<String, List<String>> byCoord) {
@@ -148,5 +160,55 @@ class FoundationBakerTest {
 
         assertThat(FoundationBaker.rewrite(MANIFEST, findings))
                 .isEqualTo(MANIFEST);
+    }
+
+    // ── latestFoundation ────────────────────────────────────────────
+
+    @Test
+    void latestFoundation_advancesEachPinToLatestGa() {
+        ScaffoldManifest.Foundation latest = FoundationBaker.latestFoundation(
+                foundationWith("35", "170", "13", "35"),
+                resolver(Map.of(
+                        "network.ike.platform:ike-parent", List.of("35", "40"),
+                        "network.ike.docs:ike-docs", List.of("13", "20"),
+                        "network.ike.tooling:ike-tooling", List.of("170", "181"))));
+
+        assertThat(latest.parent().version()).isEqualTo("40");
+        assertThat(latest.properties())
+                .containsEntry("ike-tooling.version", "181")
+                .containsEntry("ike-docs.version", "20")
+                // ike-platform shares the ike-parent resolution.
+                .containsEntry("ike-platform.version", "40");
+    }
+
+    @Test
+    void latestFoundation_neverLowersAPin() {
+        ScaffoldManifest.Foundation latest = FoundationBaker.latestFoundation(
+                foundationWith("50", "170", "13", "50"),
+                resolver(Map.of(
+                        "network.ike.platform:ike-parent", List.of("40"),
+                        "network.ike.docs:ike-docs", List.of("13"),
+                        "network.ike.tooling:ike-tooling", List.of("170"))));
+
+        // Resolved ike-parent (40) is older than the baked pin (50) — kept.
+        assertThat(latest.parent().version()).isEqualTo("50");
+        assertThat(latest.properties())
+                .containsEntry("ike-platform.version", "50");
+    }
+
+    @Test
+    void latestFoundation_keepsBakedWhenUnresolvedOrPlaceholder() {
+        ScaffoldManifest.Foundation latest = FoundationBaker.latestFoundation(
+                foundationWith("35", "${project.version}", "13", "35"),
+                resolver(Map.of(
+                        "network.ike.platform:ike-parent", List.of("35", "40"),
+                        "network.ike.tooling:ike-tooling", List.of("170", "181"))));
+
+        // ike-docs has no candidates — baked value kept.
+        assertThat(latest.properties())
+                .containsEntry("ike-docs.version", "13");
+        // ${...} placeholder is left verbatim, never compared.
+        assertThat(latest.properties())
+                .containsEntry("ike-tooling.version", "${project.version}");
     }
 }
