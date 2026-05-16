@@ -32,7 +32,13 @@ import java.util.Map;
  */
 public final class FoundationBaker {
 
-    /** A foundation artifact whose pin is baked at release time. */
+    /**
+     * A foundation artifact whose pin is baked at release time.
+     *
+     * @param label      short human-readable name, e.g. {@code "ike-parent"}
+     * @param groupId    the Maven groupId
+     * @param artifactId the Maven artifactId
+     */
     public record Coordinate(String label, String groupId,
                               String artifactId) {
     }
