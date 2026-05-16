@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
 import network.ike.workspace.cascade.CascadeRepo;
 import network.ike.workspace.cascade.CascadeReporter;
@@ -813,59 +814,61 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                                        String releaseBranch,
                                        String projectId,
                                        String releaseTimestamp) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("**Project:** ").append(projectId).append("\n");
-        sb.append("**Mode:** ").append(draft ? "draft (preview)" : "publish")
-                .append("\n");
-        sb.append("**Version:** ").append(oldVersion).append(" → ")
-                .append(releaseVersion).append("\n");
-        sb.append("**Next version:** ").append(nextVersion).append("\n");
-        sb.append("**Release branch:** ").append(releaseBranch).append("\n");
-        sb.append("**Tag:** v").append(releaseVersion).append("\n");
-        sb.append("**Timestamp:** ").append(releaseTimestamp).append("\n\n");
+        GoalReportBuilder report = new GoalReportBuilder();
+        report.raw("**Project:** " + projectId + "\n"
+                + "**Mode:** " + (draft ? "draft (preview)" : "publish") + "\n"
+                + "**Version:** " + oldVersion + " → " + releaseVersion + "\n"
+                + "**Next version:** " + nextVersion + "\n"
+                + "**Release branch:** " + releaseBranch + "\n"
+                + "**Tag:** v" + releaseVersion + "\n"
+                + "**Timestamp:** " + releaseTimestamp + "\n\n");
 
         String verb = draft ? "Would" : "Did";
-        sb.append("## Local actions\n");
-        sb.append("1. ").append(verb)
+        report.section("Local actions");
+        StringBuilder local = new StringBuilder();
+        local.append("1. ").append(verb)
                 .append(" create branch `").append(releaseBranch).append("`\n");
-        sb.append("2. ").append(verb)
+        local.append("2. ").append(verb)
                 .append(" set version ").append(oldVersion).append(" → ")
                 .append(releaseVersion).append("\n");
-        sb.append("3. ").append(verb)
+        local.append("3. ").append(verb)
                 .append(" stamp `project.build.outputTimestamp`\n");
-        sb.append("4. ").append(verb)
+        local.append("4. ").append(verb)
                 .append(" resolve `${project.version}` in all POMs\n");
-        sb.append("5. ").append(verb).append(" run `mvnw clean verify -B`\n");
-        sb.append("6. ").append(verb)
+        local.append("5. ").append(verb).append(" run `mvnw clean verify -B`\n");
+        local.append("6. ").append(verb)
                 .append(" commit and tag `v").append(releaseVersion)
                 .append("`\n");
-        sb.append("7. ").append(verb)
+        local.append("7. ").append(verb)
                 .append(" merge `").append(releaseBranch).append("` to main\n");
-        sb.append("8. ").append(verb)
+        local.append("8. ").append(verb)
                 .append(" bump to next version ").append(nextVersion)
                 .append("\n\n");
+        report.raw(local.toString());
 
-        sb.append("## External actions\n");
+        report.section("External actions");
+        StringBuilder external = new StringBuilder();
         int step = 1;
         if (publishSite) {
-            sb.append(step++).append(". ").append(verb)
+            external.append(step++).append(". ").append(verb)
                     .append(" generate site\n");
         }
-        sb.append(step++).append(". ").append(verb)
+        external.append(step++).append(". ").append(verb)
                 .append(" deploy to Nexus from tag `v")
                 .append(releaseVersion).append("`\n");
         if (publishSite) {
-            sb.append(step++).append(". ").append(verb)
+            external.append(step++).append(". ").append(verb)
                     .append(" force-push site to gh-pages on origin "
                             + "(serves at `https://ike.network/")
                     .append(projectId).append("/`)\n");
         }
-        sb.append(step++).append(". ").append(verb)
+        external.append(step++).append(". ").append(verb)
                 .append(" push tag and main to origin\n");
-        sb.append(step).append(". ").append(verb)
+        external.append(step).append(". ").append(verb)
                 .append(" create GitHub Release\n");
+        report.raw(external.toString());
 
-        return sb.toString();
+        return report.build();
     }
 
     /**

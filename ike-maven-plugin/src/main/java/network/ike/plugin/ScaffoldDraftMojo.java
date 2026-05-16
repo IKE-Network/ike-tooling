@@ -15,6 +15,7 @@ import network.ike.plugin.scaffold.ScaffoldScope;
 import network.ike.plugin.scaffold.TemplateSource;
 import network.ike.plugin.scaffold.TierHandlers;
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.plugin.MojoException;
@@ -194,21 +195,19 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
     private static String buildReport(ScaffoldManifest manifest,
                                        Counts userCounts,
                                        Counts projectCounts) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Preview of the changes `ike:scaffold-publish`")
-          .append(" would apply — no files were written.\n\n");
-        sb.append("- standards version: `")
-          .append(manifest.standardsVersion()).append("`\n");
-        sb.append("- user scope: ").append(userCounts.summary())
-          .append("\n");
+        GoalReportBuilder report = new GoalReportBuilder();
+        report.paragraph("Preview of the changes `ike:scaffold-publish`"
+                + " would apply — no files were written.");
+        report.bullet("standards version: `"
+                + manifest.standardsVersion() + "`");
+        report.bullet("user scope: " + userCounts.summary());
         if (projectCounts != null) {
-            sb.append("- project scope: ")
-              .append(projectCounts.summary()).append("\n");
+            report.bullet("project scope: " + projectCounts.summary());
         } else {
-            sb.append("- project scope: (none — fresh machine)\n");
+            report.bullet("project scope: (none — fresh machine)");
         }
-        sb.append("\nRun `ike:scaffold-publish` to apply.\n");
-        return sb.toString();
+        report.paragraph("Run `ike:scaffold-publish` to apply.");
+        return report.build();
     }
 
     /**

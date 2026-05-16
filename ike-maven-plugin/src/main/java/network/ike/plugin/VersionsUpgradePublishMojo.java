@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
 import network.ike.plugin.support.upgrade.VersionUpgradeApplyException;
 import network.ike.plugin.support.upgrade.VersionUpgradePlanApplier;
@@ -233,85 +234,80 @@ public class VersionsUpgradePublishMojo extends AbstractGoalMojo {
     private String buildReport(VersionUpgradePlan plan,
                                 NodeVersionUpgrade node, int edits,
                                 Path planPath) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("**Project:** ").append(project.getArtifactId())
+        GoalReportBuilder report = new GoalReportBuilder();
+        StringBuilder header = new StringBuilder();
+        header.append("**Project:** ").append(project.getArtifactId())
                 .append("\n");
-        sb.append("**Plan:** `").append(planPath).append("`\n");
+        header.append("**Plan:** `").append(planPath).append("`\n");
         if (plan.planHash() != null) {
-            sb.append("**Plan hash:** `").append(plan.planHash())
+            header.append("**Plan hash:** `").append(plan.planHash())
                     .append("`\n");
         }
         if (plan.ikeToolingVersion() != null) {
-            sb.append("**ike-tooling.version:** `")
+            header.append("**ike-tooling.version:** `")
                     .append(plan.ikeToolingVersion()).append("`\n");
         }
-        sb.append("**Edits applied:** ").append(edits).append("\n\n");
+        header.append("**Edits applied:** ").append(edits);
+        report.paragraph(header.toString());
 
-        sb.append("## Applied\n");
-        appendApplied(sb, node);
+        report.section("Applied");
+        appendApplied(report, node);
         int skipped = countSkipped(node);
         if (skipped > 0) {
-            sb.append("\n## Skipped (non-ready)\n");
-            appendSkipped(sb, node);
+            report.section("Skipped (non-ready)");
+            appendSkipped(report, node);
         }
-        return sb.toString();
+        return report.build();
     }
 
-    private static void appendApplied(StringBuilder sb,
+    private static void appendApplied(GoalReportBuilder report,
                                        NodeVersionUpgrade node) {
         boolean any = false;
         if (node.parent() != null
                 && node.parent().status() == VersionUpgradeStatus.READY) {
             ParentVersionUpgrade p = node.parent();
-            sb.append("- parent `").append(p.groupId()).append(":")
-                    .append(p.artifactId()).append("`: ")
-                    .append(p.fromVersion()).append(" → ")
-                    .append(p.toVersion()).append("\n");
+            report.bullet("parent `" + p.groupId() + ":" + p.artifactId()
+                    + "`: " + p.fromVersion() + " → " + p.toVersion());
             any = true;
         }
         for (PropertyVersionUpgrade prop : node.properties()) {
             if (prop.status() != VersionUpgradeStatus.READY) continue;
-            sb.append("- property `${").append(prop.propertyName())
-                    .append("}`: ").append(prop.fromVersion())
-                    .append(" → ").append(prop.toVersion()).append("\n");
+            report.bullet("property `${" + prop.propertyName() + "}`: "
+                    + prop.fromVersion() + " → " + prop.toVersion());
             any = true;
         }
         for (LiteralVersionUpgrade lit : node.literals()) {
             if (lit.status() != VersionUpgradeStatus.READY) continue;
-            sb.append("- literal `").append(lit.groupId()).append(":")
-                    .append(lit.artifactId()).append("`: ")
-                    .append(lit.fromVersion()).append(" → ")
-                    .append(lit.toVersion()).append("\n");
+            report.bullet("literal `" + lit.groupId() + ":"
+                    + lit.artifactId() + "`: " + lit.fromVersion()
+                    + " → " + lit.toVersion());
             any = true;
         }
         if (!any) {
-            sb.append("- _no ready upgrades_\n");
+            report.bullet("_no ready upgrades_");
         }
     }
 
-    private static void appendSkipped(StringBuilder sb,
+    private static void appendSkipped(GoalReportBuilder report,
                                        NodeVersionUpgrade node) {
         if (node.parent() != null
                 && node.parent().status() != VersionUpgradeStatus.READY) {
             ParentVersionUpgrade p = node.parent();
-            sb.append("- parent `").append(p.groupId()).append(":")
-                    .append(p.artifactId()).append("` [")
-                    .append(statusLabel(p.status())).append("]")
-                    .append(reasonSuffix(p.reason())).append("\n");
+            report.bullet("parent `" + p.groupId() + ":" + p.artifactId()
+                    + "` [" + statusLabel(p.status()) + "]"
+                    + reasonSuffix(p.reason()));
         }
         for (PropertyVersionUpgrade prop : node.properties()) {
             if (prop.status() == VersionUpgradeStatus.READY) continue;
-            sb.append("- property `${").append(prop.propertyName())
-                    .append("}` [").append(statusLabel(prop.status()))
-                    .append("]").append(reasonSuffix(prop.reason()))
-                    .append("\n");
+            report.bullet("property `${" + prop.propertyName() + "}` ["
+                    + statusLabel(prop.status()) + "]"
+                    + reasonSuffix(prop.reason()));
         }
         for (LiteralVersionUpgrade lit : node.literals()) {
             if (lit.status() == VersionUpgradeStatus.READY) continue;
-            sb.append("- literal `").append(lit.groupId()).append(":")
-                    .append(lit.artifactId()).append("` [")
-                    .append(statusLabel(lit.status())).append("]")
-                    .append(reasonSuffix(lit.reason())).append("\n");
+            report.bullet("literal `" + lit.groupId() + ":"
+                    + lit.artifactId() + "` [" + statusLabel(lit.status())
+                    + "]" + reasonSuffix(lit.reason()));
         }
     }
 

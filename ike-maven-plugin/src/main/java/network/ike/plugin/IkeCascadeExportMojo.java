@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
 import network.ike.workspace.cascade.ReleaseCascade;
 import org.apache.maven.api.Session;
@@ -109,11 +110,12 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
             location = "printed to the build log";
         }
 
-        String report = "## Cascade export\n\n"
-                + "Exported `release-cascade.yaml` as **" + formatLabel
-                + "**, " + location + ".\n\n"
-                + "```" + formatLabel + "\n" + rendered
-                + (rendered.endsWith("\n") ? "" : "\n") + "```\n";
+        String report = new GoalReportBuilder()
+                .section("Cascade export")
+                .paragraph("Exported `release-cascade.yaml` as **"
+                        + formatLabel + "**, " + location + ".")
+                .codeBlock(formatLabel, rendered)
+                .build();
         return new GoalReportSpec(IkeGoal.CASCADE_EXPORT,
                 startDir.toPath(), report);
     }

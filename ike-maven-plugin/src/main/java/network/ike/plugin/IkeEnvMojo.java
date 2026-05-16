@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
@@ -78,14 +79,16 @@ public class IkeEnvMojo extends AbstractGoalMojo {
         getLog().info("  null     → piped, prompt label needs its own line.");
         getLog().info("");
 
-        String report = "## Environment probe\n\n"
-                + "Runtime terminal/console capability — the decisive\n"
-                + "signal for how interactive prompts render"
-                + " (ike-issues#385).\n\n"
-                + "```\n" + String.join("\n", probe) + "\n```\n\n"
-                + "`System.console()` non-null means a real terminal"
-                + " (inline prompts work); null means piped (degrade to"
-                + " an own-line label).\n";
+        String report = new GoalReportBuilder()
+                .section("Environment probe")
+                .paragraph("Runtime terminal/console capability — the"
+                        + " decisive signal for how interactive prompts"
+                        + " render (ike-issues#385).")
+                .codeBlock("", String.join("\n", probe))
+                .paragraph("`System.console()` non-null means a real"
+                        + " terminal (inline prompts work); null means"
+                        + " piped (degrade to an own-line label).")
+                .build();
         return new GoalReportSpec(IkeGoal.ENV, Path.of("."), report);
     }
 

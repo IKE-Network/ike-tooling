@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
 import network.ike.plugin.support.upgrade.SessionCandidateVersionResolver;
 import network.ike.plugin.support.upgrade.VersionUpgradePlanBuilder;
@@ -285,138 +286,139 @@ public class VersionsUpgradeDraftMojo extends AbstractGoalMojo {
         String rulesLink = reportDir == null ? rulesPath.toString()
                 : reportDir.relativize(rulesPath).toString();
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("**Project:** ").append(project.getArtifactId())
+        GoalReportBuilder report = new GoalReportBuilder();
+        StringBuilder header = new StringBuilder();
+        header.append("**Project:** ").append(project.getArtifactId())
                 .append("\n");
-        sb.append("**Scope:** module\n");
-        sb.append("**Files to edit:** [`")
+        header.append("**Scope:** module\n");
+        header.append("**Files to edit:** [`")
                 .append(planLink).append("`](").append(planLink)
                 .append(") · [`")
                 .append(rulesLink).append("`](").append(rulesLink)
                 .append(")\n");
         if (plan.ikeToolingVersion() != null) {
-            sb.append("**ike-tooling.version:** `")
+            header.append("**ike-tooling.version:** `")
                     .append(plan.ikeToolingVersion()).append("`\n");
         }
-        sb.append("**Generated:** ").append(plan.generated()).append("\n");
-        sb.append("**Ready:** ").append(ready.size())
+        header.append("**Generated:** ").append(plan.generated()).append("\n");
+        header.append("**Ready:** ").append(ready.size())
                 .append("  ·  **Blocked:** ").append(blocked.size())
                 .append("  ·  **Pending upstream:** ").append(pending.size())
-                .append("  ·  **Warnings:** ").append(warnings.size())
-                .append("\n\n");
+                .append("  ·  **Warnings:** ").append(warnings.size());
+        report.paragraph(header.toString());
 
-        appendNextSteps(sb, planLink, rulesLink,
+        appendNextSteps(report, planLink, rulesLink,
                 ready.size(), blocked.size(), warnings.size());
-        appendActiveRules(sb, rules);
-        appendWarnings(sb, warnings);
-        appendReady(sb, ready);
-        appendBlockedGrouped(sb, blocked);
-        appendPending(sb, pending);
-        appendStandardsLink(sb);
-        return sb.toString();
+        appendActiveRules(report, rules);
+        appendWarnings(report, warnings);
+        appendReady(report, ready);
+        appendBlockedGrouped(report, blocked);
+        appendPending(report, pending);
+        appendStandardsLink(report);
+        return report.build();
     }
 
     /** ike-issues#384: top-of-report numbered next-steps section. */
-    private static void appendNextSteps(StringBuilder sb,
+    private static void appendNextSteps(GoalReportBuilder report,
                                          String planLink, String rulesLink,
                                          int readyCount, int blockedCount,
                                          int warningCount) {
-        sb.append("## Next steps\n\n");
+        report.section("Next steps");
+        StringBuilder steps = new StringBuilder();
         int step = 0;
         if (warningCount > 0) {
-            sb.append(++step).append(". **Resolve the ")
+            steps.append(++step).append(". **Resolve the ")
                     .append(warningCount).append(" warning")
                     .append(warningCount == 1 ? "" : "s")
                     .append(" below** — conflicts / ambiguities that")
                     .append(" block an upgrade even though no version")
                     .append(" change is proposed.\n");
         }
-        sb.append(++step).append(". **Review the ").append(readyCount)
+        steps.append(++step).append(". **Review the ").append(readyCount)
                 .append(" ready upgrade")
                 .append(readyCount == 1 ? "" : "s")
                 .append("** in the Ready section.\n");
         if (blockedCount > 0) {
-            sb.append(++step).append(". **(Optional) Allow more coordinates**")
+            steps.append(++step).append(". **(Optional) Allow more coordinates**")
                     .append(" — the Blocked section groups ").append(blockedCount)
                     .append(" entr").append(blockedCount == 1 ? "y" : "ies")
                     .append(" by groupId with a copy-paste-ready allow-rule.")
                     .append(" Paste any you want into `").append(rulesLink)
                     .append("` and re-draft to pick them up.\n");
         }
-        sb.append(++step).append(". **Edit the plan** to remove or re-pin")
+        steps.append(++step).append(". **Edit the plan** to remove or re-pin")
                 .append(" specific entries: [`").append(planLink)
                 .append("`](").append(planLink).append(").\n");
-        sb.append(++step).append(". **Apply** with")
+        steps.append(++step).append(". **Apply** with")
                 .append(" `mvn ike:versions-upgrade-publish`.\n\n");
+        report.raw(steps.toString());
     }
 
-    private static void appendActiveRules(StringBuilder sb,
+    private static void appendActiveRules(GoalReportBuilder report,
                                            VersionUpgradeRules rules) {
         if (rules == null) return;
-        sb.append("## Active rules\n\n");
-        sb.append("From the ruleset, in declaration order (first match wins):\n\n");
+        report.section("Active rules");
+        report.paragraph("From the ruleset, in declaration order"
+                + " (first match wins):");
         for (VersionUpgradeRule rule : rules.rules()) {
-            sb.append("- `").append(rule.groupIdPattern()).append(":")
+            StringBuilder line = new StringBuilder();
+            line.append("`").append(rule.groupIdPattern()).append(":")
                     .append(rule.artifactIdPattern()).append("`")
                     .append(" → **").append(rule.action().name()
                             .toLowerCase(Locale.ROOT))
                     .append("**");
             if (rule.pinnedVersion() != null
                     && !rule.pinnedVersion().isEmpty()) {
-                sb.append(" (pin to `").append(rule.pinnedVersion())
+                line.append(" (pin to `").append(rule.pinnedVersion())
                         .append("`)");
             }
             if (rule.reason() != null && !rule.reason().isEmpty()) {
-                sb.append(" — ").append(rule.reason());
+                line.append(" — ").append(rule.reason());
             }
-            sb.append("\n");
+            report.bullet(line.toString());
         }
-        sb.append("- _(default)_ → **")
-                .append(rules.defaultAction().name()
-                        .toLowerCase(Locale.ROOT))
-                .append("**\n\n");
+        report.bullet("_(default)_ → **"
+                + rules.defaultAction().name().toLowerCase(Locale.ROOT)
+                + "**");
     }
 
-    private static void appendWarnings(StringBuilder sb,
+    private static void appendWarnings(GoalReportBuilder report,
                                         List<ActionableEntry> warnings) {
         if (warnings.isEmpty()) return;
-        sb.append("## Warnings (").append(warnings.size()).append(")\n\n");
-        sb.append("These coordinates did **not** get an upgrade proposal,")
-                .append(" but the resolver flagged a real problem worth")
-                .append(" investigating.\n\n");
+        report.section("Warnings (" + warnings.size() + ")");
+        report.paragraph("These coordinates did **not** get an upgrade"
+                + " proposal, but the resolver flagged a real problem"
+                + " worth investigating.");
         for (ActionableEntry w : warnings) {
-            sb.append("- ").append(w.coordLabel()).append(" stays at `")
-                    .append(w.fromVersion()).append("` — ")
-                    .append(w.reason()).append("\n");
+            report.bullet(w.coordLabel() + " stays at `"
+                    + w.fromVersion() + "` — " + w.reason());
         }
-        sb.append("\n");
     }
 
-    private static void appendReady(StringBuilder sb,
+    private static void appendReady(GoalReportBuilder report,
                                      List<ActionableEntry> ready) {
         if (ready.isEmpty()) return;
-        sb.append("## Ready (").append(ready.size()).append(")\n\n");
-        sb.append("These will be applied by `ike:versions-upgrade-publish`.")
-                .append(" Edit the plan file to drop or re-pin any.\n\n");
-        sb.append("| Coordinate | From → To |\n");
-        sb.append("|---|---|\n");
+        report.section("Ready (" + ready.size() + ")");
+        report.paragraph("These will be applied by"
+                + " `ike:versions-upgrade-publish`. Edit the plan file"
+                + " to drop or re-pin any.");
+        List<String[]> rows = new ArrayList<>();
         for (ActionableEntry r : ready) {
-            sb.append("| ").append(r.coordLabel()).append(" | `")
-                    .append(r.fromVersion()).append("` → `")
-                    .append(r.toVersion()).append("` |\n");
+            rows.add(new String[]{
+                    r.coordLabel(),
+                    "`" + r.fromVersion() + "` → `" + r.toVersion() + "`"});
         }
-        sb.append("\n");
+        report.table(List.of("Coordinate", "From → To"), rows);
     }
 
-    private static void appendBlockedGrouped(StringBuilder sb,
+    private static void appendBlockedGrouped(GoalReportBuilder report,
                                               List<ActionableEntry> blocked) {
         if (blocked.isEmpty()) return;
-        sb.append("## Blocked — newer available (")
-                .append(blocked.size()).append(")\n\n");
-        sb.append("Newer versions exist but the ruleset doesn't allow")
-                .append(" the groupId. To allow a group, paste its")
-                .append(" suggested rule into `versions-upgrade-rules.yaml`")
-                .append(" and re-draft.\n\n");
+        report.section("Blocked — newer available (" + blocked.size() + ")");
+        report.paragraph("Newer versions exist but the ruleset doesn't"
+                + " allow the groupId. To allow a group, paste its"
+                + " suggested rule into `versions-upgrade-rules.yaml`"
+                + " and re-draft.");
 
         Map<String, List<ActionableEntry>> byGroup =
                 new LinkedHashMap<>();
@@ -425,59 +427,60 @@ public class VersionsUpgradeDraftMojo extends AbstractGoalMojo {
                     k -> new ArrayList<>()).add(b);
         }
 
-        sb.append("| GroupId | Coords | Suggested rule |\n");
-        sb.append("|---|---|---|\n");
+        List<String[]> rows = new ArrayList<>();
         for (Map.Entry<String, List<ActionableEntry>> g
                 : byGroup.entrySet()) {
-            sb.append("| `").append(g.getKey()).append("` | ")
-                    .append(coordSummary(g.getValue())).append(" | ")
-                    .append("`- match: \"").append(g.getKey())
-                    .append(":*\"`<br>`  action: allow` |\n");
+            rows.add(new String[]{
+                    "`" + g.getKey() + "`",
+                    coordSummary(g.getValue()),
+                    "`- match: \"" + g.getKey()
+                            + ":*\"`<br>`  action: allow`"});
         }
-        sb.append("\n");
+        report.table(List.of("GroupId", "Coords", "Suggested rule"), rows);
 
-        sb.append("<details><summary>Detail — every blocked entry,")
+        StringBuilder detail = new StringBuilder();
+        detail.append("<details><summary>Detail — every blocked entry,")
                 .append(" grouped</summary>\n\n");
         for (Map.Entry<String, List<ActionableEntry>> g
                 : byGroup.entrySet()) {
-            sb.append("**`").append(g.getKey()).append("`**\n");
+            detail.append("**`").append(g.getKey()).append("`**\n");
             for (ActionableEntry b : g.getValue()) {
-                sb.append("- ").append(b.coordLabel()).append(": `")
+                detail.append("- ").append(b.coordLabel()).append(": `")
                         .append(b.fromVersion()).append("` → `")
                         .append(b.toVersion()).append("`");
                 if (b.reason() != null) {
-                    sb.append(" — ").append(b.reason());
+                    detail.append(" — ").append(b.reason());
                 }
-                sb.append("\n");
+                detail.append("\n");
             }
-            sb.append("\n");
+            detail.append("\n");
         }
-        sb.append("</details>\n\n");
+        detail.append("</details>\n\n");
+        report.raw(detail.toString());
     }
 
-    private static void appendPending(StringBuilder sb,
+    private static void appendPending(GoalReportBuilder report,
                                        List<ActionableEntry> pending) {
         if (pending.isEmpty()) return;
-        sb.append("## Pending upstream (").append(pending.size())
-                .append(")\n\n");
-        sb.append("Re-draft after the upstream releases — the resolver")
-                .append(" will pick up the new version.\n\n");
+        report.section("Pending upstream (" + pending.size() + ")");
+        report.paragraph("Re-draft after the upstream releases — the"
+                + " resolver will pick up the new version.");
         for (ActionableEntry p : pending) {
-            sb.append("- ").append(p.coordLabel()).append(": `")
+            StringBuilder line = new StringBuilder();
+            line.append(p.coordLabel()).append(": `")
                     .append(p.fromVersion()).append("` → `")
                     .append(p.toVersion()).append("`");
-            if (p.reason() != null) sb.append(" — ").append(p.reason());
-            sb.append("\n");
+            if (p.reason() != null) line.append(" — ").append(p.reason());
+            report.bullet(line.toString());
         }
-        sb.append("\n");
     }
 
-    private static void appendStandardsLink(StringBuilder sb) {
-        sb.append("---\n\n");
-        sb.append("See [`IKE-WORKSPACE.md`](https://github.com/IKE-Network/")
-                .append("ike-tooling/blob/main/ike-build-standards/")
-                .append("src/main/standards/IKE-WORKSPACE.md) for the")
-                .append(" versions-upgrade conventions.\n");
+    private static void appendStandardsLink(GoalReportBuilder report) {
+        report.raw("---\n\n");
+        report.paragraph("See [`IKE-WORKSPACE.md`](https://github.com/"
+                + "IKE-Network/ike-tooling/blob/main/ike-build-standards/"
+                + "src/main/standards/IKE-WORKSPACE.md) for the"
+                + " versions-upgrade conventions.");
     }
 
     private static String coordSummary(List<ActionableEntry> entries) {

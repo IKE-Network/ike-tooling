@@ -11,6 +11,7 @@ import network.ike.plugin.scaffold.ScaffoldReverter;
 import network.ike.plugin.scaffold.ScaffoldScope;
 import network.ike.plugin.scaffold.TierHandlers;
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.plugin.MojoException;
@@ -223,21 +224,19 @@ public class ScaffoldRevertMojo extends AbstractGoalMojo {
                                        boolean hasProject,
                                        int projectDeleted,
                                        int projectSkipped) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Reverted a previous `ike:scaffold-publish`.\n\n");
-        sb.append("- standards version: `")
-          .append(manifest.standardsVersion()).append("`\n");
-        sb.append("- user scope: ").append(userDeleted)
-          .append(" deleted, ").append(userSkipped)
-          .append(" skipped\n");
+        GoalReportBuilder report = new GoalReportBuilder();
+        report.paragraph("Reverted a previous `ike:scaffold-publish`.");
+        report.bullet("standards version: `"
+                + manifest.standardsVersion() + "`");
+        report.bullet("user scope: " + userDeleted + " deleted, "
+                + userSkipped + " skipped");
         if (hasProject) {
-            sb.append("- project scope: ").append(projectDeleted)
-              .append(" deleted, ").append(projectSkipped)
-              .append(" skipped\n");
+            report.bullet("project scope: " + projectDeleted
+                    + " deleted, " + projectSkipped + " skipped");
         } else {
-            sb.append("- project scope: (none — fresh machine)\n");
+            report.bullet("project scope: (none — fresh machine)");
         }
-        return sb.toString();
+        return report.build();
     }
 
     /**
