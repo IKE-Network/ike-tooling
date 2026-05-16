@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReleaseCascadeIo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">ReleaseCascadeIo.java</span></div><h1>ReleaseCascadeIo.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+/**
+ * Reads the {@code release-cascade.yaml} manifest
+ * (IKE-Network/ike-issues#402).
+ *
+ * &lt;p&gt;The manifest is shipped by {@code ike-build-standards} as the
+ * {@code classifier=cascade} artifact; the release goals never write
+ * it, only read it. Parsing is lenient about unknown top-level keys
+ * (forward compatibility) but strict about the {@code cascade} list.
+ *
+ * &lt;p&gt;The manifest &lt;em&gt;location&lt;/em&gt; is not discovered — it is a
+ * declared Maven property ({@code ike.release.cascade.manifest},
+ * set in {@code ike-parent} and in {@code ike-tooling}'s own root
+ * POM). The release mojos resolve that property to a path and pass
+ * it to {@link #load(Path)}, which returns an empty {@link Optional}
+ * when the file is absent so a cascade-aware goal degrades gracefully
+ * into cascade-blind behaviour.
+ */
+public final class ReleaseCascadeIo {
+
+    /** Conventional manifest file name. */
+    public static final String MANIFEST_NAME = &quot;release-cascade.yaml&quot;;
+
+    /**
+     * Maven property naming the manifest location. Declared in
+     * {@code ike-parent}'s {@code &lt;properties&gt;} (and in
+     * {@code ike-tooling}'s root POM), so the path is visible in the
+     * effective POM rather than discovered by filesystem heuristics.
+     */
+    public static final String MANIFEST_PROPERTY =
+            &quot;ike.release.cascade.manifest&quot;;
+
+    private ReleaseCascadeIo() {}
+
+    /**
+     * Parses a manifest from a file path.
+     *
+     * @param path path to the YAML manifest
+     * @return the parsed cascade
+     * @throws UncheckedIOException if the file cannot be read
+     * @throws IllegalArgumentException if the manifest is malformed
+     */
+    public static ReleaseCascade read(Path path) {
+<span class="fc" id="L61">        try (Reader reader = Files.newBufferedReader(</span>
+                path, StandardCharsets.UTF_8)) {
+<span class="fc" id="L63">            return read(reader);</span>
+<span class="nc" id="L64">        } catch (IOException e) {</span>
+<span class="nc" id="L65">            throw new UncheckedIOException(</span>
+                    &quot;Cannot read release-cascade manifest: &quot; + path, e);
+        }
+    }
+
+    /**
+     * Parses a manifest from an open reader.
+     *
+     * @param reader the YAML source
+     * @return the parsed cascade
+     * @throws IllegalArgumentException if the manifest is malformed
+     */
+    public static ReleaseCascade read(Reader reader) {
+<span class="fc" id="L78">        Object root = new Yaml().load(reader);</span>
+<span class="pc bpc" id="L79" title="1 of 2 branches missed.">        if (!(root instanceof Map&lt;?, ?&gt; map)) {</span>
+<span class="nc" id="L80">            throw new IllegalArgumentException(</span>
+                    &quot;release-cascade.yaml must be a YAML mapping&quot;);
+        }
+<span class="fc" id="L83">        String standardsVersion = stringOrNull(map.get(&quot;standards-version&quot;));</span>
+<span class="fc" id="L84">        Object rawCascade = map.get(&quot;cascade&quot;);</span>
+<span class="fc bfc" id="L85" title="All 2 branches covered.">        if (!(rawCascade instanceof List&lt;?&gt; entries)) {</span>
+<span class="fc" id="L86">            throw new IllegalArgumentException(</span>
+                    &quot;release-cascade.yaml must have a 'cascade' list&quot;);
+        }
+<span class="fc" id="L89">        List&lt;CascadeRepo&gt; repos = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">        for (Object entry : entries) {</span>
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">            if (!(entry instanceof Map&lt;?, ?&gt; e)) {</span>
+<span class="nc" id="L92">                throw new IllegalArgumentException(</span>
+                        &quot;each 'cascade' entry must be a mapping&quot;);
+            }
+<span class="fc" id="L95">            String groupId = stringOrNull(e.get(&quot;groupId&quot;));</span>
+<span class="fc" id="L96">            String artifactId = stringOrNull(e.get(&quot;artifactId&quot;));</span>
+<span class="pc bpc" id="L97" title="1 of 4 branches missed.">            if (groupId == null || groupId.isBlank()) {</span>
+<span class="fc" id="L98">                throw new IllegalArgumentException(</span>
+                        &quot;each 'cascade' entry must have a 'groupId'&quot;);
+            }
+<span class="pc bpc" id="L101" title="1 of 4 branches missed.">            if (artifactId == null || artifactId.isBlank()) {</span>
+<span class="fc" id="L102">                throw new IllegalArgumentException(</span>
+                        &quot;each 'cascade' entry must have an 'artifactId'&quot;);
+            }
+<span class="fc" id="L105">            String repo = stringOrNull(e.get(&quot;repo&quot;));</span>
+<span class="fc" id="L106">            String url = stringOrNull(e.get(&quot;url&quot;));</span>
+<span class="fc" id="L107">            List&lt;String&gt; consumes = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L108" title="All 2 branches covered.">            if (e.get(&quot;consumes&quot;) instanceof List&lt;?&gt; raw) {</span>
+<span class="fc bfc" id="L109" title="All 2 branches covered.">                for (Object c : raw) {</span>
+<span class="fc" id="L110">                    consumes.add(String.valueOf(c));</span>
+<span class="fc" id="L111">                }</span>
+            }
+<span class="fc" id="L113">            repos.add(new CascadeRepo(</span>
+                    groupId, artifactId, repo, url, consumes));
+<span class="fc" id="L115">        }</span>
+<span class="fc" id="L116">        return new ReleaseCascade(standardsVersion, repos);</span>
+    }
+
+    /**
+     * Reads the cascade manifest from inside the
+     * {@code ike-build-standards} {@code cascade} classified artifact
+     * (a ZIP containing {@code release-cascade.yaml} at its root).
+     *
+     * &lt;p&gt;This is the resolution path for foundation repos that cannot
+     * see the manifest on disk — {@code ike-docs} and {@code ike-platform}
+     * are upstream of {@code ike-parent} and so neither inherit the
+     * unpack execution nor carry the manifest in-tree
+     * (IKE-Network/ike-issues#404). The caller resolves the artifact
+     * (via the Maven session) and passes its ZIP path here.
+     *
+     * @param zipPath path to the {@code cascade} classified ZIP
+     * @return the parsed cascade
+     * @throws UncheckedIOException if the ZIP cannot be read
+     * @throws IllegalArgumentException if the ZIP has no
+     *         {@code release-cascade.yaml} entry or it is malformed
+     */
+    public static ReleaseCascade readFromZip(Path zipPath) {
+<span class="fc" id="L138">        try (ZipFile zip = new ZipFile(zipPath.toFile())) {</span>
+<span class="fc" id="L139">            ZipEntry entry = zip.getEntry(MANIFEST_NAME);</span>
+<span class="fc bfc" id="L140" title="All 2 branches covered.">            if (entry == null) {</span>
+<span class="fc" id="L141">                throw new IllegalArgumentException(</span>
+                        &quot;no &quot; + MANIFEST_NAME + &quot; entry in &quot; + zipPath);
+            }
+<span class="fc" id="L144">            try (Reader reader = new InputStreamReader(</span>
+<span class="fc" id="L145">                    zip.getInputStream(entry), StandardCharsets.UTF_8)) {</span>
+<span class="fc" id="L146">                return read(reader);</span>
+            }
+<span class="nc" id="L148">        } catch (IOException e) {</span>
+<span class="nc" id="L149">            throw new UncheckedIOException(</span>
+                    &quot;Cannot read cascade manifest from &quot; + zipPath, e);
+        }
+    }
+
+    /**
+     * Loads the cascade manifest from a declared path, degrading
+     * gracefully when no manifest is present.
+     *
+     * @param manifestPath the manifest path resolved from the
+     *                     {@link #MANIFEST_PROPERTY} property; may be
+     *                     {@code null}
+     * @return the parsed cascade, or empty if {@code manifestPath} is
+     *         {@code null} or does not point at a regular file
+     * @throws IllegalArgumentException if the manifest exists but is
+     *                                  malformed
+     */
+    public static Optional&lt;ReleaseCascade&gt; load(Path manifestPath) {
+<span class="fc bfc" id="L167" title="All 4 branches covered.">        if (manifestPath == null || !Files.isRegularFile(manifestPath)) {</span>
+<span class="fc" id="L168">            return Optional.empty();</span>
+        }
+<span class="fc" id="L170">        return Optional.of(read(manifestPath));</span>
+    }
+
+    private static String stringOrNull(Object value) {
+<span class="fc bfc" id="L174" title="All 2 branches covered.">        return value == null ? null : String.valueOf(value);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

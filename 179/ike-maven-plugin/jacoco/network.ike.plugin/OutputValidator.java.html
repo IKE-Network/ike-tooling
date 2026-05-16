@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OutputValidator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">OutputValidator.java</span></div><h1>OutputValidator.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import java.io.IOException;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Scans generated AsciiDoc output for common conversion problems.
+ *
+ * &lt;p&gt;Detects unresolved attributes, missing includes, broken cross-references,
+ * and missing images. Results are returned as a list of {@link Issue} records
+ * for the caller to log or fail the build.
+ */
+public class OutputValidator {
+
+    /** Creates a new output validator. */
+<span class="nc" id="L21">    public OutputValidator() {}</span>
+
+    /** Unresolved attribute reference: {some-attribute} in output text. */
+<span class="nc" id="L24">    private static final Pattern UNRESOLVED_ATTR =</span>
+<span class="nc" id="L25">            Pattern.compile(&quot;\\{[a-zA-Z][a-zA-Z0-9_-]*\\}&quot;);</span>
+
+    /** AsciidoctorJ's marker for a missing include directive. */
+    private static final String UNRESOLVED_INCLUDE = &quot;Unresolved directive in&quot;;
+
+    /** Broken cross-reference marker. */
+    private static final String BROKEN_XREF = &quot;[broken]&quot;;
+
+    /** HTML image tag — group 1 captures the src path. */
+<span class="nc" id="L34">    private static final Pattern IMG_SRC =</span>
+<span class="nc" id="L35">            Pattern.compile(&quot;&lt;img[^&gt;]+src=\&quot;([^\&quot;]+)\&quot;&quot;, Pattern.CASE_INSENSITIVE);</span>
+
+    /** Severity levels for validation issues. */
+<span class="nc" id="L38">    public enum Severity {</span>
+        /** Non-fatal issue (e.g., missing image). */
+<span class="nc" id="L40">        WARNING,</span>
+        /** Fatal issue when strict mode is enabled (e.g., unresolved attribute). */
+<span class="nc" id="L42">        ERROR</span>
+    }
+
+    /**
+     * A single validation issue found in a generated file.
+     *
+     * @param file     the file containing the issue
+     * @param line     the 1-based line number
+     * @param severity WARNING or ERROR
+     * @param message  human-readable description
+     */
+<span class="nc" id="L53">    public record Issue(Path file, int line, Severity severity, String message) {</span>
+
+        @Override
+        public String toString() {
+<span class="nc" id="L57">            return &quot;[%s] %s:%d — %s&quot;.formatted(severity, file.getFileName(), line, message);</span>
+        }
+    }
+
+    /**
+     * Validate all files in the given output directory.
+     *
+     * @param outputDir the directory to scan
+     * @param backend   the backend that produced the output
+     * @return list of issues found (empty if clean)
+     * @throws IOException if directory traversal fails
+     */
+    public List&lt;Issue&gt; validate(Path outputDir, Backend backend) throws IOException {
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        if (!Files.isDirectory(outputDir)) {</span>
+<span class="nc" id="L71">            return List.of();</span>
+        }
+
+<span class="nc" id="L74">        List&lt;Issue&gt; issues = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L75" title="All 3 branches missed.">        String extension = switch (backend) {</span>
+<span class="nc" id="L76">            case HTML -&gt; &quot;*.html&quot;;</span>
+<span class="nc" id="L77">            case DOCBOOK -&gt; &quot;*.xml&quot;;</span>
+<span class="nc" id="L78">            case PDF -&gt; null; // binary — skip</span>
+        };
+
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (extension == null) {</span>
+<span class="nc" id="L82">            return issues;</span>
+        }
+
+<span class="nc" id="L85">        PathMatcher matcher = outputDir.getFileSystem().getPathMatcher(&quot;glob:&quot; + extension);</span>
+
+<span class="nc" id="L87">        Files.walkFileTree(outputDir, new SimpleFileVisitor&lt;&gt;() {</span>
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+<span class="nc bnc" id="L90" title="All 2 branches missed.">                if (matcher.matches(file.getFileName())) {</span>
+<span class="nc" id="L91">                    validateFile(file, backend, issues);</span>
+                }
+<span class="nc" id="L93">                return FileVisitResult.CONTINUE;</span>
+            }
+        });
+
+<span class="nc" id="L97">        return issues;</span>
+    }
+
+    private void validateFile(Path file, Backend backend, List&lt;Issue&gt; issues) throws IOException {
+<span class="nc" id="L101">        List&lt;String&gt; lines = Files.readAllLines(file);</span>
+
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        for (int i = 0; i &lt; lines.size(); i++) {</span>
+<span class="nc" id="L104">            String line = lines.get(i);</span>
+<span class="nc" id="L105">            int lineNum = i + 1;</span>
+
+            // Unresolved include directives
+<span class="nc bnc" id="L108" title="All 2 branches missed.">            if (line.contains(UNRESOLVED_INCLUDE)) {</span>
+<span class="nc" id="L109">                issues.add(new Issue(file, lineNum, Severity.ERROR,</span>
+                        &quot;Unresolved include directive&quot;));
+            }
+
+            // Broken cross-references
+<span class="nc bnc" id="L114" title="All 2 branches missed.">            if (line.contains(BROKEN_XREF)) {</span>
+<span class="nc" id="L115">                issues.add(new Issue(file, lineNum, Severity.ERROR,</span>
+                        &quot;Broken cross-reference&quot;));
+            }
+
+            // Unresolved attribute references
+<span class="nc" id="L120">            Matcher attrMatcher = UNRESOLVED_ATTR.matcher(line);</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">            while (attrMatcher.find()) {</span>
+<span class="nc" id="L122">                String attr = attrMatcher.group();</span>
+                // Skip common false positives (CSS, JS, URLs)
+<span class="nc bnc" id="L124" title="All 2 branches missed.">                if (!isFalsePositive(attr, line)) {</span>
+<span class="nc" id="L125">                    issues.add(new Issue(file, lineNum, Severity.ERROR,</span>
+                            &quot;Unresolved attribute: &quot; + attr));
+                }
+<span class="nc" id="L128">            }</span>
+
+            // Missing images (HTML only)
+<span class="nc bnc" id="L131" title="All 2 branches missed.">            if (backend == Backend.HTML) {</span>
+<span class="nc" id="L132">                Matcher imgMatcher = IMG_SRC.matcher(line);</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">                while (imgMatcher.find()) {</span>
+<span class="nc" id="L134">                    String src = imgMatcher.group(1);</span>
+<span class="nc bnc" id="L135" title="All 4 branches missed.">                    if (!src.startsWith(&quot;data:&quot;) &amp;&amp; !src.startsWith(&quot;http&quot;)) {</span>
+<span class="nc" id="L136">                        Path imgPath = file.getParent().resolve(src);</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">                        if (!Files.exists(imgPath)) {</span>
+<span class="nc" id="L138">                            issues.add(new Issue(file, lineNum, Severity.WARNING,</span>
+                                    &quot;Missing image: &quot; + src));
+                        }
+                    }
+<span class="nc" id="L142">                }</span>
+            }
+        }
+<span class="nc" id="L145">    }</span>
+
+    /**
+     * Filter out common false positives for unresolved attributes.
+     * Code blocks, CSS, JavaScript, and URL templates all use curly
+     * braces legitimately.
+     */
+    private boolean isFalsePositive(String attr, String line) {
+        // Inside &lt;code&gt;, &lt;pre&gt;, or &lt;listing&gt; elements
+<span class="nc bnc" id="L154" title="All 4 branches missed.">        if (line.contains(&quot;&lt;code&quot;) || line.contains(&quot;&lt;/code&gt;&quot;)</span>
+<span class="nc bnc" id="L155" title="All 4 branches missed.">                || line.contains(&quot;&lt;pre&quot;) || line.contains(&quot;&lt;/pre&gt;&quot;)</span>
+<span class="nc bnc" id="L156" title="All 4 branches missed.">                || line.contains(&quot;CodeRay&quot;) || line.contains(&quot;highlight&quot;)) return true;</span>
+        // AsciiDoc source examples (include:: directives shown as text)
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        if (line.contains(&quot;include::&quot;)) return true;</span>
+        // CSS: var(--foo) or content: &quot;{bar}&quot;
+<span class="nc bnc" id="L160" title="All 4 branches missed.">        if (line.contains(&quot;var(--&quot;) || line.contains(&quot;content:&quot;)) return true;</span>
+        // JavaScript object literals
+<span class="nc bnc" id="L162" title="All 4 branches missed.">        if (line.trim().startsWith(&quot;//&quot;) || line.trim().startsWith(&quot;*&quot;)) return true;</span>
+        // Inside &lt;script&gt; or &lt;style&gt; blocks (heuristic)
+<span class="nc bnc" id="L164" title="All 4 branches missed.">        if (line.contains(&quot;&lt;script&quot;) || line.contains(&quot;&lt;style&quot;)) return true;</span>
+        // URL templates
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (line.contains(&quot;://&quot;)) return true;</span>
+        // Revision/metadata lines in AsciiDoc source listings
+<span class="nc bnc" id="L168" title="All 4 branches missed.">        if (line.contains(&quot;:revnumber:&quot;) || line.contains(&quot;:revdate:&quot;)</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">                || line.contains(&quot;:docdate&quot;)) return true;</span>
+        // Known AsciiDoc/HTML entities that look like attributes
+<span class="nc" id="L171">        String inner = attr.substring(1, attr.length() - 1);</span>
+<span class="nc bnc" id="L172" title="All 4 branches missed.">        if (inner.contains(&quot;.&quot;) || inner.contains(&quot;/&quot;)) return true;</span>
+        // Java/shell identifiers commonly seen in code samples
+<span class="nc bnc" id="L174" title="All 6 branches missed.">        if (inner.equals(&quot;static&quot;) || inner.equals(&quot;return&quot;) || inner.equals(&quot;this&quot;)</span>
+<span class="nc bnc" id="L175" title="All 6 branches missed.">                || inner.equals(&quot;super&quot;) || inner.equals(&quot;new&quot;) || inner.equals(&quot;class&quot;)</span>
+<span class="nc bnc" id="L176" title="All 6 branches missed.">                || inner.equals(&quot;void&quot;) || inner.equals(&quot;null&quot;) || inner.equals(&quot;true&quot;)</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">                || inner.equals(&quot;false&quot;)) return true;</span>
+        // All-uppercase identifiers are likely shell variables or symbolic constants
+<span class="nc bnc" id="L179" title="All 4 branches missed.">        if (inner.equals(inner.toUpperCase()) &amp;&amp; inner.matches(&quot;[A-Z_]+&quot;)) return true;</span>
+        // Greek/Unicode symbol names used in scientific text
+<span class="nc bnc" id="L181" title="All 6 branches missed.">        if (inner.equals(&quot;micro&quot;) || inner.equals(&quot;mu&quot;) || inner.equals(&quot;alpha&quot;)</span>
+<span class="nc bnc" id="L182" title="All 6 branches missed.">                || inner.equals(&quot;beta&quot;) || inner.equals(&quot;gamma&quot;) || inner.equals(&quot;delta&quot;)</span>
+<span class="nc bnc" id="L183" title="All 6 branches missed.">                || inner.equals(&quot;XOR&quot;) || inner.equals(&quot;AND&quot;) || inner.equals(&quot;OR&quot;)) return true;</span>
+<span class="nc" id="L184">        return false;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
