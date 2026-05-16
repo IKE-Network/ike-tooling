@@ -56,8 +56,10 @@ public abstract class AbstractGoalMojo implements Mojo {
      */
     protected IkePrompter getPrompter() {
         if (prompter == null) {
-            boolean interactive = session == null
-                    || session.getSettings().isInteractiveMode();
+            // No session (unit tests) or batch mode -> not interactive,
+            // so the prompter declines rather than blocking on stdin.
+            boolean interactive = session != null
+                    && session.getSettings().isInteractiveMode();
             prompter = new ConsoleIkePrompter(getLog(), interactive);
         }
         return prompter;
