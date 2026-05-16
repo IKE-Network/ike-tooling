@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportSpec;
 import network.ike.plugin.support.upgrade.VersionUpgradeApplyException;
 import network.ike.plugin.support.upgrade.VersionUpgradePlanApplier;
 import network.ike.plugin.support.upgrade.VersionUpgradePlanBuilder;
@@ -91,7 +92,7 @@ public class VersionsUpgradePublishMojo extends AbstractGoalMojo {
     public VersionsUpgradePublishMojo() {}
 
     @Override
-    public void execute() throws MojoException {
+    protected GoalReportSpec runGoal() throws MojoException {
         Path projectRoot = project.getBasedir();
         Path pomPath = project.getPomPath();
         Path planPath = Path.of(planFile);
@@ -100,7 +101,10 @@ public class VersionsUpgradePublishMojo extends AbstractGoalMojo {
         if (!Files.isRegularFile(planPath)) {
             getLog().info("no plan for " + nodeName
                     + " (" + planPath + ") — nothing to publish.");
-            return;
+            return new GoalReportSpec(IkeGoal.VERSIONS_UPGRADE_PUBLISH,
+                    projectRoot,
+                    "No upgrade plan found for `" + nodeName + "` ("
+                            + planPath + ") — nothing to publish.\n");
         }
 
         VersionUpgradePlan plan = readPlan(planPath);
@@ -134,7 +138,8 @@ public class VersionsUpgradePublishMojo extends AbstractGoalMojo {
 
         logSummary(node, edits, planPath);
 
-        writeReport(IkeGoal.VERSIONS_UPGRADE_PUBLISH, projectRoot,
+        return new GoalReportSpec(IkeGoal.VERSIONS_UPGRADE_PUBLISH,
+                projectRoot,
                 buildReport(plan, node, edits, planPath));
     }
 

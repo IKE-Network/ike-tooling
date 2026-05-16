@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportSpec;
 import network.ike.plugin.support.upgrade.SessionCandidateVersionResolver;
 import network.ike.plugin.support.upgrade.VersionUpgradePlanBuilder;
 import network.ike.workspace.LiteralVersionUpgrade;
@@ -109,7 +110,7 @@ public class VersionsUpgradeDraftMojo extends AbstractGoalMojo {
     public VersionsUpgradeDraftMojo() {}
 
     @Override
-    public void execute() throws MojoException {
+    protected GoalReportSpec runGoal() throws MojoException {
         Path projectRoot = project.getBasedir();
         Path pomPath = project.getPomPath();
         Path rulesPath = Path.of(rulesFile);
@@ -127,7 +128,8 @@ public class VersionsUpgradeDraftMojo extends AbstractGoalMojo {
 
         logSummary(plan, rulesPath, planPath);
 
-        writeReport(IkeGoal.VERSIONS_UPGRADE_DRAFT, projectRoot,
+        return new GoalReportSpec(IkeGoal.VERSIONS_UPGRADE_DRAFT,
+                projectRoot,
                 buildReport(plan, rulesPath, planPath, rules));
     }
 

@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportSpec;
 import network.ike.workspace.cascade.ReleaseCascade;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.di.Inject;
@@ -66,7 +67,7 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
     public IkeCascadeExportMojo() {}
 
     @Override
-    public void execute() throws MojoException {
+    protected GoalReportSpec runGoal() throws MojoException {
         File startDir = baseDir != null ? baseDir : new File(".");
         File gitRoot = ReleaseSupport.gitRoot(startDir);
 
@@ -88,6 +89,7 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
         String rendered = exportFormat.render(cascade);
         String formatLabel = exportFormat.name().toLowerCase();
 
+        String location;
         if (outputFile != null && !outputFile.isBlank()) {
             Path out = Path.of(outputFile);
             try {
@@ -100,9 +102,19 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
                         "Could not write " + out + ": " + e.getMessage(), e);
             }
             getLog().info("Cascade exported (" + formatLabel + ") to " + out);
+            location = "written to `" + out + "`";
         } else {
             getLog().info("Cascade export (" + formatLabel + "):");
             rendered.lines().forEach(getLog()::info);
+            location = "printed to the build log";
         }
+
+        String report = "## Cascade export\n\n"
+                + "Exported `release-cascade.yaml` as **" + formatLabel
+                + "**, " + location + ".\n\n"
+                + "```" + formatLabel + "\n" + rendered
+                + (rendered.endsWith("\n") ? "" : "\n") + "```\n";
+        return new GoalReportSpec(IkeGoal.CASCADE_EXPORT,
+                startDir.toPath(), report);
     }
 }

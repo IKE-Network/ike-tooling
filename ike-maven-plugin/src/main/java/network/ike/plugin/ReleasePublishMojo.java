@@ -1,5 +1,6 @@
 package network.ike.plugin;
 
+import network.ike.plugin.support.GoalReportSpec;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 
@@ -21,8 +22,8 @@ public class ReleasePublishMojo extends ReleaseDraftMojo {
     public ReleasePublishMojo() {}
 
     @Override
-    public void execute() throws MojoException {
+    protected GoalReportSpec runGoal() throws MojoException {
         publish = true;
-        super.execute();
+        return super.runGoal();
     }
 }

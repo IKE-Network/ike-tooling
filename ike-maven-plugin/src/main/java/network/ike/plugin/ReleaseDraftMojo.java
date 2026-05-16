@@ -1,6 +1,7 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportSpec;
 import network.ike.workspace.cascade.CascadeRepo;
 import network.ike.workspace.cascade.CascadeReporter;
 import network.ike.workspace.cascade.ReleaseCascade;
@@ -159,7 +160,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     public ReleaseDraftMojo() {}
 
     @Override
-    public void execute() throws MojoException {
+    protected GoalReportSpec runGoal() throws MojoException {
         File startDir = baseDir != null ? baseDir : new File(".");
         File gitRoot = ReleaseSupport.gitRoot(startDir);
         File rootPom = new File(gitRoot, "pom.xml");
@@ -303,10 +304,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             getLog().info("[DRAFT] Would push tag and main to origin");
             getLog().info("[DRAFT] Would create GitHub Release");
             reportCascade(gitRoot, true);
-            writeReport(IkeGoal.RELEASE_DRAFT, startDir.toPath(),
+            return new GoalReportSpec(IkeGoal.RELEASE_DRAFT,
+                    startDir.toPath(),
                     buildReleaseReport(true, oldVersion, releaseBranch,
                             projectId, releaseTimestamp));
-            return;
         }
 
         // ── Release ───────────────────────────────────────────────────
@@ -742,7 +743,8 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
 
         reportCascade(gitRoot, false);
 
-        writeReport(IkeGoal.RELEASE_PUBLISH, startDir.toPath(),
+        return new GoalReportSpec(IkeGoal.RELEASE_PUBLISH,
+                startDir.toPath(),
                 buildReleaseReport(false, oldVersion, releaseBranch,
                         projectId, releaseTimestamp));
     }
