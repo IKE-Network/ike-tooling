@@ -47,7 +47,17 @@ public final class FoundationBaker {
     public static final Coordinate IKE_DOCS = new Coordinate(
             "ike-docs", "network.ike.docs", "ike-docs");
 
-    /** {@code ike-platform} — the {@code ike-platform.version} pin. */
+    /**
+     * {@code ike-platform} — the {@code ike-platform.version} pin.
+     *
+     * <p>{@code ike-parent}, {@code ike-bom}, {@code ike-workspace-maven-plugin}
+     * and the {@code network.ike.platform:ike-platform} reactor root all
+     * share one unified version, so this pin and {@link #IKE_PARENT}
+     * always resolve to the same release. {@link #assess} queries
+     * {@code ike-parent} once and answers both — the {@code groupId} /
+     * {@code artifactId} here document what the pin tracks but are not
+     * resolved independently.
+     */
     public static final Coordinate IKE_PLATFORM = new Coordinate(
             "ike-platform", "network.ike.platform", "ike-platform");
 
@@ -83,6 +93,12 @@ public final class FoundationBaker {
      * Assess every baked foundation pin against the latest GA versions
      * the resolver can see.
      *
+     * <p>Two coordinates are resolved, not three: {@code ike-parent} and
+     * {@code ike-docs}. The {@code ike-platform.version} pin shares the
+     * unified ike-platform reactor version with {@code ike-parent}, so
+     * its {@link Finding} is derived from the same resolution rather
+     * than queried separately.
+     *
      * @param foundation the manifest's current {@code foundation:} block
      * @param resolver   resolves released versions for a coordinate
      * @return one {@link Finding} per pin, in
@@ -90,26 +106,38 @@ public final class FoundationBaker {
      */
     public static List<Finding> assess(ScaffoldManifest.Foundation foundation,
                                         CandidateVersionResolver resolver) {
+        String platformLatest = resolveLatest(IKE_PARENT, resolver);
+        String docsLatest = resolveLatest(IKE_DOCS, resolver);
         List<Finding> findings = new ArrayList<>(3);
-        findings.add(assessOne(IKE_PARENT,
-                foundation.parent().version(), resolver));
-        findings.add(assessOne(IKE_DOCS,
-                foundation.properties().get("ike-docs.version"), resolver));
-        findings.add(assessOne(IKE_PLATFORM,
+        findings.add(classify(IKE_PARENT,
+                foundation.parent().version(), platformLatest));
+        findings.add(classify(IKE_DOCS,
+                foundation.properties().get("ike-docs.version"), docsLatest));
+        findings.add(classify(IKE_PLATFORM,
                 foundation.properties().get("ike-platform.version"),
-                resolver));
+                platformLatest));
         return findings;
     }
 
-    private static Finding assessOne(Coordinate coord, String current,
-                                     CandidateVersionResolver resolver) {
+    /**
+     * Resolve the highest released (GA) version of a coordinate, or
+     * {@code null} when nothing can be resolved.
+     */
+    private static String resolveLatest(Coordinate coord,
+                                        CandidateVersionResolver resolver) {
+        // resolveCandidates returns ascending GA-only versions.
         List<String> candidates = resolver.resolveCandidates(
-                coord.groupId(), coord.artifactId(), current);
-        if (candidates.isEmpty()) {
+                coord.groupId(), coord.artifactId(), null);
+        return candidates.isEmpty() ? null
+                : candidates.get(candidates.size() - 1);
+    }
+
+    /** Classify a pin's current value against the resolved latest GA. */
+    private static Finding classify(Coordinate coord, String current,
+                                    String latest) {
+        if (latest == null) {
             return new Finding(coord, current, null, Status.UNRESOLVED);
         }
-        // resolveCandidates returns ascending GA-only versions.
-        String latest = candidates.get(candidates.size() - 1);
         int cmp = current == null ? 1
                 : MavenVersionComparator.INSTANCE.compare(latest, current);
         Status status = cmp > 0 ? Status.AHEAD
