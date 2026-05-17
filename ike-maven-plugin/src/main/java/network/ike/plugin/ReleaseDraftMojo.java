@@ -137,6 +137,20 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     @Parameter(property = "issueRepo", defaultValue = "IKE-Network/ike-issues")
     String issueRepo;
 
+    /**
+     * Proceed past preflight <em>warnings</em> (IKE-Network/ike-issues#428).
+     *
+     * <p>By default {@code ike:release-publish} fails when the
+     * preflight reports any warning — a missing release milestone,
+     * commits with no issue trailer, a git-push auth hiccup. Set this
+     * to {@code true} to release anyway. Preflight <em>errors</em>
+     * (a {@code -SNAPSHOT} surviving in a POM, a missing Maven
+     * wrapper, an unclean working tree) are never ignorable and abort
+     * the release regardless of this flag.
+     */
+    @Parameter(property = "ike.release.ignoreWarnings", defaultValue = "false")
+    boolean ignoreWarnings;
+
     /** Override working directory for tests. If null, uses current directory. */
     File baseDir;
 
@@ -1327,17 +1341,26 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
             getLog().info("");
 
-            // Batch mode is non-interactive — log the warnings
-            // and continue. Interactive mode asks the user to
-            // confirm, routed through IkePrompter (ike-issues#385).
-            if (!getPrompter().isInteractive()) {
-                getLog().warn("  Batch mode: proceeding with "
-                        + warnings.size() + " warning(s).");
-            } else if (!getPrompter().confirm(
-                    "  Continue with " + warnings.size() + " warning(s)?",
-                    false)) {
+            // Preflight warnings fail a publish by default (#428).
+            // -Dike.release.ignoreWarnings=true releases past them;
+            // preflight errors (handled above as immediate failures)
+            // are never ignorable. A draft only previews, so it
+            // reports the warnings and continues.
+            if (!publish) {
+                getLog().warn("  (Draft mode — publish would fail on"
+                        + " these " + warnings.size() + " warning(s);"
+                        + " pass -Dike.release.ignoreWarnings=true to"
+                        + " release past them.)");
+            } else if (ignoreWarnings) {
+                getLog().warn("  Proceeding past " + warnings.size()
+                        + " warning(s) (ike.release.ignoreWarnings=true).");
+            } else {
                 throw new MojoException(
-                        "Release aborted. Resolve warnings and retry.");
+                        "Release preflight found " + warnings.size()
+                        + " warning(s) — see above. Resolve them, or"
+                        + " pass -Dike.release.ignoreWarnings=true to"
+                        + " release anyway. Preflight errors are never"
+                        + " ignorable.");
             }
         }
         getLog().info("");
