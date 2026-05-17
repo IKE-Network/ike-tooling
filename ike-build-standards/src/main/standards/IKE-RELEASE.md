@@ -165,75 +165,62 @@ it through property indirection (`${ike-tooling.version}`,
 
     ike-tooling  →  ike-docs  →  ike-platform  →  workspace consumers
 
-This order is **declarative**, not folklore. It lives in
-`release-cascade.yaml` — the single source of truth, authored in
-`ike-build-standards/src/main/cascade/` and shipped as the
-`ike-build-standards` `cascade` classified artifact. `ike-parent`
-unpacks it at the `validate` phase to `target/release-cascade.yaml`.
-To change the cascade, edit that one file. Cascade members are
-keyed off their reactor-root Maven coordinates (`groupId` +
-`artifactId`) — the same identity a releasing project reports from
-its own POM.
+This order is **declarative and decentralized**, not folklore. The
+cascade is a loosely-coupled distributed system: every foundation
+repo version-controls its own `src/main/cascade/release-cascade.yaml`
+in its own git tree, declaring *only its own* `upstream` and
+`downstream` edges. No project authors the global ordering — the
+full graph is assembled by traversing those per-project files
+(IKE-Network/ike-issues#420). To change the cascade, edit the
+relevant repo's own manifest.
 
-The manifest *location* is itself declared in the POM, not
-discovered by filesystem heuristics: the standard property
-`ike.release.cascade.manifest` (set in `ike-parent`'s
-`<properties>`, and in `ike-tooling`'s own root POM) names the
-path. Override it in any project's `<properties>` or with `-D`.
+Each upstream edge names the `${X.version}` property the consuming
+repo carries; the cascade `head` (no upstream) and `terminal` (no
+downstream) endpoints are asserted positively, so a forgotten edge
+is a manifest error rather than a silent omission.
 
-When no on-disk manifest is found — the case for `ike-docs` and
-`ike-platform`, which sit upstream of `ike-parent` and so inherit
-neither the unpack execution nor the property — the release goals
-resolve the `ike-build-standards` `cascade` artifact through the
-Maven session and read `release-cascade.yaml` from inside it. This
-runtime resolution is the universal fallback: every foundation repo
-already consumes `ike-build-standards`, so the cascade is always
-reachable regardless of checkout layout.
-
-The release goals read the manifest so the cascade cannot be
+The release goals read the local manifest so the cascade cannot be
 silently forgotten:
 
-- **`ike:release-draft`** — when the project is a cascade member,
+- **`ike:release-draft`** — when the repo has a `release-cascade.yaml`,
   the draft preview enumerates the downstream repos this release
   will make stale.
-- **`ike:release-publish`** — after a single-repo release completes,
-  a cascade footer names the next repo and the exact command to
-  continue (`cd ../<next> && mvn ike:release-publish`, or
-  `mvn ws:cascade-foundation-publish` for the whole loop).
-- **`ws:cascade-foundation-publish`** — walks the manifest order,
-  releasing every foundation repo that has unreleased changes, then
-  the workspace itself. `-Dfoundations=<csv>` overrides the order
-  for a partial run.
+- **`ike:release-publish`** — before cutting a release, aligns every
+  `${X.version}` upstream pin to the latest released upstream, so a
+  single-repo release never ships on a stale foundation. After the
+  release, a cascade footer names the next repo and the exact
+  command to continue (`cd ../<next> && mvn ike:release-publish`, or
+  `mvn ike:release-cascade` for the whole loop).
+- **`ike:release-cascade`** — assembles the graph from the
+  per-project manifests and walks it in topological order, running
+  `ike:release-publish` on every foundation repo that has unreleased
+  changes.
 
-A repo that is not a cascade member (an ordinary consumer) sees no
-cascade output — the manifest only orders the foundation.
+A repo with no `release-cascade.yaml` (an ordinary consumer) sees no
+cascade output — the cascade only orders the foundation.
 
 ### Topology vs. execution
 
-The manifest declares *topology* — which repos, in what order — and
-is environment-neutral. *Execution* is environment-specific:
+The per-project manifests declare *topology* — which repos, in what
+order — and are environment-neutral. *Execution* is
+environment-specific:
 
 - **Local workstation** — foundation repos are checked out as
-  siblings under one directory; `ws:cascade-foundation-publish`
-  walks them in a single process. Checkout locations are
-  property-driven: `ike.release.cascade.basedir` sets the base
-  directory, and the `cascadeRepoDirs` map parameter overrides
-  individual repos for non-standard layouts.
+  siblings under one directory; `ike:release-cascade` walks them in
+  a single process. The containing directory is `ike.release.cascade.basedir`
+  (default: the parent of the repo the goal runs in).
 - **CI server** — each foundation repo is its own build
-  configuration with its own checkout; `ws:cascade-foundation-publish`
-  is not used. The topology is mirrored as CI build-chain
-  dependencies, and each build runs the location-independent
-  `ike:release-publish`, whose cascade footer is the signal the
-  next stage triggers on. Artifact handoff is via Nexus, not the
-  filesystem. The build-chain edges are not hand-wired: a CI
-  meta-runner generates them from the manifest via
-  `ike:cascade-export` (`-Dformat=json` or `properties`), so the CI
-  graph derives from `release-cascade.yaml` rather than drifting
-  from it.
+  configuration with its own checkout. The topology is mirrored as
+  CI build-chain dependencies, and each build runs the
+  location-independent `ike:release-publish`, whose cascade footer
+  is the signal the next stage triggers on. Artifact handoff is via
+  Nexus, not the filesystem. The build-chain edges are not
+  hand-wired: a CI meta-runner generates them from the assembled
+  graph via `ike:cascade-export` (`-Dformat=json` or `properties`),
+  so the CI graph derives from the manifests rather than drifting
+  from them.
 
-`release-cascade.yaml` is the single specification both models —
-and the CI build-chain wiring — derive from. See
-IKE-Network/ike-issues#402.
+See IKE-Network/ike-issues#402 and #420.
 
 ## Issue Tracking Discipline
 

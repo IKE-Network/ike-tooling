@@ -43,9 +43,11 @@ when `ike-doc-maven-plugin` adopted a classifier-canonical doc
 shape (`<classifier>adoc</classifier><type>zip</type>`). The
 ordering is unchanged; the literal-version pinning is gone.
 
-The cascade is orchestrated by
-`ike-workspace-maven-plugin:cascade-foundation-publish` (in
-`ike-platform`); see [`cutting-a-release.adoc`](https://ike.network/ike-platform/cutting-a-release.html).
+The cascade is orchestrated by `ike-maven-plugin:release-cascade`,
+which assembles the order from each foundation repo's own
+`src/main/cascade/release-cascade.yaml`
+([`IKE-Network/ike-issues#420`](https://github.com/IKE-Network/ike-issues/issues/420));
+see [`cutting-a-release.adoc`](https://ike.network/ike-platform/cutting-a-release.html).
 
 ## Doc as Code + LLM-Friendly
 
