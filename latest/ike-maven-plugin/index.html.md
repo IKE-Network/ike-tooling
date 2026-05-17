@@ -163,6 +163,12 @@ mvn ike:release-publish                     # execute
 mvn ike:release-publish -DskipVerify=true   # skip mvn verify (faster retry)
 ```
 
+### [#ike-release-cascade-and-ike-cascade-export](#ike-release-cascade-and-ike-cascade-export)ike:release-cascade and ike:cascade-export
+
+`ike:release-publish` releases one repo. The IKE **foundation** — `ike-tooling → ike-docs → ike-platform` — must release in order, because each consumes the artifacts of the ones above it. `ike:release-cascade` walks that order, releasing every foundation repo with unreleased changes; `ike:cascade-export` writes the cascade topology for a CI meta-runner. Both assemble the graph from each repo’s own `src/main/cascade/release-cascade.yaml`.
+
+See [The IKE Release Cascade](release-cascade.html)[10] for the model, the manifest format, and how to test and run it.
+
 ## [#site-goals](#site-goals)Site goals
 
 ### [#ike-site--draft-publish](#ike-site--draft-publish)ike:site-{draft,publish}
@@ -279,8 +285,9 @@ Print a list of available `ike:*` goals, generated from the compile-time `IkeGoa
 
 ## [#see-also](#see-also)See also
 
+- [The IKE Release Cascade](release-cascade.html)[10] — how the three-repo foundation releases in order, and the goals that drive it.
 - [Self-host bootstrap pattern](self-host-bootstrap.html)[3] — for reactors that build the plugin they want to bind.
 - [ws:* plugin](https://ike.network/ike-platform/ike-workspace-maven-plugin/)[1] — workspace-spanning goals.
-- [ike-tooling reactor home](https://ike.network/ike-tooling/)[10].
-- [Source on GitHub](https://github.com/IKE-Network/ike-tooling)[11].
-- [Issue tracker](https://github.com/IKE-Network/ike-issues)[12].
+- [ike-tooling reactor home](https://ike.network/ike-tooling/)[11].
+- [Source on GitHub](https://github.com/IKE-Network/ike-tooling)[12].
+- [Issue tracker](https://github.com/IKE-Network/ike-issues)[13].

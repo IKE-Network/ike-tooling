@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DeployedSiteReconciler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.reconcile</a> &gt; <span class="el_source">DeployedSiteReconciler.java</span></div><h1>DeployedSiteReconciler.java</h1><pre class="source lang-java linenums">package network.ike.plugin.reconcile;
+
+import network.ike.plugin.ReleaseSupport;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Reconciler that keeps the project's deployed Maven site in sync with
+ * the current POM version.
+ *
+ * &lt;p&gt;Subsumes the retired {@code ike:deploy-site-{draft,publish}} goals
+ * (IKE-Network/ike-issues#398). The deployed site lives at
+ * {@code https://ike.network/&lt;artifactId&gt;/} (served from the project's
+ * own {@code gh-pages} branch) with a versioned mirror at
+ * {@code .../&lt;artifactId&gt;/&lt;version&gt;/} and a {@code .../&lt;artifactId&gt;/latest/}
+ * alias.
+ *
+ * &lt;p&gt;&lt;b&gt;Detect&lt;/b&gt;: probe {@code https://ike.network/&lt;artifactId&gt;/} and
+ * inspect the rendered HTML for the deployed version. If the version
+ * tag is missing or differs from {@link SiteContext#projectVersion},
+ * report drift.
+ *
+ * &lt;p&gt;&lt;b&gt;Apply&lt;/b&gt;: run {@code mvnw site site:stage} and force-push the
+ * resulting {@code target/staging/} to the project repo's
+ * {@code gh-pages} branch via
+ * {@link ReleaseSupport#publishProjectSiteToGhPages}. This is the same
+ * publish path the retired {@code DeploySiteDraftMojo} used for
+ * {@code siteType=release} after #304 retired the scpexe mirror.
+ *
+ * &lt;p&gt;&lt;b&gt;Uninstall&lt;/b&gt;: this reconciler does not invert. Removing a
+ * deployed site is handled by the gh-pages branch being deleted at the
+ * GitHub repo level — not something the build can do safely. The
+ * paired {@link StaleSiteCleanupReconciler} handles legacy scpexe
+ * cleanup.
+ */
+public class DeployedSiteReconciler implements SiteReconciler {
+
+    /** Creates this reconciler instance. */
+<span class="nc" id="L50">    public DeployedSiteReconciler() {}</span>
+
+    /** Pattern to extract the deployed version from the rendered site HTML. */
+<span class="nc" id="L53">    private static final Pattern DEPLOYED_VERSION_PATTERN = Pattern.compile(</span>
+            &quot;(?:Version|version)\\s*[:|]\\s*&lt;[^&gt;]*&gt;?\\s*([0-9][^&lt;\\s]*)&quot;);
+
+    /** HTTP timeout for drift probes. Kept tight to keep draft snappy. */
+<span class="nc" id="L57">    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(5);</span>
+
+    @Override
+    public String dimension() {
+<span class="nc" id="L61">        return &quot;Deployed site version&quot;;</span>
+    }
+
+    @Override
+    public String optOutFlag() {
+<span class="nc" id="L66">        return &quot;updateSite&quot;;</span>
+    }
+
+    @Override
+    public SiteDriftReport detect(SiteContext ctx) {
+<span class="nc" id="L71">        String currentVersion = ctx.projectVersion();</span>
+<span class="nc" id="L72">        String deployedUrl = ctx.projectSiteUrl();</span>
+<span class="nc bnc" id="L73" title="All 4 branches missed.">        if (deployedUrl == null || deployedUrl.isBlank()) {</span>
+<span class="nc" id="L74">            return SiteDriftReport.noDrift(dimension());</span>
+        }
+
+<span class="nc" id="L77">        Probe probe = probeDeployedVersion(deployedUrl);</span>
+
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (!probe.reachable) {</span>
+            // Treat unreachable as drift — apply will deploy fresh.
+<span class="nc" id="L81">            List&lt;String&gt; detail = List.of(</span>
+                    &quot;Deployed URL: &quot; + deployedUrl,
+                    &quot;Status: unreachable (&quot; + probe.detail + &quot;)&quot;);
+<span class="nc" id="L84">            String optOut = &quot;mvn ike:site-publish -D&quot; + optOutFlag() + &quot;=false&quot;;</span>
+<span class="nc" id="L85">            return new SiteDriftReport(</span>
+<span class="nc" id="L86">                    dimension(), true,</span>
+                    &quot;Site at &quot; + deployedUrl + &quot; is unreachable&quot;,
+                    detail,
+                    &quot;deploy current version &quot; + currentVersion + &quot; on site-publish&quot;,
+                    optOut);
+        }
+
+<span class="nc bnc" id="L93" title="All 4 branches missed.">        if (probe.version != null &amp;&amp; probe.version.equals(currentVersion)) {</span>
+<span class="nc" id="L94">            return SiteDriftReport.noDrift(dimension());</span>
+        }
+
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        String deployed = probe.version != null ? probe.version : &quot;(unknown)&quot;;</span>
+<span class="nc" id="L98">        List&lt;String&gt; detail = List.of(</span>
+                &quot;Current: &quot; + deployedUrl + &quot; serves &quot; + deployed,
+                &quot;         → project is at &quot; + currentVersion);
+<span class="nc" id="L101">        String optOut = &quot;mvn ike:site-publish -D&quot; + optOutFlag() + &quot;=false&quot;;</span>
+<span class="nc" id="L102">        return new SiteDriftReport(</span>
+<span class="nc" id="L103">                dimension(), true,</span>
+                deployed + &quot; deployed vs &quot; + currentVersion + &quot; in project&quot;,
+                detail,
+                &quot;deploy &quot; + currentVersion + &quot; on site-publish&quot;,
+                optOut);
+    }
+
+    @Override
+    public void apply(SiteContext ctx) {
+<span class="nc bnc" id="L112" title="All 2 branches missed.">        if (ctx.options().isOptedOut(optOutFlag())) {</span>
+<span class="nc" id="L113">            ctx.log().info(&quot;  &quot; + dimension() + &quot;: skipped (opted out via -D&quot;</span>
+<span class="nc" id="L114">                    + optOutFlag() + &quot;=false)&quot;);</span>
+<span class="nc" id="L115">            return;</span>
+        }
+
+<span class="nc" id="L118">        File gitRoot = ctx.gitRoot();</span>
+<span class="nc" id="L119">        File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, ctx.log());</span>
+
+        // Build + stage in a single mvnw invocation. Mirrors the pre-#398
+        // DeploySiteDraftMojo path: `mvn site site:stage` produces
+        // target/staging/ from which we force-push to gh-pages.
+<span class="nc" id="L124">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L125">                mvnw.getAbsolutePath(), &quot;site&quot;, &quot;site:stage&quot;, &quot;-B&quot;);</span>
+
+<span class="nc" id="L127">        String remoteUrl = ReleaseSupport.getRemoteUrl(gitRoot, &quot;origin&quot;);</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        if (remoteUrl == null) {</span>
+<span class="nc" id="L129">            ctx.log().info(&quot;  &quot; + dimension()</span>
+                    + &quot;: skipped (no 'origin' remote)&quot;);
+<span class="nc" id="L131">            return;</span>
+        }
+
+<span class="nc" id="L134">        Path stagingDir = gitRoot.toPath()</span>
+<span class="nc" id="L135">                .resolve(&quot;target&quot;).resolve(&quot;staging&quot;);</span>
+        try {
+<span class="nc" id="L137">            ReleaseSupport.publishProjectSiteToGhPages(</span>
+<span class="nc" id="L138">                    stagingDir, remoteUrl, ctx.log(),</span>
+<span class="nc" id="L139">                    ctx.projectId(), ctx.projectVersion());</span>
+<span class="nc" id="L140">            ctx.log().info(&quot;  &quot; + dimension()</span>
+<span class="nc" id="L141">                    + &quot;: deployed &quot; + ctx.projectVersion()</span>
+<span class="nc" id="L142">                    + &quot; to &quot; + ctx.projectSiteUrl());</span>
+<span class="nc" id="L143">        } catch (MojoException e) {</span>
+<span class="nc" id="L144">            ctx.log().warn(&quot;  ⚠ &quot; + dimension()</span>
+                    + &quot;: gh-pages publish failed (non-fatal): &quot;
+<span class="nc" id="L146">                    + e.getMessage());</span>
+<span class="nc" id="L147">        }</span>
+<span class="nc" id="L148">    }</span>
+
+    // ── Drift probe ─────────────────────────────────────────────────
+
+    /** Result of a deployed-site HTTP probe. */
+<span class="nc" id="L153">    private record Probe(boolean reachable, String version, String detail) {}</span>
+
+    /**
+     * Probe the deployed site root and try to extract the current
+     * deployed version from the rendered HTML. Returns {@code null}
+     * version when the page is reachable but no version marker can be
+     * found (common for non-IKE-rendered sites).
+     */
+    private static Probe probeDeployedVersion(String url) {
+<span class="nc" id="L162">        try (HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L163">                .connectTimeout(PROBE_TIMEOUT)</span>
+<span class="nc" id="L164">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
+<span class="nc" id="L165">                .build()) {</span>
+<span class="nc" id="L166">            HttpRequest req = HttpRequest.newBuilder(URI.create(url))</span>
+<span class="nc" id="L167">                    .timeout(PROBE_TIMEOUT)</span>
+<span class="nc" id="L168">                    .GET()</span>
+<span class="nc" id="L169">                    .build();</span>
+<span class="nc" id="L170">            HttpResponse&lt;String&gt; resp = client.send(req,</span>
+<span class="nc" id="L171">                    HttpResponse.BodyHandlers.ofString());</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">            if (resp.statusCode() / 100 != 2) {</span>
+<span class="nc" id="L173">                return new Probe(false, null, &quot;HTTP &quot; + resp.statusCode());</span>
+            }
+<span class="nc" id="L175">            String body = resp.body();</span>
+<span class="nc" id="L176">            Matcher m = DEPLOYED_VERSION_PATTERN.matcher(body);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">            if (m.find()) {</span>
+<span class="nc" id="L178">                return new Probe(true, m.group(1).trim(), &quot;&quot;);</span>
+            }
+            // Reachable but no version pattern matched — treat as
+            // probe-inconclusive (no drift reported).
+<span class="nc" id="L182">            return new Probe(true, null, &quot;no version marker found&quot;);</span>
+<span class="nc bnc" id="L183" title="All 4 branches missed.">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">            if (e instanceof InterruptedException) {</span>
+<span class="nc" id="L185">                Thread.currentThread().interrupt();</span>
+            }
+<span class="nc" id="L187">            return new Probe(false, null,</span>
+<span class="nc" id="L188">                    e.getClass().getSimpleName() + &quot;: &quot; + e.getMessage());</span>
+        }
+    }
+
+    /**
+     * Visible for testing — exposes the version-extraction regex so a
+     * fixture HTML body can be parsed in isolation.
+     *
+     * @param html the rendered HTML body
+     * @return the detected version string, or {@code null}
+     */
+    static String extractDeployedVersion(String html) {
+<span class="nc" id="L200">        Matcher m = DEPLOYED_VERSION_PATTERN.matcher(html);</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        return m.find() ? m.group(1).trim() : null;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

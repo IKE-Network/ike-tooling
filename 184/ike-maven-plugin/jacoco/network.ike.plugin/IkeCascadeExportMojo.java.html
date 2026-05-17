@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IkeCascadeExportMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">IkeCascadeExportMojo.java</span></div><h1>IkeCascadeExportMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
+import network.ike.plugin.support.GoalReportSpec;
+import network.ike.workspace.cascade.CascadeAssembler;
+import network.ike.workspace.cascade.CascadeEdge;
+import network.ike.workspace.cascade.ProjectCascade;
+import network.ike.workspace.cascade.ProjectCascadeIo;
+import network.ike.workspace.cascade.ReleaseCascade;
+import network.ike.workspace.cascade.UrlCascadeResolver;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+/**
+ * Exports the foundation release cascade topology in a machine-readable
+ * format (IKE-Network/ike-issues#403, #420).
+ *
+ * &lt;p&gt;Read-only. The cascade is decentralized — each foundation repo
+ * version-controls its own {@code src/main/cascade/release-cascade.yaml}
+ * declaring only its own edges (#420). This goal reads the local
+ * repo's manifest, walks the edges into its sibling checkouts to
+ * assemble the full ordered graph, and writes it as JSON or
+ * {@code .properties} so a CI meta-runner can derive the build-chain
+ * edges from the cascade instead of hand-wiring them.
+ *
+ * &lt;p&gt;The traversal resolves each member sibling-first: a member
+ * checked out as a directory alongside this repo is read from disk;
+ * one that is not is shallow-cloned from its edge's {@code url}
+ * (IKE-Network/ike-issues#429). The goal therefore works both on a
+ * developer workstation with sibling checkouts and on a CI agent
+ * that has only this repo checked out.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;
+ *   mvn ike:cascade-export                          # JSON to stdout
+ *   mvn ike:cascade-export -Dformat=properties
+ *   mvn ike:cascade-export -DoutputFile=target/cascade.json
+ *   mvn ike:cascade-export -Dike.release.cascade.clone-dir=/path
+ * &lt;/pre&gt;
+ */
+@Mojo(name = &quot;cascade-export&quot;, projectRequired = false, aggregator = true)
+public class IkeCascadeExportMojo extends AbstractGoalMojo {
+
+    /** Output format: {@code json} (default) or {@code properties}. */
+    @Parameter(property = &quot;format&quot;, defaultValue = &quot;json&quot;)
+    String format;
+
+    /**
+     * File to write the export to. When unset, the export is logged
+     * to stdout.
+     */
+    @Parameter(property = &quot;outputFile&quot;)
+    String outputFile;
+
+    /**
+     * Directory for the shallow clones made when a cascade member is
+     * not checked out as a local sibling (IKE-Network/ike-issues#429).
+     * Defaults to a fresh temporary directory.
+     */
+    @Parameter(property = &quot;ike.release.cascade.clone-dir&quot;)
+    String cascadeCloneDir;
+
+    /** Override working directory for tests. If null, uses current directory. */
+    File baseDir;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L75">    public IkeCascadeExportMojo() {}</span>
+
+    @Override
+    protected GoalReportSpec runGoal() throws MojoException {
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        File startDir = baseDir != null ? baseDir : new File(&quot;.&quot;);</span>
+<span class="nc" id="L80">        File gitRoot = ReleaseSupport.gitRoot(startDir);</span>
+
+        CascadeExportFormat exportFormat;
+        try {
+<span class="nc" id="L84">            exportFormat = CascadeExportFormat.fromString(format);</span>
+<span class="nc" id="L85">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L86">            throw new MojoException(e.getMessage());</span>
+<span class="nc" id="L87">        }</span>
+
+<span class="nc" id="L89">        ReleaseCascade cascade = assembleCascade(gitRoot);</span>
+<span class="nc" id="L90">        String rendered = exportFormat.render(cascade);</span>
+<span class="nc" id="L91">        String formatLabel = exportFormat.name().toLowerCase();</span>
+
+        String location;
+<span class="nc bnc" id="L94" title="All 4 branches missed.">        if (outputFile != null &amp;&amp; !outputFile.isBlank()) {</span>
+<span class="nc" id="L95">            Path out = Path.of(outputFile);</span>
+            try {
+<span class="nc bnc" id="L97" title="All 2 branches missed.">                if (out.getParent() != null) {</span>
+<span class="nc" id="L98">                    Files.createDirectories(out.getParent());</span>
+                }
+<span class="nc" id="L100">                Files.writeString(out, rendered, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L101">            } catch (IOException e) {</span>
+<span class="nc" id="L102">                throw new MojoException(</span>
+<span class="nc" id="L103">                        &quot;Could not write &quot; + out + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L104">            }</span>
+<span class="nc" id="L105">            getLog().info(&quot;Cascade exported (&quot; + formatLabel + &quot;) to &quot; + out);</span>
+<span class="nc" id="L106">            location = &quot;written to `&quot; + out + &quot;`&quot;;</span>
+<span class="nc" id="L107">        } else {</span>
+<span class="nc" id="L108">            getLog().info(&quot;Cascade export (&quot; + formatLabel + &quot;):&quot;);</span>
+<span class="nc" id="L109">            rendered.lines().forEach(getLog()::info);</span>
+<span class="nc" id="L110">            location = &quot;printed to the build log&quot;;</span>
+        }
+
+<span class="nc" id="L113">        String report = new GoalReportBuilder()</span>
+<span class="nc" id="L114">                .section(&quot;Cascade export&quot;)</span>
+<span class="nc" id="L115">                .paragraph(&quot;Assembled the release cascade from the&quot;</span>
+                        + &quot; per-project `release-cascade.yaml` manifests&quot;
+                        + &quot; and exported it as **&quot; + formatLabel + &quot;**, &quot;
+                        + location + &quot;.&quot;)
+<span class="nc" id="L119">                .codeBlock(formatLabel, rendered)</span>
+<span class="nc" id="L120">                .build();</span>
+<span class="nc" id="L121">        return new GoalReportSpec(IkeGoal.CASCADE_EXPORT,</span>
+<span class="nc" id="L122">                startDir.toPath(), report);</span>
+    }
+
+    /**
+     * Reads the local repo's {@code release-cascade.yaml} and assembles
+     * the full cascade graph. Each edge is resolved sibling-first: a
+     * member checked out alongside this repo is read from disk; one
+     * that is not is shallow-cloned from its {@code url}.
+     */
+    private ReleaseCascade assembleCascade(File gitRoot) {
+<span class="nc" id="L132">        Path localManifest = gitRoot.toPath().resolve(</span>
+                ProjectCascadeIo.MANIFEST_RELATIVE_PATH);
+<span class="nc" id="L134">        ProjectCascade local = ProjectCascadeIo.load(localManifest)</span>
+<span class="nc" id="L135">                .orElseThrow(() -&gt; new MojoException(</span>
+                        &quot;No &quot; + ProjectCascadeIo.MANIFEST_RELATIVE_PATH
+                        + &quot; in &quot; + gitRoot + &quot; — run ike:cascade-export&quot;
+                        + &quot; from a foundation cascade repo.&quot;));
+
+<span class="nc" id="L140">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+<span class="nc" id="L141">        CascadeEdge start = new CascadeEdge(</span>
+<span class="nc" id="L142">                ReleaseSupport.readPomGroupId(rootPom),</span>
+<span class="nc" id="L143">                ReleaseSupport.readPomArtifactId(rootPom),</span>
+<span class="nc" id="L144">                gitRoot.getName(), null, null);</span>
+
+<span class="nc" id="L146">        File siblings = gitRoot.getParentFile();</span>
+<span class="nc" id="L147">        UrlCascadeResolver urlResolver = new UrlCascadeResolver(</span>
+<span class="nc" id="L148">                resolveCloneDir(), getLog()::info);</span>
+        try {
+<span class="nc" id="L150">            return CascadeAssembler.assemble(start, local, edge -&gt; {</span>
+<span class="nc" id="L151">                Path sibling = siblings.toPath().resolve(edge.repo())</span>
+<span class="nc" id="L152">                        .resolve(ProjectCascadeIo.MANIFEST_RELATIVE_PATH);</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">                if (Files.isRegularFile(sibling)) {</span>
+<span class="nc" id="L154">                    return ProjectCascadeIo.read(sibling);</span>
+                }
+<span class="nc" id="L156">                return urlResolver.resolve(edge);</span>
+            });
+<span class="nc" id="L158">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L159">            throw new MojoException(</span>
+                    &quot;Cannot assemble the release cascade: &quot;
+<span class="nc" id="L161">                    + e.getMessage() + &quot; — a member not checked out as a&quot;</span>
+                    + &quot; local sibling is cloned from its url, so every&quot;
+                    + &quot; edge must declare one.&quot;, e);
+        }
+    }
+
+    /**
+     * The directory shallow clones land in — the
+     * {@code ike.release.cascade.clone-dir} property, or a fresh
+     * temporary directory when it is unset.
+     */
+    private Path resolveCloneDir() {
+<span class="nc bnc" id="L173" title="All 4 branches missed.">        if (cascadeCloneDir != null &amp;&amp; !cascadeCloneDir.isBlank()) {</span>
+<span class="nc" id="L174">            return Path.of(cascadeCloneDir);</span>
+        }
+        try {
+<span class="nc" id="L177">            return Files.createTempDirectory(&quot;ike-cascade-&quot;);</span>
+<span class="nc" id="L178">        } catch (IOException e) {</span>
+<span class="nc" id="L179">            throw new MojoException(</span>
+                    &quot;cannot create a temporary clone directory: &quot;
+<span class="nc" id="L181">                    + e.getMessage(), e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
