@@ -30,6 +30,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Full release: build, deploy, tag, merge, and bump to next SNAPSHOT.
@@ -1378,13 +1379,30 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     }
 
     /**
+     * Release-cadence commit subjects — the tool-generated bookkeeping
+     * commits the release flow itself produces ({@code release: …},
+     * {@code post-release: …}, the {@code merge: release …} commit,
+     * {@code site: publish …}). They legitimately carry no issue
+     * trailer and must be exempt from the trailer-compliance check,
+     * or every release would fail its own preflight on the previous
+     * cycle's bookkeeping (IKE-Network/ike-issues#428).
+     */
+    private static final Pattern RELEASE_CADENCE = Pattern.compile(
+            "^(release: .+"
+                    + "|post-release: .+"
+                    + "|merge: release .+"
+                    + "|site: publish .+)$");
+
+    /**
      * Find commits in {@code <previous-tag>..HEAD} whose body contains
      * no IKE-COMMITS.md issue trailer ({@code Fixes}, {@code Closes},
      * {@code Resolves}, {@code Refs} and grammatical variants).
      *
      * <p>Uses NUL-delimited git-log output to handle commit messages
      * containing arbitrary characters. Returns short SHA + subject for
-     * each non-compliant commit.
+     * each non-compliant commit. Release-cadence commits ({@link
+     * #RELEASE_CADENCE}) are exempt — they are tool-generated and
+     * carry no issue trailer by design.
      *
      * <p>Returns an empty list (not an error) if the previous tag
      * cannot be resolved — typical for first-release scenarios.
@@ -1420,7 +1438,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     String firstLine = body.contains("\n")
                             ? body.substring(0, body.indexOf('\n'))
                             : body;
-                    nonCompliant.add(sha + " " + firstLine.trim());
+                    String subject = firstLine.trim();
+                    if (RELEASE_CADENCE.matcher(subject).matches()) {
+                        // Tool-generated bookkeeping — no trailer by design.
+                        continue;
+                    }
+                    nonCompliant.add(sha + " " + subject);
                 }
             }
             return nonCompliant;
