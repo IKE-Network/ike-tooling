@@ -8,6 +8,7 @@ import network.ike.workspace.cascade.CascadeEdge;
 import network.ike.workspace.cascade.ProjectCascade;
 import network.ike.workspace.cascade.ProjectCascadeIo;
 import network.ike.workspace.cascade.ReleaseCascade;
+import network.ike.workspace.cascade.UrlCascadeResolver;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -30,15 +31,19 @@ import java.nio.file.Path;
  * {@code .properties} so a CI meta-runner can derive the build-chain
  * edges from the cascade instead of hand-wiring them.
  *
- * <p>The traversal expects every cascade member to be checked out as
- * a sibling directory alongside the repo this goal runs in, named by
- * the edge's {@code repo} field.
+ * <p>The traversal resolves each member sibling-first: a member
+ * checked out as a directory alongside this repo is read from disk;
+ * one that is not is shallow-cloned from its edge's {@code url}
+ * (IKE-Network/ike-issues#429). The goal therefore works both on a
+ * developer workstation with sibling checkouts and on a CI agent
+ * that has only this repo checked out.
  *
  * <p>Usage:
  * <pre>
  *   mvn ike:cascade-export                          # JSON to stdout
  *   mvn ike:cascade-export -Dformat=properties
  *   mvn ike:cascade-export -DoutputFile=target/cascade.json
+ *   mvn ike:cascade-export -Dike.release.cascade.clone-dir=/path
  * </pre>
  */
 @Mojo(name = "cascade-export", projectRequired = false, aggregator = true)
@@ -54,6 +59,14 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
      */
     @Parameter(property = "outputFile")
     String outputFile;
+
+    /**
+     * Directory for the shallow clones made when a cascade member is
+     * not checked out as a local sibling (IKE-Network/ike-issues#429).
+     * Defaults to a fresh temporary directory.
+     */
+    @Parameter(property = "ike.release.cascade.clone-dir")
+    String cascadeCloneDir;
 
     /** Override working directory for tests. If null, uses current directory. */
     File baseDir;
@@ -111,8 +124,9 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
 
     /**
      * Reads the local repo's {@code release-cascade.yaml} and assembles
-     * the full cascade graph by walking its edges into the sibling
-     * checkouts.
+     * the full cascade graph. Each edge is resolved sibling-first: a
+     * member checked out alongside this repo is read from disk; one
+     * that is not is shallow-cloned from its {@code url}.
      */
     private ReleaseCascade assembleCascade(File gitRoot) {
         Path localManifest = gitRoot.toPath().resolve(
@@ -130,15 +144,40 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
                 gitRoot.getName(), null, null);
 
         File siblings = gitRoot.getParentFile();
+        UrlCascadeResolver urlResolver = new UrlCascadeResolver(
+                resolveCloneDir(), getLog()::info);
         try {
             return CascadeAssembler.assemble(start, local, edge -> {
-                Path p = siblings.toPath().resolve(edge.repo())
+                Path sibling = siblings.toPath().resolve(edge.repo())
                         .resolve(ProjectCascadeIo.MANIFEST_RELATIVE_PATH);
-                return ProjectCascadeIo.read(p);
+                if (Files.isRegularFile(sibling)) {
+                    return ProjectCascadeIo.read(sibling);
+                }
+                return urlResolver.resolve(edge);
             });
         } catch (RuntimeException e) {
             throw new MojoException(
                     "Cannot assemble the release cascade: "
+                    + e.getMessage() + " — a member not checked out as a"
+                    + " local sibling is cloned from its url, so every"
+                    + " edge must declare one.", e);
+        }
+    }
+
+    /**
+     * The directory shallow clones land in — the
+     * {@code ike.release.cascade.clone-dir} property, or a fresh
+     * temporary directory when it is unset.
+     */
+    private Path resolveCloneDir() {
+        if (cascadeCloneDir != null && !cascadeCloneDir.isBlank()) {
+            return Path.of(cascadeCloneDir);
+        }
+        try {
+            return Files.createTempDirectory("ike-cascade-");
+        } catch (IOException e) {
+            throw new MojoException(
+                    "cannot create a temporary clone directory: "
                     + e.getMessage(), e);
         }
     }
