@@ -9,67 +9,66 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * The parsed {@code release-cascade.yaml} manifest — the declarative
- * cross-repo release ordering for the IKE foundation
- * (IKE-Network/ike-issues#402).
+ * The assembled IKE release cascade graph — the full cross-repo
+ * release ordering, stitched from the per-project
+ * {@code release-cascade.yaml} manifests by {@link CascadeAssembler}
+ * (IKE-Network/ike-issues#402, #420).
  *
- * &lt;p&gt;The {@link #repos()} list is in topological order. Entries are
- * keyed off their Maven {@code groupId}. Helper methods answer the
- * questions the release goals ask:
+ * &lt;p&gt;No project authors this ordering. Each project version-controls
+ * only its own {@code upstream}/{@code downstream} edges; the
+ * assembler traverses those edges and topologically orders the
+ * result. The {@link #repos()} list is that order: a node always
+ * follows every node it consumes.
+ *
+ * &lt;p&gt;Helper methods answer the questions the release goals ask:
  * &lt;ul&gt;
  *   &lt;li&gt;{@link #downstreamOf(String)} — &quot;I just released this
- *       groupId; what is now stale?&quot; — used by the
- *       {@code ike:release-*} cascade messages.&lt;/li&gt;
+ *       groupId; what is now stale?&quot;&lt;/li&gt;
  *   &lt;li&gt;{@link #find(String)} / {@link #findByCoordinates(String,
- *       String)} — resolve a cascade member from a project's own
- *       POM coordinates.&lt;/li&gt;
+ *       String)} — resolve a cascade node from a project's own POM
+ *       coordinates.&lt;/li&gt;
  * &lt;/ul&gt;
  *
- * @param standardsVersion the {@code ike-build-standards} version
- *                         that shipped this manifest (filtered in at
- *                         assembly time); informational only
- * @param repos            cascade entries in topological order;
- *                         never {@code null}
+ * @param repos cascade nodes in topological order; never {@code null}
  */
-public record ReleaseCascade(String standardsVersion,
-                              List&lt;CascadeRepo&gt; repos) {
+public record ReleaseCascade(List&lt;CascadeRepo&gt; repos) {
 
     /**
      * Canonical constructor — defensively copies {@code repos} and
      * substitutes an empty list for {@code null}.
      */
-<span class="fc" id="L41">    public ReleaseCascade {</span>
-<span class="pc bpc" id="L42" title="1 of 2 branches missed.">        repos = repos == null ? List.of() : List.copyOf(repos);</span>
-<span class="fc" id="L43">    }</span>
+<span class="fc" id="L40">    public ReleaseCascade {</span>
+<span class="pc bpc" id="L41" title="1 of 2 branches missed.">        repos = repos == null ? List.of() : List.copyOf(repos);</span>
+<span class="fc" id="L42">    }</span>
 
     /**
-     * Looks up a cascade entry by Maven {@code groupId}.
+     * Looks up a cascade node by Maven {@code groupId}.
      *
      * @param groupId the groupId to find
-     * @return the matching entry, or empty if {@code groupId} is not
-     *         a cascade member
+     * @return the matching node, or empty if {@code groupId} is not a
+     *         cascade member
      */
     public Optional&lt;CascadeRepo&gt; find(String groupId) {
-<span class="fc" id="L53">        return repos.stream()</span>
-<span class="fc" id="L54">                .filter(r -&gt; r.groupId().equals(groupId))</span>
-<span class="fc" id="L55">                .findFirst();</span>
+<span class="fc" id="L52">        return repos.stream()</span>
+<span class="fc" id="L53">                .filter(r -&gt; r.groupId().equals(groupId))</span>
+<span class="fc" id="L54">                .findFirst();</span>
     }
 
     /**
-     * Looks up a cascade entry by exact {@code groupId} +
+     * Looks up a cascade node by exact {@code groupId} +
      * {@code artifactId} coordinates.
      *
      * @param groupId    the project's groupId
      * @param artifactId the project's artifactId
-     * @return the matching entry, or empty if the coordinates are not
-     *         a cascade member
+     * @return the matching node, or empty if the coordinates are not a
+     *         cascade member
      */
     public Optional&lt;CascadeRepo&gt; findByCoordinates(String groupId,
                                                    String artifactId) {
-<span class="fc" id="L69">        return repos.stream()</span>
-<span class="fc bfc" id="L70" title="All 2 branches covered.">                .filter(r -&gt; r.groupId().equals(groupId)</span>
-<span class="fc bfc" id="L71" title="All 2 branches covered.">                        &amp;&amp; r.artifactId().equals(artifactId))</span>
-<span class="fc" id="L72">                .findFirst();</span>
+<span class="nc" id="L68">        return repos.stream()</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">                .filter(r -&gt; r.groupId().equals(groupId)</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">                        &amp;&amp; r.artifactId().equals(artifactId))</span>
+<span class="nc" id="L71">                .findFirst();</span>
     }
 
     /**
@@ -79,19 +78,20 @@ public record ReleaseCascade(String standardsVersion,
      * @return true if {@code groupId} is a cascade member
      */
     public boolean contains(String groupId) {
-<span class="fc" id="L82">        return find(groupId).isPresent();</span>
+<span class="fc" id="L81">        return find(groupId).isPresent();</span>
     }
 
     /**
-     * Returns the cascade members that transitively consume
+     * Returns the cascade members reachable downstream of
      * {@code groupId}, in cascade (topological) order.
      *
      * &lt;p&gt;These are exactly the repos that go stale when
-     * {@code groupId} is released: each one depends, directly or
-     * through an intermediate, on its artifacts.
+     * {@code groupId} is released: each one consumes, directly or
+     * through an intermediate, its artifacts. The traversal follows
+     * the {@code downstream} edges of each node.
      *
      * @param groupId the groupId that was (or will be) released
-     * @return downstream entries in release order; empty if
+     * @return downstream nodes in release order; empty if
      *         {@code groupId} has no consumers or is not a member
      */
     public List&lt;CascadeRepo&gt; downstreamOf(String groupId) {
@@ -100,20 +100,21 @@ public record ReleaseCascade(String standardsVersion,
 <span class="fc" id="L100">        frontier.add(groupId);</span>
 <span class="fc bfc" id="L101" title="All 2 branches covered.">        while (!frontier.isEmpty()) {</span>
 <span class="fc" id="L102">            String current = frontier.poll();</span>
-<span class="fc bfc" id="L103" title="All 2 branches covered.">            for (CascadeRepo candidate : repos) {</span>
-<span class="fc bfc" id="L104" title="All 2 branches covered.">                if (candidate.consumes().contains(current)</span>
-<span class="fc bfc" id="L105" title="All 2 branches covered.">                        &amp;&amp; stale.add(candidate.groupId())) {</span>
-<span class="fc" id="L106">                    frontier.add(candidate.groupId());</span>
-                }
-<span class="fc" id="L108">            }</span>
-<span class="fc" id="L109">        }</span>
-<span class="fc" id="L110">        List&lt;CascadeRepo&gt; ordered = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L111" title="All 2 branches covered.">        for (CascadeRepo r : repos) {</span>
-<span class="fc bfc" id="L112" title="All 2 branches covered.">            if (stale.contains(r.groupId())) {</span>
-<span class="fc" id="L113">                ordered.add(r);</span>
+<span class="fc" id="L103">            find(current).ifPresent(node -&gt; {</span>
+<span class="fc bfc" id="L104" title="All 2 branches covered.">                for (CascadeEdge edge : node.downstream()) {</span>
+<span class="fc bfc" id="L105" title="All 2 branches covered.">                    if (stale.add(edge.groupId())) {</span>
+<span class="fc" id="L106">                        frontier.add(edge.groupId());</span>
+                    }
+<span class="fc" id="L108">                }</span>
+<span class="fc" id="L109">            });</span>
+<span class="fc" id="L110">        }</span>
+<span class="fc" id="L111">        List&lt;CascadeRepo&gt; ordered = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L112" title="All 2 branches covered.">        for (CascadeRepo r : repos) {</span>
+<span class="fc bfc" id="L113" title="All 2 branches covered.">            if (stale.contains(r.groupId())) {</span>
+<span class="fc" id="L114">                ordered.add(r);</span>
             }
-<span class="fc" id="L115">        }</span>
-<span class="fc" id="L116">        return ordered;</span>
+<span class="fc" id="L116">        }</span>
+<span class="fc" id="L117">        return ordered;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -2,17 +2,22 @@
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Formats the cascade-awareness messages that {@code ike:release-draft}
- * and {@code ike:release-publish} print (IKE-Network/ike-issues#402).
+ * and {@code ike:release-publish} print (IKE-Network/ike-issues#402,
+ * #420).
  *
- * &lt;p&gt;This reporter does &lt;em&gt;not&lt;/em&gt; inspect git history. After a
- * foundation repo is released, every downstream repo is definitionally
- * stale — it now carries an unreleased upstream dependency bump — so
- * the report simply enumerates {@link ReleaseCascade#downstreamOf}.
- * The point is visibility: the operator cannot finish a single-repo
+ * &lt;p&gt;In the decentralized cascade model every project version-controls
+ * its own {@code src/main/cascade/release-cascade.yaml}, so the
+ * releasing repo's own {@link ProjectCascade} is all the reporter
+ * needs — no graph assembly, no sibling checkouts. The {@code downstream}
+ * edges of that file are exactly the foundation repos a release makes
+ * stale.
+ *
+ * &lt;p&gt;This reporter does not inspect git history: after a foundation
+ * repo is released, every downstream repo is definitionally stale.
+ * The point is visibility — the operator cannot finish a single-repo
  * release without seeing what the cascade says comes next.
  */
 public final class CascadeReporter {
@@ -23,113 +28,72 @@ public final class CascadeReporter {
     private CascadeReporter() {}
 
     /**
-     * Identifies which cascade entry the releasing project is, from
-     * its own reactor-root POM coordinates.
-     *
-     * &lt;p&gt;An exact {@code groupId} + {@code artifactId} match is
-     * preferred; a {@code groupId}-only match is the fallback (every
-     * foundation repo has a distinct groupId, so this still resolves
-     * uniquely).
-     *
-     * @param cascade    the parsed manifest
-     * @param groupId    the releasing project's {@code groupId}
-     * @param artifactId the releasing project's {@code artifactId}
-     * @return the matching cascade entry, or empty if the project is
-     *         not a foundation repo (an ordinary consumer)
-     */
-    public static Optional&lt;CascadeRepo&gt; self(ReleaseCascade cascade,
-                                             String groupId,
-                                             String artifactId) {
-<span class="pc bpc" id="L43" title="1 of 2 branches missed.">        if (groupId == null) {</span>
-<span class="nc" id="L44">            return Optional.empty();</span>
-        }
-<span class="pc bpc" id="L46" title="1 of 2 branches missed.">        if (artifactId != null) {</span>
-<span class="fc" id="L47">            Optional&lt;CascadeRepo&gt; exact =</span>
-<span class="fc" id="L48">                    cascade.findByCoordinates(groupId, artifactId);</span>
-<span class="fc bfc" id="L49" title="All 2 branches covered.">            if (exact.isPresent()) {</span>
-<span class="fc" id="L50">                return exact;</span>
-            }
-        }
-<span class="fc" id="L53">        return cascade.find(groupId);</span>
-    }
-
-    /**
      * Builds the post-release cascade footer for
      * {@code ike:release-publish}.
      *
-     * @param cascade the parsed manifest
-     * @param self    the cascade entry that was just released
+     * @param local the releasing project's own parsed manifest
+     * @param repo  the releasing project's repo/directory name
      * @return log lines naming the now-stale downstream repos and the
      *         exact commands to continue the cascade
      */
-    public static List&lt;String&gt; publishFooter(ReleaseCascade cascade,
-                                             CascadeRepo self) {
-<span class="fc" id="L67">        List&lt;CascadeRepo&gt; downstream = cascade.downstreamOf(self.groupId());</span>
-<span class="fc" id="L68">        List&lt;String&gt; lines = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L69">        lines.add(RULE);</span>
-<span class="fc" id="L70">        lines.add(&quot; Foundation release cascade (release-cascade.yaml)&quot;);</span>
-<span class="fc" id="L71">        lines.add(RULE);</span>
-<span class="fc" id="L72">        lines.add(&quot;  ✓ &quot; + self.repo() + &quot; released.&quot;);</span>
-<span class="fc bfc" id="L73" title="All 2 branches covered.">        if (downstream.isEmpty()) {</span>
-<span class="fc" id="L74">            lines.add(&quot;  End of the foundation cascade — no&quot;</span>
+    public static List&lt;String&gt; publishFooter(ProjectCascade local,
+                                             String repo) {
+<span class="fc" id="L41">        List&lt;String&gt; lines = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L42">        lines.add(RULE);</span>
+<span class="fc" id="L43">        lines.add(&quot; Foundation release cascade (release-cascade.yaml)&quot;);</span>
+<span class="fc" id="L44">        lines.add(RULE);</span>
+<span class="fc" id="L45">        lines.add(&quot;  ✓ &quot; + repo + &quot; released.&quot;);</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">        if (local.terminal()) {</span>
+<span class="fc" id="L47">            lines.add(&quot;  End of the foundation cascade — no&quot;</span>
                     + &quot; downstream foundation repos.&quot;);
-<span class="fc" id="L76">            lines.add(RULE);</span>
-<span class="fc" id="L77">            return lines;</span>
+<span class="fc" id="L49">            lines.add(RULE);</span>
+<span class="fc" id="L50">            return lines;</span>
         }
-<span class="fc" id="L79">        lines.add(&quot;  Downstream repos now carry an unreleased upstream&quot;</span>
+<span class="fc" id="L52">        lines.add(&quot;  Downstream repos now carry an unreleased upstream&quot;</span>
                 + &quot; bump:&quot;);
-<span class="fc bfc" id="L81" title="All 2 branches covered.">        for (CascadeRepo r : downstream) {</span>
-<span class="fc" id="L82">            lines.add(&quot;      &quot; + pad(r.repo()) + &quot;consumes &quot;</span>
-<span class="fc" id="L83">                    + String.join(&quot;, &quot;, r.consumes()));</span>
-<span class="fc" id="L84">        }</span>
-<span class="fc" id="L85">        CascadeRepo next = downstream.get(0);</span>
-<span class="fc" id="L86">        lines.add(&quot;  Continue the cascade with the next repo:&quot;);</span>
-<span class="fc" id="L87">        lines.add(&quot;      cd ../&quot; + next.repo()</span>
+<span class="fc bfc" id="L54" title="All 2 branches covered.">        for (CascadeEdge edge : local.downstream()) {</span>
+<span class="fc" id="L55">            lines.add(&quot;      &quot; + edge.repo());</span>
+<span class="fc" id="L56">        }</span>
+<span class="fc" id="L57">        CascadeEdge next = local.downstream().get(0);</span>
+<span class="fc" id="L58">        lines.add(&quot;  Continue the cascade with the next repo:&quot;);</span>
+<span class="fc" id="L59">        lines.add(&quot;      cd ../&quot; + next.repo()</span>
                 + &quot; &amp;&amp; mvn ike:release-publish&quot;);
-<span class="fc" id="L89">        lines.add(&quot;  Or release the whole foundation in order:&quot;);</span>
-<span class="fc" id="L90">        lines.add(&quot;      mvn ws:cascade-foundation-publish&quot;);</span>
-<span class="fc" id="L91">        lines.add(RULE);</span>
-<span class="fc" id="L92">        return lines;</span>
+<span class="fc" id="L61">        lines.add(&quot;  Or release the whole foundation in order:&quot;);</span>
+<span class="fc" id="L62">        lines.add(&quot;      mvn ike:release-cascade&quot;);</span>
+<span class="fc" id="L63">        lines.add(RULE);</span>
+<span class="fc" id="L64">        return lines;</span>
     }
 
     /**
      * Builds the cascade preview section for {@code ike:release-draft}.
      *
-     * @param cascade the parsed manifest
-     * @param self    the cascade entry being drafted for release
+     * @param local the project's own parsed manifest
+     * @param repo  the project's repo/directory name
      * @return log lines naming the downstream repos this release will
-     *         make stale; empty advisory when nothing is downstream
+     *         make stale; an end-of-cascade advisory when nothing is
+     *         downstream
      */
-    public static List&lt;String&gt; draftPreview(ReleaseCascade cascade,
-                                            CascadeRepo self) {
-<span class="nc" id="L105">        List&lt;CascadeRepo&gt; downstream = cascade.downstreamOf(self.groupId());</span>
-<span class="nc" id="L106">        List&lt;String&gt; lines = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L107">        lines.add(RULE);</span>
-<span class="nc" id="L108">        lines.add(&quot; Foundation release cascade (release-cascade.yaml)&quot;);</span>
-<span class="nc" id="L109">        lines.add(RULE);</span>
-<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (downstream.isEmpty()) {</span>
-<span class="nc" id="L111">            lines.add(&quot;  &quot; + self.repo() + &quot; is last in the foundation&quot;</span>
+    public static List&lt;String&gt; draftPreview(ProjectCascade local,
+                                            String repo) {
+<span class="fc" id="L78">        List&lt;String&gt; lines = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L79">        lines.add(RULE);</span>
+<span class="fc" id="L80">        lines.add(&quot; Foundation release cascade (release-cascade.yaml)&quot;);</span>
+<span class="fc" id="L81">        lines.add(RULE);</span>
+<span class="pc bpc" id="L82" title="1 of 2 branches missed.">        if (local.terminal()) {</span>
+<span class="nc" id="L83">            lines.add(&quot;  &quot; + repo + &quot; is last in the foundation&quot;</span>
                     + &quot; cascade — nothing downstream to release.&quot;);
-<span class="nc" id="L113">            lines.add(RULE);</span>
-<span class="nc" id="L114">            return lines;</span>
+<span class="nc" id="L85">            lines.add(RULE);</span>
+<span class="nc" id="L86">            return lines;</span>
         }
-<span class="nc" id="L116">        lines.add(&quot;  Publishing &quot; + self.repo() + &quot; will make these&quot;</span>
+<span class="fc" id="L88">        lines.add(&quot;  Publishing &quot; + repo + &quot; will make these&quot;</span>
                 + &quot; downstream repos stale:&quot;);
-<span class="nc bnc" id="L118" title="All 2 branches missed.">        for (CascadeRepo r : downstream) {</span>
-<span class="nc" id="L119">            lines.add(&quot;      &quot; + r.repo());</span>
-<span class="nc" id="L120">        }</span>
-<span class="nc" id="L121">        lines.add(&quot;  After publishing, continue with&quot;</span>
-                + &quot; ws:cascade-foundation-publish.&quot;);
-<span class="nc" id="L123">        lines.add(RULE);</span>
-<span class="nc" id="L124">        return lines;</span>
-    }
-
-    private static String pad(String repo) {
-<span class="fc" id="L128">        StringBuilder sb = new StringBuilder(repo);</span>
-<span class="fc bfc" id="L129" title="All 2 branches covered.">        while (sb.length() &lt; 15) {</span>
-<span class="fc" id="L130">            sb.append(' ');</span>
-        }
-<span class="fc" id="L132">        return sb.toString();</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">        for (CascadeEdge edge : local.downstream()) {</span>
+<span class="fc" id="L91">            lines.add(&quot;      &quot; + edge.repo());</span>
+<span class="fc" id="L92">        }</span>
+<span class="fc" id="L93">        lines.add(&quot;  After publishing, continue with&quot;</span>
+                + &quot; ike:release-cascade.&quot;);
+<span class="fc" id="L95">        lines.add(RULE);</span>
+<span class="fc" id="L96">        return lines;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

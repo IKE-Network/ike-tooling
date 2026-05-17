@@ -1,12 +1,12 @@
 ---
-date_published: 2026-05-15
-date_modified: 2026-05-15
+date_published: 2026-05-16
+date_modified: 2026-05-16
 canonical_url: https://ike.network/ike-tooling/ike-build-standards/built-with.html
 ---
 
 # Built With
 
-Open-source software that `ike-build-standards` 181 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-build-standards` 182 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 

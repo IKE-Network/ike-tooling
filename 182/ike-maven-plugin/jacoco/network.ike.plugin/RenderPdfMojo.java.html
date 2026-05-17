@@ -1,0 +1,456 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RenderPdfMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">RenderPdfMojo.java</span></div><h1>RenderPdfMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Render PDF from intermediate files using an external renderer.
+ *
+ * &lt;p&gt;Wraps the five PDF renderers supported by the IKE documentation
+ * pipeline into a single Maven goal with consistent configuration,
+ * executable validation, and multi-document support.
+ *
+ * &lt;p&gt;Renderers fall into two families:
+ * &lt;ul&gt;
+ *   &lt;li&gt;&lt;b&gt;CSS-based&lt;/b&gt; ({@code prince}, {@code ah}, {@code weasyprint})
+ *       — convert print-layout HTML to PDF via CSS Paged Media&lt;/li&gt;
+ *   &lt;li&gt;&lt;b&gt;FO-based&lt;/b&gt; ({@code xep}, {@code fop})
+ *       — convert XSL-FO to PDF&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;By default, the goal discovers all input files in {@code inputDir}
+ * and renders each one. To render specific documents, set the
+ * {@code documents} parameter to a list of base names (without extension).
+ *
+ * &lt;p&gt;If the goal is skipped, it produces no log output at all — unlike
+ * exec-maven-plugin which logs &quot;skipping&quot; for every skipped execution.
+ *
+ * &lt;p&gt;Usage in a POM:
+ * &lt;pre&gt;
+ * &amp;lt;execution&amp;gt;
+ *   &amp;lt;id&amp;gt;prince-pdf&amp;lt;/id&amp;gt;
+ *   &amp;lt;phase&amp;gt;package&amp;lt;/phase&amp;gt;
+ *   &amp;lt;goals&amp;gt;&amp;lt;goal&amp;gt;render-pdf&amp;lt;/goal&amp;gt;&amp;lt;/goals&amp;gt;
+ *   &amp;lt;configuration&amp;gt;
+ *     &amp;lt;renderer&amp;gt;prince&amp;lt;/renderer&amp;gt;
+ *     &amp;lt;inputDir&amp;gt;${asciidoc.output.directory}/pdf-html-prince&amp;lt;/inputDir&amp;gt;
+ *     &amp;lt;outputDir&amp;gt;${asciidoc.output.directory}/pdf-prince&amp;lt;/outputDir&amp;gt;
+ *     &amp;lt;stylesheet&amp;gt;${asciidoc.output.directory}/pdf-html-prince/ike-print.css&amp;lt;/stylesheet&amp;gt;
+ *   &amp;lt;/configuration&amp;gt;
+ * &amp;lt;/execution&amp;gt;
+ * &lt;/pre&gt;
+ */
+@Mojo(name = &quot;render-pdf&quot;,
+      defaultPhase = &quot;package&quot;,
+      projectRequired = true)
+public class RenderPdfMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L64">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /**
+     * Renderer to use. One of: {@code prince}, {@code ah},
+     * {@code weasyprint}, {@code xep}, {@code fop}.
+     */
+    @Parameter(property = &quot;ike.renderer&quot;, required = true)
+    private String renderer;
+
+    /**
+     * Path to the renderer executable. Defaults are renderer-specific:
+     * {@code prince}, {@code AHFCmd}, {@code weasyprint}, {@code java}.
+     */
+    @Parameter(property = &quot;ike.renderer.executable&quot;)
+    private String executable;
+
+    /** Skip this execution entirely (no log output when skipped). */
+    @Parameter(property = &quot;ike.renderer.skip&quot;, defaultValue = &quot;false&quot;)
+    private boolean skip;
+
+    /**
+     * Directory containing intermediate files (HTML for CSS renderers,
+     * FO for FO renderers).
+     */
+    @Parameter(required = true)
+    private File inputDir;
+
+    /** Directory where rendered PDFs will be written. */
+    @Parameter(required = true)
+    private File outputDir;
+
+    // ── CSS renderer parameters ──────────────────────────────────────
+
+    /** Print stylesheet for CSS renderers (prince, ah, weasyprint). */
+    @Parameter
+    private File stylesheet;
+
+    /**
+     * PDF profile for CSS renderers.
+     * Prince uses {@code PDF/UA-1}, AH uses {@code @PDF/UA-1}.
+     */
+    @Parameter(property = &quot;ike.renderer.pdfProfile&quot;, defaultValue = &quot;PDF/UA-1&quot;)
+    private String pdfProfile;
+
+    // ── FO renderer parameters ───────────────────────────────────────
+
+    /** Configuration file for FO renderers (XEP config or FOP xconf). */
+    @Parameter
+    private File configFile;
+
+    /**
+     * Classpath for FO renderers that run via {@code java}.
+     * Colon-separated paths to JAR files.
+     */
+    @Parameter
+    private String classpath;
+
+    // ── Document selection ────────────────────────────────────────────
+
+    /**
+     * Specific documents to render (base names without extension).
+     * If empty, all input files in {@code inputDir} are rendered.
+     */
+    @Parameter
+    private List&lt;String&gt; documents;
+
+    /** Log file for renderer output. */
+    @Parameter
+    private File logFile;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L135">    public RenderPdfMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L140">            return;</span>
+        }
+
+<span class="nc" id="L143">        RendererType type = resolveRenderer(renderer);</span>
+<span class="nc" id="L144">        String resolvedExecutable = resolveExecutable(type);</span>
+<span class="nc" id="L145">        validateExecutable(resolvedExecutable, type);</span>
+
+<span class="nc" id="L147">        List&lt;Path&gt; inputs = discoverInputFiles(type);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (inputs.isEmpty()) {</span>
+<span class="nc" id="L149">            getLog().info(&quot;render-pdf [&quot; + renderer + &quot;]: no input files in &quot;</span>
+                    + inputDir);
+<span class="nc" id="L151">            return;</span>
+        }
+
+        try {
+<span class="nc" id="L155">            Files.createDirectories(outputDir.toPath());</span>
+<span class="nc" id="L156">        } catch (IOException e) {</span>
+<span class="nc" id="L157">            throw new MojoException(</span>
+                    &quot;Failed to create output directory: &quot; + outputDir, e);
+<span class="nc" id="L159">        }</span>
+
+<span class="nc" id="L161">        int rendered = 0;</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        for (Path input : inputs) {</span>
+<span class="nc" id="L163">            String baseName = stripExtension(input.getFileName().toString());</span>
+<span class="nc" id="L164">            Path output = outputDir.toPath().resolve(baseName + &quot;.pdf&quot;);</span>
+
+<span class="nc" id="L166">            List&lt;String&gt; command = buildCommand(</span>
+                    type, resolvedExecutable, input, output);
+
+            try {
+<span class="nc" id="L170">                int exitCode = invokeRenderer(command);</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">                if (exitCode != 0) {</span>
+<span class="nc" id="L172">                    throw new MojoException(</span>
+                            &quot;Renderer &quot; + renderer + &quot; failed with exit code &quot;
+<span class="nc" id="L174">                                    + exitCode + &quot; for &quot; + input.getFileName());</span>
+                }
+<span class="nc" id="L176">                rendered++;</span>
+<span class="nc" id="L177">            } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L178">                throw new MojoException(</span>
+                        &quot;Failed to invoke &quot; + renderer + &quot; for &quot;
+<span class="nc" id="L180">                                + input.getFileName(), e);</span>
+<span class="nc" id="L181">            }</span>
+<span class="nc" id="L182">        }</span>
+
+<span class="nc" id="L184">        getLog().info(&quot;render-pdf [&quot; + renderer + &quot;]: rendered &quot; + rendered</span>
+                + &quot; document(s) to &quot; + outputDir);
+<span class="nc" id="L186">    }</span>
+
+    // ── Renderer types ───────────────────────────────────────────────
+
+<span class="nc" id="L190">    enum RendererType {</span>
+        /** Prince XML — CSS Paged Media. */
+<span class="nc" id="L192">        PRINCE(&quot;prince&quot;, &quot;.html&quot;),</span>
+        /** Antenna House Formatter — CSS Paged Media. */
+<span class="nc" id="L194">        AH(&quot;AHFCmd&quot;, &quot;.html&quot;),</span>
+        /** WeasyPrint — CSS Paged Media. */
+<span class="nc" id="L196">        WEASYPRINT(&quot;weasyprint&quot;, &quot;.html&quot;),</span>
+        /** RenderX XEP — XSL-FO. */
+<span class="nc" id="L198">        XEP(&quot;java&quot;, &quot;.fo&quot;),</span>
+        /** Apache FOP — XSL-FO. */
+<span class="nc" id="L200">        FOP(&quot;java&quot;, &quot;.fo&quot;);</span>
+
+        final String defaultExecutable;
+        final String inputExtension;
+
+<span class="nc" id="L205">        RendererType(String defaultExecutable, String inputExtension) {</span>
+<span class="nc" id="L206">            this.defaultExecutable = defaultExecutable;</span>
+<span class="nc" id="L207">            this.inputExtension = inputExtension;</span>
+<span class="nc" id="L208">        }</span>
+
+        boolean isCssBased() {
+<span class="nc" id="L211">            return inputExtension.equals(&quot;.html&quot;);</span>
+        }
+    }
+
+    // ── Command building ─────────────────────────────────────────────
+
+    List&lt;String&gt; buildCommand(RendererType type, String exe,
+                              Path input, Path output) {
+<span class="nc bnc" id="L219" title="All 5 branches missed.">        return switch (type) {</span>
+<span class="nc" id="L220">            case PRINCE -&gt; buildPrinceCommand(exe, input, output);</span>
+<span class="nc" id="L221">            case AH -&gt; buildAhCommand(exe, input, output);</span>
+<span class="nc" id="L222">            case WEASYPRINT -&gt; buildWeasyprintCommand(exe, input, output);</span>
+<span class="nc" id="L223">            case XEP -&gt; buildXepCommand(exe, input, output);</span>
+<span class="nc" id="L224">            case FOP -&gt; buildFopCommand(exe, input, output);</span>
+        };
+    }
+
+    private List&lt;String&gt; buildPrinceCommand(String exe,
+                                            Path input, Path output) {
+<span class="nc" id="L230">        var cmd = new ArrayList&lt;String&gt;();</span>
+<span class="nc" id="L231">        cmd.add(exe);</span>
+<span class="nc" id="L232">        cmd.add(&quot;--silent&quot;);</span>
+<span class="nc" id="L233">        cmd.add(input.toString());</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">        if (stylesheet != null) {</span>
+<span class="nc" id="L235">            cmd.add(&quot;--style&quot;);</span>
+<span class="nc" id="L236">            cmd.add(stylesheet.toString());</span>
+        }
+<span class="nc" id="L238">        cmd.add(&quot;--output&quot;);</span>
+<span class="nc" id="L239">        cmd.add(output.toString());</span>
+<span class="nc bnc" id="L240" title="All 4 branches missed.">        if (pdfProfile != null &amp;&amp; !pdfProfile.isEmpty()) {</span>
+<span class="nc" id="L241">            cmd.add(&quot;--pdf-profile=&quot; + pdfProfile);</span>
+        }
+<span class="nc" id="L243">        return cmd;</span>
+    }
+
+    private List&lt;String&gt; buildAhCommand(String exe,
+                                        Path input, Path output) {
+<span class="nc" id="L248">        var cmd = new ArrayList&lt;String&gt;();</span>
+<span class="nc" id="L249">        cmd.add(exe);</span>
+<span class="nc" id="L250">        cmd.add(&quot;-cssmode&quot;);</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">        if (stylesheet != null) {</span>
+<span class="nc" id="L252">            cmd.add(&quot;-css&quot;);</span>
+<span class="nc" id="L253">            cmd.add(stylesheet.toString());</span>
+        }
+<span class="nc" id="L255">        cmd.add(&quot;-d&quot;);</span>
+<span class="nc" id="L256">        cmd.add(input.toString());</span>
+<span class="nc" id="L257">        cmd.add(&quot;-o&quot;);</span>
+<span class="nc" id="L258">        cmd.add(output.toString());</span>
+<span class="nc bnc" id="L259" title="All 4 branches missed.">        if (pdfProfile != null &amp;&amp; !pdfProfile.isEmpty()) {</span>
+<span class="nc" id="L260">            cmd.add(&quot;-p&quot;);</span>
+<span class="nc" id="L261">            cmd.add(&quot;@&quot; + pdfProfile);</span>
+        }
+<span class="nc" id="L263">        return cmd;</span>
+    }
+
+    private List&lt;String&gt; buildWeasyprintCommand(String exe,
+                                                Path input, Path output) {
+<span class="nc" id="L268">        var cmd = new ArrayList&lt;String&gt;();</span>
+<span class="nc" id="L269">        cmd.add(exe);</span>
+<span class="nc" id="L270">        cmd.add(input.toString());</span>
+<span class="nc" id="L271">        cmd.add(output.toString());</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (stylesheet != null) {</span>
+<span class="nc" id="L273">            cmd.add(&quot;--stylesheet&quot;);</span>
+<span class="nc" id="L274">            cmd.add(stylesheet.toString());</span>
+        }
+<span class="nc" id="L276">        return cmd;</span>
+    }
+
+    private List&lt;String&gt; buildXepCommand(String exe,
+                                         Path input, Path output) {
+<span class="nc" id="L281">        var cmd = new ArrayList&lt;String&gt;();</span>
+<span class="nc" id="L282">        cmd.add(exe);</span>
+<span class="nc bnc" id="L283" title="All 4 branches missed.">        if (classpath != null &amp;&amp; !classpath.isEmpty()) {</span>
+<span class="nc" id="L284">            cmd.add(&quot;-classpath&quot;);</span>
+<span class="nc" id="L285">            cmd.add(classpath);</span>
+        }
+<span class="nc bnc" id="L287" title="All 2 branches missed.">        if (configFile != null) {</span>
+<span class="nc" id="L288">            cmd.add(&quot;-Dcom.renderx.xep.CONFIG=&quot; + configFile);</span>
+        }
+<span class="nc" id="L290">        cmd.add(&quot;com.renderx.xep.XSLDriver&quot;);</span>
+<span class="nc" id="L291">        cmd.add(&quot;-fo&quot;);</span>
+<span class="nc" id="L292">        cmd.add(input.toString());</span>
+<span class="nc" id="L293">        cmd.add(&quot;-pdf&quot;);</span>
+<span class="nc" id="L294">        cmd.add(output.toString());</span>
+<span class="nc" id="L295">        return cmd;</span>
+    }
+
+    private List&lt;String&gt; buildFopCommand(String exe,
+                                         Path input, Path output) {
+<span class="nc" id="L300">        var cmd = new ArrayList&lt;String&gt;();</span>
+<span class="nc" id="L301">        cmd.add(exe);</span>
+<span class="nc bnc" id="L302" title="All 4 branches missed.">        if (classpath != null &amp;&amp; !classpath.isEmpty()) {</span>
+<span class="nc" id="L303">            cmd.add(&quot;-classpath&quot;);</span>
+<span class="nc" id="L304">            cmd.add(classpath);</span>
+        }
+<span class="nc" id="L306">        cmd.add(&quot;org.apache.fop.cli.Main&quot;);</span>
+<span class="nc" id="L307">        cmd.add(&quot;-r&quot;);</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">        if (configFile != null) {</span>
+<span class="nc" id="L309">            cmd.add(&quot;-c&quot;);</span>
+<span class="nc" id="L310">            cmd.add(configFile.toString());</span>
+        }
+<span class="nc" id="L312">        cmd.add(&quot;-fo&quot;);</span>
+<span class="nc" id="L313">        cmd.add(input.toString());</span>
+<span class="nc" id="L314">        cmd.add(&quot;-pdf&quot;);</span>
+<span class="nc" id="L315">        cmd.add(output.toString());</span>
+<span class="nc" id="L316">        return cmd;</span>
+    }
+
+    // ── Process invocation ───────────────────────────────────────────
+
+    /**
+     * Invoke the renderer as an external process.
+     *
+     * @param command the full command line
+     * @return process exit code
+     * @throws IOException if the process cannot be started
+     * @throws InterruptedException if the process is interrupted
+     */
+    int invokeRenderer(List&lt;String&gt; command)
+            throws IOException, InterruptedException {
+<span class="nc" id="L331">        getLog().debug(&quot;render-pdf: &quot; + String.join(&quot; &quot;, command));</span>
+
+<span class="nc" id="L333">        var builder = new ProcessBuilder(command);</span>
+<span class="nc" id="L334">        builder.redirectErrorStream(true);</span>
+
+<span class="nc bnc" id="L336" title="All 2 branches missed.">        if (logFile != null) {</span>
+<span class="nc" id="L337">            Files.createDirectories(logFile.toPath().getParent());</span>
+<span class="nc" id="L338">            builder.redirectOutput(</span>
+<span class="nc" id="L339">                    ProcessBuilder.Redirect.appendTo(logFile));</span>
+        } else {
+<span class="nc" id="L341">            builder.redirectOutput(ProcessBuilder.Redirect.DISCARD);</span>
+        }
+
+<span class="nc" id="L344">        Process process = builder.start();</span>
+<span class="nc" id="L345">        return process.waitFor();</span>
+    }
+
+    // ── Document discovery ───────────────────────────────────────────
+
+    /**
+     * Discover input files to render.
+     *
+     * &lt;p&gt;If {@code documents} is set, only those named files are returned.
+     * Otherwise, all files in {@code inputDir} matching the renderer's
+     * input extension are returned.
+     *
+     * @param type the renderer type (determines input extension)
+     * @return list of input file paths
+     * @throws MojoException if inputDir is not a directory
+     */
+    List&lt;Path&gt; discoverInputFiles(RendererType type)
+            throws MojoException {
+<span class="nc bnc" id="L363" title="All 2 branches missed.">        if (!inputDir.isDirectory()) {</span>
+<span class="nc" id="L364">            return List.of();</span>
+        }
+
+<span class="nc" id="L367">        String ext = type.inputExtension;</span>
+<span class="nc" id="L368">        var result = new ArrayList&lt;Path&gt;();</span>
+
+<span class="nc bnc" id="L370" title="All 4 branches missed.">        if (documents != null &amp;&amp; !documents.isEmpty()) {</span>
+            // Explicit document list
+<span class="nc bnc" id="L372" title="All 2 branches missed.">            for (String doc : documents) {</span>
+<span class="nc" id="L373">                Path file = inputDir.toPath().resolve(doc + ext);</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                if (Files.isRegularFile(file)) {</span>
+<span class="nc" id="L375">                    result.add(file);</span>
+                } else {
+<span class="nc" id="L377">                    getLog().warn(&quot;render-pdf [&quot; + renderer</span>
+<span class="nc" id="L378">                            + &quot;]: document not found — &quot; + file.getFileName());</span>
+                }
+<span class="nc" id="L380">            }</span>
+        } else {
+            // Auto-discover all input files
+<span class="nc" id="L383">            try (DirectoryStream&lt;Path&gt; stream =</span>
+<span class="nc" id="L384">                         Files.newDirectoryStream(inputDir.toPath(),</span>
+                                 &quot;*&quot; + ext)) {
+<span class="nc bnc" id="L386" title="All 2 branches missed.">                for (Path file : stream) {</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">                    if (Files.isRegularFile(file)) {</span>
+<span class="nc" id="L388">                        result.add(file);</span>
+                    }
+<span class="nc" id="L390">                }</span>
+<span class="nc" id="L391">            } catch (IOException e) {</span>
+<span class="nc" id="L392">                throw new MojoException(</span>
+                        &quot;Failed to scan input directory: &quot; + inputDir, e);
+<span class="nc" id="L394">            }</span>
+        }
+
+<span class="nc" id="L397">        return result;</span>
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    static RendererType resolveRenderer(String name)
+            throws MojoException {
+<span class="nc bnc" id="L404" title="All 6 branches missed.">        return switch (name.toLowerCase()) {</span>
+<span class="nc" id="L405">            case &quot;prince&quot; -&gt; RendererType.PRINCE;</span>
+<span class="nc" id="L406">            case &quot;ah&quot;, &quot;antennahouse&quot; -&gt; RendererType.AH;</span>
+<span class="nc" id="L407">            case &quot;weasyprint&quot; -&gt; RendererType.WEASYPRINT;</span>
+<span class="nc" id="L408">            case &quot;xep&quot; -&gt; RendererType.XEP;</span>
+<span class="nc" id="L409">            case &quot;fop&quot; -&gt; RendererType.FOP;</span>
+<span class="nc" id="L410">            default -&gt; throw new MojoException(</span>
+                    &quot;Unknown renderer: &quot; + name
+                            + &quot;. Supported: prince, ah, weasyprint, xep, fop&quot;);
+        };
+    }
+
+    private String resolveExecutable(RendererType type) {
+<span class="nc bnc" id="L417" title="All 4 branches missed.">        return (executable != null &amp;&amp; !executable.isEmpty())</span>
+<span class="nc" id="L418">                ? executable</span>
+<span class="nc" id="L419">                : type.defaultExecutable;</span>
+    }
+
+    private void validateExecutable(String exe, RendererType type)
+            throws MojoException {
+        // For java-based renderers (xep, fop), validate classpath instead
+<span class="nc bnc" id="L425" title="All 4 branches missed.">        if (type == RendererType.XEP || type == RendererType.FOP) {</span>
+<span class="nc bnc" id="L426" title="All 4 branches missed.">            if (classpath == null || classpath.isEmpty()) {</span>
+<span class="nc" id="L427">                throw new MojoException(</span>
+                        &quot;Renderer &quot; + renderer
+                                + &quot; requires &lt;classpath&gt; to be set&quot;);
+            }
+<span class="nc" id="L431">            return;</span>
+        }
+
+        // For external executables, check if on PATH
+        try {
+<span class="nc" id="L436">            var check = new ProcessBuilder(&quot;which&quot;, exe);</span>
+<span class="nc" id="L437">            check.redirectErrorStream(true);</span>
+<span class="nc" id="L438">            check.redirectOutput(ProcessBuilder.Redirect.DISCARD);</span>
+<span class="nc" id="L439">            int result = check.start().waitFor();</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">            if (result != 0) {</span>
+<span class="nc" id="L441">                throw new MojoException(</span>
+                        &quot;Renderer executable not found: &quot; + exe
+                                + &quot;. Install it or set &lt;executable&gt;.&quot;);
+            }
+<span class="nc" id="L445">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L446">            getLog().warn(&quot;Could not validate executable '&quot; + exe</span>
+<span class="nc" id="L447">                    + &quot;': &quot; + e.getMessage());</span>
+<span class="nc" id="L448">        }</span>
+<span class="nc" id="L449">    }</span>
+
+    static String stripExtension(String filename) {
+<span class="nc" id="L452">        int dot = filename.lastIndexOf('.');</span>
+<span class="nc bnc" id="L453" title="All 2 branches missed.">        return (dot &gt; 0) ? filename.substring(0, dot) : filename;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
