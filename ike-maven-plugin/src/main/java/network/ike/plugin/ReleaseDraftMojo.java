@@ -1167,36 +1167,41 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     /**
      * Verify all external dependencies before starting the release.
      *
-     * <p>Each check is non-destructive and fast. Failures here happen
-     * in seconds instead of after a 10-minute build cycle.
+     * <p>Each check is non-destructive and fast — failures here happen
+     * in seconds instead of after a 10-minute build cycle. Every check
+     * runs to completion and records into one of two buckets rather
+     * than failing fast, so a single run logs the complete picture of
+     * everything wrong (IKE-Network/ike-issues#428):
+     * <ul>
+     *   <li><b>errors</b> — git-push authentication, {@code gh} push
+     *       permission on {@code issueRepo}, a missing Maven wrapper.
+     *       Always abort the release; never ignorable.</li>
+     *   <li><b>warnings</b> — {@code gh} CLI unavailable, a missing
+     *       {@code pending-release} label or release milestone,
+     *       commits with no issue trailer. Abort the release too,
+     *       unless {@code -Dike.release.ignoreWarnings=true}.</li>
+     * </ul>
      *
-     * <p>Checks:
-     * <ol>
-     *   <li>Git push — can we authenticate to the remote?</li>
-     *   <li>gh CLI — is it installed and authenticated?</li>
-     *   <li>gh write permission on {@code issueRepo} — required by
-     *       milestone close and {@code pending-release} label removal
-     *       (#392). Fail-fast: silent permission failures mid-release
-     *       leak label state.</li>
-     *   <li>{@code pending-release} label exists on {@code issueRepo}
-     *       (#392). Warn — label removal becomes a no-op for that repo
-     *       if missing.</li>
-     *   <li>Trailer compliance for commits in the release range
-     *       (#392). Per IKE-COMMITS.md every commit must reference an
-     *       issue via {@code Fixes}/{@code Closes}/{@code Resolves}/
-     *       {@code Refs} trailer. Warn — promote to fail-fast after
-     *       one release cycle of adoption.</li>
-     *   <li>Milestone {@code <projectId> v<version>} exists (#392).
-     *       Warn — release falls back to auto-generated notes if
-     *       missing.</li>
-     *   <li>Maven wrapper — is it present and executable?</li>
-     * </ol>
+     * <p>Checks: git-push auth, {@code gh} CLI availability, {@code gh}
+     * write permission on {@code issueRepo} (#392), {@code pending-release}
+     * label existence (#392), commit trailer compliance (#392),
+     * release-milestone existence (#392), and Maven wrapper presence.
+     * Only invoked for a publish.
+     *
+     * @param gitRoot        the release repository root
+     * @param hasOrigin      whether an {@code origin} remote is configured
+     * @param projectId      the project artifactId, for the milestone name
+     * @param releaseVersion the version being released
+     * @throws MojoException if any preflight error is found, or any
+     *                       warning is found and {@code ignoreWarnings}
+     *                       is not set
      */
     private void preflightChecks(File gitRoot, boolean hasOrigin,
                                   String projectId, String releaseVersion)
             throws MojoException {
         getLog().info("");
         getLog().info("PREFLIGHT CHECKS");
+        List<String> errors = new java.util.ArrayList<>();
         List<String> warnings = new java.util.ArrayList<>();
 
         // 1. Git push auth — draft push (sends nothing, tests auth)
@@ -1206,9 +1211,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         "git", "push", "--dry-run", "origin", "main");
                 getLog().info("  Git push:    authenticated  ✓");
             } catch (Exception e) {
-                throw new MojoException(
-                        "Cannot push to origin. Fix authentication before "
-                                + "releasing.\n  Error: " + e.getMessage());
+                errors.add("Cannot push to origin — fix authentication"
+                        + " before releasing. Error: " + e.getMessage());
+                getLog().error("  Git push:    authentication failed  ✗");
             }
         } else {
             getLog().info("  Git push:    no origin remote (local-only release)");
@@ -1230,30 +1235,28 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
         }
 
-        // 3. gh write permission on issueRepo (#392) — fail-fast.
+        // 3. gh write permission on issueRepo (#392) — an error.
         // Required for closeMilestone and removePendingReleaseLabels.
         if (ghAvailable && issueRepo != null && !issueRepo.isBlank()) {
             try {
                 String pushPerm = ReleaseSupport.execCapture(gitRoot,
                         "gh", "api", "/repos/" + issueRepo,
                         "--jq", ".permissions.push");
-                if (!"true".equals(pushPerm.trim())) {
-                    throw new MojoException(
-                            "gh token lacks push permission on " + issueRepo
-                                    + ". Required for milestone close and "
-                                    + "pending-release label removal.\n"
-                                    + "  Re-authenticate with repo scope: "
-                                    + "gh auth refresh -s repo");
+                if ("true".equals(pushPerm.trim())) {
+                    getLog().info("  gh perms:    push on "
+                            + issueRepo + "  ✓");
+                } else {
+                    errors.add("gh token lacks push permission on "
+                            + issueRepo + " — required for milestone"
+                            + " close and pending-release label removal."
+                            + " Re-authenticate with repo scope:"
+                            + " gh auth refresh -s repo");
+                    getLog().error("  gh perms:    no push on "
+                            + issueRepo + "  ✗");
                 }
-                getLog().info("  gh perms:    push on " + issueRepo + "  ✓");
-            } catch (MojoException e) {
-                // Re-throw scope failure; swallow other gh errors as warning
-                if (e.getMessage() != null
-                        && e.getMessage().startsWith("gh token lacks")) {
-                    throw e;
-                }
-                warnings.add("Could not verify gh permissions on " + issueRepo
-                        + ": " + e.getMessage());
+            } catch (Exception e) {
+                warnings.add("Could not verify gh permissions on "
+                        + issueRepo + ": " + e.getMessage());
             }
         }
 
@@ -1330,37 +1333,45 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
             getLog().info("  Maven:       wrapper found  ✓");
         } catch (Exception e) {
-            throw new MojoException(
-                    "Maven wrapper (mvnw) not found. Run: mvn wrapper:wrapper");
+            errors.add("Maven wrapper (mvnw) not found."
+                    + " Run: mvn wrapper:wrapper");
+            getLog().error("  Maven:       wrapper not found  ✗");
         }
 
-        if (!warnings.isEmpty()) {
+        // Report the complete preflight picture, then decide (#428).
+        // Every check above ran to completion and recorded into
+        // `errors` or `warnings` rather than failing fast, so this one
+        // pass logs everything wrong. Errors always abort the release;
+        // warnings abort too unless -Dike.release.ignoreWarnings=true.
+        if (!errors.isEmpty() || !warnings.isEmpty()) {
             getLog().info("");
+            for (String err : errors) {
+                getLog().error("  ✗ " + err);
+            }
             for (String w : warnings) {
                 getLog().warn("  ⚠ " + w);
             }
             getLog().info("");
+        }
 
-            // Preflight warnings fail a publish by default (#428).
-            // -Dike.release.ignoreWarnings=true releases past them;
-            // preflight errors (handled above as immediate failures)
-            // are never ignorable. A draft only previews, so it
-            // reports the warnings and continues.
-            if (!publish) {
-                getLog().warn("  (Draft mode — publish would fail on"
-                        + " these " + warnings.size() + " warning(s);"
-                        + " pass -Dike.release.ignoreWarnings=true to"
-                        + " release past them.)");
-            } else if (ignoreWarnings) {
+        if (!errors.isEmpty()) {
+            throw new MojoException("Release preflight found "
+                    + errors.size() + " error(s)"
+                    + (warnings.isEmpty() ? ""
+                            : " and " + warnings.size() + " warning(s)")
+                    + " — see above. Errors must be resolved before"
+                    + " releasing; they are never ignorable.");
+        }
+        if (!warnings.isEmpty()) {
+            if (ignoreWarnings) {
                 getLog().warn("  Proceeding past " + warnings.size()
                         + " warning(s) (ike.release.ignoreWarnings=true).");
             } else {
-                throw new MojoException(
-                        "Release preflight found " + warnings.size()
-                        + " warning(s) — see above. Resolve them, or"
-                        + " pass -Dike.release.ignoreWarnings=true to"
-                        + " release anyway. Preflight errors are never"
-                        + " ignorable.");
+                throw new MojoException("Release preflight found "
+                        + warnings.size() + " warning(s) — see above."
+                        + " Resolve them, or pass"
+                        + " -Dike.release.ignoreWarnings=true to release"
+                        + " anyway.");
             }
         }
         getLog().info("");
