@@ -6,7 +6,7 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/index.html
 
 # IKE Maven Plugin
 
-The `ike-maven-plugin` provides the `ike:*` goal prefix — 32 goals covering single-repo release orchestration, site deploy + publishing, scaffolding, the AsciiDoc rendering pipeline, native packaging utilities, and BOM generation.
+The `ike-maven-plugin` provides the `ike:*` goal prefix — single-repo release orchestration, the release cascade, site deploy + publishing, scaffolding, native packaging utilities, and BOM generation. The AsciiDoc doc-rendering pipeline moved to `ike-doc-maven-plugin` (`idoc:`) in `IKE-Network/ike-issues#437`.
 
 | Coordinate | Value |
 | --- | --- |
@@ -37,7 +37,7 @@ mvn ike:release-publish      # apply the changes
 
 The bare goal name (e.g. `ike:release`) is wired to the draft variant. This is the same convention used by `ws:*` — every mutation is two-phase with a real chance to audit the draft before committing.
 
-Read-only goals (e.g. `ike:help`, `ike:scan-logs`) have no draft/publish split — they are always safe.
+Read-only goals (e.g. `ike:help`, `ike:env`) have no draft/publish split — they are always safe.
 
 ## [#quick-start--intellij-idea](#quick-start--intellij-idea)Quick start — IntelliJ IDEA
 
@@ -45,13 +45,13 @@ Open the project in IntelliJ. The Maven tool window (right sidebar, **View → T
 
 ![Maven tool window with ike + ws plugins](images/intellij-maven-tool-window.png) 
 
-Expand the `ike (network.ike.tooling:ike-maven-plugin:…​)` entry to see all 34 goals:
+Expand the `ike (network.ike.tooling:ike-maven-plugin:…​)` entry to see all `ike:*` goals:
 
 ![ike goals expanded in Maven tool window](images/intellij-ike-goals.png) 
 
 Common interactions:
 
-- **Run a read-only goal** (`ike:help`, `ike:scan-logs`) — **double-click** the goal in the tree.
+- **Run a read-only goal** (`ike:help`, `ike:env`) — **double-click** the goal in the tree.
 - **Run a goal with parameters** (e.g. `ike:site-publish` with `-Dsite=removed` to uninstall) — **right-click** the goal → **Modify Run Configuration…** → fill `Properties` → **Run**.
 - **Pin frequently-used invocations** — once a Run Configuration is saved, it appears in the toolbar dropdown for one-click access.
 - **Discover goals** — `ike:help` prints the registry, but the Maven tool window has all goals visible by name without running anything.
@@ -87,19 +87,10 @@ mvn ike:scaffold-publish
 | [site-{draft,publish}](#site) | site | Generate, deploy, and register the Maven site; `-Dsite=removed` uninstalls and deregisters |
 | [ike:generate-bom](#generate-bom) | bom | Auto-generate a BOM POM from another module’s dependency management |
 | [scaffold-{draft,publish,revert}](#scaffold) | scaffold | Apply the workspace scaffold manifest (gitignore, hooks, IDE settings) |
-| [ike:asciidoc](#asciidoc) | docs | Render AsciiDoc to HTML / PDF (replaces asciidoctor-maven-plugin) |
-| [ike:adocstudio](#adocstudio) | docs | Generate Adoc Studio sidecar projects |
-| [ike:render-pdf](#render-pdf) | docs | Wrap external PDF renderers (Prince, AH, FOP, weasyprint, xep) |
-| [ike:copy-docs](#copy-docs) | docs | Copy rendered HTML + assets to Maven site output |
-| [ike:copy-default-pdf](#copy-default-pdf) | docs | Promote one renderer’s PDF as the default |
-| [ike:inject-breadcrumb](#inject-breadcrumb) | docs | Inject nav breadcrumbs into JaCoCo HTML reports |
-| [ike:fix-svg](#fix-svg) | docs | Strip bare `<rect/>` elements from rendered HTML |
-| [ike:patch-docbook](#patch-docbook) | docs | Patch DocBook XSL to suppress Saxon warnings |
-| [ike:prepare-renderer-output](#prepare-renderer-output) | docs | Create output directories for external PDF renderers |
-| [ike:setup](#setup) | scaffold | Install VCS bridge git hooks to `~/.git-hooks/` |
+| [ike:inject-breadcrumb](#inject-breadcrumb) | site | Inject nav breadcrumbs into JaCoCo HTML reports |
+| [ike:setup](#setup) | setup | Install VCS bridge git hooks to `~/.git-hooks/` |
 | [ike:unpack-zip](#unpack-zip) | utility | Download + unpack a zip from a URL |
 | [ike:rename](#rename) | utility | Rename a file (replaces `exec-maven-plugin` calls to `mv`) |
-| [ike:scan-logs](#scan-logs) | utility | Scan renderer log files for error patterns |
 | [ike:codesign-natives](#codesign-natives) | native | Sign native libraries inside a jlink runtime image (macOS notarization) |
 | [ike:codesign-pkg](#codesign-pkg) | native | Re-sign `.app` inside `.pkg` to add JVM entitlements |
 | [ike:jpackage-props](#jpackage-props) | native | Compute build timestamp, platform, JPackage version properties |
@@ -201,45 +192,13 @@ Apply (or revert) the workspace scaffold — the conventional non-source files t
 
 `scaffold-revert` undoes a previous `scaffold-publish` per the tier policy in the manifest (some files are tool-owned and revertible, others are tracked in version control and not touched on revert).
 
-## [#asciidoc-rendering-pipeline](#asciidoc-rendering-pipeline)AsciiDoc rendering pipeline
+## [#site-and-setup-goals](#site-and-setup-goals)Site and setup goals
 
-This is the doc-rendering core consumed by every project that has a `src/docs/asciidoc/` directory. Activation is path-conditional in `ike-parent’s `doc-pipeline` profile, so doc-only modules (`<packaging>pom</packaging>`) and hybrid Java-plus-docs modules (`<packaging>jar</packaging>`) both pick it up automatically.
-
-### [#ike-asciidoc](#ike-asciidoc)ike:asciidoc
-
-Render AsciiDoc sources via AsciidoctorJ — the heart of the doc pipeline. Replaces `asciidoctor-maven-plugin` with a single goal that handles the IKE-specific renderer profiles (Prawn / Prince / AH / WeasyPrint / XEP / FOP / DocBook / single-page HTML).
-
-### [#ike-adocstudio](#ike-adocstudio)ike:adocstudio
-
-Generate Adoc Studio sidecar projects for assembly modules — extracts a bundled Swift script and runs it against the current module to produce `.adocstudio` files for the macOS Adoc Studio editor.
-
-### [#ike-render-pdf](#ike-render-pdf)ike:render-pdf
-
-Wrapper around the five external PDF renderers supported by the IKE documentation pipeline. Selects the active renderer per `-Dike.pdf.<name>=true` toggles set by the `doc-pipeline` profile.
-
-### [#ike-copy-docs](#ike-copy-docs)ike:copy-docs
-
-Copy rendered HTML + supporting assets (SVG, PNG, fonts) from the generated-docs directory into the Maven site output, so AsciiDoc content shows up in `mvn site`.
-
-### [#ike-copy-default-pdf](#ike-copy-default-pdf)ike:copy-default-pdf
-
-Promote one renderer’s PDF as the default. With multiple renderers producing output in `pdf-prawn/`, `pdf-prince/`, etc., this picks the first available and copies it to a single canonical `pdf/` location.
+The AsciiDoc doc-rendering pipeline (`asciidoc`, `render-pdf`, `adocstudio`, `fix-svg`, `patch-docbook`, `prepare-renderer-output`, `copy-default-pdf`, `copy-docs`, `scan-logs`) moved to `ike-doc-maven-plugin` (`idoc:`) — see [the idoc plugin](https://ike.network/ike-docs/ike-doc-maven-plugin/)[11]. The two goals below stay in `ike-maven-plugin`: neither renders AsciiDoc.
 
 ### [#ike-inject-breadcrumb](#ike-inject-breadcrumb)ike:inject-breadcrumb
 
 Inject navigation breadcrumbs and theme overrides into JaCoCo HTML reports so they fit visually with the rest of the Maven site.
-
-### [#ike-fix-svg](#ike-fix-svg)ike:fix-svg
-
-Remove bare `<rect/>` elements that Mermaid emits as artifacts in generated HTML — they cause rendering glitches in some browsers.
-
-### [#ike-patch-docbook](#ike-patch-docbook)ike:patch-docbook
-
-Patch the stock DocBook XSL 1.79.2 stylesheets to suppress two known Saxon warnings. Applied during `ike-docs` build of the `docbook-xsl` artifact.
-
-### [#ike-prepare-renderer-output](#ike-prepare-renderer-output)ike:prepare-renderer-output
-
-Create the per-renderer output directories (`pdf-prince/`, `pdf-fop/`, etc.) before the renderers run. Replaces ~5 `exec-maven-plugin` calls to `mkdir -p`.
 
 ### [#ike-setup](#ike-setup)ike:setup
 
@@ -275,10 +234,6 @@ Download and unpack a zip archive from a URL. Uses `java.util.zip.ZipInputStream
 
 Rename a file within a directory. Replaces `exec-maven-plugin` calls to `mv` in the doc pipeline.
 
-### [#ike-scan-logs](#ike-scan-logs)ike:scan-logs
-
-Scan renderer log files (`renderer-*.log`) for error patterns and print a summary. Used after multi-renderer runs to flag failures fast.
-
 ### [#ike-help](#ike-help)ike:help
 
 Print a list of available `ike:*` goals, generated from the compile-time `IkeGoal` registry. Goal names cannot drift from the actual plugin because the registry is enforced at compile time.
@@ -288,6 +243,6 @@ Print a list of available `ike:*` goals, generated from the compile-time `IkeGoa
 - [The IKE Release Cascade](release-cascade.html)[10] — how the three-repo foundation releases in order, and the goals that drive it.
 - [Self-host bootstrap pattern](self-host-bootstrap.html)[3] — for reactors that build the plugin they want to bind.
 - [ws:* plugin](https://ike.network/ike-platform/ike-workspace-maven-plugin/)[1] — workspace-spanning goals.
-- [ike-tooling reactor home](https://ike.network/ike-tooling/)[11].
-- [Source on GitHub](https://github.com/IKE-Network/ike-tooling)[12].
-- [Issue tracker](https://github.com/IKE-Network/ike-issues)[13].
+- [ike-tooling reactor home](https://ike.network/ike-tooling/)[12].
+- [Source on GitHub](https://github.com/IKE-Network/ike-tooling)[13].
+- [Issue tracker](https://github.com/IKE-Network/ike-issues)[14].

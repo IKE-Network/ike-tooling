@@ -27,5 +27,5 @@ canonical_url: https://ike.network/ike-tooling/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-tooling |
-| Version | 184 |
+| Version | 185 |
 | Type | pom |
