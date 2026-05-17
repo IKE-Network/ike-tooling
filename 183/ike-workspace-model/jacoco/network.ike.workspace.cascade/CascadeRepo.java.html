@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CascadeRepo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">CascadeRepo.java</span></div><h1>CascadeRepo.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import java.util.List;
+
+/**
+ * One node in the assembled IKE release cascade graph
+ * (IKE-Network/ike-issues#402, #420).
+ *
+ * &lt;p&gt;A node pairs a project's identity — its reactor-root Maven
+ * coordinates and repository locators — with the {@link ProjectCascade}
+ * parsed from that project's own {@code src/main/cascade/release-cascade.yaml}.
+ * Nodes are produced only by {@link CascadeAssembler}, which traverses
+ * the per-project manifests and stitches them into a single ordered
+ * {@link ReleaseCascade}.
+ *
+ * &lt;p&gt;Identity is keyed off the Maven {@code groupId} +
+ * {@code artifactId}. The {@code repo} and {@code url} fields are pure
+ * locators — the on-disk directory and the canonical git URL the
+ * cascade executor uses to reach the project.
+ *
+ * @param groupId    the project's reactor-root Maven {@code groupId};
+ *                   the primary identity key
+ * @param artifactId the project's reactor-root Maven {@code artifactId}
+ * @param repo       the on-disk directory / GitHub repo name
+ * @param url        the canonical upstream git URL, or {@code null}
+ *                   when unknown
+ * @param cascade    the project's own parsed {@code release-cascade.yaml}
+ */
+public record CascadeRepo(String groupId, String artifactId,
+                           String repo, String url,
+                           ProjectCascade cascade) {
+
+    /**
+     * Canonical constructor — validates the identity coordinates and
+     * the embedded {@link ProjectCascade}.
+     */
+<span class="fc" id="L37">    public CascadeRepo {</span>
+<span class="pc bpc" id="L38" title="2 of 4 branches missed.">        if (groupId == null || groupId.isBlank()) {</span>
+<span class="nc" id="L39">            throw new IllegalArgumentException(</span>
+                    &quot;cascade node requires a groupId&quot;);
+        }
+<span class="pc bpc" id="L42" title="2 of 4 branches missed.">        if (artifactId == null || artifactId.isBlank()) {</span>
+<span class="nc" id="L43">            throw new IllegalArgumentException(</span>
+                    &quot;cascade node requires an artifactId&quot;);
+        }
+<span class="pc bpc" id="L46" title="2 of 4 branches missed.">        if (repo == null || repo.isBlank()) {</span>
+<span class="nc" id="L47">            repo = artifactId;</span>
+        }
+<span class="pc bpc" id="L49" title="1 of 2 branches missed.">        if (cascade == null) {</span>
+<span class="nc" id="L50">            throw new IllegalArgumentException(</span>
+                    &quot;cascade node requires a ProjectCascade&quot;);
+        }
+<span class="fc" id="L53">    }</span>
+
+    /**
+     * Returns the {@code groupId:artifactId} coordinate string.
+     *
+     * @return the GA coordinate, e.g. {@code network.ike.tooling:ike-tooling}
+     */
+    public String ga() {
+<span class="fc" id="L61">        return groupId + &quot;:&quot; + artifactId;</span>
+    }
+
+    /**
+     * The upstream edges — the projects this one consumes.
+     *
+     * @return this project's {@code upstream} edges; never {@code null}
+     */
+    public List&lt;CascadeEdge&gt; upstream() {
+<span class="fc" id="L70">        return cascade.upstream();</span>
+    }
+
+    /**
+     * The downstream edges — the projects that consume this one.
+     *
+     * @return this project's {@code downstream} edges; never {@code null}
+     */
+    public List&lt;CascadeEdge&gt; downstream() {
+<span class="fc" id="L79">        return cascade.downstream();</span>
+    }
+
+    /**
+     * The groupIds this project consumes, drawn from its
+     * {@code upstream} edges.
+     *
+     * @return the upstream groupIds; never {@code null}
+     */
+    public List&lt;String&gt; consumes() {
+<span class="fc" id="L89">        return cascade.upstream().stream()</span>
+<span class="fc" id="L90">                .map(CascadeEdge::groupId).toList();</span>
+    }
+
+    /**
+     * Whether this project is the head of the cascade.
+     *
+     * @return {@code true} if it declares no upstream edge
+     */
+    public boolean head() {
+<span class="fc" id="L99">        return cascade.head();</span>
+    }
+
+    /**
+     * Whether this project is the terminus of the cascade.
+     *
+     * @return {@code true} if it declares no downstream edge
+     */
+    public boolean terminal() {
+<span class="fc" id="L108">        return cascade.terminal();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
