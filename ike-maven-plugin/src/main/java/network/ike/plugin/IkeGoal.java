@@ -20,12 +20,6 @@ import java.util.Optional;
  */
 public enum IkeGoal implements GoalRef {
 
-    /** {@code ike:adocstudio} — edit the project in AsciiDocFX. */
-    ADOCSTUDIO("adocstudio", AdocStudioMojo.class,
-            "Edit the project in AsciiDocFX."),
-    /** {@code ike:asciidoc} — render AsciiDoc to HTML. */
-    ASCIIDOC("asciidoc", AsciidocMojo.class,
-            "Render AsciiDoc to HTML."),
     /** {@code ike:cascade-export} — export the release cascade topology for CI. */
     CASCADE_EXPORT("cascade-export", IkeCascadeExportMojo.class,
             "Export the foundation release cascade topology as JSON "
@@ -38,21 +32,12 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:codesign-pkg} — sign a {@code .pkg} installer with Developer ID. */
     CODESIGN_PKG("codesign-pkg", CodesignPkgMojo.class,
             "Sign a .pkg installer with a Developer ID Installer certificate."),
-    /** {@code ike:copy-default-pdf} — copy the default-renderer PDF to the site. */
-    COPY_DEFAULT_PDF("copy-default-pdf", CopyDefaultPdfMojo.class,
-            "Copy the project's default-renderer PDF to the site."),
-    /** {@code ike:copy-docs} — copy rendered docs into the site. */
-    COPY_DOCS("copy-docs", CopyDocsToSiteMojo.class,
-            "Copy rendered docs into the site."),
     /** {@code ike:env} — print runtime environment / terminal diagnostics. */
     ENV("env", IkeEnvMojo.class,
             "Print runtime environment diagnostics — terminal/console "
                     + "capability, stdin, and relevant system properties. "
                     + "Run from both IntelliJ's Maven tool window and the "
                     + "Terminal tool window to compare (ike-issues#385)."),
-    /** {@code ike:fix-svg} — post-process SVGs for PDF renderer compatibility. */
-    FIX_SVG("fix-svg", FixSvgMojo.class,
-            "Post-process generated SVGs to work in all PDF renderers."),
     /** {@code ike:generate-bom} — generate the auto-managed BOM. */
     GENERATE_BOM("generate-bom", GenerateBomMojo.class,
             "Generate the auto-managed BOM from the current dependencyManagement."),
@@ -68,12 +53,6 @@ public enum IkeGoal implements GoalRef {
     /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
     NOTARIZE("notarize", NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
-    /** {@code ike:patch-docbook} — apply local patches to DocBook XSL output. */
-    PATCH_DOCBOOK("patch-docbook", PatchDocbookMojo.class,
-            "Apply local patches to the DocBook XSL output."),
-    /** {@code ike:prepare-renderer-output} — prepare per-renderer output dirs. */
-    PREPARE_RENDERER_OUTPUT("prepare-renderer-output", PrepareRendererOutputMojo.class,
-            "Prepare per-renderer output directories."),
     /** {@code ike:release-draft} — preview releasing the current project. */
     RELEASE_DRAFT("release-draft", ReleaseDraftMojo.class,
             "Preview releasing the current project."),
@@ -99,9 +78,6 @@ public enum IkeGoal implements GoalRef {
                     + "supports per-module rendering by walking up "
                     + "the filesystem to find the reactor's "
                     + "supplement.yaml."),
-    /** {@code ike:render-pdf} — render AsciiDoc to PDF via a configured renderer. */
-    RENDER_PDF("render-pdf", RenderPdfMojo.class,
-            "Render AsciiDoc to PDF via a configured renderer."),
     /** {@code ike:render-sbom-viewer} — generate dependencies.adoc from the CycloneDX SBOM (#341). */
     RENDER_SBOM_VIEWER("render-sbom-viewer", RenderSbomViewerMojo.class,
             "Generate a Web-friendly dependencies.adoc page from "
@@ -126,9 +102,6 @@ public enum IkeGoal implements GoalRef {
     SCAFFOLD_REVERT("scaffold-revert", ScaffoldRevertMojo.class,
             "Undo a previous ike:scaffold-publish, leaving "
                     + "user-edited files alone."),
-    /** {@code ike:scan-logs} — scan renderer logs for warnings and errors. */
-    SCAN_LOGS("scan-logs", ScanRendererLogsMojo.class,
-            "Scan renderer logs for warnings and errors."),
     /** {@code ike:site-draft} — report deployed-site drift (#398). */
     SITE_DRAFT("site-draft", IkeSiteDraftMojo.class,
             "Report drift in deployed-site state — version on "
