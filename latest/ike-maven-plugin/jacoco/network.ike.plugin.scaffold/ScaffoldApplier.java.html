@@ -7,6 +7,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -30,8 +31,8 @@ public final class ScaffoldApplier {
 
     /** Construct with {@link Clock#systemUTC()}. */
     public ScaffoldApplier() {
-<span class="fc" id="L33">        this(Clock.systemUTC());</span>
-<span class="fc" id="L34">    }</span>
+<span class="fc" id="L34">        this(Clock.systemUTC());</span>
+<span class="fc" id="L35">    }</span>
 
     /**
      * Construct with an explicit clock. Tests supply a fixed clock so
@@ -40,9 +41,9 @@ public final class ScaffoldApplier {
      *
      * @param clock clock used for timestamps written into the lockfile
      */
-<span class="fc" id="L43">    public ScaffoldApplier(Clock clock) {</span>
-<span class="fc" id="L44">        this.clock = clock;</span>
-<span class="fc" id="L45">    }</span>
+<span class="fc" id="L44">    public ScaffoldApplier(Clock clock) {</span>
+<span class="fc" id="L45">        this.clock = clock;</span>
+<span class="fc" id="L46">    }</span>
 
     /**
      * Carry out a plan.
@@ -56,83 +57,130 @@ public final class ScaffoldApplier {
     public ScaffoldLockfile apply(
             ScaffoldPlan plan,
             ScaffoldLockfile currentLockfile) {
-<span class="fc" id="L59">        Map&lt;String, LockfileEntry&gt; files =</span>
-<span class="fc" id="L60">                new LinkedHashMap&lt;&gt;(currentLockfile.files());</span>
-<span class="fc bfc" id="L61" title="All 2 branches covered.">        for (PlannedEntry pe : plan.entries()) {</span>
-<span class="fc" id="L62">            LockfileEntry updated = applyOne(pe);</span>
-<span class="fc bfc" id="L63" title="All 2 branches covered.">            if (updated != null) {</span>
-<span class="fc" id="L64">                files.put(pe.manifest().dest(), updated);</span>
+<span class="fc" id="L60">        Map&lt;String, LockfileEntry&gt; files =</span>
+<span class="fc" id="L61">                new LinkedHashMap&lt;&gt;(currentLockfile.files());</span>
+<span class="fc bfc" id="L62" title="All 2 branches covered.">        for (PlannedEntry pe : plan.entries()) {</span>
+<span class="fc" id="L63">            LockfileEntry updated = applyOne(pe);</span>
+<span class="fc bfc" id="L64" title="All 2 branches covered.">            if (updated != null) {</span>
+<span class="fc" id="L65">                files.put(pe.manifest().dest(), updated);</span>
             }
             // Skip actions retain whatever the lockfile already had.
-<span class="fc" id="L67">        }</span>
-<span class="fc" id="L68">        return new ScaffoldLockfile(</span>
+<span class="fc" id="L68">        }</span>
+<span class="fc" id="L69">        return new ScaffoldLockfile(</span>
                 ScaffoldLockfile.CURRENT_SCHEMA,
-<span class="fc" id="L70">                plan.manifestStandardsVersion(),</span>
-<span class="fc" id="L71">                Instant.now(clock),</span>
+<span class="fc" id="L71">                plan.manifestStandardsVersion(),</span>
+<span class="fc" id="L72">                Instant.now(clock),</span>
                 files);
     }
 
+    /**
+     * Remove orphaned scaffold files and drop their lockfile entries.
+     *
+     * &lt;p&gt;Run after {@link #apply} on the lockfile that {@code apply}
+     * returned. For each {@link OrphanEntry.Disposition#REMOVE} orphan
+     * the on-disk file is deleted; for {@code REMOVE} and
+     * {@link OrphanEntry.Disposition#ALREADY_ABSENT} orphans the stale
+     * lockfile entry is dropped. {@link OrphanEntry.Disposition#SKIP_USER_EDITED}
+     * orphans are left entirely alone — file and lockfile entry both
+     * stay, so the orphan keeps surfacing until the operator resolves
+     * it.
+     *
+     * @param orphans  orphans found by {@link OrphanScanner}
+     * @param lockfile the lockfile to prune (typically the result of
+     *                 {@link #apply})
+     * @return the lockfile with removed/absent orphan entries dropped
+     * @throws ScaffoldException if a file deletion fails
+     */
+    public ScaffoldLockfile removeOrphans(
+            List&lt;OrphanEntry&gt; orphans,
+            ScaffoldLockfile lockfile) {
+<span class="fc" id="L97">        ScaffoldLockfile result = lockfile;</span>
+<span class="fc bfc" id="L98" title="All 2 branches covered.">        for (OrphanEntry orphan : orphans) {</span>
+<span class="fc bfc" id="L99" title="All 3 branches covered.">            switch (orphan.disposition()) {</span>
+                case REMOVE -&gt; {
+<span class="fc" id="L101">                    deleteFile(orphan.resolvedDest());</span>
+<span class="fc" id="L102">                    result = result.withoutEntry(orphan.dest());</span>
+<span class="fc" id="L103">                }</span>
+                case ALREADY_ABSENT -&gt;
+<span class="fc" id="L105">                        result = result.withoutEntry(orphan.dest());</span>
+                case SKIP_USER_EDITED -&gt; {
+                    // Leave the file and the lockfile entry in place.
+                }
+            }
+<span class="fc" id="L110">        }</span>
+<span class="fc" id="L111">        return result;</span>
+    }
+
+    private static void deleteFile(Path dest) {
+        try {
+<span class="fc" id="L116">            Files.delete(dest);</span>
+<span class="nc" id="L117">        } catch (IOException e) {</span>
+<span class="nc" id="L118">            throw new ScaffoldException(</span>
+                    &quot;cannot delete orphaned scaffold file &quot; + dest, e);
+<span class="fc" id="L120">        }</span>
+<span class="fc" id="L121">    }</span>
+
     private LockfileEntry applyOne(PlannedEntry pe) {
-<span class="fc" id="L76">        TierAction action = pe.action();</span>
-<span class="fc bfc" id="L77" title="All 2 branches covered.">        if (action instanceof TierAction.Write w) {</span>
-<span class="fc" id="L78">            writeBytes(w.resolvedDest(), w.newContent());</span>
-<span class="fc" id="L79">            return lockfileEntryFor(pe, w.templateSha(), w.appliedSha());</span>
+<span class="fc" id="L124">        TierAction action = pe.action();</span>
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        if (action instanceof TierAction.Write w) {</span>
+<span class="fc" id="L126">            writeBytes(w.resolvedDest(), w.newContent());</span>
+<span class="fc" id="L127">            return lockfileEntryFor(pe, w.templateSha(), w.appliedSha());</span>
         }
-<span class="fc bfc" id="L81" title="All 2 branches covered.">        if (action instanceof TierAction.UpToDate u) {</span>
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        if (action instanceof TierAction.UpToDate u) {</span>
             // Refresh standards-version in the lockfile entry.
-<span class="fc" id="L83">            return lockfileEntryFor(pe, u.templateSha(), u.appliedSha());</span>
+<span class="fc" id="L131">            return lockfileEntryFor(pe, u.templateSha(), u.appliedSha());</span>
         }
-<span class="fc bfc" id="L85" title="All 2 branches covered.">        if (action instanceof TierAction.UserManaged m) {</span>
+<span class="fc bfc" id="L133" title="All 2 branches covered.">        if (action instanceof TierAction.UserManaged m) {</span>
             // No write; refresh lockfile provenance like UpToDate.
-<span class="fc" id="L87">            return lockfileEntryFor(pe, m.templateSha(), m.appliedSha());</span>
+<span class="fc" id="L135">            return lockfileEntryFor(pe, m.templateSha(), m.appliedSha());</span>
         }
         // Skip: leave lockfile unchanged.
-<span class="fc" id="L90">        return null;</span>
+<span class="fc" id="L138">        return null;</span>
     }
 
     private static LockfileEntry lockfileEntryFor(
             PlannedEntry pe,
             String templateSha,
             String appliedSha) {
-<span class="fc" id="L97">        ScaffoldTier tier = pe.manifest().tier();</span>
-<span class="fc bfc" id="L98" title="All 3 branches covered.">        return switch (tier) {</span>
+<span class="fc" id="L145">        ScaffoldTier tier = pe.manifest().tier();</span>
+<span class="fc bfc" id="L146" title="All 3 branches covered.">        return switch (tier) {</span>
             case TOOL_OWNED -&gt;
-<span class="fc" id="L100">                    LockfileEntry.toolOwned(templateSha);</span>
+<span class="fc" id="L148">                    LockfileEntry.toolOwned(templateSha);</span>
             case TRACKED, TRACKED_BLOCK -&gt;
-<span class="fc" id="L102">                    LockfileEntry.tracked(</span>
+<span class="fc" id="L150">                    LockfileEntry.tracked(</span>
                             tier, templateSha, appliedSha);
             case MODEL_MANAGED -&gt;
-<span class="fc" id="L105">                    LockfileEntry.modelManaged(pe.managedElements());</span>
+<span class="fc" id="L153">                    LockfileEntry.modelManaged(pe.managedElements());</span>
         };
     }
 
     private static void writeBytes(Path dest, byte[] content) {
         try {
-<span class="fc" id="L111">            Path parent = dest.getParent();</span>
-<span class="pc bpc" id="L112" title="1 of 2 branches missed.">            if (parent != null) {</span>
-<span class="fc" id="L113">                Files.createDirectories(parent);</span>
+<span class="fc" id="L159">            Path parent = dest.getParent();</span>
+<span class="pc bpc" id="L160" title="1 of 2 branches missed.">            if (parent != null) {</span>
+<span class="fc" id="L161">                Files.createDirectories(parent);</span>
             }
-<span class="fc" id="L115">            Path tmp = Files.createTempFile(</span>
-<span class="pc bpc" id="L116" title="1 of 2 branches missed.">                    parent == null ? dest.toAbsolutePath().getParent()</span>
-<span class="fc" id="L117">                            : parent,</span>
-<span class="fc" id="L118">                    dest.getFileName().toString(), &quot;.tmp&quot;);</span>
+<span class="fc" id="L163">            Path tmp = Files.createTempFile(</span>
+<span class="pc bpc" id="L164" title="1 of 2 branches missed.">                    parent == null ? dest.toAbsolutePath().getParent()</span>
+<span class="fc" id="L165">                            : parent,</span>
+<span class="fc" id="L166">                    dest.getFileName().toString(), &quot;.tmp&quot;);</span>
             try {
-<span class="fc" id="L120">                Files.write(tmp, content);</span>
-<span class="fc" id="L121">                Files.move(tmp, dest,</span>
+<span class="fc" id="L168">                Files.write(tmp, content);</span>
+<span class="fc" id="L169">                Files.move(tmp, dest,</span>
                         StandardCopyOption.REPLACE_EXISTING,
                         StandardCopyOption.ATOMIC_MOVE);
-<span class="nc" id="L124">            } catch (IOException e) {</span>
+<span class="nc" id="L172">            } catch (IOException e) {</span>
                 try {
-<span class="nc" id="L126">                    Files.deleteIfExists(tmp);</span>
-<span class="nc" id="L127">                } catch (IOException ignored) {</span>
+<span class="nc" id="L174">                    Files.deleteIfExists(tmp);</span>
+<span class="nc" id="L175">                } catch (IOException ignored) {</span>
                     // ignore — best-effort cleanup
-<span class="nc" id="L129">                }</span>
-<span class="nc" id="L130">                throw e;</span>
-<span class="fc" id="L131">            }</span>
-<span class="nc" id="L132">        } catch (IOException e) {</span>
-<span class="nc" id="L133">            throw new ScaffoldException(</span>
+<span class="nc" id="L177">                }</span>
+<span class="nc" id="L178">                throw e;</span>
+<span class="fc" id="L179">            }</span>
+<span class="nc" id="L180">        } catch (IOException e) {</span>
+<span class="nc" id="L181">            throw new ScaffoldException(</span>
                     &quot;cannot write &quot; + dest, e);
-<span class="fc" id="L135">        }</span>
-<span class="fc" id="L136">    }</span>
+<span class="fc" id="L183">        }</span>
+<span class="fc" id="L184">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
