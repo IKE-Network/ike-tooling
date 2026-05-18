@@ -13,8 +13,8 @@ import java.util.List;
  *
  * <p>Implementations MUST:
  * <ul>
- *   <li>Filter out SNAPSHOT versions — {@code versions-upgrade-draft}
- *       only ever proposes released versions.</li>
+ *   <li>Filter out SNAPSHOT versions — foundation resolution only
+ *       ever proposes released versions.</li>
  *   <li>Return versions in ascending order, with the highest at the
  *       end of the list.</li>
  *   <li>Return an empty list (not null) when nothing is available or

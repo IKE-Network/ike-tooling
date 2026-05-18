@@ -49,8 +49,25 @@ public final class PathResolver {
      *                           is inconsistent with its scope
      */
     public Path resolve(ManifestEntry entry) {
-        String dest = entry.dest();
-        if (entry.scope() == ScaffoldScope.USER) {
+        return resolveDest(entry.dest(), entry.scope());
+    }
+
+    /**
+     * Resolve a bare {@code dest} string to an absolute path.
+     *
+     * <p>Used for lockfile entries that have no surviving manifest
+     * counterpart (orphans) — the scope is inferred by the caller
+     * from which lockfile the {@code dest} came out of.
+     *
+     * @param dest  the manifest {@code dest} string
+     * @param scope the scope to resolve under
+     * @return absolute, normalised path
+     * @throws ScaffoldException if the dest form is inconsistent with
+     *                           its scope or the required root is
+     *                           unavailable
+     */
+    public Path resolveDest(String dest, ScaffoldScope scope) {
+        if (scope == ScaffoldScope.USER) {
             if (!dest.startsWith("~/")) {
                 throw new ScaffoldException(
                         "USER-scope entry '" + dest

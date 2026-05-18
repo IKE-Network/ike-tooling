@@ -180,6 +180,28 @@ public final class ScaffoldMojoSupport {
     }
 
     /**
+     * Render an orphan listing suitable for log output. Orphans are
+     * lockfile entries the current manifest no longer ships.
+     *
+     * @param orphans the orphans found by {@link OrphanScanner}
+     * @param scope   the scope the scan targeted (used as a header)
+     * @return multi-line human-readable report (no trailing newline)
+     */
+    public static String renderOrphanReport(
+            List<OrphanEntry> orphans, ScaffoldScope scope) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("─── ").append(scope.manifestValue())
+                .append(" scope — ").append(orphans.size())
+                .append(" orphan(s) ───");
+        for (OrphanEntry o : orphans) {
+            sb.append('\n').append("  [ORPHAN]  ")
+                    .append(padRight(o.dest(), 36))
+                    .append("  ").append(o.reason());
+        }
+        return sb.toString();
+    }
+
+    /**
      * One-line summary of what the plan would change, for post-publish
      * telemetry and draft headers.
      *

@@ -4,6 +4,8 @@ import network.ike.plugin.scaffold.DirectoryTemplateSource;
 import network.ike.plugin.scaffold.FoundationBaker;
 import network.ike.plugin.scaffold.FoundationDriftChecker;
 import network.ike.plugin.scaffold.ModelAdapters;
+import network.ike.plugin.scaffold.OrphanEntry;
+import network.ike.plugin.scaffold.OrphanScanner;
 import network.ike.plugin.scaffold.PathResolver;
 import network.ike.plugin.scaffold.ScaffoldApplier;
 import network.ike.plugin.scaffold.ScaffoldException;
@@ -202,6 +204,9 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
                         userPlan, ScaffoldScope.USER));
         ScaffoldLockfile updatedUser = applier.apply(
                 userPlan, userLockfile);
+        List<OrphanEntry> orphans = new ArrayList<>();
+        updatedUser = removeOrphans(applier, manifest, userLockfile,
+                updatedUser, ScaffoldScope.USER, resolver, orphans);
         ScaffoldLockfileIo.write(updatedUser, userLock);
         getLog().info("  → " + userLock);
 
@@ -220,6 +225,9 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
                             projectPlan, ScaffoldScope.PROJECT));
             ScaffoldLockfile updatedProj = applier.apply(
                     projectPlan, projLockfile);
+            updatedProj = removeOrphans(applier, manifest, projLockfile,
+                    updatedProj, ScaffoldScope.PROJECT, resolver,
+                    orphans);
             ScaffoldLockfileIo.write(updatedProj, projLock);
             getLog().info("  → " + projLock);
             projectCounts = ScaffoldMojoSupport
@@ -242,6 +250,18 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
                             + "(user-edited). "
                             + "Run ike:scaffold-draft for details.");
         }
+        if (!orphans.isEmpty()) {
+            long removed = orphanCount(orphans,
+                    OrphanEntry.Disposition.REMOVE);
+            long kept = orphanCount(orphans,
+                    OrphanEntry.Disposition.SKIP_USER_EDITED);
+            long cleared = orphanCount(orphans,
+                    OrphanEntry.Disposition.ALREADY_ABSENT);
+            getLog().info(orphans.size() + " orphan(s) — files the "
+                    + "scaffold no longer ships: " + removed
+                    + " removed, " + kept + " kept (user-edited), "
+                    + cleared + " lockfile-only.");
+        }
 
         // #348: foundation-drift apply. Detection landed in #345's
         // scaffold-draft; this is the matching apply step. Opt-in via
@@ -259,7 +279,50 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
 
         return new GoalReportSpec(IkeGoal.SCAFFOLD_PUBLISH,
                 projRoot != null ? projRoot : home,
-                buildReport(manifest, userCounts, projectCounts));
+                buildReport(manifest, userCounts, projectCounts,
+                        orphans));
+    }
+
+    /**
+     * Scan one scope for orphaned scaffold files — lockfile entries
+     * the current manifest no longer ships — log them, and remove the
+     * unedited ones from disk and the lockfile.
+     *
+     * @param applier   the scaffold applier
+     * @param manifest  the scaffold manifest
+     * @param priorLock the scope's lockfile before this publish
+     * @param updated   the post-apply lockfile to prune
+     * @param scope     the scope to scan
+     * @param resolver  path resolver
+     * @param collected accumulator the caller uses for the summary —
+     *                  every orphan found is added here
+     * @return the lockfile with removed/absent orphan entries dropped
+     */
+    private ScaffoldLockfile removeOrphans(
+            ScaffoldApplier applier,
+            ScaffoldManifest manifest,
+            ScaffoldLockfile priorLock,
+            ScaffoldLockfile updated,
+            ScaffoldScope scope,
+            PathResolver resolver,
+            List<OrphanEntry> collected) {
+        List<OrphanEntry> orphans = OrphanScanner.scan(
+                manifest, priorLock, scope, resolver);
+        if (orphans.isEmpty()) {
+            return updated;
+        }
+        ScaffoldMojoSupport.logLines(getLog(),
+                ScaffoldMojoSupport.renderOrphanReport(orphans, scope));
+        collected.addAll(orphans);
+        return applier.removeOrphans(orphans, updated);
+    }
+
+    private static long orphanCount(
+            List<OrphanEntry> orphans,
+            OrphanEntry.Disposition disposition) {
+        return orphans.stream()
+                .filter(o -> o.disposition() == disposition)
+                .count();
     }
 
     /**
@@ -269,11 +332,13 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
      * @param userCounts    applied-action counts for the user scope
      * @param projectCounts applied-action counts for the project
      *                      scope, or {@code null} on a fresh machine
+     * @param orphans       orphaned files the manifest no longer ships
      * @return the report body
      */
     private static String buildReport(ScaffoldManifest manifest,
                                        Counts userCounts,
-                                       Counts projectCounts) {
+                                       Counts projectCounts,
+                                       List<OrphanEntry> orphans) {
         GoalReportBuilder report = new GoalReportBuilder();
         report.paragraph("Applied the scaffold manifest to disk.");
         report.bullet("standards version: `"
@@ -283,6 +348,13 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
             report.bullet("project scope: " + projectCounts.summary());
         } else {
             report.bullet("project scope: (none — fresh machine)");
+        }
+        if (!orphans.isEmpty()) {
+            report.bullet("orphans: " + orphanCount(orphans,
+                    OrphanEntry.Disposition.REMOVE) + " removed, "
+                    + orphanCount(orphans,
+                    OrphanEntry.Disposition.SKIP_USER_EDITED)
+                    + " kept (user-edited)");
         }
         int totalSkipped = userCounts.skip()
                 + (projectCounts != null ? projectCounts.skip() : 0);

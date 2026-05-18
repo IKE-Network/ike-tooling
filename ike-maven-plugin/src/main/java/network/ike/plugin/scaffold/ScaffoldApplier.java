@@ -7,6 +7,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -70,6 +71,53 @@ public final class ScaffoldApplier {
                 plan.manifestStandardsVersion(),
                 Instant.now(clock),
                 files);
+    }
+
+    /**
+     * Remove orphaned scaffold files and drop their lockfile entries.
+     *
+     * <p>Run after {@link #apply} on the lockfile that {@code apply}
+     * returned. For each {@link OrphanEntry.Disposition#REMOVE} orphan
+     * the on-disk file is deleted; for {@code REMOVE} and
+     * {@link OrphanEntry.Disposition#ALREADY_ABSENT} orphans the stale
+     * lockfile entry is dropped. {@link OrphanEntry.Disposition#SKIP_USER_EDITED}
+     * orphans are left entirely alone — file and lockfile entry both
+     * stay, so the orphan keeps surfacing until the operator resolves
+     * it.
+     *
+     * @param orphans  orphans found by {@link OrphanScanner}
+     * @param lockfile the lockfile to prune (typically the result of
+     *                 {@link #apply})
+     * @return the lockfile with removed/absent orphan entries dropped
+     * @throws ScaffoldException if a file deletion fails
+     */
+    public ScaffoldLockfile removeOrphans(
+            List<OrphanEntry> orphans,
+            ScaffoldLockfile lockfile) {
+        ScaffoldLockfile result = lockfile;
+        for (OrphanEntry orphan : orphans) {
+            switch (orphan.disposition()) {
+                case REMOVE -> {
+                    deleteFile(orphan.resolvedDest());
+                    result = result.withoutEntry(orphan.dest());
+                }
+                case ALREADY_ABSENT ->
+                        result = result.withoutEntry(orphan.dest());
+                case SKIP_USER_EDITED -> {
+                    // Leave the file and the lockfile entry in place.
+                }
+            }
+        }
+        return result;
+    }
+
+    private static void deleteFile(Path dest) {
+        try {
+            Files.delete(dest);
+        } catch (IOException e) {
+            throw new ScaffoldException(
+                    "cannot delete orphaned scaffold file " + dest, e);
+        }
     }
 
     private LockfileEntry applyOne(PlannedEntry pe) {

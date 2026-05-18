@@ -3,6 +3,8 @@ package network.ike.plugin;
 import network.ike.plugin.scaffold.DirectoryTemplateSource;
 import network.ike.plugin.scaffold.FoundationDriftChecker;
 import network.ike.plugin.scaffold.ModelAdapters;
+import network.ike.plugin.scaffold.OrphanEntry;
+import network.ike.plugin.scaffold.OrphanScanner;
 import network.ike.plugin.scaffold.PathResolver;
 import network.ike.plugin.scaffold.ScaffoldException;
 import network.ike.plugin.scaffold.ScaffoldLockfile;
@@ -23,6 +25,7 @@ import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * Preview the changes {@code ike:scaffold-publish} would make.
@@ -140,6 +143,8 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
                 manifest, userLockfile, ScaffoldScope.USER,
                 resolver, templates);
         logPlan(userPlan, ScaffoldScope.USER);
+        int orphanCount = reportOrphans(
+                manifest, userLockfile, ScaffoldScope.USER, resolver);
 
         // Project scope — only when invoked inside a project.
         Counts projectCounts = null;
@@ -152,6 +157,8 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
                     manifest, projLockfile, ScaffoldScope.PROJECT,
                     resolver, templates);
             logPlan(projectPlan, ScaffoldScope.PROJECT);
+            orphanCount += reportOrphans(manifest, projLockfile,
+                    ScaffoldScope.PROJECT, resolver);
             projectCounts =
                     ScaffoldMojoSupport.countActions(projectPlan);
         }
@@ -163,6 +170,11 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
         getLog().info("  user:    " + userCounts.summary());
         if (projectCounts != null) {
             getLog().info("  project: " + projectCounts.summary());
+        }
+        if (orphanCount > 0) {
+            getLog().info("  orphans: " + orphanCount
+                    + " — file(s) the scaffold no longer ships; "
+                    + "ike:scaffold-publish removes the unedited ones");
         }
 
         // #345: report IKE-foundation drift when the manifest carries
@@ -180,7 +192,32 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
 
         return new GoalReportSpec(IkeGoal.SCAFFOLD_DRAFT,
                 projRoot != null ? projRoot : home,
-                buildReport(manifest, userCounts, projectCounts));
+                buildReport(manifest, userCounts, projectCounts,
+                        orphanCount));
+    }
+
+    /**
+     * Scan one scope for orphaned scaffold files — lockfile entries
+     * the current manifest no longer ships — and log them.
+     *
+     * @param manifest the scaffold manifest
+     * @param lockfile the lockfile for {@code scope}
+     * @param scope    the scope to scan
+     * @param resolver path resolver
+     * @return the number of orphans found
+     */
+    private int reportOrphans(ScaffoldManifest manifest,
+                               ScaffoldLockfile lockfile,
+                               ScaffoldScope scope,
+                               PathResolver resolver) {
+        List<OrphanEntry> orphans = OrphanScanner.scan(
+                manifest, lockfile, scope, resolver);
+        if (!orphans.isEmpty()) {
+            ScaffoldMojoSupport.logLines(getLog(),
+                    ScaffoldMojoSupport.renderOrphanReport(
+                            orphans, scope));
+        }
+        return orphans.size();
     }
 
     /**
@@ -190,11 +227,14 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
      * @param userCounts    planned-action counts for the user scope
      * @param projectCounts planned-action counts for the project
      *                      scope, or {@code null} on a fresh machine
+     * @param orphanCount   number of orphaned files the manifest no
+     *                      longer ships
      * @return the report body
      */
     private static String buildReport(ScaffoldManifest manifest,
                                        Counts userCounts,
-                                       Counts projectCounts) {
+                                       Counts projectCounts,
+                                       int orphanCount) {
         GoalReportBuilder report = new GoalReportBuilder();
         report.paragraph("Preview of the changes `ike:scaffold-publish`"
                 + " would apply — no files were written.");
@@ -205,6 +245,10 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
             report.bullet("project scope: " + projectCounts.summary());
         } else {
             report.bullet("project scope: (none — fresh machine)");
+        }
+        if (orphanCount > 0) {
+            report.bullet("orphans: " + orphanCount + " file(s) the "
+                    + "scaffold no longer ships");
         }
         report.paragraph("Run `ike:scaffold-publish` to apply.");
         return report.build();

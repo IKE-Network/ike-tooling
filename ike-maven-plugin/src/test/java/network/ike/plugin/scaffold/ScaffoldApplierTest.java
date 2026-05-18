@@ -241,6 +241,74 @@ class ScaffoldApplierTest {
     }
 
     @Test
+    void removeOrphansDeletesFileAndDropsEntry(@TempDir Path project)
+            throws IOException {
+        Path dest = project.resolve("versions-upgrade-rules.yaml");
+        Files.write(dest, bytes("rules\n"));
+        ScaffoldLockfile lockfile = ScaffoldLockfile.empty()
+                .withEntry("versions-upgrade-rules.yaml",
+                        LockfileEntry.tracked(
+                                ScaffoldTier.TRACKED,
+                                "sha256:aa", "sha256:aa"));
+        OrphanEntry orphan = new OrphanEntry(
+                "versions-upgrade-rules.yaml", dest,
+                ScaffoldTier.TRACKED,
+                OrphanEntry.Disposition.REMOVE, "will be deleted");
+
+        ScaffoldLockfile result = applier.removeOrphans(
+                List.of(orphan), lockfile);
+
+        assertThat(dest).doesNotExist();
+        assertThat(result.files())
+                .doesNotContainKey("versions-upgrade-rules.yaml");
+    }
+
+    @Test
+    void removeOrphansKeepsUserEditedFileAndEntry(
+            @TempDir Path project) throws IOException {
+        Path dest = project.resolve("versions-upgrade-rules.yaml");
+        Files.write(dest, bytes("edited\n"));
+        ScaffoldLockfile lockfile = ScaffoldLockfile.empty()
+                .withEntry("versions-upgrade-rules.yaml",
+                        LockfileEntry.tracked(
+                                ScaffoldTier.TRACKED,
+                                "sha256:aa", "sha256:aa"));
+        OrphanEntry orphan = new OrphanEntry(
+                "versions-upgrade-rules.yaml", dest,
+                ScaffoldTier.TRACKED,
+                OrphanEntry.Disposition.SKIP_USER_EDITED,
+                "edited since publish");
+
+        ScaffoldLockfile result = applier.removeOrphans(
+                List.of(orphan), lockfile);
+
+        assertThat(dest).exists();
+        assertThat(result.files())
+                .containsKey("versions-upgrade-rules.yaml");
+    }
+
+    @Test
+    void removeOrphansDropsAlreadyAbsentEntry(@TempDir Path project) {
+        Path dest = project.resolve("versions-upgrade-rules.yaml");
+        ScaffoldLockfile lockfile = ScaffoldLockfile.empty()
+                .withEntry("versions-upgrade-rules.yaml",
+                        LockfileEntry.tracked(
+                                ScaffoldTier.TRACKED,
+                                "sha256:aa", "sha256:aa"));
+        OrphanEntry orphan = new OrphanEntry(
+                "versions-upgrade-rules.yaml", dest,
+                ScaffoldTier.TRACKED,
+                OrphanEntry.Disposition.ALREADY_ABSENT,
+                "file already absent");
+
+        ScaffoldLockfile result = applier.removeOrphans(
+                List.of(orphan), lockfile);
+
+        assertThat(result.files())
+                .doesNotContainKey("versions-upgrade-rules.yaml");
+    }
+
+    @Test
     void emptyPlanStillUpdatesStampsAndPreservesEntries() {
         ScaffoldPlan plan = new ScaffoldPlan("7", List.of());
         LockfileEntry prior = LockfileEntry.toolOwned("sha256:aa");
