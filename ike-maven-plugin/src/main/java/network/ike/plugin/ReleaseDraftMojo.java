@@ -55,7 +55,9 @@ import java.util.regex.Pattern;
  * <p><strong>External phase (most reversible first, irreversible last):</strong></p>
  * <ol>
  *   <li>Deploy site from tagged commit (overwritable — safe to retry)</li>
- *   <li>Deploy to Nexus from tagged commit (irreversible — last)</li>
+ *   <li>Deploy artifacts from tagged commit — to Maven Central via
+ *       JReleaser when {@code ike.publishToCentral} is set, else to
+ *       the internal Nexus (irreversible — last)</li>
  *   <li>Push tag and main to origin</li>
  *   <li>Create GitHub Release</li>
  * </ol>
@@ -127,6 +129,21 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      */
     @Parameter(property = "ike.skip.orgSite", defaultValue = "false")
     boolean skipOrgSite;
+
+    /**
+     * Publish the release to Maven Central via JReleaser instead of
+     * deploying to the internal Nexus. Opt-in: a repository sets
+     * {@code <ike.publishToCentral>true</ike.publishToCentral>} in
+     * its POM properties. When {@code false} (default), releases
+     * deploy to Nexus as before.
+     *
+     * <p>When enabled, the release does a signed staging deploy to a
+     * local directory, prunes the Maven 4 {@code -build.pom}
+     * artifacts (not published to Central), then uploads via
+     * {@code jreleaser:deploy}. IKE-Network/ike-issues#445.
+     */
+    @Parameter(property = "ike.publishToCentral", defaultValue = "false")
+    boolean publishToCentral;
 
     /**
      * GitHub repository for issue tracking, used to look up a milestone
@@ -303,8 +320,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             if (publishSite) {
                 getLog().info("[DRAFT] Would generate site (must succeed)");
             }
-            getLog().info("[DRAFT] Would deploy to Nexus from tag v" +
-                    releaseVersion + " (critical)");
+            getLog().info("[DRAFT] Would " + (publishToCentral
+                    ? "publish to Maven Central via JReleaser"
+                    : "deploy to Nexus") + " from tag v"
+                    + releaseVersion + " (critical)");
             if (publishSite) {
                 getLog().info("[DRAFT] Would force-push staged site "
                         + "to gh-pages on origin (best-effort)");
@@ -661,13 +680,17 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 }
             }
 
-            // ── Nexus deploy (critical — the actual release) ─────────
+            // ── Artifact deploy (critical — the actual release) ──────
             // clean deploy: fresh build ensures artifact integrity.
             // Site was already deployed above (before clean wipes staging).
-            getLog().info("Deploying to Nexus...");
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    mvnw.getAbsolutePath(), "clean", "deploy", "-B", "-T", "1",
-                    "-P", "release,signArtifacts");
+            if (publishToCentral) {
+                deployToMavenCentral(gitRoot, mvnw);
+            } else {
+                getLog().info("Deploying to Nexus...");
+                ReleaseSupport.exec(gitRoot, getLog(),
+                        mvnw.getAbsolutePath(), "clean", "deploy",
+                        "-B", "-T", "1", "-P", "release,signArtifacts");
+            }
         } finally {
             // Always return to main, even if deploy fails.
             //
@@ -721,7 +744,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().info("");
         getLog().info("Release " + releaseVersion + " complete.");
         getLog().info("  Tagged: v" + releaseVersion);
-        getLog().info("  Deployed to Nexus");
+        getLog().info(publishToCentral
+                ? "  Published to Maven Central"
+                : "  Deployed to Nexus");
         // GitHub Pages publish (the canonical site distribution post-#304).
         // Earlier revisions also printed scpexe://proxy URLs (internal
         // mirror at ike.komet.sh); that path was retired in #304 since
@@ -757,6 +782,62 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 startDir.toPath(),
                 buildReleaseReport(false, oldVersion, releaseBranch,
                         projectId, releaseTimestamp));
+    }
+
+    /**
+     * Publishes the release to Maven Central via JReleaser.
+     *
+     * <p>Three steps: a signed {@code clean deploy} to a local
+     * staging directory ({@code target/staging-deploy}); a prune of
+     * the Maven 4 {@code -build.pom} artifacts (build-time only, not
+     * published to Central); then {@code jreleaser:deploy}, which
+     * uploads the staged bundle to the Sonatype Central Portal.
+     *
+     * @param gitRoot the release working tree, checked out at the
+     *                {@code v<version>} release tag
+     * @param mvnw    the resolved Maven wrapper executable
+     */
+    private void deployToMavenCentral(File gitRoot, File mvnw) {
+        Path stagingDir = gitRoot.toPath()
+                .resolve("target").resolve("staging-deploy");
+        getLog().info("Staging signed artifacts for Maven Central...");
+        ReleaseSupport.exec(gitRoot, getLog(),
+                mvnw.getAbsolutePath(), "clean", "deploy", "-B", "-T", "1",
+                "-P", "release,signArtifacts",
+                "-DaltDeploymentRepository=local::file://"
+                        + stagingDir.toAbsolutePath());
+        pruneBuildPoms(stagingDir);
+        getLog().info("Publishing to Maven Central via JReleaser...");
+        ReleaseSupport.exec(gitRoot, getLog(),
+                mvnw.getAbsolutePath(), "jreleaser:deploy", "-B");
+    }
+
+    /**
+     * Deletes the Maven 4 {@code -build.pom} artifacts — and their
+     * signatures and checksums — from the staging directory. The
+     * build POM carries the 4.1.0 model and is build-time only;
+     * Maven Central publishes the consumer POM (the main
+     * {@code .pom}). One build POM is produced per reactor module,
+     * so the directory is walked recursively.
+     *
+     * @param stagingDir the local {@code staging-deploy} directory
+     */
+    private void pruneBuildPoms(Path stagingDir) {
+        try (var paths = Files.walk(stagingDir)) {
+            List<Path> buildPoms = paths
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString()
+                            .contains("-build.pom"))
+                    .toList();
+            for (Path p : buildPoms) {
+                Files.delete(p);
+                getLog().info("  pruned " + stagingDir.relativize(p));
+            }
+        } catch (IOException e) {
+            throw new MojoException(
+                    "Failed to prune -build.pom artifacts from "
+                            + stagingDir, e);
+        }
     }
 
     /**
