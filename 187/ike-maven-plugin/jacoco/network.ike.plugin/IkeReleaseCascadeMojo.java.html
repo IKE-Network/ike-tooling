@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IkeReleaseCascadeMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">IkeReleaseCascadeMojo.java</span></div><h1>IkeReleaseCascadeMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
+import network.ike.plugin.support.GoalReportSpec;
+import network.ike.workspace.cascade.CascadeAssembler;
+import network.ike.workspace.cascade.CascadeEdge;
+import network.ike.workspace.cascade.CascadeRepo;
+import network.ike.workspace.cascade.ProjectCascade;
+import network.ike.workspace.cascade.ProjectCascadeIo;
+import network.ike.workspace.cascade.ReleaseCascade;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
+
+/**
+ * Releases the whole IKE foundation cascade in topological order
+ * (IKE-Network/ike-issues#419).
+ *
+ * &lt;p&gt;The cascade is decentralized (#420): each foundation repo
+ * version-controls its own {@code src/main/cascade/release-cascade.yaml}
+ * declaring only its own edges. This goal reads the local repo's
+ * manifest, walks the edges into the sibling checkouts to assemble
+ * the full ordered graph, and runs {@code ike:release-publish} on
+ * every repo that has unreleased changes — in order, so each repo's
+ * Nexus deploy completes before the next (which {@code ike:release-publish}
+ * aligns to its upstreams, #419-B) begins.
+ *
+ * &lt;p&gt;This is the {@code ike:}-tier cascade executor. The foundation
+ * repos cannot form a workspace — {@code ike-workspace-maven-plugin}
+ * lives &lt;em&gt;in&lt;/em&gt; ike-platform — so the foundation must release with
+ * {@code ike:}-tier tooling only.
+ *
+ * &lt;p&gt;Repo resolution is local: every cascade member is expected to be
+ * checked out as a sibling directory alongside the repo this goal runs
+ * in (override the containing directory with
+ * {@code -Dike.release.cascade.basedir}). A member with no checkout is
+ * a hard error — the cascade cannot release what it cannot see.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;
+ *   mvn ike:release-cascade                       # release the cascade
+ *   mvn ike:release-cascade -DpushRelease=false   # local-only dry of each
+ *   mvn ike:release-cascade -Dike.release.cascade.basedir=/path/to/checkouts
+ * &lt;/pre&gt;
+ */
+@Mojo(name = &quot;release-cascade&quot;, projectRequired = false, aggregator = true)
+public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
+
+    /**
+     * Release-cadence commit subjects — commits that are bookkeeping
+     * from a prior release, not a reason to release again. Matches the
+     * patterns the release flow itself produces so a re-run of a
+     * partially-completed cascade does not re-release an up-to-date
+     * repo.
+     */
+<span class="fc" id="L63">    private static final Pattern RELEASE_CADENCE = Pattern.compile(</span>
+            &quot;^(release: .+&quot;
+                    + &quot;|merge: release .+&quot;
+                    + &quot;|post-release: .+&quot;
+                    + &quot;|site: publish .+)$&quot;);
+
+    /**
+     * Directory containing every cascade member as a sibling checkout.
+     * Defaults to the parent of the repo this goal runs in.
+     */
+    @Parameter(property = &quot;ike.release.cascade.basedir&quot;)
+    String cascadeBaseDir;
+
+    /**
+     * Forwarded to {@code ike:release-publish} on each repo. When
+     * {@code false}, each release stays local (no tag/main push, no
+     * Nexus deploy from a pushed tag).
+     */
+    @Parameter(property = &quot;pushRelease&quot;, defaultValue = &quot;true&quot;)
+    boolean pushRelease;
+
+    /**
+     * Skip the per-repo {@code mvn install -DskipTests} that seeds
+     * {@code ~/.m2} with the current SNAPSHOT before its release. The
+     * seed exists for the self-hosting reactor bootstrap (#379); skip
+     * it when {@code ~/.m2} is already warm.
+     */
+    @Parameter(property = &quot;skipPreInstall&quot;, defaultValue = &quot;false&quot;)
+    boolean skipPreInstall;
+
+    /** Override working directory for tests. If null, uses current directory. */
+    File baseDir;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L97">    public IkeReleaseCascadeMojo() {}</span>
+
+    /** What happened to one cascade member. */
+<span class="nc" id="L100">    private enum Kind { RELEASED, UP_TO_DATE, SKIPPED, FAILED }</span>
+
+    /** The outcome of processing one cascade member. */
+<span class="nc" id="L103">    private record Outcome(String name, Kind kind, String detail) {}</span>
+
+    @Override
+    protected GoalReportSpec runGoal() throws MojoException {
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        File startDir = baseDir != null ? baseDir : new File(&quot;.&quot;);</span>
+<span class="nc" id="L108">        File gitRoot = ReleaseSupport.gitRoot(startDir);</span>
+
+<span class="nc" id="L110">        ReleaseCascade cascade = assembleCascade(gitRoot);</span>
+<span class="nc bnc" id="L111" title="All 4 branches missed.">        File siblings = cascadeBaseDir != null &amp;&amp; !cascadeBaseDir.isBlank()</span>
+<span class="nc" id="L112">                ? new File(cascadeBaseDir)</span>
+<span class="nc" id="L113">                : gitRoot.getParentFile();</span>
+
+<span class="nc" id="L115">        getLog().info(&quot;Foundation release cascade — &quot;</span>
+<span class="nc" id="L116">                + cascade.repos().size() + &quot; repo(s) in order: &quot;</span>
+<span class="nc" id="L117">                + String.join(&quot; → &quot;, cascade.repos().stream()</span>
+<span class="nc" id="L118">                        .map(CascadeRepo::repo).toList()));</span>
+<span class="nc" id="L119">        getLog().info(&quot;&quot;);</span>
+
+<span class="nc" id="L121">        List&lt;Outcome&gt; outcomes = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        for (CascadeRepo repo : cascade.repos()) {</span>
+<span class="nc" id="L123">            File dir = new File(siblings, repo.repo());</span>
+<span class="nc" id="L124">            Outcome outcome = walkOne(dir, repo.repo());</span>
+<span class="nc" id="L125">            outcomes.add(outcome);</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            if (outcome.kind() == Kind.FAILED) {</span>
+<span class="nc" id="L127">                reportSummary(outcomes);</span>
+<span class="nc" id="L128">                throw new MojoException(&quot;Release cascade failed at &quot;</span>
+<span class="nc" id="L129">                        + repo.repo() + &quot; — &quot; + outcome.detail()</span>
+                        + &quot;. Fix it, then re-run ike:release-cascade to&quot;
+                        + &quot; continue with the remaining repos.&quot;);
+            }
+<span class="nc" id="L133">        }</span>
+
+<span class="nc" id="L135">        reportSummary(outcomes);</span>
+<span class="nc" id="L136">        return new GoalReportSpec(IkeGoal.RELEASE_CASCADE,</span>
+<span class="nc" id="L137">                startDir.toPath(), buildReport(outcomes));</span>
+    }
+
+    /**
+     * Reads the local repo's {@code release-cascade.yaml} and assembles
+     * the full cascade graph by walking its edges into the siblings.
+     */
+    private ReleaseCascade assembleCascade(File gitRoot) {
+<span class="nc" id="L145">        Path localManifest = gitRoot.toPath().resolve(</span>
+                ProjectCascadeIo.MANIFEST_RELATIVE_PATH);
+<span class="nc" id="L147">        ProjectCascade local = ProjectCascadeIo.load(localManifest)</span>
+<span class="nc" id="L148">                .orElseThrow(() -&gt; new MojoException(</span>
+                        &quot;No &quot; + ProjectCascadeIo.MANIFEST_RELATIVE_PATH
+                        + &quot; in &quot; + gitRoot + &quot; — run ike:release-cascade&quot;
+                        + &quot; from a foundation cascade repo.&quot;));
+
+<span class="nc" id="L153">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+<span class="nc" id="L154">        CascadeEdge start = new CascadeEdge(</span>
+<span class="nc" id="L155">                ReleaseSupport.readPomGroupId(rootPom),</span>
+<span class="nc" id="L156">                ReleaseSupport.readPomArtifactId(rootPom),</span>
+<span class="nc" id="L157">                gitRoot.getName(), null, null);</span>
+
+<span class="nc bnc" id="L159" title="All 4 branches missed.">        File siblings = cascadeBaseDir != null &amp;&amp; !cascadeBaseDir.isBlank()</span>
+<span class="nc" id="L160">                ? new File(cascadeBaseDir)</span>
+<span class="nc" id="L161">                : gitRoot.getParentFile();</span>
+        try {
+<span class="nc" id="L163">            return CascadeAssembler.assemble(start, local, edge -&gt; {</span>
+<span class="nc" id="L164">                Path p = siblings.toPath().resolve(edge.repo())</span>
+<span class="nc" id="L165">                        .resolve(ProjectCascadeIo.MANIFEST_RELATIVE_PATH);</span>
+<span class="nc" id="L166">                return ProjectCascadeIo.read(p);</span>
+            });
+<span class="nc" id="L168">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L169">            throw new MojoException(</span>
+                    &quot;Cannot assemble the release cascade: &quot;
+<span class="nc" id="L171">                    + e.getMessage() + &quot; — every cascade member must be&quot;</span>
+                    + &quot; checked out as a sibling directory under &quot;
+                    + siblings, e);
+        }
+    }
+
+    /**
+     * Processes one cascade member: detect git state, release it when
+     * it has unreleased changes.
+     *
+     * @param dir  the member's checkout directory
+     * @param name the member's repo name
+     * @return the outcome
+     */
+    private Outcome walkOne(File dir, String name) {
+<span class="nc" id="L186">        getLog().info(&quot;─── &quot; + name + &quot; ───&quot;);</span>
+<span class="nc bnc" id="L187" title="All 4 branches missed.">        if (!dir.isDirectory() || !new File(dir, &quot;.git&quot;).exists()</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">                || !new File(dir, &quot;pom.xml&quot;).isFile()) {</span>
+<span class="nc" id="L189">            getLog().error(&quot;  Not a usable checkout at &quot; + dir);</span>
+<span class="nc" id="L190">            return new Outcome(name, Kind.FAILED,</span>
+                    &quot;no checkout at &quot; + dir);
+        }
+
+<span class="nc" id="L194">        String tag = latestReleaseTag(dir);</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">        if (tag == null) {</span>
+<span class="nc" id="L196">            getLog().info(&quot;  Never released — releasing for the&quot;</span>
+                    + &quot; first time.&quot;);
+        } else {
+<span class="nc" id="L199">            int meaningful = meaningfulCommitsSinceTag(dir, tag);</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">            if (meaningful == 0) {</span>
+<span class="nc" id="L201">                getLog().info(&quot;  At &quot; + tag + &quot;; no meaningful commits&quot;</span>
+                        + &quot; since — skipping (already released).&quot;);
+<span class="nc" id="L203">                getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L204">                return new Outcome(name, Kind.UP_TO_DATE, tag);</span>
+            }
+<span class="nc" id="L206">            getLog().info(&quot;  At &quot; + tag + &quot;; &quot; + meaningful</span>
+                    + &quot; meaningful commit(s) since.&quot;);
+        }
+
+<span class="nc" id="L210">        File mvnw = ReleaseSupport.resolveMavenWrapper(dir, getLog());</span>
+<span class="nc" id="L211">        String mvn = mvnw.getAbsolutePath();</span>
+
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        if (!skipPreInstall) {</span>
+<span class="nc" id="L214">            getLog().info(&quot;  Seeding ~/.m2 with the current SNAPSHOT...&quot;);</span>
+            try {
+<span class="nc" id="L216">                ReleaseSupport.exec(dir, getLog(),</span>
+                        mvn, &quot;install&quot;, &quot;-DskipTests&quot;, &quot;-T&quot;, &quot;4&quot;, &quot;-B&quot;);
+<span class="nc" id="L218">            } catch (RuntimeException e) {</span>
+<span class="nc" id="L219">                getLog().warn(&quot;  Pre-install failed (continuing —&quot;</span>
+                        + &quot; release-publish will surface a real&quot;
+<span class="nc" id="L221">                        + &quot; error): &quot; + e.getMessage());</span>
+<span class="nc" id="L222">            }</span>
+        }
+
+<span class="nc" id="L225">        getLog().info(&quot;  Running mvn ike:release-publish...&quot;);</span>
+        try {
+<span class="nc" id="L227">            ReleaseSupport.exec(dir, getLog(),</span>
+                    mvn, &quot;ike:release-publish&quot;,
+                    &quot;-DpushRelease=&quot; + pushRelease, &quot;-B&quot;);
+<span class="nc" id="L230">            getLog().info(&quot;  ✓ Released &quot; + name);</span>
+<span class="nc" id="L231">            getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L232">            return new Outcome(name, Kind.RELEASED, null);</span>
+<span class="nc" id="L233">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L234">            getLog().error(&quot;  ✗ Failed to release &quot; + name + &quot;: &quot;</span>
+<span class="nc" id="L235">                    + e.getMessage());</span>
+<span class="nc" id="L236">            getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L237">            return new Outcome(name, Kind.FAILED, e.getMessage());</span>
+        }
+    }
+
+    /** The newest {@code v*} release tag in a repo, or null. */
+    private static String latestReleaseTag(File dir) {
+        try {
+<span class="nc" id="L244">            String tags = ReleaseSupport.execCapture(dir, &quot;git&quot;, &quot;tag&quot;,</span>
+                    &quot;-l&quot;, &quot;v*&quot;, &quot;--sort=-version:refname&quot;);
+<span class="nc bnc" id="L246" title="All 4 branches missed.">            return tags == null || tags.isBlank() ? null</span>
+<span class="nc" id="L247">                    : tags.lines().findFirst().orElse(null);</span>
+<span class="nc" id="L248">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L249">            return null;</span>
+        }
+    }
+
+    /**
+     * Counts the commits since {@code tag} that are not release-cadence
+     * bookkeeping — the commits that actually warrant a new release.
+     */
+    private static int meaningfulCommitsSinceTag(File dir, String tag) {
+        try {
+<span class="nc" id="L259">            String log = ReleaseSupport.execCapture(dir, &quot;git&quot;, &quot;log&quot;,</span>
+                    tag + &quot;..HEAD&quot;, &quot;--pretty=format:%s&quot;, &quot;--no-merges&quot;);
+<span class="nc bnc" id="L261" title="All 4 branches missed.">            if (log == null || log.isBlank()) {</span>
+<span class="nc" id="L262">                return 0;</span>
+            }
+<span class="nc" id="L264">            int count = 0;</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">            for (String line : log.strip().split(&quot;\n&quot;)) {</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">                if (!RELEASE_CADENCE.matcher(line.strip()).matches()) {</span>
+<span class="nc" id="L267">                    count++;</span>
+                }
+            }
+<span class="nc" id="L270">            return count;</span>
+<span class="nc" id="L271">        } catch (RuntimeException e) {</span>
+            // Cannot tell — assume there is work, so the cascade does
+            // not silently skip a repo.
+<span class="nc" id="L274">            return 1;</span>
+        }
+    }
+
+    /** Logs the per-repo cascade summary table. */
+    private void reportSummary(List&lt;Outcome&gt; outcomes) {
+<span class="nc" id="L280">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L281">        getLog().info(&quot;Cascade summary:&quot;);</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">        for (Outcome o : outcomes) {</span>
+<span class="nc" id="L283">            getLog().info(&quot;  &quot; + marker(o.kind()) + &quot;  &quot; + o.name()</span>
+<span class="nc bnc" id="L284" title="All 2 branches missed.">                    + (o.detail() != null ? &quot;  (&quot; + o.detail() + &quot;)&quot;</span>
+<span class="nc" id="L285">                            : &quot;&quot;));</span>
+<span class="nc" id="L286">        }</span>
+<span class="nc" id="L287">    }</span>
+
+    private String buildReport(List&lt;Outcome&gt; outcomes) {
+<span class="nc" id="L290">        GoalReportBuilder report = new GoalReportBuilder()</span>
+<span class="nc" id="L291">                .section(&quot;Release cascade&quot;);</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">        for (Outcome o : outcomes) {</span>
+<span class="nc" id="L293">            report.bullet(marker(o.kind()) + &quot; **&quot; + o.name() + &quot;**&quot;</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">                    + (o.detail() != null ? &quot; — &quot; + o.detail() : &quot;&quot;));</span>
+<span class="nc" id="L295">        }</span>
+<span class="nc" id="L296">        return report.build();</span>
+    }
+
+    private static String marker(Kind kind) {
+<span class="nc bnc" id="L300" title="All 4 branches missed.">        return switch (kind) {</span>
+<span class="nc" id="L301">            case RELEASED -&gt; &quot;✓ released&quot;;</span>
+<span class="nc" id="L302">            case UP_TO_DATE -&gt; &quot;— up to date&quot;;</span>
+<span class="nc" id="L303">            case SKIPPED -&gt; &quot;— skipped&quot;;</span>
+<span class="nc" id="L304">            case FAILED -&gt; &quot;✗ FAILED&quot;;</span>
+        };
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
