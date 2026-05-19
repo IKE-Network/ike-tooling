@@ -182,7 +182,7 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
         ScaffoldApplier applier = new ScaffoldApplier();
 
         getLog().info("");
-        getLog().info("ike:scaffold-publish");
+        getLog().info(IkeGoal.SCAFFOLD_PUBLISH.qualified());
         getLog().info("  scaffold dir:      " + scaffoldRoot);
         getLog().info("  standards version: "
                 + manifest.standardsVersion());
@@ -248,7 +248,8 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
             getLog().info(
                     totalSkipped + " entry(ies) were skipped "
                             + "(user-edited). "
-                            + "Run ike:scaffold-draft for details.");
+                            + "Run " + IkeGoal.SCAFFOLD_DRAFT.qualified()
+                            + " for details.");
         }
         if (!orphans.isEmpty()) {
             long removed = orphanCount(orphans,
@@ -361,7 +362,8 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
         if (totalSkipped > 0) {
             report.paragraph(totalSkipped
                     + " entry(ies) skipped (user-edited) — run"
-                    + " `ike:scaffold-draft` for details.");
+                    + " `" + IkeGoal.SCAFFOLD_DRAFT.qualified()
+                    + "` for details.");
         }
         return report.build();
     }

@@ -63,11 +63,12 @@ class ScaffoldDraftMojoTest {
         assertThat(userHome.resolve(".ike")).doesNotExist();
         // But it should have logged the plan.
         assertThat(log.infos).anyMatch(
-                s -> s.contains("ike:scaffold-draft"));
+                s -> s.contains(IkeGoal.SCAFFOLD_DRAFT.qualified()));
         assertThat(log.infos).anyMatch(
                 s -> s.contains("[INSTALL]"));
         assertThat(log.infos).anyMatch(
-                s -> s.contains("Run ike:scaffold-publish"));
+                s -> s.contains("Run "
+                        + IkeGoal.SCAFFOLD_PUBLISH.qualified()));
     }
 
     @Test

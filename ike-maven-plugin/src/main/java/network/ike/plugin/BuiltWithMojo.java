@@ -163,13 +163,14 @@ public class BuiltWithMojo implements org.apache.maven.api.plugin.Mojo {
     @Override
     public void execute() throws MojoException {
         if (skip) {
-            getLog().info("ike:built-with skipped "
-                    + "(-Dike.skip.built-with=true)");
+            getLog().info(IkeGoal.BUILT_WITH.qualified()
+                    + " skipped (-Dike.skip.built-with=true)");
             return;
         }
 
         if (!bomPath.exists()) {
-            getLog().warn("Skipping ike:built-with: SBOM not found at "
+            getLog().warn("Skipping " + IkeGoal.BUILT_WITH.qualified()
+                    + ": SBOM not found at "
                     + bomPath + ". Run 'mvn package' first to produce "
                     + "the SBOM (ike-issues#333).");
             return;

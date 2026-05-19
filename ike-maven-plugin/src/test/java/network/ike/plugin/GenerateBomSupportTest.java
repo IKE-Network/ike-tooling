@@ -242,6 +242,6 @@ class GenerateBomSupportTest {
                 "g", "a", "1", "BOM", null, null, List.of());
 
         assertThat(xml).contains("Auto-generated BOM");
-        assertThat(xml).contains("ike:generate-bom");
+        assertThat(xml).contains(IkeGoal.GENERATE_BOM.qualified());
     }
 }

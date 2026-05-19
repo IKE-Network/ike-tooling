@@ -237,9 +237,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         "Branch '" + releaseBranch + "' already exists locally. "
                         + "Switch to it to resume, or delete it to start fresh:\n"
                         + "  Resume: git checkout " + releaseBranch
-                        + " && mvn ike:release-publish\n"
+                        + " && mvn " + IkeGoal.RELEASE_PUBLISH.qualified()
+                        + "\n"
                         + "  Fresh:  git branch -D " + releaseBranch
-                        + " && mvn ike:release-publish");
+                        + " && mvn " + IkeGoal.RELEASE_PUBLISH.qualified());
             }
         }
 
@@ -655,8 +656,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         && !skipOrgSite && hasOrigin) {
                     getLog().info("");
                     getLog().info("Registering release on IKE Network "
-                            + "landing page (#367; via ike:site-publish "
-                            + "after #398)...");
+                            + "landing page (#367; via "
+                            + IkeGoal.SITE_PUBLISH.qualified()
+                            + " after #398)...");
                     try {
                         // #398: site convergence — registration is the
                         // LandingPageRegistrationReconciler dimension of
@@ -665,7 +667,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         // DeployedSiteReconciler with -DupdateSite=false.
                         ReleaseSupport.exec(gitRoot, getLog(),
                                 mvnw.getAbsolutePath(),
-                                "ike:site-publish",
+                                IkeGoal.SITE_PUBLISH.qualified(),
                                 "-DupdateSite=false",
                                 "-B");
                     } catch (Exception e) {
@@ -768,7 +770,8 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 // success line unconditionally; ike-issues#329.
                 getLog().warn("  GitHub Pages: ❌ publish failed "
                         + "(see WARNING above)");
-                getLog().warn("    Retry: mvn ike:site-publish "
+                getLog().warn("    Retry: mvn "
+                        + IkeGoal.SITE_PUBLISH.qualified() + " "
                         + "-DupdateRegistration=false "
                         + "-DreleaseVersion=" + releaseVersion);
             }
@@ -1782,7 +1785,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     }
                     getLog().warn("    To retry: from a checkout of v"
                             + version + " with 'origin' remote, run "
-                            + "mvn ike:site-publish "
+                            + "mvn " + IkeGoal.SITE_PUBLISH.qualified() + " "
                             + "-DupdateRegistration=false "
                             + "-DreleaseVersion=" + version);
                 }

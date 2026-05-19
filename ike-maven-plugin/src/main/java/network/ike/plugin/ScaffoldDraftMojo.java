@@ -124,7 +124,7 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
                 new TierHandlers(), new ModelAdapters());
 
         getLog().info("");
-        getLog().info("ike:scaffold-draft");
+        getLog().info(IkeGoal.SCAFFOLD_DRAFT.qualified());
         getLog().info("  scaffold dir:      " + scaffoldRoot);
         getLog().info("  standards version: "
                 + manifest.standardsVersion());
@@ -174,7 +174,8 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
         if (orphanCount > 0) {
             getLog().info("  orphans: " + orphanCount
                     + " — file(s) the scaffold no longer ships; "
-                    + "ike:scaffold-publish removes the unedited ones");
+                    + IkeGoal.SCAFFOLD_PUBLISH.qualified()
+                    + " removes the unedited ones");
         }
 
         // #345: report IKE-foundation drift when the manifest carries
@@ -188,7 +189,8 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
 
         getLog().info("");
         getLog().info(
-                "Run ike:scaffold-publish to apply these changes.");
+                "Run " + IkeGoal.SCAFFOLD_PUBLISH.qualified()
+                        + " to apply these changes.");
 
         return new GoalReportSpec(IkeGoal.SCAFFOLD_DRAFT,
                 projRoot != null ? projRoot : home,
@@ -236,7 +238,8 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
                                        Counts projectCounts,
                                        int orphanCount) {
         GoalReportBuilder report = new GoalReportBuilder();
-        report.paragraph("Preview of the changes `ike:scaffold-publish`"
+        report.paragraph("Preview of the changes `"
+                + IkeGoal.SCAFFOLD_PUBLISH.qualified() + "`"
                 + " would apply — no files were written.");
         report.bullet("standards version: `"
                 + manifest.standardsVersion() + "`");
@@ -250,7 +253,8 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
             report.bullet("orphans: " + orphanCount + " file(s) the "
                     + "scaffold no longer ships");
         }
-        report.paragraph("Run `ike:scaffold-publish` to apply.");
+        report.paragraph("Run `" + IkeGoal.SCAFFOLD_PUBLISH.qualified()
+                + "` to apply.");
         return report.build();
     }
 
@@ -323,7 +327,7 @@ public class ScaffoldDraftMojo extends AbstractGoalMojo {
                     + absent + " not declared.");
             if (behind > 0 || absent > 0) {
                 getLog().info("  Apply behind/absent values with"
-                        + " ike:scaffold-publish"
+                        + " " + IkeGoal.SCAFFOLD_PUBLISH.qualified()
                         + " -Dike.scaffold.apply-foundation=true.");
             }
             if (ahead > 0) {

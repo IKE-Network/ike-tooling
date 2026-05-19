@@ -100,13 +100,14 @@ public class RenderSbomViewerMojo implements org.apache.maven.api.plugin.Mojo {
     @Override
     public void execute() throws MojoException {
         if (skip) {
-            getLog().info("ike:render-sbom-viewer skipped "
-                    + "(-Dike.skip.sbom-viewer=true)");
+            getLog().info(IkeGoal.RENDER_SBOM_VIEWER.qualified()
+                    + " skipped (-Dike.skip.sbom-viewer=true)");
             return;
         }
 
         if (!bomPath.exists()) {
-            getLog().warn("Skipping ike:render-sbom-viewer: SBOM not "
+            getLog().warn("Skipping " + IkeGoal.RENDER_SBOM_VIEWER.qualified()
+                    + ": SBOM not "
                     + "found at " + bomPath + ". Run 'mvn package' "
                     + "first to produce the SBOM (ike-issues#333).");
             return;

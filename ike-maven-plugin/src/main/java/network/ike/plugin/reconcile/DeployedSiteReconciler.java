@@ -1,5 +1,6 @@
 package network.ike.plugin.reconcile;
 
+import network.ike.plugin.IkeGoal;
 import network.ike.plugin.ReleaseSupport;
 import org.apache.maven.api.plugin.MojoException;
 
@@ -81,7 +82,8 @@ public class DeployedSiteReconciler implements SiteReconciler {
             List<String> detail = List.of(
                     "Deployed URL: " + deployedUrl,
                     "Status: unreachable (" + probe.detail + ")");
-            String optOut = "mvn ike:site-publish -D" + optOutFlag() + "=false";
+            String optOut = "mvn " + IkeGoal.SITE_PUBLISH.qualified()
+                    + " -D" + optOutFlag() + "=false";
             return new SiteDriftReport(
                     dimension(), true,
                     "Site at " + deployedUrl + " is unreachable",
@@ -98,7 +100,8 @@ public class DeployedSiteReconciler implements SiteReconciler {
         List<String> detail = List.of(
                 "Current: " + deployedUrl + " serves " + deployed,
                 "         → project is at " + currentVersion);
-        String optOut = "mvn ike:site-publish -D" + optOutFlag() + "=false";
+        String optOut = "mvn " + IkeGoal.SITE_PUBLISH.qualified()
+                + " -D" + optOutFlag() + "=false";
         return new SiteDriftReport(
                 dimension(), true,
                 deployed + " deployed vs " + currentVersion + " in project",

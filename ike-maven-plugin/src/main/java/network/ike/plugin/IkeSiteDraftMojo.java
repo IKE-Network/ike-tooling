@@ -117,7 +117,8 @@ public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
         SiteContext ctx = buildContext();
 
         getLog().info("");
-        getLog().info(publish ? "ike:site-publish" : "ike:site-draft");
+        getLog().info(publish ? IkeGoal.SITE_PUBLISH.qualified()
+                : IkeGoal.SITE_DRAFT.qualified());
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("  Project:        " + ctx.projectId());
         getLog().info("  Version:        " + ctx.projectVersion());
@@ -148,7 +149,8 @@ public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
             getLog().info("  No drift detected.");
         } else {
             getLog().info("  " + driftCount + " dimension(s) drift; "
-                    + "run ike:site-publish to apply.");
+                    + "run " + IkeGoal.SITE_PUBLISH.qualified()
+                    + " to apply.");
         }
     }
 

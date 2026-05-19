@@ -1,5 +1,6 @@
 package network.ike.plugin.reconcile;
 
+import network.ike.plugin.IkeGoal;
 import network.ike.plugin.OrgSiteSupport;
 import network.ike.plugin.ReleaseSupport;
 import org.apache.maven.api.plugin.MojoException;
@@ -88,7 +89,8 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
 
         if (!probe.reachable) {
             // Treat unreachable as drift (registration missing).
-            String optOut = "mvn ike:site-publish -D" + optOutFlag() + "=false";
+            String optOut = "mvn " + IkeGoal.SITE_PUBLISH.qualified()
+                + " -D" + optOutFlag() + "=false";
             return new SiteDriftReport(
                     dimension(), true,
                     projectId + " not found on landing page",
@@ -105,7 +107,8 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
         List<String> detail = List.of(
                 projectId + " on landing page: " + registered,
                 "         → project is at " + currentVersion);
-        String optOut = "mvn ike:site-publish -D" + optOutFlag() + "=false";
+        String optOut = "mvn " + IkeGoal.SITE_PUBLISH.qualified()
+                + " -D" + optOutFlag() + "=false";
         return new SiteDriftReport(
                 dimension(), true,
                 registered + " registered vs " + currentVersion + " in project",

@@ -134,7 +134,8 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
         ProjectCascade local = ProjectCascadeIo.load(localManifest)
                 .orElseThrow(() -> new MojoException(
                         "No " + ProjectCascadeIo.MANIFEST_RELATIVE_PATH
-                        + " in " + gitRoot + " — run ike:cascade-export"
+                        + " in " + gitRoot + " — run "
+                        + IkeGoal.CASCADE_EXPORT.qualified()
                         + " from a foundation cascade repo."));
 
         File rootPom = new File(gitRoot, "pom.xml");

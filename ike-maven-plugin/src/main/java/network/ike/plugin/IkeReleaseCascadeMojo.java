@@ -127,7 +127,9 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
                 reportSummary(outcomes);
                 throw new MojoException("Release cascade failed at "
                         + repo.repo() + " — " + outcome.detail()
-                        + ". Fix it, then re-run ike:release-cascade to"
+                        + ". Fix it, then re-run "
+                        + IkeGoal.RELEASE_CASCADE.qualified()
+                        + " to"
                         + " continue with the remaining repos.");
             }
         }
@@ -147,7 +149,8 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
         ProjectCascade local = ProjectCascadeIo.load(localManifest)
                 .orElseThrow(() -> new MojoException(
                         "No " + ProjectCascadeIo.MANIFEST_RELATIVE_PATH
-                        + " in " + gitRoot + " — run ike:release-cascade"
+                        + " in " + gitRoot + " — run "
+                        + IkeGoal.RELEASE_CASCADE.qualified()
                         + " from a foundation cascade repo."));
 
         File rootPom = new File(gitRoot, "pom.xml");
@@ -222,10 +225,11 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
             }
         }
 
-        getLog().info("  Running mvn ike:release-publish...");
+        getLog().info("  Running mvn "
+                + IkeGoal.RELEASE_PUBLISH.qualified() + "...");
         try {
             ReleaseSupport.exec(dir, getLog(),
-                    mvn, "ike:release-publish",
+                    mvn, IkeGoal.RELEASE_PUBLISH.qualified(),
                     "-DpushRelease=" + pushRelease, "-B");
             getLog().info("  ✓ Released " + name);
             getLog().info("");

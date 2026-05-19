@@ -122,7 +122,7 @@ public class ScaffoldRevertMojo extends AbstractGoalMojo {
         ScaffoldReverter reverter = new ScaffoldReverter();
 
         getLog().info("");
-        getLog().info("ike:scaffold-revert");
+        getLog().info(IkeGoal.SCAFFOLD_REVERT.qualified());
         getLog().info("  scaffold dir:      " + scaffoldRoot);
         getLog().info("  standards version: "
                 + manifest.standardsVersion());
@@ -225,7 +225,8 @@ public class ScaffoldRevertMojo extends AbstractGoalMojo {
                                        int projectDeleted,
                                        int projectSkipped) {
         GoalReportBuilder report = new GoalReportBuilder();
-        report.paragraph("Reverted a previous `ike:scaffold-publish`.");
+        report.paragraph("Reverted a previous `"
+                + IkeGoal.SCAFFOLD_PUBLISH.qualified() + "`.");
         report.bullet("standards version: `"
                 + manifest.standardsVersion() + "`");
         report.bullet("user scope: " + userDeleted + " deleted, "

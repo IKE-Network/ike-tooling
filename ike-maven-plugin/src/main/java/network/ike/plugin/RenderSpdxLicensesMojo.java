@@ -115,13 +115,15 @@ public class RenderSpdxLicensesMojo implements org.apache.maven.api.plugin.Mojo 
     @Override
     public void execute() throws MojoException {
         if (skip) {
-            getLog().info("ike:render-spdx-licenses skipped "
-                    + "(-Dike.skip.spdx-licenses=true)");
+            getLog().info(IkeGoal.RENDER_SPDX_LICENSES.qualified()
+                    + " skipped (-Dike.skip.spdx-licenses=true)");
             return;
         }
 
         if (!bomPath.exists()) {
-            getLog().warn("Skipping ike:render-spdx-licenses: SBOM not "
+            getLog().warn("Skipping "
+                    + IkeGoal.RENDER_SPDX_LICENSES.qualified()
+                    + ": SBOM not "
                     + "found at " + bomPath + ". Run 'mvn package' first "
                     + "to produce the SBOM (ike-issues#333). Falling "
                     + "back to the auto-generated licenses.html if "
@@ -309,7 +311,8 @@ public class RenderSpdxLicensesMojo implements org.apache.maven.api.plugin.Mojo 
                 .append(", grouped by SPDX expression. ");
         sb.append("Rendered from `link:bom.json[bom.json]` ")
                 .append("(CycloneDX) at `pre-site` phase by ")
-                .append("`ike:render-spdx-licenses` ")
+                .append("`").append(IkeGoal.RENDER_SPDX_LICENSES.qualified())
+                .append("` ")
                 .append("(ike-issues#335).\n\n");
 
         if (grouped.isEmpty()) {
