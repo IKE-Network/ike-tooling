@@ -52,7 +52,12 @@ import java.util.function.BiPredicate;
  */
 public interface ConstantBackedEnum {
 
-    /** The String literal carried by this constant. */
+    /**
+     * The String literal carried by this constant.
+     *
+     * @return the literal, equal to the corresponding {@code NAME_*}
+     *         mirror constant on the implementing enum
+     */
     String literalName();
 
     /**
