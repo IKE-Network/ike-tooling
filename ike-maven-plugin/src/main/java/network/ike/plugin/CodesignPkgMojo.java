@@ -109,6 +109,19 @@ public class CodesignPkgMojo implements org.apache.maven.api.plugin.Mojo {
     private boolean skip;
 
     /**
+     * Treat a signing identity that is absent from the keychain as a
+     * hard failure rather than a graceful skip.
+     *
+     * <p>Off by default so a routine build on a machine without the
+     * configured Developer ID certificate still succeeds — it logs a
+     * warning and skips signing. Release builds set this to {@code true}
+     * so a missing identity fails the build loudly instead of silently
+     * shipping an unsigned installer.
+     */
+    @Parameter(property = "codesign.requireIdentity", defaultValue = "false")
+    private boolean requireIdentity;
+
+    /**
      * Force the entitlements workaround even on JDK 25.0.2+ where
      * jpackage itself signs with entitlements (JDK-8369477 / JDK-8358723).
      * Normally the goal auto-skips on fixed JDKs; this override is for
@@ -167,6 +180,21 @@ public class CodesignPkgMojo implements org.apache.maven.api.plugin.Mojo {
         }
 
         unlockKeychainIfNeeded();
+
+        if (!CodesignSupport.identityInKeychain(signingIdentity, getLog())) {
+            String msg = "Signing identity not found in keychain: \""
+                    + signingIdentity + "\"";
+            if (requireIdentity) {
+                throw new MojoException(msg
+                        + " — codesign.requireIdentity=true. Install the"
+                        + " Developer ID certificate on this machine, or"
+                        + " unset the strict flag for an unsigned build.");
+            }
+            getLog().warn(msg + " — skipping package codesigning.");
+            getLog().warn("  Pass -Dcodesign.requireIdentity=true to make"
+                    + " a missing identity a hard failure (release builds).");
+            return;
+        }
 
         List<Path> pkgFiles = findPkgFiles();
         if (pkgFiles.isEmpty()) {
