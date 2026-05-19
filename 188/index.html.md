@@ -6,6 +6,8 @@ canonical_url: https://ike.network/ike-tooling/index.html
 
 # IKE Tooling
 
+[https://central.sonatype.com/artifact/network.ike.tooling/ike-tooling](https://central.sonatype.com/artifact/network.ike.tooling/ike-tooling)[1]
+
 Build tooling for the IKE Network: workspace management, release orchestration, gitflow workflows, and build-time utilities.
 
 | Coordinate | Value |
@@ -17,10 +19,10 @@ Build tooling for the IKE Network: workspace management, release orchestration, 
 
 | Module | Description |
 | --- | --- |
-| [IKE Build Standards](ike-build-standards/index.html)[1] | Versioned reference material distributed as classified ZIP artifacts: AI-assistant standards, convention documents, shared build configuration, AsciiDoc IDE-preview config, and the workspace scaffold manifest. |
-| [IKE Workspace Model](ike-workspace-model/index.html)[2] | Data model and conventions for an IKE workspace. Consumed by both `ike-workspace-maven-plugin` and `ike-maven-plugin` so the two plugins share a single source of truth for what a workspace is. Includes the four-state alignment model (snapshot / tag-aligned-release / tag-aligned-checkpoint / external-consumer / unrelated) and graph algorithms for topological ordering. |
-| [IKE Maven Plugin Support](ike-maven-plugin-support/index.html)[3] | Shared library used by `ike-maven-plugin` and `ike-workspace-maven-plugin` (which lives in `ike-platform`). Goal-registry helper, base mojo with markdown-report writing, parameter parsing, and released-version resolution. |
-| [IKE Maven Plugin](ike-maven-plugin/index.html)[4] | The `ike:*` plugin — release orchestration, scaffolding, site deploy, AsciiDoc rendering, and build-time utilities. ~30 goals. |
+| [IKE Build Standards](ike-build-standards/index.html)[2] | Versioned reference material distributed as classified ZIP artifacts: AI-assistant standards, convention documents, shared build configuration, AsciiDoc IDE-preview config, and the workspace scaffold manifest. |
+| [IKE Workspace Model](ike-workspace-model/index.html)[3] | Data model and conventions for an IKE workspace. Consumed by both `ike-workspace-maven-plugin` and `ike-maven-plugin` so the two plugins share a single source of truth for what a workspace is. Includes the four-state alignment model (snapshot / tag-aligned-release / tag-aligned-checkpoint / external-consumer / unrelated) and graph algorithms for topological ordering. |
+| [IKE Maven Plugin Support](ike-maven-plugin-support/index.html)[4] | Shared library used by `ike-maven-plugin` and `ike-workspace-maven-plugin` (which lives in `ike-platform`). Goal-registry helper, base mojo with markdown-report writing, parameter parsing, and released-version resolution. |
+| [IKE Maven Plugin](ike-maven-plugin/index.html)[5] | The `ike:*` plugin — release orchestration, scaffolding, site deploy, AsciiDoc rendering, and build-time utilities. ~30 goals. |
 
 ## [#quick-start](#quick-start)Quick Start
 
@@ -44,7 +46,7 @@ mvn ike:site-publish
 mvn ike:scaffold-publish
 ```
 
-For workspace-spanning operations (`ws:*` prefix), see the [ws plugin docs](https://ike.network/ike-platform/ike-workspace-maven-plugin/)[5] in `ike-platform`.
+For workspace-spanning operations (`ws:*` prefix), see the [ws plugin docs](https://ike.network/ike-platform/ike-workspace-maven-plugin/)[6] in `ike-platform`.
 
 ## [#goal-naming-convention](#goal-naming-convention)Goal naming convention
 
@@ -117,11 +119,20 @@ The classifier-canonical shape **is** fully Maven-canonical — it deploys to Ne
 - `IKE-Network/ike-issues#216` — repo split that established the cross-repo boundary the extension realm was working around.
 - Design note: `dev-classifier-canonical-doc-shape` in `ike-lab-documents/topics/` (full Socratic discovery captured for posterity).
 
+## [#the-ike-foundation](#the-ike-foundation)The IKE foundation
+
+`ike-tooling` is one of four foundation projects published to Maven Central. Together they form the parent-inheritance forest that every IKE project builds on:
+
+- [ike-base-parent](https://ike.network/ike-base-parent/)[7] — Tier 0 foundation parent POM; shared publishing metadata and signing config.
+- [ike-tooling](https://ike.network/ike-tooling/)[8] — Maven plugins for release orchestration and workspace management.
+- [ike-docs](https://ike.network/ike-docs/)[9] — the AsciiDoc documentation pipeline and `idoc:*` plugin.
+- [ike-platform](https://ike.network/ike-platform/)[10] — the consumer-facing `ike-parent`, the BOM, and the `ws:*` plugin.
+
 ## [#resources](#resources)Resources
 
 | Resource | URL |
 | --- | --- |
-| GitHub | [https://github.com/IKE-Network/ike-tooling](https://github.com/IKE-Network/ike-tooling)[6] |
-| Issues | [https://github.com/IKE-Network/ike-issues](https://github.com/IKE-Network/ike-issues)[7] |
-| Nexus Artifacts | [https://nexus.tinkar.org](https://nexus.tinkar.org)[8] |
-| IKE Network | [https://ike.network](https://ike.network)[9] |
+| GitHub | [https://github.com/IKE-Network/ike-tooling](https://github.com/IKE-Network/ike-tooling)[11] |
+| Issues | [https://github.com/IKE-Network/ike-issues](https://github.com/IKE-Network/ike-issues)[12] |
+| Nexus Artifacts | [https://nexus.tinkar.org](https://nexus.tinkar.org)[13] |
+| IKE Network | [https://ike.network](https://ike.network)[14] |

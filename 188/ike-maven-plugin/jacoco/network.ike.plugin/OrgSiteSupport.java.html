@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrgSiteSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">OrgSiteSupport.java</span></div><h1>OrgSiteSupport.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrgSiteSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">OrgSiteSupport.java</span></div><h1>OrgSiteSupport.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
 
 import org.apache.maven.api.plugin.Log;
 import org.apache.maven.api.plugin.MojoException;
@@ -18,7 +18,9 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 /**
@@ -72,6 +74,47 @@ public final class OrgSiteSupport {
     /** Branch used for rendered site content (GitHub Pages source). */
     private static final String GH_PAGES_BRANCH = &quot;gh-pages&quot;;
 
+    /**
+     * The IKE foundation projects, in parent-tier order, mapped to
+     * their Maven Central coordinates ({@code groupId:artifactId}).
+     *
+     * &lt;p&gt;Membership drives the generated landing page: a project in
+     * this map renders under the {@code Foundation} section with a
+     * Maven Central version badge; every other registered project
+     * renders under {@code Examples}. The foundation is a small,
+     * deliberately fixed set — adding a member is a release-cascade
+     * decision, not a routine registration, so it lives in code.
+     */
+<span class="nc" id="L88">    static final Map&lt;String, String&gt; FOUNDATION = foundationCoordinates();</span>
+
+    private static Map&lt;String, String&gt; foundationCoordinates() {
+<span class="nc" id="L91">        Map&lt;String, String&gt; m = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L92">        m.put(&quot;ike-base-parent&quot;, &quot;network.ike:ike-base-parent&quot;);</span>
+<span class="nc" id="L93">        m.put(&quot;ike-tooling&quot;,     &quot;network.ike.tooling:ike-tooling&quot;);</span>
+<span class="nc" id="L94">        m.put(&quot;ike-docs&quot;,        &quot;network.ike.docs:ike-docs&quot;);</span>
+<span class="nc" id="L95">        m.put(&quot;ike-platform&quot;,    &quot;network.ike.platform:ike-platform&quot;);</span>
+<span class="nc" id="L96">        return Collections.unmodifiableMap(m);</span>
+    }
+
+    /**
+     * Build the Maven Central version-badge AsciiDoc for a project.
+     *
+     * @param artifactId the project artifact ID
+     * @return an AsciiDoc {@code image:} macro for foundation
+     *         projects, or {@code null} if the project is not a
+     *         foundation member
+     */
+    static String mavenCentralBadge(String artifactId) {
+<span class="nc" id="L108">        String coordinates = FOUNDATION.get(artifactId);</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">        if (coordinates == null) {</span>
+<span class="nc" id="L110">            return null;</span>
+        }
+<span class="nc" id="L112">        String path = coordinates.replace(':', '/');</span>
+<span class="nc" id="L113">        return &quot;image:https://img.shields.io/maven-central/v/&quot; + path</span>
+                + &quot;[Maven Central,link=&quot;
+                + &quot;https://central.sonatype.com/artifact/&quot; + path + &quot;]&quot;;
+    }
+
     private OrgSiteSupport() {}
 
     // ── Fragment I/O ─────────────────────────────────────────────────
@@ -98,61 +141,66 @@ public final class OrgSiteSupport {
                                       String version, String siteUrl,
                                       String githubUrl, List&lt;String&gt; modules)
             throws MojoException {
-<span class="nc" id="L101">        Path fragmentDir = orgRoot.toPath().resolve(FRAGMENT_DIR);</span>
+<span class="nc" id="L144">        Path fragmentDir = orgRoot.toPath().resolve(FRAGMENT_DIR);</span>
         try {
-<span class="nc" id="L103">            Files.createDirectories(fragmentDir);</span>
-<span class="nc" id="L104">        } catch (IOException e) {</span>
-<span class="nc" id="L105">            throw new MojoException(</span>
+<span class="nc" id="L146">            Files.createDirectories(fragmentDir);</span>
+<span class="nc" id="L147">        } catch (IOException e) {</span>
+<span class="nc" id="L148">            throw new MojoException(</span>
                     &quot;Could not create fragment directory: &quot; + fragmentDir, e);
-<span class="nc" id="L107">        }</span>
+<span class="nc" id="L150">        }</span>
 
-<span class="nc" id="L109">        String siteLabel = siteUrl.replaceFirst(&quot;^https?://&quot;, &quot;&quot;)</span>
-<span class="nc" id="L110">                .replaceFirst(&quot;/$&quot;, &quot;&quot;);</span>
-<span class="nc" id="L111">        String githubLabel = githubUrl.replaceFirst(&quot;^https?://github\\.com/&quot;, &quot;&quot;)</span>
-<span class="nc" id="L112">                .replaceFirst(&quot;/$&quot;, &quot;&quot;);</span>
+<span class="nc" id="L152">        String siteLabel = siteUrl.replaceFirst(&quot;^https?://&quot;, &quot;&quot;)</span>
+<span class="nc" id="L153">                .replaceFirst(&quot;/$&quot;, &quot;&quot;);</span>
+<span class="nc" id="L154">        String githubLabel = githubUrl.replaceFirst(&quot;^https?://github\\.com/&quot;, &quot;&quot;)</span>
+<span class="nc" id="L155">                .replaceFirst(&quot;/$&quot;, &quot;&quot;);</span>
 
-<span class="nc" id="L114">        var sb = new StringBuilder();</span>
-<span class="nc" id="L115">        sb.append(&quot;// IKE Project Registration Fragment\n&quot;);</span>
-<span class="nc" id="L116">        sb.append(&quot;// Managed by ike:site-publish — do not edit manually.\n&quot;);</span>
-<span class="nc" id="L117">        sb.append(&quot;//\n&quot;);</span>
-<span class="nc" id="L118">        sb.append(&quot;// project-id: &quot;).append(artifactId).append('\n');</span>
-<span class="nc" id="L119">        sb.append(&quot;// project-version: &quot;).append(version).append('\n');</span>
-<span class="nc" id="L120">        sb.append(&quot;// project-url: &quot;).append(siteUrl).append('\n');</span>
-<span class="nc" id="L121">        sb.append(&quot;// github-url: &quot;).append(githubUrl).append('\n');</span>
-<span class="nc" id="L122">        sb.append(&quot;// registered: &quot;).append(Instant.now()).append('\n');</span>
-<span class="nc" id="L123">        sb.append('\n');</span>
-<span class="nc" id="L124">        sb.append(&quot;= &quot;).append(name).append('\n');</span>
-<span class="nc" id="L125">        sb.append('\n');</span>
-<span class="nc bnc" id="L126" title="All 4 branches missed.">        if (description != null &amp;&amp; !description.isBlank()) {</span>
-<span class="nc" id="L127">            sb.append(description).append('\n');</span>
-<span class="nc" id="L128">            sb.append('\n');</span>
+<span class="nc" id="L157">        var sb = new StringBuilder();</span>
+<span class="nc" id="L158">        sb.append(&quot;// IKE Project Registration Fragment\n&quot;);</span>
+<span class="nc" id="L159">        sb.append(&quot;// Managed by ike:site-publish — do not edit manually.\n&quot;);</span>
+<span class="nc" id="L160">        sb.append(&quot;//\n&quot;);</span>
+<span class="nc" id="L161">        sb.append(&quot;// project-id: &quot;).append(artifactId).append('\n');</span>
+<span class="nc" id="L162">        sb.append(&quot;// project-version: &quot;).append(version).append('\n');</span>
+<span class="nc" id="L163">        sb.append(&quot;// project-url: &quot;).append(siteUrl).append('\n');</span>
+<span class="nc" id="L164">        sb.append(&quot;// github-url: &quot;).append(githubUrl).append('\n');</span>
+<span class="nc" id="L165">        sb.append(&quot;// registered: &quot;).append(Instant.now()).append('\n');</span>
+<span class="nc" id="L166">        sb.append('\n');</span>
+<span class="nc" id="L167">        sb.append(&quot;= &quot;).append(name).append('\n');</span>
+<span class="nc" id="L168">        sb.append('\n');</span>
+<span class="nc" id="L169">        String badge = mavenCentralBadge(artifactId);</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (badge != null) {</span>
+<span class="nc" id="L171">            sb.append(badge).append('\n');</span>
+<span class="nc" id="L172">            sb.append('\n');</span>
         }
-<span class="nc" id="L130">        sb.append(&quot;[cols=\&quot;1,2\&quot;,options=\&quot;autowidth\&quot;]\n&quot;);</span>
-<span class="nc" id="L131">        sb.append(&quot;|===\n&quot;);</span>
-<span class="nc" id="L132">        sb.append(&quot;| Version | &quot;).append(version).append('\n');</span>
-<span class="nc" id="L133">        sb.append(&quot;| Site | &quot;).append(siteUrl).append('[')</span>
-<span class="nc" id="L134">                .append(siteLabel).append(&quot;]\n&quot;);</span>
-<span class="nc" id="L135">        sb.append(&quot;| GitHub | &quot;).append(githubUrl).append('[')</span>
-<span class="nc" id="L136">                .append(githubLabel).append(&quot;]\n&quot;);</span>
-<span class="nc" id="L137">        sb.append(&quot;|===\n&quot;);</span>
+<span class="nc bnc" id="L174" title="All 4 branches missed.">        if (description != null &amp;&amp; !description.isBlank()) {</span>
+<span class="nc" id="L175">            sb.append(description).append('\n');</span>
+<span class="nc" id="L176">            sb.append('\n');</span>
+        }
+<span class="nc" id="L178">        sb.append(&quot;[cols=\&quot;1,2\&quot;,options=\&quot;autowidth\&quot;]\n&quot;);</span>
+<span class="nc" id="L179">        sb.append(&quot;|===\n&quot;);</span>
+<span class="nc" id="L180">        sb.append(&quot;| Version | &quot;).append(version).append('\n');</span>
+<span class="nc" id="L181">        sb.append(&quot;| Site | &quot;).append(siteUrl).append('[')</span>
+<span class="nc" id="L182">                .append(siteLabel).append(&quot;]\n&quot;);</span>
+<span class="nc" id="L183">        sb.append(&quot;| GitHub | &quot;).append(githubUrl).append('[')</span>
+<span class="nc" id="L184">                .append(githubLabel).append(&quot;]\n&quot;);</span>
+<span class="nc" id="L185">        sb.append(&quot;|===\n&quot;);</span>
 
-<span class="nc bnc" id="L139" title="All 4 branches missed.">        if (modules != null &amp;&amp; !modules.isEmpty()) {</span>
-<span class="nc" id="L140">            sb.append('\n');</span>
-<span class="nc" id="L141">            sb.append(&quot;=== Modules\n&quot;);</span>
-<span class="nc" id="L142">            sb.append('\n');</span>
-<span class="nc bnc" id="L143" title="All 2 branches missed.">            for (String module : modules) {</span>
-<span class="nc" id="L144">                sb.append(&quot;* &quot;).append(module).append('\n');</span>
-<span class="nc" id="L145">            }</span>
+<span class="nc bnc" id="L187" title="All 4 branches missed.">        if (modules != null &amp;&amp; !modules.isEmpty()) {</span>
+<span class="nc" id="L188">            sb.append('\n');</span>
+<span class="nc" id="L189">            sb.append(&quot;=== Modules\n&quot;);</span>
+<span class="nc" id="L190">            sb.append('\n');</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">            for (String module : modules) {</span>
+<span class="nc" id="L192">                sb.append(&quot;* &quot;).append(module).append('\n');</span>
+<span class="nc" id="L193">            }</span>
         }
 
-<span class="nc" id="L148">        Path fragmentFile = fragmentDir.resolve(artifactId + &quot;.adoc&quot;);</span>
+<span class="nc" id="L196">        Path fragmentFile = fragmentDir.resolve(artifactId + &quot;.adoc&quot;);</span>
         try {
-<span class="nc" id="L150">            Files.writeString(fragmentFile, sb.toString(), StandardCharsets.UTF_8);</span>
-<span class="nc" id="L151">        } catch (IOException e) {</span>
-<span class="nc" id="L152">            throw new MojoException(</span>
+<span class="nc" id="L198">            Files.writeString(fragmentFile, sb.toString(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L199">        } catch (IOException e) {</span>
+<span class="nc" id="L200">            throw new MojoException(</span>
                     &quot;Could not write fragment: &quot; + fragmentFile, e);
-<span class="nc" id="L154">        }</span>
-<span class="nc" id="L155">    }</span>
+<span class="nc" id="L202">        }</span>
+<span class="nc" id="L203">    }</span>
 
     /**
      * Delete a project registration fragment.
@@ -163,19 +211,19 @@ public final class OrgSiteSupport {
      */
     public static void deleteFragment(File orgRoot, String artifactId)
             throws MojoException {
-<span class="nc" id="L166">        Path fragmentFile = orgRoot.toPath()</span>
-<span class="nc" id="L167">                .resolve(FRAGMENT_DIR).resolve(artifactId + &quot;.adoc&quot;);</span>
-<span class="nc bnc" id="L168" title="All 2 branches missed.">        if (!Files.exists(fragmentFile)) {</span>
-<span class="nc" id="L169">            throw new MojoException(</span>
+<span class="nc" id="L214">        Path fragmentFile = orgRoot.toPath()</span>
+<span class="nc" id="L215">                .resolve(FRAGMENT_DIR).resolve(artifactId + &quot;.adoc&quot;);</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">        if (!Files.exists(fragmentFile)) {</span>
+<span class="nc" id="L217">            throw new MojoException(</span>
                     &quot;No registration fragment found: &quot; + fragmentFile);
         }
         try {
-<span class="nc" id="L173">            Files.delete(fragmentFile);</span>
-<span class="nc" id="L174">        } catch (IOException e) {</span>
-<span class="nc" id="L175">            throw new MojoException(</span>
+<span class="nc" id="L221">            Files.delete(fragmentFile);</span>
+<span class="nc" id="L222">        } catch (IOException e) {</span>
+<span class="nc" id="L223">            throw new MojoException(</span>
                     &quot;Could not delete fragment: &quot; + fragmentFile, e);
-<span class="nc" id="L177">        }</span>
-<span class="nc" id="L178">    }</span>
+<span class="nc" id="L225">        }</span>
+<span class="nc" id="L226">    }</span>
 
     // ── Index generation ─────────────────────────────────────────────
 
@@ -183,59 +231,107 @@ public final class OrgSiteSupport {
      * Regenerate {@code src/site/asciidoc/index.adoc} from all fragments
      * in the {@code projects/} directory.
      *
-     * &lt;p&gt;Fragments are sorted alphabetically by filename. The index
-     * preamble (title, description) is embedded here as a template.
+     * &lt;p&gt;Registered projects are split into two sections: foundation
+     * members (see {@link #FOUNDATION}, rendered in parent-tier order)
+     * and everything else (the examples, rendered alphabetically). The
+     * index preamble and section intros are embedded here as a
+     * template.
      *
      * @param orgRoot root of the cloned org repository
      * @throws MojoException if fragments cannot be read or index cannot be written
      */
     public static void regenerateIndex(File orgRoot)
             throws MojoException {
-<span class="nc" id="L194">        Path fragmentDir = orgRoot.toPath().resolve(FRAGMENT_DIR);</span>
-<span class="nc" id="L195">        List&lt;String&gt; fragmentNames = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L245">        Path fragmentDir = orgRoot.toPath().resolve(FRAGMENT_DIR);</span>
+<span class="nc" id="L246">        List&lt;String&gt; fragmentNames = new ArrayList&lt;&gt;();</span>
 
-<span class="nc bnc" id="L197" title="All 2 branches missed.">        if (Files.isDirectory(fragmentDir)) {</span>
-<span class="nc" id="L198">            try (DirectoryStream&lt;Path&gt; stream =</span>
-<span class="nc" id="L199">                         Files.newDirectoryStream(fragmentDir, &quot;*.adoc&quot;)) {</span>
-<span class="nc bnc" id="L200" title="All 2 branches missed.">                for (Path entry : stream) {</span>
-<span class="nc" id="L201">                    fragmentNames.add(entry.getFileName().toString());</span>
-<span class="nc" id="L202">                }</span>
-<span class="nc" id="L203">            } catch (IOException e) {</span>
-<span class="nc" id="L204">                throw new MojoException(</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        if (Files.isDirectory(fragmentDir)) {</span>
+<span class="nc" id="L249">            try (DirectoryStream&lt;Path&gt; stream =</span>
+<span class="nc" id="L250">                         Files.newDirectoryStream(fragmentDir, &quot;*.adoc&quot;)) {</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">                for (Path entry : stream) {</span>
+<span class="nc" id="L252">                    fragmentNames.add(entry.getFileName().toString());</span>
+<span class="nc" id="L253">                }</span>
+<span class="nc" id="L254">            } catch (IOException e) {</span>
+<span class="nc" id="L255">                throw new MojoException(</span>
                         &quot;Could not scan fragment directory: &quot; + fragmentDir, e);
-<span class="nc" id="L206">            }</span>
+<span class="nc" id="L257">            }</span>
         }
-<span class="nc" id="L208">        Collections.sort(fragmentNames);</span>
+<span class="nc" id="L259">        Collections.sort(fragmentNames);</span>
 
-<span class="nc" id="L210">        var sb = new StringBuilder();</span>
-<span class="nc" id="L211">        sb.append(&quot;= IKE Network\n&quot;);</span>
-<span class="nc" id="L212">        sb.append(&quot;:icons: font\n&quot;);</span>
-<span class="nc" id="L213">        sb.append('\n');</span>
-<span class="nc" id="L214">        sb.append(&quot;The IKE Network (Integrated Knowledge Exchange) is a sociotechnical\n&quot;);</span>
-<span class="nc" id="L215">        sb.append(&quot;fabric where knowledge compounds.\n&quot;);</span>
-<span class="nc" id="L216">        sb.append('\n');</span>
+        // Foundation members in parent-tier order; everything else
+        // (the examples) keeps the alphabetical order.
+<span class="nc" id="L263">        List&lt;String&gt; foundation = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        for (String id : FOUNDATION.keySet()) {</span>
+<span class="nc" id="L265">            String fragment = id + &quot;.adoc&quot;;</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">            if (fragmentNames.contains(fragment)) {</span>
+<span class="nc" id="L267">                foundation.add(fragment);</span>
+            }
+<span class="nc" id="L269">        }</span>
+<span class="nc" id="L270">        List&lt;String&gt; examples = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        for (String fragment : fragmentNames) {</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">            if (!foundation.contains(fragment)) {</span>
+<span class="nc" id="L273">                examples.add(fragment);</span>
+            }
+<span class="nc" id="L275">        }</span>
 
-<span class="nc bnc" id="L218" title="All 2 branches missed.">        if (!fragmentNames.isEmpty()) {</span>
-<span class="nc" id="L219">            sb.append(&quot;== Projects\n&quot;);</span>
-<span class="nc" id="L220">            sb.append('\n');</span>
-            // Relative path from src/site/asciidoc/ to projects/
-<span class="nc bnc" id="L222" title="All 2 branches missed.">            for (String fragment : fragmentNames) {</span>
-<span class="nc" id="L223">                sb.append(&quot;include::../../../projects/&quot;)</span>
-<span class="nc" id="L224">                        .append(fragment)</span>
-<span class="nc" id="L225">                        .append(&quot;[leveloffset=+1]\n&quot;);</span>
-<span class="nc" id="L226">                sb.append('\n');</span>
-<span class="nc" id="L227">            }</span>
+<span class="nc" id="L277">        var sb = new StringBuilder();</span>
+<span class="nc" id="L278">        sb.append(&quot;= IKE Network\n&quot;);</span>
+<span class="nc" id="L279">        sb.append(&quot;:icons: font\n&quot;);</span>
+<span class="nc" id="L280">        sb.append('\n');</span>
+<span class="nc" id="L281">        sb.append(&quot;The IKE Network (Integrated Knowledge Exchange) is a sociotechnical\n&quot;);</span>
+<span class="nc" id="L282">        sb.append(&quot;fabric where knowledge compounds.\n&quot;);</span>
+<span class="nc" id="L283">        sb.append('\n');</span>
+
+<span class="nc bnc" id="L285" title="All 2 branches missed.">        if (!foundation.isEmpty()) {</span>
+<span class="nc" id="L286">            sb.append(&quot;== Foundation\n&quot;);</span>
+<span class="nc" id="L287">            sb.append('\n');</span>
+<span class="nc" id="L288">            sb.append(&quot;The IKE foundation — published to Maven Central and\n&quot;);</span>
+<span class="nc" id="L289">            sb.append(&quot;inheritable by any project. Each layer builds on the\n&quot;);</span>
+<span class="nc" id="L290">            sb.append(&quot;one above it.\n&quot;);</span>
+<span class="nc" id="L291">            sb.append('\n');</span>
+<span class="nc" id="L292">            appendIncludes(sb, foundation);</span>
         }
 
-<span class="nc" id="L230">        Path indexFile = orgRoot.toPath().resolve(INDEX_ADOC);</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        if (!examples.isEmpty()) {</span>
+<span class="nc" id="L296">            sb.append(&quot;== Examples\n&quot;);</span>
+<span class="nc" id="L297">            sb.append('\n');</span>
+<span class="nc" id="L298">            sb.append(&quot;Reference projects that show how to consume the IKE\n&quot;);</span>
+<span class="nc" id="L299">            sb.append(&quot;foundation. They are deliberately *not* published to\n&quot;);</span>
+<span class="nc" id="L300">            sb.append(&quot;Maven Central: they are worked examples to read and\n&quot;);</span>
+<span class="nc" id="L301">            sb.append(&quot;copy, not libraries to depend on. Publishing them as\n&quot;);</span>
+<span class="nc" id="L302">            sb.append(&quot;artifacts would invite accidental coupling to code\n&quot;);</span>
+<span class="nc" id="L303">            sb.append(&quot;that exists only to illustrate a pattern.\n&quot;);</span>
+<span class="nc" id="L304">            sb.append('\n');</span>
+<span class="nc" id="L305">            appendIncludes(sb, examples);</span>
+        }
+
+<span class="nc" id="L308">        Path indexFile = orgRoot.toPath().resolve(INDEX_ADOC);</span>
         try {
-<span class="nc" id="L232">            Files.createDirectories(indexFile.getParent());</span>
-<span class="nc" id="L233">            Files.writeString(indexFile, sb.toString(), StandardCharsets.UTF_8);</span>
-<span class="nc" id="L234">        } catch (IOException e) {</span>
-<span class="nc" id="L235">            throw new MojoException(</span>
+<span class="nc" id="L310">            Files.createDirectories(indexFile.getParent());</span>
+<span class="nc" id="L311">            Files.writeString(indexFile, sb.toString(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L312">        } catch (IOException e) {</span>
+<span class="nc" id="L313">            throw new MojoException(</span>
                     &quot;Could not write index: &quot; + indexFile, e);
-<span class="nc" id="L237">        }</span>
-<span class="nc" id="L238">    }</span>
+<span class="nc" id="L315">        }</span>
+<span class="nc" id="L316">    }</span>
+
+    /**
+     * Append {@code include::} directives for the given fragment
+     * filenames to the index buffer, one per line with a trailing
+     * blank line. The path is relative to {@code src/site/asciidoc/}.
+     *
+     * @param sb        the index buffer being assembled
+     * @param fragments fragment filenames (e.g. {@code ike-docs.adoc})
+     */
+    private static void appendIncludes(StringBuilder sb,
+                                       List&lt;String&gt; fragments) {
+<span class="nc bnc" id="L328" title="All 2 branches missed.">        for (String fragment : fragments) {</span>
+<span class="nc" id="L329">            sb.append(&quot;include::../../../projects/&quot;)</span>
+<span class="nc" id="L330">                    .append(fragment)</span>
+<span class="nc" id="L331">                    .append(&quot;[leveloffset=+1]\n&quot;);</span>
+<span class="nc" id="L332">            sb.append('\n');</span>
+<span class="nc" id="L333">        }</span>
+<span class="nc" id="L334">    }</span>
 
     // ── AsciiDoc rendering ───────────────────────────────────────────
 
@@ -254,53 +350,53 @@ public final class OrgSiteSupport {
      */
     public static void renderToXhtml(File orgRoot, Log log)
             throws MojoException {
-<span class="nc" id="L257">        Path indexAdoc = orgRoot.toPath().resolve(INDEX_ADOC);</span>
-<span class="nc bnc" id="L258" title="All 2 branches missed.">        if (!Files.exists(indexAdoc)) {</span>
-<span class="nc" id="L259">            throw new MojoException(</span>
+<span class="nc" id="L353">        Path indexAdoc = orgRoot.toPath().resolve(INDEX_ADOC);</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">        if (!Files.exists(indexAdoc)) {</span>
+<span class="nc" id="L355">            throw new MojoException(</span>
                     &quot;Index AsciiDoc not found: &quot; + indexAdoc);
         }
 
-<span class="nc" id="L263">        Path xhtmlDir = orgRoot.toPath()</span>
-<span class="nc" id="L264">                .resolve(&quot;target&quot;).resolve(&quot;generated-site&quot;).resolve(&quot;xhtml&quot;);</span>
+<span class="nc" id="L359">        Path xhtmlDir = orgRoot.toPath()</span>
+<span class="nc" id="L360">                .resolve(&quot;target&quot;).resolve(&quot;generated-site&quot;).resolve(&quot;xhtml&quot;);</span>
         try {
-<span class="nc" id="L266">            Files.createDirectories(xhtmlDir);</span>
-<span class="nc" id="L267">        } catch (IOException e) {</span>
-<span class="nc" id="L268">            throw new MojoException(</span>
+<span class="nc" id="L362">            Files.createDirectories(xhtmlDir);</span>
+<span class="nc" id="L363">        } catch (IOException e) {</span>
+<span class="nc" id="L364">            throw new MojoException(</span>
                     &quot;Could not create XHTML output directory: &quot; + xhtmlDir, e);
-<span class="nc" id="L270">        }</span>
+<span class="nc" id="L366">        }</span>
 
-<span class="nc" id="L272">        log.info(&quot;Rendering index.adoc to XHTML...&quot;);</span>
-<span class="nc" id="L273">        try (Asciidoctor asciidoctor = Asciidoctor.Factory.create()) {</span>
-<span class="nc" id="L274">            Attributes attrs = Attributes.builder()</span>
-<span class="nc" id="L275">                    .attribute(&quot;icons&quot;, &quot;font&quot;)</span>
-<span class="nc" id="L276">                    .attribute(&quot;source-highlighter&quot;, &quot;coderay&quot;)</span>
-<span class="nc" id="L277">                    .attribute(&quot;sectanchors&quot;, &quot;true&quot;)</span>
-<span class="nc" id="L278">                    .attribute(&quot;idprefix&quot;, &quot;&quot;)</span>
-<span class="nc" id="L279">                    .attribute(&quot;idseparator&quot;, &quot;-&quot;)</span>
-<span class="nc" id="L280">                    .build();</span>
+<span class="nc" id="L368">        log.info(&quot;Rendering index.adoc to XHTML...&quot;);</span>
+<span class="nc" id="L369">        try (Asciidoctor asciidoctor = Asciidoctor.Factory.create()) {</span>
+<span class="nc" id="L370">            Attributes attrs = Attributes.builder()</span>
+<span class="nc" id="L371">                    .attribute(&quot;icons&quot;, &quot;font&quot;)</span>
+<span class="nc" id="L372">                    .attribute(&quot;source-highlighter&quot;, &quot;coderay&quot;)</span>
+<span class="nc" id="L373">                    .attribute(&quot;sectanchors&quot;, &quot;true&quot;)</span>
+<span class="nc" id="L374">                    .attribute(&quot;idprefix&quot;, &quot;&quot;)</span>
+<span class="nc" id="L375">                    .attribute(&quot;idseparator&quot;, &quot;-&quot;)</span>
+<span class="nc" id="L376">                    .build();</span>
 
-<span class="nc" id="L282">            Options options = Options.builder()</span>
-<span class="nc" id="L283">                    .safe(SafeMode.UNSAFE)</span>
-<span class="nc" id="L284">                    .backend(&quot;html5&quot;)</span>
-<span class="nc" id="L285">                    .baseDir(indexAdoc.getParent().toFile())</span>
-<span class="nc" id="L286">                    .toDir(xhtmlDir.toFile())</span>
-<span class="nc" id="L287">                    .standalone(false)</span>
-<span class="nc" id="L288">                    .attributes(attrs)</span>
-<span class="nc" id="L289">                    .build();</span>
+<span class="nc" id="L378">            Options options = Options.builder()</span>
+<span class="nc" id="L379">                    .safe(SafeMode.UNSAFE)</span>
+<span class="nc" id="L380">                    .backend(&quot;html5&quot;)</span>
+<span class="nc" id="L381">                    .baseDir(indexAdoc.getParent().toFile())</span>
+<span class="nc" id="L382">                    .toDir(xhtmlDir.toFile())</span>
+<span class="nc" id="L383">                    .standalone(false)</span>
+<span class="nc" id="L384">                    .attributes(attrs)</span>
+<span class="nc" id="L385">                    .build();</span>
 
-<span class="nc" id="L291">            asciidoctor.convertFile(indexAdoc.toFile(), options);</span>
+<span class="nc" id="L387">            asciidoctor.convertFile(indexAdoc.toFile(), options);</span>
 
             // Rename .html → .xhtml for Doxia XHTML parser
-<span class="nc" id="L294">            Path htmlFile = xhtmlDir.resolve(&quot;index.html&quot;);</span>
-<span class="nc" id="L295">            Path xhtmlFile = xhtmlDir.resolve(&quot;index.xhtml&quot;);</span>
-<span class="nc bnc" id="L296" title="All 2 branches missed.">            if (Files.exists(htmlFile)) {</span>
-<span class="nc" id="L297">                Files.move(htmlFile, xhtmlFile, StandardCopyOption.REPLACE_EXISTING);</span>
+<span class="nc" id="L390">            Path htmlFile = xhtmlDir.resolve(&quot;index.html&quot;);</span>
+<span class="nc" id="L391">            Path xhtmlFile = xhtmlDir.resolve(&quot;index.xhtml&quot;);</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">            if (Files.exists(htmlFile)) {</span>
+<span class="nc" id="L393">                Files.move(htmlFile, xhtmlFile, StandardCopyOption.REPLACE_EXISTING);</span>
             }
-<span class="nc" id="L299">        } catch (IOException e) {</span>
-<span class="nc" id="L300">            throw new MojoException(</span>
+<span class="nc" id="L395">        } catch (IOException e) {</span>
+<span class="nc" id="L396">            throw new MojoException(</span>
                     &quot;Failed to rename rendered index to .xhtml&quot;, e);
-<span class="nc" id="L302">        }</span>
-<span class="nc" id="L303">    }</span>
+<span class="nc" id="L398">        }</span>
+<span class="nc" id="L399">    }</span>
 
     // ── Site build ───────────────────────────────────────────────────
 
@@ -322,11 +418,11 @@ public final class OrgSiteSupport {
      */
     public static void buildSite(File orgRoot, Log log)
             throws MojoException {
-<span class="nc" id="L325">        File mvnw = resolveMaven(orgRoot, log);</span>
-<span class="nc" id="L326">        log.info(&quot;Building org site...&quot;);</span>
-<span class="nc" id="L327">        ReleaseSupport.exec(orgRoot, log,</span>
-<span class="nc" id="L328">                mvnw.getAbsolutePath(), &quot;site&quot;, &quot;-B&quot;);</span>
-<span class="nc" id="L329">    }</span>
+<span class="nc" id="L421">        File mvnw = resolveMaven(orgRoot, log);</span>
+<span class="nc" id="L422">        log.info(&quot;Building org site...&quot;);</span>
+<span class="nc" id="L423">        ReleaseSupport.exec(orgRoot, log,</span>
+<span class="nc" id="L424">                mvnw.getAbsolutePath(), &quot;site&quot;, &quot;-B&quot;);</span>
+<span class="nc" id="L425">    }</span>
 
     // ── GitHub Pages publishing ──────────────────────────────────────
 
@@ -342,52 +438,52 @@ public final class OrgSiteSupport {
      */
     public static void publishToGhPages(File orgRoot, String repoUrl, Log log)
             throws MojoException {
-<span class="nc" id="L345">        Path stagingDir = orgRoot.toPath().resolve(&quot;target&quot;).resolve(&quot;staging&quot;);</span>
-<span class="nc bnc" id="L346" title="All 2 branches missed.">        if (!Files.isDirectory(stagingDir)) {</span>
-<span class="nc" id="L347">            throw new MojoException(</span>
+<span class="nc" id="L441">        Path stagingDir = orgRoot.toPath().resolve(&quot;target&quot;).resolve(&quot;staging&quot;);</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">        if (!Files.isDirectory(stagingDir)) {</span>
+<span class="nc" id="L443">            throw new MojoException(</span>
                     &quot;Staging directory does not exist: &quot; + stagingDir
                             + &quot;. Site build may have failed.&quot;);
         }
 
-<span class="nc" id="L352">        log.info(&quot;Publishing org site to gh-pages...&quot;);</span>
+<span class="nc" id="L448">        log.info(&quot;Publishing org site to gh-pages...&quot;);</span>
 
         Path tempDir;
         try {
-<span class="nc" id="L356">            tempDir = Files.createTempDirectory(&quot;ike-org-site-publish-&quot;);</span>
-<span class="nc" id="L357">        } catch (IOException e) {</span>
-<span class="nc" id="L358">            throw new MojoException(</span>
+<span class="nc" id="L452">            tempDir = Files.createTempDirectory(&quot;ike-org-site-publish-&quot;);</span>
+<span class="nc" id="L453">        } catch (IOException e) {</span>
+<span class="nc" id="L454">            throw new MojoException(</span>
                     &quot;Could not create temp directory for publish&quot;, e);
-<span class="nc" id="L360">        }</span>
+<span class="nc" id="L456">        }</span>
 
         try {
-<span class="nc" id="L363">            File tempRoot = tempDir.toFile();</span>
+<span class="nc" id="L459">            File tempRoot = tempDir.toFile();</span>
 
-<span class="nc" id="L365">            ReleaseSupport.exec(tempRoot, log,</span>
+<span class="nc" id="L461">            ReleaseSupport.exec(tempRoot, log,</span>
                     &quot;git&quot;, &quot;init&quot;);
-<span class="nc" id="L367">            ReleaseSupport.exec(tempRoot, log,</span>
+<span class="nc" id="L463">            ReleaseSupport.exec(tempRoot, log,</span>
                     &quot;git&quot;, &quot;checkout&quot;, &quot;--orphan&quot;, GH_PAGES_BRANCH);
 
             try {
-<span class="nc" id="L371">                ReleaseSupport.copyDirectory(stagingDir, tempDir);</span>
-<span class="nc" id="L372">            } catch (IOException e) {</span>
-<span class="nc" id="L373">                throw new MojoException(</span>
-<span class="nc" id="L374">                        &quot;Failed to copy staging dir: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L375">            }</span>
+<span class="nc" id="L467">                ReleaseSupport.copyDirectory(stagingDir, tempDir);</span>
+<span class="nc" id="L468">            } catch (IOException e) {</span>
+<span class="nc" id="L469">                throw new MojoException(</span>
+<span class="nc" id="L470">                        &quot;Failed to copy staging dir: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L471">            }</span>
 
-<span class="nc" id="L377">            ReleaseSupport.exec(tempRoot, log,</span>
+<span class="nc" id="L473">            ReleaseSupport.exec(tempRoot, log,</span>
                     &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);
-<span class="nc" id="L379">            ReleaseSupport.exec(tempRoot, log,</span>
+<span class="nc" id="L475">            ReleaseSupport.exec(tempRoot, log,</span>
                     &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;, &quot;site: publish org landing page&quot;);
 
-<span class="nc" id="L382">            ReleaseSupport.exec(tempRoot, log,</span>
+<span class="nc" id="L478">            ReleaseSupport.exec(tempRoot, log,</span>
                     &quot;git&quot;, &quot;push&quot;, &quot;--force&quot;, repoUrl,
                     GH_PAGES_BRANCH + &quot;:&quot; + GH_PAGES_BRANCH);
 
-<span class="nc" id="L386">            log.info(&quot;Org site published to gh-pages&quot;);</span>
+<span class="nc" id="L482">            log.info(&quot;Org site published to gh-pages&quot;);</span>
         } finally {
-<span class="nc" id="L388">            ReleaseSupport.deleteDirectory(tempDir);</span>
+<span class="nc" id="L484">            ReleaseSupport.deleteDirectory(tempDir);</span>
         }
-<span class="nc" id="L390">    }</span>
+<span class="nc" id="L486">    }</span>
 
     // ── Repository operations ────────────────────────────────────────
 
@@ -404,18 +500,18 @@ public final class OrgSiteSupport {
             throws MojoException {
         Path tempDir;
         try {
-<span class="nc" id="L407">            tempDir = Files.createTempDirectory(&quot;ike-org-site-&quot;);</span>
-<span class="nc" id="L408">        } catch (IOException e) {</span>
-<span class="nc" id="L409">            throw new MojoException(</span>
+<span class="nc" id="L503">            tempDir = Files.createTempDirectory(&quot;ike-org-site-&quot;);</span>
+<span class="nc" id="L504">        } catch (IOException e) {</span>
+<span class="nc" id="L505">            throw new MojoException(</span>
                     &quot;Could not create temp directory for clone&quot;, e);
-<span class="nc" id="L411">        }</span>
+<span class="nc" id="L507">        }</span>
 
-<span class="nc" id="L413">        log.info(&quot;Cloning &quot; + repoUrl + &quot; (&quot; + branch + &quot;)...&quot;);</span>
-<span class="nc" id="L414">        ReleaseSupport.exec(tempDir.getParent().toFile(), log,</span>
+<span class="nc" id="L509">        log.info(&quot;Cloning &quot; + repoUrl + &quot; (&quot; + branch + &quot;)...&quot;);</span>
+<span class="nc" id="L510">        ReleaseSupport.exec(tempDir.getParent().toFile(), log,</span>
                 &quot;git&quot;, &quot;clone&quot;, &quot;--depth&quot;, &quot;1&quot;, &quot;--branch&quot;, branch,
-<span class="nc" id="L416">                repoUrl, tempDir.getFileName().toString());</span>
+<span class="nc" id="L512">                repoUrl, tempDir.getFileName().toString());</span>
 
-<span class="nc" id="L418">        return tempDir.toFile();</span>
+<span class="nc" id="L514">        return tempDir.toFile();</span>
     }
 
     /**
@@ -430,21 +526,21 @@ public final class OrgSiteSupport {
     public static void commitAndPush(File orgRoot, String message,
                                       String branch, Log log)
             throws MojoException {
-<span class="nc" id="L433">        ReleaseSupport.exec(orgRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
+<span class="nc" id="L529">        ReleaseSupport.exec(orgRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
 
         // Check if there are changes to commit
-<span class="nc" id="L436">        String status = ReleaseSupport.execCapture(orgRoot,</span>
+<span class="nc" id="L532">        String status = ReleaseSupport.execCapture(orgRoot,</span>
                 &quot;git&quot;, &quot;status&quot;, &quot;--porcelain&quot;);
-<span class="nc bnc" id="L438" title="All 2 branches missed.">        if (status.isBlank()) {</span>
-<span class="nc" id="L439">            log.info(&quot;No changes to commit (fragment unchanged)&quot;);</span>
-<span class="nc" id="L440">            return;</span>
+<span class="nc bnc" id="L534" title="All 2 branches missed.">        if (status.isBlank()) {</span>
+<span class="nc" id="L535">            log.info(&quot;No changes to commit (fragment unchanged)&quot;);</span>
+<span class="nc" id="L536">            return;</span>
         }
 
-<span class="nc" id="L443">        ReleaseSupport.exec(orgRoot, log,</span>
+<span class="nc" id="L539">        ReleaseSupport.exec(orgRoot, log,</span>
                 &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;, message);
-<span class="nc" id="L445">        ReleaseSupport.exec(orgRoot, log,</span>
+<span class="nc" id="L541">        ReleaseSupport.exec(orgRoot, log,</span>
                 &quot;git&quot;, &quot;push&quot;, &quot;origin&quot;, branch);
-<span class="nc" id="L447">    }</span>
+<span class="nc" id="L543">    }</span>
 
     /**
      * Run the full registration workflow on a two-repo org-site
@@ -496,11 +592,11 @@ public final class OrgSiteSupport {
                                         String siteUrl, String githubUrl,
                                         List&lt;String&gt; modules)
             throws MojoException {
-<span class="nc" id="L499">        File srcRoot = cloneOrgRepo(srcRepoUrl, srcBranch, log);</span>
+<span class="nc" id="L595">        File srcRoot = cloneOrgRepo(srcRepoUrl, srcBranch, log);</span>
         try {
-<span class="nc" id="L501">            writeFragment(srcRoot, artifactId, name, description,</span>
+<span class="nc" id="L597">            writeFragment(srcRoot, artifactId, name, description,</span>
                     version, siteUrl, githubUrl, modules);
-<span class="nc" id="L503">            regenerateIndex(srcRoot);</span>
+<span class="nc" id="L599">            regenerateIndex(srcRoot);</span>
             // No renderToXhtml here: the source pom has
             // asciidoctor-parser-doxia-module wired into
             // maven-site-plugin's plugin dependencies, so buildSite's
@@ -509,16 +605,16 @@ public final class OrgSiteSupport {
             // target/generated-site/xhtml/index.xhtml produces a
             // second source for index.html and trips the site plugin's
             // duplicate-output check.
-<span class="nc" id="L512">            buildSite(srcRoot, log);</span>
-<span class="nc" id="L513">            commitAndPush(srcRoot,</span>
+<span class="nc" id="L608">            buildSite(srcRoot, log);</span>
+<span class="nc" id="L609">            commitAndPush(srcRoot,</span>
                     &quot;site: register &quot; + artifactId + &quot; &quot; + version,
                     srcBranch, log);
-<span class="nc" id="L516">            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,</span>
+<span class="nc" id="L612">            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,</span>
                     artifactId, version, log);
         } finally {
-<span class="nc" id="L519">            ReleaseSupport.deleteDirectory(srcRoot.toPath());</span>
+<span class="nc" id="L615">            ReleaseSupport.deleteDirectory(srcRoot.toPath());</span>
         }
-<span class="nc" id="L521">    }</span>
+<span class="nc" id="L617">    }</span>
 
     /**
      * Run the full deregistration workflow against the two-repo
@@ -540,21 +636,21 @@ public final class OrgSiteSupport {
                                           String srcBranch, String pubBranch,
                                           String artifactId)
             throws MojoException {
-<span class="nc" id="L543">        File srcRoot = cloneOrgRepo(srcRepoUrl, srcBranch, log);</span>
+<span class="nc" id="L639">        File srcRoot = cloneOrgRepo(srcRepoUrl, srcBranch, log);</span>
         try {
-<span class="nc" id="L545">            deleteFragment(srcRoot, artifactId);</span>
-<span class="nc" id="L546">            regenerateIndex(srcRoot);</span>
+<span class="nc" id="L641">            deleteFragment(srcRoot, artifactId);</span>
+<span class="nc" id="L642">            regenerateIndex(srcRoot);</span>
             // No renderToXhtml — see registerProject for the rationale.
-<span class="nc" id="L548">            buildSite(srcRoot, log);</span>
-<span class="nc" id="L549">            commitAndPush(srcRoot,</span>
+<span class="nc" id="L644">            buildSite(srcRoot, log);</span>
+<span class="nc" id="L645">            commitAndPush(srcRoot,</span>
                     &quot;site: deregister &quot; + artifactId,
                     srcBranch, log);
-<span class="nc" id="L552">            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,</span>
+<span class="nc" id="L648">            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,</span>
                     artifactId, &quot;(deregister)&quot;, log);
         } finally {
-<span class="nc" id="L555">            ReleaseSupport.deleteDirectory(srcRoot.toPath());</span>
+<span class="nc" id="L651">            ReleaseSupport.deleteDirectory(srcRoot.toPath());</span>
         }
-<span class="nc" id="L557">    }</span>
+<span class="nc" id="L653">    }</span>
 
     /**
      * Publish the {@code target/site/} contents from a freshly-
@@ -588,76 +684,76 @@ public final class OrgSiteSupport {
                                          String artifactId, String version,
                                          Log log)
             throws MojoException {
-<span class="nc" id="L591">        Path siteDir = srcRoot.toPath()</span>
-<span class="nc" id="L592">                .resolve(&quot;target&quot;).resolve(&quot;site&quot;);</span>
-<span class="nc bnc" id="L593" title="All 2 branches missed.">        if (!Files.isDirectory(siteDir)) {</span>
-<span class="nc" id="L594">            throw new MojoException(</span>
+<span class="nc" id="L687">        Path siteDir = srcRoot.toPath()</span>
+<span class="nc" id="L688">                .resolve(&quot;target&quot;).resolve(&quot;site&quot;);</span>
+<span class="nc bnc" id="L689" title="All 2 branches missed.">        if (!Files.isDirectory(siteDir)) {</span>
+<span class="nc" id="L690">            throw new MojoException(</span>
                     &quot;Source repo's target/site/ does not exist: &quot;
                             + siteDir + &quot;. buildSite likely failed.&quot;);
         }
 
-<span class="nc" id="L599">        File pubRoot = cloneOrgRepo(pubRepoUrl, pubBranch, log);</span>
+<span class="nc" id="L695">        File pubRoot = cloneOrgRepo(pubRepoUrl, pubBranch, log);</span>
         try {
             // Wipe everything in pubRoot except .git/. The source
             // build's target/site/ contains .nojekyll and CNAME
             // (from src/site/resources/), so we don't need to
             // preserve anything pre-existing.
-<span class="nc" id="L605">            try (Stream&lt;Path&gt; entries = Files.list(pubRoot.toPath())) {</span>
-<span class="nc bnc" id="L606" title="All 2 branches missed.">                for (Path entry : entries.toList()) {</span>
-<span class="nc bnc" id="L607" title="All 2 branches missed.">                    if (entry.getFileName().toString().equals(&quot;.git&quot;)) {</span>
-<span class="nc" id="L608">                        continue;</span>
+<span class="nc" id="L701">            try (Stream&lt;Path&gt; entries = Files.list(pubRoot.toPath())) {</span>
+<span class="nc bnc" id="L702" title="All 2 branches missed.">                for (Path entry : entries.toList()) {</span>
+<span class="nc bnc" id="L703" title="All 2 branches missed.">                    if (entry.getFileName().toString().equals(&quot;.git&quot;)) {</span>
+<span class="nc" id="L704">                        continue;</span>
                     }
-<span class="nc bnc" id="L610" title="All 2 branches missed.">                    if (Files.isDirectory(entry)) {</span>
-<span class="nc" id="L611">                        ReleaseSupport.deleteDirectory(entry);</span>
+<span class="nc bnc" id="L706" title="All 2 branches missed.">                    if (Files.isDirectory(entry)) {</span>
+<span class="nc" id="L707">                        ReleaseSupport.deleteDirectory(entry);</span>
                     } else {
-<span class="nc" id="L613">                        Files.delete(entry);</span>
+<span class="nc" id="L709">                        Files.delete(entry);</span>
                     }
-<span class="nc" id="L615">                }</span>
-<span class="nc" id="L616">            } catch (IOException e) {</span>
-<span class="nc" id="L617">                throw new MojoException(</span>
+<span class="nc" id="L711">                }</span>
+<span class="nc" id="L712">            } catch (IOException e) {</span>
+<span class="nc" id="L713">                throw new MojoException(</span>
                         &quot;Failed to clear publish repo before copy: &quot;
-<span class="nc" id="L619">                                + e.getMessage(), e);</span>
-<span class="nc" id="L620">            }</span>
+<span class="nc" id="L715">                                + e.getMessage(), e);</span>
+<span class="nc" id="L716">            }</span>
 
             try {
-<span class="nc" id="L623">                ReleaseSupport.copyDirectory(siteDir, pubRoot.toPath());</span>
-<span class="nc" id="L624">            } catch (IOException e) {</span>
-<span class="nc" id="L625">                throw new MojoException(</span>
+<span class="nc" id="L719">                ReleaseSupport.copyDirectory(siteDir, pubRoot.toPath());</span>
+<span class="nc" id="L720">            } catch (IOException e) {</span>
+<span class="nc" id="L721">                throw new MojoException(</span>
                         &quot;Failed to copy target/site to publish repo: &quot;
-<span class="nc" id="L627">                                + e.getMessage(), e);</span>
-<span class="nc" id="L628">            }</span>
+<span class="nc" id="L723">                                + e.getMessage(), e);</span>
+<span class="nc" id="L724">            }</span>
 
             // Commit + push. If the rendered output happens to be
             // byte-identical to the previous publish (rare —
             // outputTimestamp moves), `git commit` will fail with
             // 'nothing to commit'; tolerate that as a no-op
             // publish.
-<span class="nc" id="L635">            ReleaseSupport.exec(pubRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
+<span class="nc" id="L731">            ReleaseSupport.exec(pubRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
             String status;
             try {
-<span class="nc" id="L638">                status = ReleaseSupport.execCapture(pubRoot,</span>
-<span class="nc" id="L639">                        &quot;git&quot;, &quot;status&quot;, &quot;--porcelain&quot;).trim();</span>
-<span class="nc" id="L640">            } catch (MojoException e) {</span>
-<span class="nc" id="L641">                status = &quot;&quot;;</span>
-<span class="nc" id="L642">            }</span>
-<span class="nc bnc" id="L643" title="All 2 branches missed.">            if (status.isEmpty()) {</span>
-<span class="nc" id="L644">                log.info(&quot;  Publish repo unchanged after rebuild — &quot;</span>
+<span class="nc" id="L734">                status = ReleaseSupport.execCapture(pubRoot,</span>
+<span class="nc" id="L735">                        &quot;git&quot;, &quot;status&quot;, &quot;--porcelain&quot;).trim();</span>
+<span class="nc" id="L736">            } catch (MojoException e) {</span>
+<span class="nc" id="L737">                status = &quot;&quot;;</span>
+<span class="nc" id="L738">            }</span>
+<span class="nc bnc" id="L739" title="All 2 branches missed.">            if (status.isEmpty()) {</span>
+<span class="nc" id="L740">                log.info(&quot;  Publish repo unchanged after rebuild — &quot;</span>
                         + &quot;nothing to push.&quot;);
-<span class="nc" id="L646">                return;</span>
+<span class="nc" id="L742">                return;</span>
             }
-<span class="nc" id="L648">            String message = &quot;site: publish &quot;</span>
+<span class="nc" id="L744">            String message = &quot;site: publish &quot;</span>
                     + artifactId + &quot; &quot; + version
                     + &quot; (auto-register, #367)&quot;;
-<span class="nc" id="L651">            ReleaseSupport.exec(pubRoot, log,</span>
+<span class="nc" id="L747">            ReleaseSupport.exec(pubRoot, log,</span>
                     &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;, message);
-<span class="nc" id="L653">            ReleaseSupport.exec(pubRoot, log,</span>
+<span class="nc" id="L749">            ReleaseSupport.exec(pubRoot, log,</span>
                     &quot;git&quot;, &quot;push&quot;, &quot;origin&quot;, pubBranch);
-<span class="nc" id="L655">            log.info(&quot;  Org-site updated: &quot;</span>
+<span class="nc" id="L751">            log.info(&quot;  Org-site updated: &quot;</span>
                     + artifactId + &quot; &quot; + version);
         } finally {
-<span class="nc" id="L658">            ReleaseSupport.deleteDirectory(pubRoot.toPath());</span>
+<span class="nc" id="L754">            ReleaseSupport.deleteDirectory(pubRoot.toPath());</span>
         }
-<span class="nc" id="L660">    }</span>
+<span class="nc" id="L756">    }</span>
 
     // ── Internal helpers ─────────────────────────────────────────────
 
@@ -667,16 +763,16 @@ public final class OrgSiteSupport {
      */
     private static File resolveMaven(File repoRoot, Log log)
             throws MojoException {
-<span class="nc" id="L670">        File mvnw = new File(repoRoot, &quot;mvnw&quot;);</span>
-<span class="nc bnc" id="L671" title="All 4 branches missed.">        if (mvnw.isFile() &amp;&amp; mvnw.canExecute()) {</span>
-<span class="nc" id="L672">            return mvnw;</span>
+<span class="nc" id="L766">        File mvnw = new File(repoRoot, &quot;mvnw&quot;);</span>
+<span class="nc bnc" id="L767" title="All 4 branches missed.">        if (mvnw.isFile() &amp;&amp; mvnw.canExecute()) {</span>
+<span class="nc" id="L768">            return mvnw;</span>
         }
         // Fall back to system Maven
         try {
-<span class="nc" id="L676">            String path = ReleaseSupport.execCapture(repoRoot, &quot;which&quot;, &quot;mvn&quot;);</span>
-<span class="nc" id="L677">            return new File(path.trim());</span>
-<span class="nc" id="L678">        } catch (Exception e) {</span>
-<span class="nc" id="L679">            throw new MojoException(</span>
+<span class="nc" id="L772">            String path = ReleaseSupport.execCapture(repoRoot, &quot;which&quot;, &quot;mvn&quot;);</span>
+<span class="nc" id="L773">            return new File(path.trim());</span>
+<span class="nc" id="L774">        } catch (Exception e) {</span>
+<span class="nc" id="L775">            throw new MojoException(</span>
                     &quot;No Maven wrapper or system 'mvn' found&quot;, e);
         }
     }
