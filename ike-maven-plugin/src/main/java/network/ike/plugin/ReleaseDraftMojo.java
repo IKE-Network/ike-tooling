@@ -71,7 +71,7 @@ import java.util.regex.Pattern;
  * or override version with {@code mvn ike:release-publish -DreleaseVersion=2}
  *
  */
-@Mojo(name = "release-draft", projectRequired = false, aggregator = true)
+@Mojo(name = IkeGoal.NAME_RELEASE_DRAFT, projectRequired = false, aggregator = true)
 public class ReleaseDraftMojo extends AbstractGoalMojo {
 
     @Parameter(property = "releaseVersion")

@@ -34,7 +34,7 @@ import java.nio.file.Path;
  *
  * @since 99
  */
-@Mojo(name = "rename",
+@Mojo(name = IkeGoal.NAME_RENAME,
       defaultPhase = "verify")
 public class RenameMojo implements org.apache.maven.api.plugin.Mojo {
 

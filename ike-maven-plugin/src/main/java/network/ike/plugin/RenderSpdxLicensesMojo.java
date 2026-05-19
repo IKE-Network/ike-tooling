@@ -57,7 +57,7 @@ import java.util.TreeMap;
  *
  * @see GenerateBomMojo
  */
-@Mojo(name = "render-spdx-licenses", defaultPhase = "pre-site")
+@Mojo(name = IkeGoal.NAME_RENDER_SPDX_LICENSES, defaultPhase = "pre-site")
 public class RenderSpdxLicensesMojo implements org.apache.maven.api.plugin.Mojo {
 
     @org.apache.maven.api.di.Inject

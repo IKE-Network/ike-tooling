@@ -36,7 +36,7 @@ import org.apache.maven.api.plugin.annotations.Mojo;
  *
  * @see IkeSiteDraftMojo
  */
-@Mojo(name = "site-publish", projectRequired = true, aggregator = true)
+@Mojo(name = IkeGoal.NAME_SITE_PUBLISH, projectRequired = true, aggregator = true)
 public class IkeSitePublishMojo extends IkeSiteDraftMojo {
 
     /** Creates this goal instance. */

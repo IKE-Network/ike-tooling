@@ -26,7 +26,7 @@ import java.util.Set;
  *
  * <p>Usage: {@code mvnw ike:setup}
  */
-@Mojo(name = "setup", projectRequired = false)
+@Mojo(name = IkeGoal.NAME_SETUP, projectRequired = false)
 public class SetupMojo implements org.apache.maven.api.plugin.Mojo {
 
     @org.apache.maven.api.di.Inject

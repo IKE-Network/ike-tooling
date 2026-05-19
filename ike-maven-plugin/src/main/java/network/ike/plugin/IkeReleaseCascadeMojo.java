@@ -50,7 +50,7 @@ import java.util.regex.Pattern;
  *   mvn ike:release-cascade -Dike.release.cascade.basedir=/path/to/checkouts
  * </pre>
  */
-@Mojo(name = "release-cascade", projectRequired = false, aggregator = true)
+@Mojo(name = IkeGoal.NAME_RELEASE_CASCADE, projectRequired = false, aggregator = true)
 public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
 
     /**

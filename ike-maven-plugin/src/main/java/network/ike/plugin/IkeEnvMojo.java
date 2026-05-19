@@ -28,7 +28,7 @@ import java.util.List;
  *
  * <p>Read-only. Usage: {@code mvn ike:env}
  */
-@Mojo(name = "env", projectRequired = false, aggregator = true)
+@Mojo(name = IkeGoal.NAME_ENV, projectRequired = false, aggregator = true)
 public class IkeEnvMojo extends AbstractGoalMojo {
 
     /** Creates this goal instance. */

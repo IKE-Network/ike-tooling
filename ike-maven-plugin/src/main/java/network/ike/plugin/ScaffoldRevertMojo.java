@@ -54,7 +54,7 @@ import java.nio.file.Path;
  * @see ScaffoldDraftMojo
  * @see ScaffoldPublishMojo
  */
-@Mojo(name = "scaffold-revert", projectRequired = false,
+@Mojo(name = IkeGoal.NAME_SCAFFOLD_REVERT, projectRequired = false,
       aggregator = true)
 public class ScaffoldRevertMojo extends AbstractGoalMojo {
 

@@ -64,7 +64,7 @@ import java.util.regex.Pattern;
  * @see <a href="https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution">
  *      Apple: Notarizing macOS Software Before Distribution</a>
  */
-@Mojo(name = "notarize",
+@Mojo(name = IkeGoal.NAME_NOTARIZE,
       defaultPhase = "verify",
       projectRequired = true)
 public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {

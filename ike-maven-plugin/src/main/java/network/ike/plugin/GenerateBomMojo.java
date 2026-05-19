@@ -53,7 +53,7 @@ import java.util.List;
  * &lt;/plugin&gt;
  * </pre>
  */
-@Mojo(name = "generate-bom",
+@Mojo(name = IkeGoal.NAME_GENERATE_BOM,
       defaultPhase = "generate-resources",
       projectRequired = true)
 public class GenerateBomMojo implements org.apache.maven.api.plugin.Mojo {

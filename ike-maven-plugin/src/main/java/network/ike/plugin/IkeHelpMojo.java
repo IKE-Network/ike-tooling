@@ -18,7 +18,7 @@ import java.util.List;
  *
  * @see <a href="https://github.com/IKE-Network/ike-tooling">IKE Tooling</a>
  */
-@Mojo(name = "help", projectRequired = false)
+@Mojo(name = IkeGoal.NAME_HELP, projectRequired = false)
 public class IkeHelpMojo implements org.apache.maven.api.plugin.Mojo {
 
     @org.apache.maven.api.di.Inject

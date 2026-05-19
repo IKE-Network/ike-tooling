@@ -54,7 +54,7 @@ import java.util.zip.ZipOutputStream;
  * @see <a href="https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution">
  *      Apple: Notarizing macOS Software Before Distribution</a>
  */
-@Mojo(name = "codesign-natives",
+@Mojo(name = IkeGoal.NAME_CODESIGN_NATIVES,
       defaultPhase = "package",
       projectRequired = true)
 public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {

@@ -26,7 +26,7 @@ import java.nio.file.Path;
  * mvn ike:inject-breadcrumb -DtargetDir=target/site/jacoco
  * </pre>
  */
-@Mojo(name = "inject-breadcrumb",
+@Mojo(name = IkeGoal.NAME_INJECT_BREADCRUMB,
       defaultPhase = "verify")
 public class InjectBreadcrumbMojo implements org.apache.maven.api.plugin.Mojo {
 

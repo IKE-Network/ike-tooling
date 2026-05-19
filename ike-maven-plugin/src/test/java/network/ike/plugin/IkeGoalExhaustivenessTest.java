@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,8 +33,19 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class IkeGoalExhaustivenessTest {
 
+    /**
+     * Matches the {@code @Mojo(name = …)} value in either form:
+     * <ul>
+     *   <li>group 1 — the legacy {@code "literal"} form;</li>
+     *   <li>group 2 — the post-#453 {@code IkeGoal.NAME_*} constant form,
+     *       captured as the SCREAMING_SNAKE_CASE suffix.</li>
+     * </ul>
+     * {@link #scanMojoNamesInSource()} normalises group 2 to kebab-case.
+     */
     private static final Pattern MOJO_NAME = Pattern.compile(
-            "@(?:[\\w.]*\\.)?Mojo\\s*\\(\\s*name\\s*=\\s*\"([a-z][a-z0-9-]*)\"");
+            "@(?:[\\w.]*\\.)?Mojo\\s*\\(\\s*name\\s*=\\s*"
+                    + "(?:\"([a-z][a-z0-9-]*)\""
+                    + "|IkeGoal\\.NAME_([A-Z][A-Z0-9_]*))");
 
     @Test
     void every_enum_entry_matches_its_mojo_annotation() {
@@ -86,7 +98,16 @@ class IkeGoalExhaustivenessTest {
                 }
                 Matcher m = MOJO_NAME.matcher(Files.readString(file));
                 while (m.find()) {
-                    names.add(m.group(1));
+                    String literal = m.group(1);
+                    if (literal != null) {
+                        names.add(literal);
+                    } else {
+                        // IkeGoal.NAME_<CONST> form — convert
+                        // SCREAMING_SNAKE_CASE back to kebab-case.
+                        names.add(m.group(2)
+                                .toLowerCase(Locale.ROOT)
+                                .replace('_', '-'));
+                    }
                 }
             }
         }

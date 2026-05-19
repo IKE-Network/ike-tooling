@@ -41,7 +41,7 @@ import java.util.List;
  * mvn ike:verify-release-published -DprojectId=ike-tooling -Dversion=163
  * </pre>
  */
-@Mojo(name = "verify-release-published", projectRequired = false)
+@Mojo(name = IkeGoal.NAME_VERIFY_RELEASE_PUBLISHED, projectRequired = false)
 public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.Mojo {
 
     @Inject

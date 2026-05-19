@@ -52,7 +52,7 @@ import java.util.Map;
  * @see GenerateBomMojo         IKE-specific Maven dependency BOM
  *                              (different concept)
  */
-@Mojo(name = "render-sbom-viewer", defaultPhase = "pre-site")
+@Mojo(name = IkeGoal.NAME_RENDER_SBOM_VIEWER, defaultPhase = "pre-site")
 public class RenderSbomViewerMojo implements org.apache.maven.api.plugin.Mojo {
 
     @org.apache.maven.api.di.Inject

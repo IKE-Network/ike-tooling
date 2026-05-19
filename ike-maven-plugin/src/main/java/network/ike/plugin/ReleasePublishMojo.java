@@ -15,7 +15,7 @@ import org.apache.maven.api.plugin.annotations.Mojo;
  *
  * @see ReleaseDraftMojo
  */
-@Mojo(name = "release-publish", projectRequired = false, aggregator = true)
+@Mojo(name = IkeGoal.NAME_RELEASE_PUBLISH, projectRequired = false, aggregator = true)
 public class ReleasePublishMojo extends ReleaseDraftMojo {
 
     /** Creates this goal instance. */

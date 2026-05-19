@@ -47,7 +47,7 @@ import java.util.zip.ZipInputStream;
  *
  * @since 100
  */
-@Mojo(name = "unpack-zip",
+@Mojo(name = IkeGoal.NAME_UNPACK_ZIP,
       defaultPhase = "generate-resources")
 public class UnpackZipMojo implements org.apache.maven.api.plugin.Mojo {
 

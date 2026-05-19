@@ -38,7 +38,7 @@ import java.util.Map;
  *
  * @see IkeSitePublishMojo
  */
-@Mojo(name = "site-draft", projectRequired = true, aggregator = true)
+@Mojo(name = IkeGoal.NAME_SITE_DRAFT, projectRequired = true, aggregator = true)
 public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
 
     @org.apache.maven.api.di.Inject

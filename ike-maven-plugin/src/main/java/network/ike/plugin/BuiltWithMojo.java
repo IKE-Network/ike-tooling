@@ -71,7 +71,7 @@ import java.util.Map;
  * @see GenerateBomMojo         the IKE-specific BOM (different
  *                              concept — Maven dependency BOM)
  */
-@Mojo(name = "built-with", defaultPhase = "pre-site")
+@Mojo(name = IkeGoal.NAME_BUILT_WITH, defaultPhase = "pre-site")
 public class BuiltWithMojo implements org.apache.maven.api.plugin.Mojo {
 
     @org.apache.maven.api.di.Inject

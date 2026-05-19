@@ -46,7 +46,7 @@ import java.nio.file.Path;
  *   mvn ike:cascade-export -Dike.release.cascade.clone-dir=/path
  * </pre>
  */
-@Mojo(name = "cascade-export", projectRequired = false, aggregator = true)
+@Mojo(name = IkeGoal.NAME_CASCADE_EXPORT, projectRequired = false, aggregator = true)
 public class IkeCascadeExportMojo extends AbstractGoalMojo {
 
     /** Output format: {@code json} (default) or {@code properties}. */

@@ -62,7 +62,7 @@ import java.util.Locale;
  * {@code -Dcodesign.pkg.forceWorkaround=true} to run the re-sign on
  * JDK 25.0.2+ (debugging only).
  */
-@Mojo(name = "codesign-pkg",
+@Mojo(name = IkeGoal.NAME_CODESIGN_PKG,
       defaultPhase = "verify",
       projectRequired = true)
 public class CodesignPkgMojo implements org.apache.maven.api.plugin.Mojo {

@@ -1,8 +1,11 @@
 package network.ike.plugin;
 
 import network.ike.plugin.support.GoalRef;
+import network.ike.support.enums.ConstantBackedEnum;
 import org.apache.maven.api.plugin.Mojo;
 
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -16,61 +19,67 @@ import java.util.Optional;
  * report identification, for javadoc examples that survive a rename —
  * should reference these enum values rather than string literals.
  *
- * <p>See issue #166.
+ * <p>Implements {@link ConstantBackedEnum}: each constant is paired with
+ * a {@code public static final String NAME_*} mirror, and class-load
+ * verification keeps the two in lockstep. The mirror is a constant
+ * expression, so the {@code @Mojo(name = IkeGoal.NAME_*)} annotation can
+ * reference the enum as its single source of truth.
+ *
+ * <p>See issues #166 and #453.
  */
-public enum IkeGoal implements GoalRef {
+public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
     /** {@code ike:cascade-export} — export the release cascade topology for CI. */
-    CASCADE_EXPORT("cascade-export", IkeCascadeExportMojo.class,
+    CASCADE_EXPORT(IkeGoal.NAME_CASCADE_EXPORT, IkeCascadeExportMojo.class,
             "Export the foundation release cascade topology as JSON "
                     + "or .properties so a CI meta-runner can generate "
                     + "build-chain edges from release-cascade.yaml "
                     + "instead of hand-wiring them."),
     /** {@code ike:codesign-natives} — sign macOS native binaries in a runtime image. */
-    CODESIGN_NATIVES("codesign-natives", CodesignNativesMojo.class,
+    CODESIGN_NATIVES(IkeGoal.NAME_CODESIGN_NATIVES, CodesignNativesMojo.class,
             "Sign macOS native libraries and executables inside a runtime image."),
     /** {@code ike:codesign-pkg} — sign a {@code .pkg} installer with Developer ID. */
-    CODESIGN_PKG("codesign-pkg", CodesignPkgMojo.class,
+    CODESIGN_PKG(IkeGoal.NAME_CODESIGN_PKG, CodesignPkgMojo.class,
             "Sign a .pkg installer with a Developer ID Installer certificate."),
     /** {@code ike:env} — print runtime environment / terminal diagnostics. */
-    ENV("env", IkeEnvMojo.class,
+    ENV(IkeGoal.NAME_ENV, IkeEnvMojo.class,
             "Print runtime environment diagnostics — terminal/console "
                     + "capability, stdin, and relevant system properties. "
                     + "Run from both IntelliJ's Maven tool window and the "
                     + "Terminal tool window to compare (ike-issues#385)."),
     /** {@code ike:generate-bom} — generate the auto-managed BOM. */
-    GENERATE_BOM("generate-bom", GenerateBomMojo.class,
+    GENERATE_BOM(IkeGoal.NAME_GENERATE_BOM, GenerateBomMojo.class,
             "Generate the auto-managed BOM from the current dependencyManagement."),
     /** {@code ike:help} — list {@code ike:*} goals from the plugin descriptor. */
-    HELP("help", IkeHelpMojo.class,
+    HELP(IkeGoal.NAME_HELP, IkeHelpMojo.class,
             "List ike:* goals discovered from the plugin descriptor."),
     /** {@code ike:inject-breadcrumb} — inject breadcrumbs into rendered HTML. */
-    INJECT_BREADCRUMB("inject-breadcrumb", InjectBreadcrumbMojo.class,
+    INJECT_BREADCRUMB(IkeGoal.NAME_INJECT_BREADCRUMB, InjectBreadcrumbMojo.class,
             "Inject breadcrumb navigation into rendered HTML."),
     /** {@code ike:jpackage-props} — emit jpackage properties from reactor config. */
-    JPACKAGE_PROPS("jpackage-props", JpackagePropsMojo.class,
+    JPACKAGE_PROPS(IkeGoal.NAME_JPACKAGE_PROPS, JpackagePropsMojo.class,
             "Emit jpackage properties files from reactor configuration."),
     /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
-    NOTARIZE("notarize", NotarizeMojo.class,
+    NOTARIZE(IkeGoal.NAME_NOTARIZE, NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
     /** {@code ike:release-draft} — preview releasing the current project. */
-    RELEASE_DRAFT("release-draft", ReleaseDraftMojo.class,
+    RELEASE_DRAFT(IkeGoal.NAME_RELEASE_DRAFT, ReleaseDraftMojo.class,
             "Preview releasing the current project."),
     /** {@code ike:release-publish} — release the current project (tag + publish). */
-    RELEASE_PUBLISH("release-publish", ReleasePublishMojo.class,
+    RELEASE_PUBLISH(IkeGoal.NAME_RELEASE_PUBLISH, ReleasePublishMojo.class,
             "Release the current project (tag + publish)."),
     /** {@code ike:release-cascade} — release the whole foundation cascade in order. */
-    RELEASE_CASCADE("release-cascade", IkeReleaseCascadeMojo.class,
+    RELEASE_CASCADE(IkeGoal.NAME_RELEASE_CASCADE, IkeReleaseCascadeMojo.class,
             "Walk the decentralized release cascade assembled from "
                     + "the per-project release-cascade.yaml manifests "
                     + "and run ike:release-publish on every foundation "
                     + "repo that has unreleased changes, in topological "
                     + "order."),
     /** {@code ike:rename} — rename output files to a canonical pattern. */
-    RENAME("rename", RenameMojo.class,
+    RENAME(IkeGoal.NAME_RENAME, RenameMojo.class,
             "Rename output files to a canonical pattern."),
     /** {@code ike:built-with} — generate a Built With page from the SBOM and a curated supplement (#336). */
-    BUILT_WITH("built-with", BuiltWithMojo.class,
+    BUILT_WITH(IkeGoal.NAME_BUILT_WITH, BuiltWithMojo.class,
             "Generate a curated Built-With page from the CycloneDX "
                     + "SBOM and an optional project-wide supplement "
                     + "YAML. Replaces the legacy 'Third-Party Notices' "
@@ -79,49 +88,49 @@ public enum IkeGoal implements GoalRef {
                     + "the filesystem to find the reactor's "
                     + "supplement.yaml."),
     /** {@code ike:render-sbom-viewer} — generate dependencies.adoc from the CycloneDX SBOM (#341). */
-    RENDER_SBOM_VIEWER("render-sbom-viewer", RenderSbomViewerMojo.class,
+    RENDER_SBOM_VIEWER(IkeGoal.NAME_RENDER_SBOM_VIEWER, RenderSbomViewerMojo.class,
             "Generate a Web-friendly dependencies.adoc page from "
                     + "the CycloneDX SBOM with a sortable component "
                     + "table. Maven Site renders it to "
                     + "dependencies.html, replacing the auto-"
                     + "generated dependency report."),
     /** {@code ike:render-spdx-licenses} — generate licenses.adoc from the CycloneDX SBOM (#335). */
-    RENDER_SPDX_LICENSES("render-spdx-licenses", RenderSpdxLicensesMojo.class,
+    RENDER_SPDX_LICENSES(IkeGoal.NAME_RENDER_SPDX_LICENSES, RenderSpdxLicensesMojo.class,
             "Generate an SPDX-grouped licenses.adoc page from the "
                     + "CycloneDX SBOM. Maven Site renders it to "
                     + "licenses.html with the project skin chrome."),
     /** {@code ike:scaffold-draft} — preview ike-build-standards scaffold changes. */
-    SCAFFOLD_DRAFT("scaffold-draft", ScaffoldDraftMojo.class,
+    SCAFFOLD_DRAFT(IkeGoal.NAME_SCAFFOLD_DRAFT, ScaffoldDraftMojo.class,
             "Preview what ike:scaffold-publish would apply from the "
                     + "ike-build-standards scaffold."),
     /** {@code ike:scaffold-publish} — apply the scaffold to disk. */
-    SCAFFOLD_PUBLISH("scaffold-publish", ScaffoldPublishMojo.class,
+    SCAFFOLD_PUBLISH(IkeGoal.NAME_SCAFFOLD_PUBLISH, ScaffoldPublishMojo.class,
             "Apply the ike-build-standards scaffold to disk and "
                     + "update per-project and per-user lockfiles."),
     /** {@code ike:scaffold-revert} — undo a previous scaffold-publish. */
-    SCAFFOLD_REVERT("scaffold-revert", ScaffoldRevertMojo.class,
+    SCAFFOLD_REVERT(IkeGoal.NAME_SCAFFOLD_REVERT, ScaffoldRevertMojo.class,
             "Undo a previous ike:scaffold-publish, leaving "
                     + "user-edited files alone."),
     /** {@code ike:site-draft} — report deployed-site drift (#398). */
-    SITE_DRAFT("site-draft", IkeSiteDraftMojo.class,
+    SITE_DRAFT(IkeGoal.NAME_SITE_DRAFT, IkeSiteDraftMojo.class,
             "Report drift in deployed-site state — version on "
                     + "server vs current project version, landing-page "
                     + "registration status — with copy-paste opt-out "
                     + "commands inline."),
     /** {@code ike:site-publish} — apply deployed-site convergence (#398). */
-    SITE_PUBLISH("site-publish", IkeSitePublishMojo.class,
+    SITE_PUBLISH(IkeGoal.NAME_SITE_PUBLISH, IkeSitePublishMojo.class,
             "Deploy the current version to gh-pages and update the "
                     + "IKE Network landing page registration. Flags: "
                     + "-DupdateSite=false, -DupdateRegistration=false, "
                     + "-Dsite=removed (uninstall: deregister + cleanup)."),
     /** {@code ike:setup} — one-time setup for an IKE development machine. */
-    SETUP("setup", SetupMojo.class,
+    SETUP(IkeGoal.NAME_SETUP, SetupMojo.class,
             "One-time setup for an IKE development machine."),
     /** {@code ike:unpack-zip} — unpack a zip artifact into a target directory. */
-    UNPACK_ZIP("unpack-zip", UnpackZipMojo.class,
+    UNPACK_ZIP(IkeGoal.NAME_UNPACK_ZIP, UnpackZipMojo.class,
             "Unpack a zip artifact into a target directory."),
     /** {@code ike:verify-release-published} — verify all post-release publication targets (#374). */
-    VERIFY_RELEASE_PUBLISHED("verify-release-published",
+    VERIFY_RELEASE_PUBLISHED(IkeGoal.NAME_VERIFY_RELEASE_PUBLISHED,
             VerifyReleasePublishedMojo.class,
             "Verify all post-release publication targets are "
                     + "reachable for the current project + version: "
@@ -129,11 +138,83 @@ public enum IkeGoal implements GoalRef {
                     + "landing, Nexus artifact, GitHub release tag. "
                     + "Read-only; exits non-zero on any failure.");
 
+    // ── Mirror constants (ConstantBackedEnum) ───────────────────
+    // One public static final String per constant, named NAME_<CONSTANT>.
+    // These are the constant expressions referenced by @Mojo(name = ...)
+    // and by each enum constant's constructor call above (a forward
+    // reference to a constant variable, permitted by JLS 8.3.3).
+    // ConstantBackedEnum.verify() — run from the static initializer
+    // below — fails class-load if any constant and its mirror drift.
+
+    /** Mirror for {@link #CASCADE_EXPORT}. */
+    public static final String NAME_CASCADE_EXPORT = "cascade-export";
+    /** Mirror for {@link #CODESIGN_NATIVES}. */
+    public static final String NAME_CODESIGN_NATIVES = "codesign-natives";
+    /** Mirror for {@link #CODESIGN_PKG}. */
+    public static final String NAME_CODESIGN_PKG = "codesign-pkg";
+    /** Mirror for {@link #ENV}. */
+    public static final String NAME_ENV = "env";
+    /** Mirror for {@link #GENERATE_BOM}. */
+    public static final String NAME_GENERATE_BOM = "generate-bom";
+    /** Mirror for {@link #HELP}. */
+    public static final String NAME_HELP = "help";
+    /** Mirror for {@link #INJECT_BREADCRUMB}. */
+    public static final String NAME_INJECT_BREADCRUMB = "inject-breadcrumb";
+    /** Mirror for {@link #JPACKAGE_PROPS}. */
+    public static final String NAME_JPACKAGE_PROPS = "jpackage-props";
+    /** Mirror for {@link #NOTARIZE}. */
+    public static final String NAME_NOTARIZE = "notarize";
+    /** Mirror for {@link #RELEASE_DRAFT}. */
+    public static final String NAME_RELEASE_DRAFT = "release-draft";
+    /** Mirror for {@link #RELEASE_PUBLISH}. */
+    public static final String NAME_RELEASE_PUBLISH = "release-publish";
+    /** Mirror for {@link #RELEASE_CASCADE}. */
+    public static final String NAME_RELEASE_CASCADE = "release-cascade";
+    /** Mirror for {@link #RENAME}. */
+    public static final String NAME_RENAME = "rename";
+    /** Mirror for {@link #BUILT_WITH}. */
+    public static final String NAME_BUILT_WITH = "built-with";
+    /** Mirror for {@link #RENDER_SBOM_VIEWER}. */
+    public static final String NAME_RENDER_SBOM_VIEWER = "render-sbom-viewer";
+    /** Mirror for {@link #RENDER_SPDX_LICENSES}. */
+    public static final String NAME_RENDER_SPDX_LICENSES = "render-spdx-licenses";
+    /** Mirror for {@link #SCAFFOLD_DRAFT}. */
+    public static final String NAME_SCAFFOLD_DRAFT = "scaffold-draft";
+    /** Mirror for {@link #SCAFFOLD_PUBLISH}. */
+    public static final String NAME_SCAFFOLD_PUBLISH = "scaffold-publish";
+    /** Mirror for {@link #SCAFFOLD_REVERT}. */
+    public static final String NAME_SCAFFOLD_REVERT = "scaffold-revert";
+    /** Mirror for {@link #SITE_DRAFT}. */
+    public static final String NAME_SITE_DRAFT = "site-draft";
+    /** Mirror for {@link #SITE_PUBLISH}. */
+    public static final String NAME_SITE_PUBLISH = "site-publish";
+    /** Mirror for {@link #SETUP}. */
+    public static final String NAME_SETUP = "setup";
+    /** Mirror for {@link #UNPACK_ZIP}. */
+    public static final String NAME_UNPACK_ZIP = "unpack-zip";
+    /** Mirror for {@link #VERIFY_RELEASE_PUBLISHED}. */
+    public static final String NAME_VERIFY_RELEASE_PUBLISHED = "verify-release-published";
+
     /** Shared {@code ike:} prefix for all goals in this plugin. */
     public static final String PLUGIN_PREFIX = "ike";
 
     private static final String DRAFT_SUFFIX = "-draft";
     private static final String PUBLISH_SUFFIX = "-publish";
+
+    /** Reverse lookup by bare goal name; also a duplicate-literal guard. */
+    private static final Map<String, IkeGoal> BY_NAME;
+
+    static {
+        // Class-load guard: every constant must have a matching NAME_*
+        // mirror whose value is the kebab-case form of the constant
+        // name. A drift here makes IkeGoal unloadable rather than
+        // letting a stale @Mojo name reach plugin.xml.
+        ConstantBackedEnum.verify(IkeGoal.class,
+                ConstantBackedEnum.defaultPrefix(),
+                (g, v) -> v.equals(
+                        g.name().toLowerCase(Locale.ROOT).replace('_', '-')));
+        BY_NAME = ConstantBackedEnum.index(IkeGoal.class);
+    }
 
     private final String goalName;
     private final Class<? extends Mojo> mojoClass;
@@ -154,6 +235,17 @@ public enum IkeGoal implements GoalRef {
      */
     @Override
     public String goalName() {
+        return goalName;
+    }
+
+    /**
+     * The String literal carried by this constant — the bare goal name.
+     * Satisfies {@link ConstantBackedEnum}.
+     *
+     * @return the bare goal name
+     */
+    @Override
+    public String literalName() {
         return goalName;
     }
 
@@ -236,10 +328,7 @@ public enum IkeGoal implements GoalRef {
      * @return the matching goal, or empty if none
      */
     public static Optional<IkeGoal> byName(String goalName) {
-        for (IkeGoal g : values()) {
-            if (g.goalName.equals(goalName)) return Optional.of(g);
-        }
-        return Optional.empty();
+        return Optional.ofNullable(BY_NAME.get(goalName));
     }
 
     private static String stripSuffix(String s, String suffix) {

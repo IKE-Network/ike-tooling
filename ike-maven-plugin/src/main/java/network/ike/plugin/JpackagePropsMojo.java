@@ -31,7 +31,7 @@ import java.util.Locale;
  * mvn ike:jpackage-props
  * </pre>
  */
-@Mojo(name = "jpackage-props",
+@Mojo(name = IkeGoal.NAME_JPACKAGE_PROPS,
       defaultPhase = "initialize",
       projectRequired = true)
 public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {

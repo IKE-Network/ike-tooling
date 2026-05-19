@@ -61,7 +61,7 @@ import java.util.List;
  * @see ScaffoldPublishMojo
  * @see ScaffoldRevertMojo
  */
-@Mojo(name = "scaffold-draft", projectRequired = false,
+@Mojo(name = IkeGoal.NAME_SCAFFOLD_DRAFT, projectRequired = false,
       aggregator = true)
 public class ScaffoldDraftMojo extends AbstractGoalMojo {
 
