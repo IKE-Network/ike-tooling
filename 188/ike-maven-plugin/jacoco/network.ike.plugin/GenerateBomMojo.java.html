@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GenerateBomMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">GenerateBomMojo.java</span></div><h1>GenerateBomMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.model.Dependency;
+import org.apache.maven.api.model.DependencyManagement;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+/**
+ * Generate a Bill of Materials POM from another module's dependency management.
+ *
+ * &lt;h2&gt;Why this goal exists&lt;/h2&gt;
+ *
+ * &lt;p&gt;Maven 4's consumer POM resolves property references in
+ * {@code &lt;dependencies&gt;} but &lt;em&gt;not&lt;/em&gt; in {@code &lt;dependencyManagement&gt;}.
+ * When an external project imports a BOM via {@code &lt;scope&gt;import&lt;/scope&gt;},
+ * it receives the consumer POM — so any {@code ${…}} expressions in managed
+ * dependency versions arrive unresolved and the build fails.
+ * {@code flatten-maven-plugin}, the Maven 3 solution for this class of
+ * problem, has not been updated for the Maven 4 model changes.&lt;/p&gt;
+ *
+ * &lt;p&gt;This goal works around the limitation by reading the
+ * {@code &lt;dependencyManagement&gt;} entries from a source module (default:
+ * {@code ike-parent}) in the reactor, resolving every property reference to
+ * a literal value, and writing a standalone BOM POM. The generated POM
+ * replaces the stub POM for install/deploy, so external consumers get a
+ * fully populated BOM without any manual maintenance. The generated POM
+ * uses the {@code 4.0.0} model version for maximum consumer
+ * compatibility.&lt;/p&gt;
+ *
+ * &lt;h2&gt;Usage&lt;/h2&gt;
+ *
+ * &lt;p&gt;Bind this goal to a POM-packaged stub module in the reactor,
+ * ordered &lt;em&gt;after&lt;/em&gt; the source module and the plugin module:&lt;/p&gt;
+ *
+ * &lt;pre&gt;
+ * &amp;lt;plugin&amp;gt;
+ *   &amp;lt;groupId&amp;gt;network.ike&amp;lt;/groupId&amp;gt;
+ *   &amp;lt;artifactId&amp;gt;ike-maven-plugin&amp;lt;/artifactId&amp;gt;
+ *   &amp;lt;executions&amp;gt;
+ *     &amp;lt;execution&amp;gt;
+ *       &amp;lt;id&amp;gt;generate-bom&amp;lt;/id&amp;gt;
+ *       &amp;lt;goals&amp;gt;&amp;lt;goal&amp;gt;generate-bom&amp;lt;/goal&amp;gt;&amp;lt;/goals&amp;gt;
+ *     &amp;lt;/execution&amp;gt;
+ *   &amp;lt;/executions&amp;gt;
+ * &amp;lt;/plugin&amp;gt;
+ * &lt;/pre&gt;
+ */
+@Mojo(name = &quot;generate-bom&quot;,
+      defaultPhase = &quot;generate-resources&quot;,
+      projectRequired = true)
+public class GenerateBomMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L68">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /** The current project (injected by Maven 4). */
+    @org.apache.maven.api.di.Inject
+    private Project project;
+
+    /** Reactor projects via Maven 4 Session. */
+    @org.apache.maven.api.di.Inject
+    private Session session;
+
+    /**
+     * Artifact ID of the reactor module whose {@code &lt;dependencyManagement&gt;}
+     * entries should be copied into the generated BOM.
+     */
+    @Parameter(property = &quot;bom.source&quot;, defaultValue = &quot;ike-parent&quot;)
+    private String sourceArtifactId;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L86">    public GenerateBomMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+        // ── Find source module in reactor ────────────────────────────
+<span class="nc" id="L91">        List&lt;Project&gt; reactorProjects = session.getProjects();</span>
+<span class="nc" id="L92">        Project source = reactorProjects.stream()</span>
+<span class="nc" id="L93">                .filter(p -&gt; p.getArtifactId().equals(sourceArtifactId))</span>
+<span class="nc" id="L94">                .findFirst()</span>
+<span class="nc" id="L95">                .orElseThrow(() -&gt; new MojoException(</span>
+                        sourceArtifactId + &quot; not found in reactor. &quot;
+                        + &quot;Ensure it is listed before this module in &lt;subprojects&gt;.&quot;));
+
+<span class="nc" id="L99">        DependencyManagement depMgmt = source.getModel().getDependencyManagement();</span>
+<span class="nc bnc" id="L100" title="All 4 branches missed.">        if (depMgmt == null || depMgmt.getDependencies().isEmpty()) {</span>
+<span class="nc" id="L101">            throw new MojoException(</span>
+                    sourceArtifactId + &quot; has no &lt;dependencyManagement&gt; entries.&quot;);
+        }
+
+<span class="nc" id="L105">        List&lt;Dependency&gt; deps = depMgmt.getDependencies();</span>
+
+        // ── Convert Maven Dependency objects to BomEntry records ─────
+<span class="nc" id="L108">        List&lt;BomEntry&gt; entries = deps.stream()</span>
+<span class="nc" id="L109">                .map(dep -&gt; new BomEntry(</span>
+<span class="nc" id="L110">                        dep.getGroupId(), dep.getArtifactId(), dep.getVersion(),</span>
+<span class="nc" id="L111">                        dep.getClassifier(), dep.getType(), dep.getScope()))</span>
+<span class="nc" id="L112">                .toList();</span>
+
+        // ── Generate BOM POM ─────────────────────────────────────────
+<span class="nc" id="L115">        String bomXml = buildBomXml(</span>
+<span class="nc" id="L116">                project.getGroupId(), project.getArtifactId(), project.getVersion(),</span>
+<span class="nc" id="L117">                project.getModel().getName(), project.getModel().getDescription(),</span>
+<span class="nc" id="L118">                project.getModel().getUrl(),</span>
+                entries);
+
+<span class="nc" id="L121">        Path targetDir = Path.of(project.getBuild().getDirectory());</span>
+        try {
+<span class="nc" id="L123">            Files.createDirectories(targetDir);</span>
+<span class="nc" id="L124">            Path bomPom = targetDir.resolve(&quot;generated-bom.xml&quot;);</span>
+<span class="nc" id="L125">            Files.writeString(bomPom, bomXml);</span>
+
+            // TODO: Maven 4 Project is immutable — generated BOM needs a different attachment mechanism
+
+<span class="nc" id="L129">            getLog().info(&quot;Generated BOM with &quot; + deps.size()</span>
+                    + &quot; managed entries from &quot; + sourceArtifactId);
+<span class="nc" id="L131">        } catch (IOException e) {</span>
+<span class="nc" id="L132">            throw new MojoException(&quot;Failed to write generated BOM&quot;, e);</span>
+<span class="nc" id="L133">        }</span>
+<span class="nc" id="L134">    }</span>
+
+    // ── XML generation (pure, static, testable) ─────────────────────
+
+    /**
+     * Build a complete BOM POM XML string from the given project
+     * coordinates and dependency entries.
+     *
+     * &lt;p&gt;This is a pure function with no Maven or I/O dependencies,
+     * suitable for direct unit testing.
+     *
+     * @param groupId     project group ID
+     * @param artifactId  project artifact ID
+     * @param version     project version
+     * @param name        project display name (XML-escaped internally)
+     * @param description project description (may be null)
+     * @param url         project URL (may be null)
+     * @param entries     managed dependency entries
+     * @return well-formed POM XML
+     */
+    public static String buildBomXml(String groupId, String artifactId,
+                                      String version, String name,
+                                      String description, String url,
+                                      List&lt;BomEntry&gt; entries) {
+<span class="fc" id="L158">        StringBuilder xml = new StringBuilder(4096);</span>
+<span class="fc" id="L159">        xml.append(&quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;UTF-8\&quot;?&gt;\n&quot;);</span>
+<span class="fc" id="L160">        xml.append(&quot;&lt;!--\n&quot;);</span>
+<span class="fc" id="L161">        xml.append(&quot;  Auto-generated BOM — do not edit.\n&quot;);</span>
+<span class="fc" id="L162">        xml.append(&quot;  Generated by: ike:generate-bom\n&quot;);</span>
+<span class="fc" id="L163">        xml.append(&quot;--&gt;\n&quot;);</span>
+<span class="fc" id="L164">        xml.append(&quot;&lt;project xmlns=\&quot;http://maven.apache.org/POM/4.0.0\&quot;\n&quot;);</span>
+<span class="fc" id="L165">        xml.append(&quot;         xmlns:xsi=\&quot;http://www.w3.org/2001/XMLSchema-instance\&quot;\n&quot;);</span>
+<span class="fc" id="L166">        xml.append(&quot;         xsi:schemaLocation=\&quot;http://maven.apache.org/POM/4.0.0\n&quot;);</span>
+<span class="fc" id="L167">        xml.append(&quot;         http://maven.apache.org/xsd/maven-4.0.0.xsd\&quot;&gt;\n&quot;);</span>
+<span class="fc" id="L168">        xml.append(&quot;    &lt;modelVersion&gt;4.0.0&lt;/modelVersion&gt;\n\n&quot;);</span>
+
+<span class="fc" id="L170">        xml.append(&quot;    &lt;groupId&gt;&quot;).append(groupId).append(&quot;&lt;/groupId&gt;\n&quot;);</span>
+<span class="fc" id="L171">        xml.append(&quot;    &lt;artifactId&gt;&quot;).append(artifactId).append(&quot;&lt;/artifactId&gt;\n&quot;);</span>
+<span class="fc" id="L172">        xml.append(&quot;    &lt;version&gt;&quot;).append(version).append(&quot;&lt;/version&gt;\n&quot;);</span>
+<span class="fc" id="L173">        xml.append(&quot;    &lt;packaging&gt;pom&lt;/packaging&gt;\n\n&quot;);</span>
+
+<span class="fc" id="L175">        xml.append(&quot;    &lt;name&gt;&quot;).append(escapeXml(name)).append(&quot;&lt;/name&gt;\n&quot;);</span>
+<span class="fc bfc" id="L176" title="All 2 branches covered.">        if (description != null) {</span>
+<span class="fc" id="L177">            xml.append(&quot;    &lt;description&gt;&quot;)</span>
+<span class="fc" id="L178">               .append(escapeXml(description.strip()))</span>
+<span class="fc" id="L179">               .append(&quot;&lt;/description&gt;\n&quot;);</span>
+        }
+<span class="fc bfc" id="L181" title="All 2 branches covered.">        xml.append(&quot;    &lt;url&gt;&quot;).append(url != null ? url : &quot;&quot;).append(&quot;&lt;/url&gt;\n\n&quot;);</span>
+
+        // Dependency Management
+<span class="fc" id="L184">        xml.append(&quot;    &lt;dependencyManagement&gt;\n&quot;);</span>
+<span class="fc" id="L185">        xml.append(&quot;        &lt;dependencies&gt;\n&quot;);</span>
+
+<span class="fc bfc" id="L187" title="All 2 branches covered.">        for (BomEntry entry : entries) {</span>
+<span class="fc" id="L188">            xml.append(&quot;            &lt;dependency&gt;\n&quot;);</span>
+<span class="fc" id="L189">            xml.append(&quot;                &lt;groupId&gt;&quot;).append(entry.groupId()).append(&quot;&lt;/groupId&gt;\n&quot;);</span>
+<span class="fc" id="L190">            xml.append(&quot;                &lt;artifactId&gt;&quot;).append(entry.artifactId()).append(&quot;&lt;/artifactId&gt;\n&quot;);</span>
+<span class="fc" id="L191">            xml.append(&quot;                &lt;version&gt;&quot;).append(entry.version()).append(&quot;&lt;/version&gt;\n&quot;);</span>
+
+<span class="fc bfc" id="L193" title="All 4 branches covered.">            if (entry.classifier() != null &amp;&amp; !entry.classifier().isEmpty()) {</span>
+<span class="fc" id="L194">                xml.append(&quot;                &lt;classifier&gt;&quot;).append(entry.classifier()).append(&quot;&lt;/classifier&gt;\n&quot;);</span>
+            }
+<span class="fc bfc" id="L196" title="All 4 branches covered.">            if (entry.type() != null &amp;&amp; !&quot;jar&quot;.equals(entry.type())) {</span>
+<span class="fc" id="L197">                xml.append(&quot;                &lt;type&gt;&quot;).append(entry.type()).append(&quot;&lt;/type&gt;\n&quot;);</span>
+            }
+<span class="fc bfc" id="L199" title="All 4 branches covered.">            if (entry.scope() != null &amp;&amp; !&quot;compile&quot;.equals(entry.scope())) {</span>
+<span class="fc" id="L200">                xml.append(&quot;                &lt;scope&gt;&quot;).append(entry.scope()).append(&quot;&lt;/scope&gt;\n&quot;);</span>
+            }
+
+<span class="fc" id="L203">            xml.append(&quot;            &lt;/dependency&gt;\n&quot;);</span>
+<span class="fc" id="L204">        }</span>
+
+<span class="fc" id="L206">        xml.append(&quot;        &lt;/dependencies&gt;\n&quot;);</span>
+<span class="fc" id="L207">        xml.append(&quot;    &lt;/dependencyManagement&gt;\n&quot;);</span>
+<span class="fc" id="L208">        xml.append(&quot;&lt;/project&gt;\n&quot;);</span>
+
+<span class="fc" id="L210">        return xml.toString();</span>
+    }
+
+    /**
+     * Escape XML special characters in text content.
+     *
+     * @param text input text (may be null)
+     * @return escaped text, or empty string if null
+     */
+    public static String escapeXml(String text) {
+<span class="fc bfc" id="L220" title="All 2 branches covered.">        if (text == null) return &quot;&quot;;</span>
+<span class="fc" id="L221">        return text.replace(&quot;&amp;&quot;, &quot;&amp;amp;&quot;)</span>
+<span class="fc" id="L222">                   .replace(&quot;&lt;&quot;, &quot;&amp;lt;&quot;)</span>
+<span class="fc" id="L223">                   .replace(&quot;&gt;&quot;, &quot;&amp;gt;&quot;);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

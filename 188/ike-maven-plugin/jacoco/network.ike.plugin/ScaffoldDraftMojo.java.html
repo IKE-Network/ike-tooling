@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldDraftMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ScaffoldDraftMojo.java</span></div><h1>ScaffoldDraftMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.scaffold.DirectoryTemplateSource;
+import network.ike.plugin.scaffold.FoundationDriftChecker;
+import network.ike.plugin.scaffold.ModelAdapters;
+import network.ike.plugin.scaffold.OrphanEntry;
+import network.ike.plugin.scaffold.OrphanScanner;
+import network.ike.plugin.scaffold.PathResolver;
+import network.ike.plugin.scaffold.ScaffoldException;
+import network.ike.plugin.scaffold.ScaffoldLockfile;
+import network.ike.plugin.scaffold.ScaffoldManifest;
+import network.ike.plugin.scaffold.ScaffoldMojoSupport;
+import network.ike.plugin.scaffold.ScaffoldMojoSupport.Counts;
+import network.ike.plugin.scaffold.ScaffoldPlan;
+import network.ike.plugin.scaffold.ScaffoldPlanner;
+import network.ike.plugin.scaffold.ScaffoldScope;
+import network.ike.plugin.scaffold.TemplateSource;
+import network.ike.plugin.scaffold.TierHandlers;
+import network.ike.plugin.support.AbstractGoalMojo;
+import network.ike.plugin.support.GoalReportBuilder;
+import network.ike.plugin.support.GoalReportSpec;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.nio.file.Path;
+import java.util.List;
+
+/**
+ * Preview the changes {@code ike:scaffold-publish} would make.
+ *
+ * &lt;p&gt;Reads the scaffold manifest shipped by
+ * {@code ike-build-standards}, compares each entry to the current
+ * disk state and scaffold lockfile, and prints a per-entry summary:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code [INSTALL]} — file does not yet exist, will be created&lt;/li&gt;
+ *   &lt;li&gt;{@code [UPDATE]} — file exists, will be refreshed&lt;/li&gt;
+ *   &lt;li&gt;{@code [SKIP]} — file has been user-edited and will be left
+ *       alone (a unified diff is included for tracked/tracked-block
+ *       entries)&lt;/li&gt;
+ *   &lt;li&gt;{@code [OK]} — file already matches the current template&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;The goal runs with {@code projectRequired = false} so it can
+ * preview user-scope changes (git hooks, {@code ~/.m2/settings.xml})
+ * on a fresh machine. In a project it previews both scopes.
+ *
+ * &lt;p&gt;This goal never touches disk — it's safe to run anytime.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;
+ * # From inside a project (previews project + user scopes):
+ * mvn ike:scaffold-draft -DscaffoldDir=/path/to/unpacked/scaffold
+ *
+ * # Fresh-machine bootstrap (user scope only):
+ * mvn ike:scaffold-draft -DscaffoldDir=/path/to/unpacked/scaffold
+ * &lt;/pre&gt;
+ *
+ * @see ScaffoldPublishMojo
+ * @see ScaffoldRevertMojo
+ */
+@Mojo(name = &quot;scaffold-draft&quot;, projectRequired = false,
+      aggregator = true)
+public class ScaffoldDraftMojo extends AbstractGoalMojo {
+
+    /**
+     * Path to an unpacked scaffold tree containing
+     * {@code scaffold-manifest.yaml} and the template files it
+     * references. Typically the result of unpacking the
+     * {@code ike-build-standards} scaffold zip.
+     *
+     * &lt;p&gt;Defaults to {@code ${project.build.directory}/scaffold},
+     * matching the unpack location wired into {@code ike-parent}'s
+     * {@code unpack-scaffold-templates} execution (#243). Override
+     * with {@code -DscaffoldDir=...} for ad-hoc invocations against
+     * a custom scaffold tree.
+     */
+    @Parameter(property = &quot;scaffoldDir&quot;,
+               defaultValue = &quot;${project.build.directory}/scaffold&quot;)
+    String scaffoldDir;
+
+    /**
+     * Explicit override for the project root. When omitted, the goal
+     * uses {@link Session#getTopDirectory()} (the directory Maven was
+     * invoked from); a missing {@code pom.xml} at that location signals
+     * fresh-machine bootstrap and the project scope is skipped.
+     */
+    @Parameter(property = &quot;projectRoot&quot;)
+    String projectRoot;
+
+    /**
+     * Override for the user home. Defaults to {@code user.home}
+     * system property.
+     */
+    @Parameter(property = &quot;userHome&quot;,
+               defaultValue = &quot;${user.home}&quot;)
+    String userHome;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L102">    public ScaffoldDraftMojo() {}</span>
+
+    @Override
+    protected GoalReportSpec runGoal() throws MojoException {
+        try {
+<span class="fc" id="L107">            return runDraft();</span>
+<span class="fc" id="L108">        } catch (ScaffoldException e) {</span>
+<span class="fc" id="L109">            throw new MojoException(e.getMessage(), e);</span>
+        }
+    }
+
+    private GoalReportSpec runDraft() {
+<span class="fc" id="L114">        Path scaffoldRoot = Path.of(scaffoldDir);</span>
+<span class="fc" id="L115">        ScaffoldManifest manifest =</span>
+<span class="fc" id="L116">                ScaffoldMojoSupport.loadManifest(scaffoldRoot);</span>
+<span class="fc" id="L117">        TemplateSource templates =</span>
+                new DirectoryTemplateSource(scaffoldRoot);
+<span class="fc" id="L119">        Path home = Path.of(userHome);</span>
+<span class="fc" id="L120">        Path projRoot = ScaffoldMojoSupport.resolveProjectRoot(</span>
+<span class="fc" id="L121">                projectRoot, getSession());</span>
+<span class="fc" id="L122">        PathResolver resolver = new PathResolver(home, projRoot);</span>
+<span class="fc" id="L123">        ScaffoldPlanner planner = new ScaffoldPlanner(</span>
+                new TierHandlers(), new ModelAdapters());
+
+<span class="fc" id="L126">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L127">        getLog().info(&quot;ike:scaffold-draft&quot;);</span>
+<span class="fc" id="L128">        getLog().info(&quot;  scaffold dir:      &quot; + scaffoldRoot);</span>
+<span class="fc" id="L129">        getLog().info(&quot;  standards version: &quot;</span>
+<span class="fc" id="L130">                + manifest.standardsVersion());</span>
+<span class="fc" id="L131">        getLog().info(&quot;  user home:         &quot; + home);</span>
+<span class="fc" id="L132">        getLog().info(&quot;  project root:      &quot;</span>
+<span class="fc bfc" id="L133" title="All 2 branches covered.">                + (projRoot == null ? &quot;(none — fresh machine)&quot;</span>
+<span class="fc" id="L134">                        : projRoot));</span>
+<span class="fc" id="L135">        getLog().info(&quot;&quot;);</span>
+
+        // User scope — always planned.
+<span class="fc" id="L138">        Path userLock =</span>
+<span class="fc" id="L139">                ScaffoldMojoSupport.userLockfilePath(home);</span>
+<span class="fc" id="L140">        ScaffoldLockfile userLockfile =</span>
+<span class="fc" id="L141">                ScaffoldMojoSupport.loadLockfileOrEmpty(userLock);</span>
+<span class="fc" id="L142">        ScaffoldPlan userPlan = planner.plan(</span>
+                manifest, userLockfile, ScaffoldScope.USER,
+                resolver, templates);
+<span class="fc" id="L145">        logPlan(userPlan, ScaffoldScope.USER);</span>
+<span class="fc" id="L146">        int orphanCount = reportOrphans(</span>
+                manifest, userLockfile, ScaffoldScope.USER, resolver);
+
+        // Project scope — only when invoked inside a project.
+<span class="fc" id="L150">        Counts projectCounts = null;</span>
+<span class="fc bfc" id="L151" title="All 2 branches covered.">        if (projRoot != null) {</span>
+<span class="fc" id="L152">            Path projLock =</span>
+<span class="fc" id="L153">                    ScaffoldMojoSupport.projectLockfilePath(projRoot);</span>
+<span class="fc" id="L154">            ScaffoldLockfile projLockfile =</span>
+<span class="fc" id="L155">                    ScaffoldMojoSupport.loadLockfileOrEmpty(projLock);</span>
+<span class="fc" id="L156">            ScaffoldPlan projectPlan = planner.plan(</span>
+                    manifest, projLockfile, ScaffoldScope.PROJECT,
+                    resolver, templates);
+<span class="fc" id="L159">            logPlan(projectPlan, ScaffoldScope.PROJECT);</span>
+<span class="fc" id="L160">            orphanCount += reportOrphans(manifest, projLockfile,</span>
+                    ScaffoldScope.PROJECT, resolver);
+<span class="fc" id="L162">            projectCounts =</span>
+<span class="fc" id="L163">                    ScaffoldMojoSupport.countActions(projectPlan);</span>
+        }
+
+<span class="fc" id="L166">        Counts userCounts =</span>
+<span class="fc" id="L167">                ScaffoldMojoSupport.countActions(userPlan);</span>
+<span class="fc" id="L168">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L169">        getLog().info(&quot;Summary:&quot;);</span>
+<span class="fc" id="L170">        getLog().info(&quot;  user:    &quot; + userCounts.summary());</span>
+<span class="fc bfc" id="L171" title="All 2 branches covered.">        if (projectCounts != null) {</span>
+<span class="fc" id="L172">            getLog().info(&quot;  project: &quot; + projectCounts.summary());</span>
+        }
+<span class="pc bpc" id="L174" title="1 of 2 branches missed.">        if (orphanCount &gt; 0) {</span>
+<span class="nc" id="L175">            getLog().info(&quot;  orphans: &quot; + orphanCount</span>
+                    + &quot; — file(s) the scaffold no longer ships; &quot;
+                    + &quot;ike:scaffold-publish removes the unedited ones&quot;);
+        }
+
+        // #345: report IKE-foundation drift when the manifest carries
+        // a foundation: section AND we're in a project context. The
+        // scaffold zip's foundation pins represent the tested-together
+        // compatibility snapshot of ike-parent + standard properties
+        // at the moment this ike-tooling version was released.
+<span class="pc bpc" id="L185" title="1 of 4 branches missed.">        if (projRoot != null &amp;&amp; manifest.foundation() != null) {</span>
+<span class="nc" id="L186">            reportFoundationDrift(projRoot, manifest.foundation());</span>
+        }
+
+<span class="fc" id="L189">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L190">        getLog().info(</span>
+                &quot;Run ike:scaffold-publish to apply these changes.&quot;);
+
+<span class="fc" id="L193">        return new GoalReportSpec(IkeGoal.SCAFFOLD_DRAFT,</span>
+<span class="fc bfc" id="L194" title="All 2 branches covered.">                projRoot != null ? projRoot : home,</span>
+<span class="fc" id="L195">                buildReport(manifest, userCounts, projectCounts,</span>
+                        orphanCount));
+    }
+
+    /**
+     * Scan one scope for orphaned scaffold files — lockfile entries
+     * the current manifest no longer ships — and log them.
+     *
+     * @param manifest the scaffold manifest
+     * @param lockfile the lockfile for {@code scope}
+     * @param scope    the scope to scan
+     * @param resolver path resolver
+     * @return the number of orphans found
+     */
+    private int reportOrphans(ScaffoldManifest manifest,
+                               ScaffoldLockfile lockfile,
+                               ScaffoldScope scope,
+                               PathResolver resolver) {
+<span class="fc" id="L213">        List&lt;OrphanEntry&gt; orphans = OrphanScanner.scan(</span>
+                manifest, lockfile, scope, resolver);
+<span class="pc bpc" id="L215" title="1 of 2 branches missed.">        if (!orphans.isEmpty()) {</span>
+<span class="nc" id="L216">            ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="nc" id="L217">                    ScaffoldMojoSupport.renderOrphanReport(</span>
+                            orphans, scope));
+        }
+<span class="fc" id="L220">        return orphans.size();</span>
+    }
+
+    /**
+     * Build the Markdown report body for {@code ike:scaffold-draft}.
+     *
+     * @param manifest      the scaffold manifest
+     * @param userCounts    planned-action counts for the user scope
+     * @param projectCounts planned-action counts for the project
+     *                      scope, or {@code null} on a fresh machine
+     * @param orphanCount   number of orphaned files the manifest no
+     *                      longer ships
+     * @return the report body
+     */
+    private static String buildReport(ScaffoldManifest manifest,
+                                       Counts userCounts,
+                                       Counts projectCounts,
+                                       int orphanCount) {
+<span class="fc" id="L238">        GoalReportBuilder report = new GoalReportBuilder();</span>
+<span class="fc" id="L239">        report.paragraph(&quot;Preview of the changes `ike:scaffold-publish`&quot;</span>
+                + &quot; would apply — no files were written.&quot;);
+<span class="fc" id="L241">        report.bullet(&quot;standards version: `&quot;</span>
+<span class="fc" id="L242">                + manifest.standardsVersion() + &quot;`&quot;);</span>
+<span class="fc" id="L243">        report.bullet(&quot;user scope: &quot; + userCounts.summary());</span>
+<span class="fc bfc" id="L244" title="All 2 branches covered.">        if (projectCounts != null) {</span>
+<span class="fc" id="L245">            report.bullet(&quot;project scope: &quot; + projectCounts.summary());</span>
+        } else {
+<span class="fc" id="L247">            report.bullet(&quot;project scope: (none — fresh machine)&quot;);</span>
+        }
+<span class="pc bpc" id="L249" title="1 of 2 branches missed.">        if (orphanCount &gt; 0) {</span>
+<span class="nc" id="L250">            report.bullet(&quot;orphans: &quot; + orphanCount + &quot; file(s) the &quot;</span>
+                    + &quot;scaffold no longer ships&quot;);
+        }
+<span class="fc" id="L253">        report.paragraph(&quot;Run `ike:scaffold-publish` to apply.&quot;);</span>
+<span class="fc" id="L254">        return report.build();</span>
+    }
+
+    /**
+     * Compute and log foundation drift for the project at
+     * {@code projRoot}.
+     *
+     * @param projRoot   the project root
+     * @param foundation manifest's foundation section
+     */
+    private void reportFoundationDrift(
+            Path projRoot,
+            ScaffoldManifest.Foundation foundation) {
+        java.util.List&lt;FoundationDriftChecker.Entry&gt; entries;
+        try {
+<span class="nc" id="L269">            entries = FoundationDriftChecker.checkPomFile(</span>
+<span class="nc" id="L270">                    projRoot.resolve(&quot;pom.xml&quot;), foundation);</span>
+<span class="nc" id="L271">        } catch (java.io.IOException e) {</span>
+<span class="nc" id="L272">            getLog().debug(&quot;Could not check foundation drift: &quot; + e.getMessage());</span>
+<span class="nc" id="L273">            return;</span>
+<span class="nc" id="L274">        }</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">        if (entries.isEmpty()) return;</span>
+
+<span class="nc" id="L277">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L278">        getLog().info(&quot;IKE Foundation Drift:&quot;);</span>
+<span class="nc" id="L279">        getLog().info(&quot;  Compares this POM against the foundation snapshot&quot;);</span>
+<span class="nc" id="L280">        getLog().info(&quot;  pinned in the unpacked ike-build-standards (&quot;</span>
+<span class="nc" id="L281">                + foundation.parent() + &quot;).&quot;);</span>
+
+<span class="nc" id="L283">        int behind = 0;</span>
+<span class="nc" id="L284">        int ahead = 0;</span>
+<span class="nc" id="L285">        int absent = 0;</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">        for (FoundationDriftChecker.Entry e : entries) {</span>
+<span class="nc bnc" id="L287" title="All 2 branches missed.">            String label = e.kind() == FoundationDriftChecker.Kind.PARENT</span>
+<span class="nc" id="L288">                    ? &quot;&lt;parent&gt; &quot; + e.name()</span>
+<span class="nc" id="L289">                    : &quot;${&quot; + e.name() + &quot;}&quot;;</span>
+<span class="nc bnc" id="L290" title="All 4 branches missed.">            switch (e.state()) {</span>
+                case ALIGNED -&gt;
+<span class="nc" id="L292">                    getLog().info(&quot;  ✓ &quot; + label + &quot;: &quot; + e.actual());</span>
+                case ABSENT -&gt; {
+<span class="nc" id="L294">                    absent++;</span>
+<span class="nc" id="L295">                    getLog().info(&quot;  · &quot; + label + &quot;: not declared here&quot;</span>
+<span class="nc" id="L296">                            + &quot; (snapshot: &quot; + e.expected() + &quot;) — likely&quot;</span>
+                            + &quot; inherited from the parent&quot;);
+<span class="nc" id="L298">                }</span>
+                case DIFFERS -&gt; {
+<span class="nc" id="L300">                    int dir = versionDirection(e.actual(), e.expected());</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">                    if (dir &lt; 0) {</span>
+<span class="nc" id="L302">                        behind++;</span>
+<span class="nc" id="L303">                        getLog().info(&quot;  ⬆ &quot; + label + &quot;: &quot; + e.actual()</span>
+<span class="nc" id="L304">                                + &quot; → &quot; + e.expected() + &quot; (behind — upgrade)&quot;);</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">                    } else if (dir &gt; 0) {</span>
+<span class="nc" id="L306">                        ahead++;</span>
+<span class="nc" id="L307">                        getLog().info(&quot;  ℹ &quot; + label + &quot;: &quot; + e.actual()</span>
+<span class="nc" id="L308">                                + &quot; (snapshot pins &quot; + e.expected() + &quot;) —&quot;</span>
+                                + &quot; AHEAD; the scaffold is stale, not this POM&quot;);
+                    } else {
+<span class="nc" id="L311">                        behind++;</span>
+<span class="nc" id="L312">                        getLog().info(&quot;  ✗ &quot; + label + &quot;: &quot; + e.actual()</span>
+<span class="nc" id="L313">                                + &quot; → &quot; + e.expected() + &quot; (differs)&quot;);</span>
+                    }
+<span class="nc" id="L315">                }</span>
+<span class="nc" id="L316">                default -&gt; getLog().info(&quot;  ? &quot; + label);</span>
+            }
+<span class="nc" id="L318">        }</span>
+
+<span class="nc bnc" id="L320" title="All 6 branches missed.">        if (behind &gt; 0 || ahead &gt; 0 || absent &gt; 0) {</span>
+<span class="nc" id="L321">            getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L322">            getLog().info(&quot;  &quot; + behind + &quot; behind, &quot; + ahead + &quot; ahead, &quot;</span>
+                    + absent + &quot; not declared.&quot;);
+<span class="nc bnc" id="L324" title="All 4 branches missed.">            if (behind &gt; 0 || absent &gt; 0) {</span>
+<span class="nc" id="L325">                getLog().info(&quot;  Apply behind/absent values with&quot;</span>
+                        + &quot; ike:scaffold-publish&quot;
+                        + &quot; -Dike.scaffold.apply-foundation=true.&quot;);
+            }
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            if (ahead &gt; 0) {</span>
+<span class="nc" id="L330">                getLog().info(&quot;  Ahead values mean the unpacked&quot;</span>
+                        + &quot; ike-build-standards is stale — refresh the&quot;
+                        + &quot; foundation; do not downgrade this POM.&quot;);
+            }
+        }
+<span class="nc" id="L335">    }</span>
+
+    /**
+     * Compare two foundation version strings.
+     *
+     * @param actual   the project's POM value
+     * @param expected the scaffold snapshot's pinned value
+     * @return negative when {@code actual} is behind {@code expected},
+     *         positive when ahead, {@code 0} when the direction cannot
+     *         be determined (non-numeric versions). IKE foundation
+     *         versions are single-segment integers, so this is a
+     *         numeric comparison.
+     */
+    private static int versionDirection(String actual, String expected) {
+        try {
+<span class="nc" id="L350">            return Integer.signum(Long.compare(</span>
+<span class="nc" id="L351">                    Long.parseLong(actual.trim()),</span>
+<span class="nc" id="L352">                    Long.parseLong(expected.trim())));</span>
+<span class="nc" id="L353">        } catch (NumberFormatException | NullPointerException ex) {</span>
+<span class="nc" id="L354">            return 0;</span>
+        }
+    }
+
+    private void logPlan(ScaffoldPlan plan, ScaffoldScope scope) {
+<span class="fc" id="L359">        ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="fc" id="L360">                ScaffoldMojoSupport.renderPlanReport(plan, scope));</span>
+<span class="fc" id="L361">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
