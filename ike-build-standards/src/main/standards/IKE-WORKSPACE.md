@@ -25,8 +25,8 @@ sections have been removed — subproject types are now a compile-time enum
 (`network.ike.workspace.SubprojectType`) rather than runtime configuration.
 
 Workspaces that still use the legacy `components:` schema are automatically
-migrated on the first run of `ws:align`. All other goals hard-cut on the
-legacy schema with an error pointing users at `ws:align`. The migration is
+migrated on the first run of `ws:align-publish`. All other goals hard-cut on the
+legacy schema with an error pointing users at `ws:align-publish`. The migration is
 idempotent — running it twice is a no-op.
 
 ### POM Changes — Use Tooling, Not Manual Edits
@@ -148,7 +148,7 @@ subprojects:
 ```
 
 Workspaces on the legacy `components:` schema are automatically migrated
-on the first run of `ws:align`. See "Schema Migration" above.
+on the first run of `ws:align-publish`. See "Schema Migration" above.
 
 ### Manifest Fields
 
@@ -172,7 +172,7 @@ directory name on disk). The entry is a map of these fields:
 | `groupId` | No | Maven groupId for version updates |
 | `parent` | No | Name of the workspace subproject that provides this one's Maven parent POM |
 | `depends-on` | No | List of dependency declarations |
-| `sha` | No | Pinned commit SHA (written by `ws:checkpoint`) |
+| `sha` | No | Pinned commit SHA (written by `ws:checkpoint-publish`) |
 | `maven-version` | No | Override `defaults.maven-version` for this subproject |
 | `notes` | No | Free-text migration notes |
 
@@ -193,7 +193,7 @@ rebuild; `content` dependencies may require only review.
 
 ### Version Cascade Mechanisms
 
-When `ws:feature-start` creates a feature branch, it cascades
+When `ws:feature-start-publish` creates a feature branch, it cascades
 branch-qualified SNAPSHOT versions to downstream subprojects via three
 complementary mechanisms:
 
@@ -214,7 +214,7 @@ complementary mechanisms:
    `<scope>import</scope>` entries published by workspace subprojects.
    Updates the BOM import version to the branch-qualified SNAPSHOT.
 
-**Cascade gap detection:** `ws:feature-start` reports cascade gaps when
+**Cascade gap detection:** `ws:feature-start-publish` reports cascade gaps when
 a dependency edge has *none* of the above mechanisms. This means the
 downstream subproject may resolve stale versions from external BOMs
 instead of the feature branch versions. The gap detection accounts for
@@ -281,7 +281,8 @@ in a single pass. Each reconciler can be individually disabled.
 
 | Goal | Description |
 |------|-------------|
-| `ws:commit` | Commit across repos (`-DaddAll=true -Dpush=true -Dmessage="..."`) |
+| `ws:commit-draft` | Preview what would be committed across repos (read-only) |
+| `ws:commit-publish` | Commit across repos (`-Dpush=true -Dmessage="..."`) |
 | `ws:push` | Push all subprojects (warns about uncommitted changes) |
 | `ws:sync` | Reconcile state after machine switch |
 
@@ -311,7 +312,7 @@ in a single pass. Each reconciler can be individually disabled.
 Multi-repo goals validate that all subproject working trees are clean
 before starting. If any subproject has uncommitted changes, the goal
 fails immediately with a list of affected repos and files, along with
-the specific `ws:commit` command to resolve it. No partial
+the specific `ws:commit-publish` command to resolve it. No partial
 modifications occur.
 
 **Publish goals with hard preflight:** `release`, `align`,
@@ -321,7 +322,7 @@ modifications occur.
 **Draft goals:** warn about uncommitted changes that would block the
 corresponding `-publish` goal, but still run the preview.
 
-**`ws:commit`:** skips VCS bridge catch-up when there are pending
+**`ws:commit-publish`:** skips VCS bridge catch-up when there are pending
 changes to commit, preventing branch-switch conflicts. Warns at
 WARN level when skipping repos with unstaged changes.
 
@@ -366,7 +367,7 @@ The main branch uses the unqualified version:
 <base-version>-SNAPSHOT
 ```
 
-`ws:feature-start` sets this automatically by updating all POM files in the
+`ws:feature-start-publish` sets this automatically by updating all POM files in the
 reactor. When creating files or modifying POMs in a workspace, respect the
 branch-qualified version already set.
 
@@ -414,7 +415,7 @@ only cloned subprojects participate in the reactor. This supports:
 
 ## Checkpoint Files
 
-`ws:checkpoint` records per-subproject state to
+`ws:checkpoint-publish` records per-subproject state to
 `checkpoints/checkpoint-<name>.yaml`:
 
 ```yaml
@@ -592,7 +593,7 @@ A feature that touches only one subproject (e.g., `tinkar-core`):
 ```bash
 # Start the feature — creates feature/add-nid-index branch, sets
 # version to 1.80.0-add-nid-index-SNAPSHOT
-mvn ws:feature-start -Dfeature=add-nid-index -Dsubproject=tinkar-core
+mvn ws:feature-start-publish -Dfeature=add-nid-index -Dsubproject=tinkar-core
 
 # Work in tinkar-core/, commit normally
 cd tinkar-core
@@ -616,7 +617,7 @@ A feature spanning `ike-platform` and `tinkar-core`:
 
 ```bash
 # Start across all checked-out subprojects
-mvn ws:feature-start -Dfeature=new-renderer
+mvn ws:feature-start-publish -Dfeature=new-renderer
 # Creates feature/new-renderer in both repos
 # ike-platform: 24-new-renderer-SNAPSHOT
 # tinkar-core:  1.80.0-new-renderer-SNAPSHOT
@@ -676,10 +677,10 @@ command to resolve:
 
 ```bash
 # Commit all pending changes across the workspace:
-mvn ws:commit -DaddAll=true -Dmessage="your commit message"
+mvn ws:commit-publish -Dmessage="your commit message"
 
 # Or commit and push in one step:
-mvn ws:commit -DaddAll=true -Dpush=true -Dmessage="your commit message"
+mvn ws:commit-publish -Dpush=true -Dmessage="your commit message"
 
 # Then retry the blocked goal:
 mvn ws:align-publish

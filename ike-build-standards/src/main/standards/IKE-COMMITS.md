@@ -2,7 +2,7 @@
 
 Every commit in an IKE repository follows this standard. It applies to
 direct commits to `main`, feature branches, and workspace cascades
-alike. `ws:commit` and `ike:release-publish` both rely on the trailer
+alike. `ws:commit-publish` and `ike:release-publish` both rely on the trailer
 format defined below for issue↔commit linkage.
 
 ## Subject and body
