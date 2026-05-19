@@ -18,7 +18,9 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 /**
@@ -72,6 +74,47 @@ public final class OrgSiteSupport {
     /** Branch used for rendered site content (GitHub Pages source). */
     private static final String GH_PAGES_BRANCH = "gh-pages";
 
+    /**
+     * The IKE foundation projects, in parent-tier order, mapped to
+     * their Maven Central coordinates ({@code groupId:artifactId}).
+     *
+     * <p>Membership drives the generated landing page: a project in
+     * this map renders under the {@code Foundation} section with a
+     * Maven Central version badge; every other registered project
+     * renders under {@code Examples}. The foundation is a small,
+     * deliberately fixed set — adding a member is a release-cascade
+     * decision, not a routine registration, so it lives in code.
+     */
+    static final Map<String, String> FOUNDATION = foundationCoordinates();
+
+    private static Map<String, String> foundationCoordinates() {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("ike-base-parent", "network.ike:ike-base-parent");
+        m.put("ike-tooling",     "network.ike.tooling:ike-tooling");
+        m.put("ike-docs",        "network.ike.docs:ike-docs");
+        m.put("ike-platform",    "network.ike.platform:ike-platform");
+        return Collections.unmodifiableMap(m);
+    }
+
+    /**
+     * Build the Maven Central version-badge AsciiDoc for a project.
+     *
+     * @param artifactId the project artifact ID
+     * @return an AsciiDoc {@code image:} macro for foundation
+     *         projects, or {@code null} if the project is not a
+     *         foundation member
+     */
+    static String mavenCentralBadge(String artifactId) {
+        String coordinates = FOUNDATION.get(artifactId);
+        if (coordinates == null) {
+            return null;
+        }
+        String path = coordinates.replace(':', '/');
+        return "image:https://img.shields.io/maven-central/v/" + path
+                + "[Maven Central,link="
+                + "https://central.sonatype.com/artifact/" + path + "]";
+    }
+
     private OrgSiteSupport() {}
 
     // ── Fragment I/O ─────────────────────────────────────────────────
@@ -123,6 +166,11 @@ public final class OrgSiteSupport {
         sb.append('\n');
         sb.append("= ").append(name).append('\n');
         sb.append('\n');
+        String badge = mavenCentralBadge(artifactId);
+        if (badge != null) {
+            sb.append(badge).append('\n');
+            sb.append('\n');
+        }
         if (description != null && !description.isBlank()) {
             sb.append(description).append('\n');
             sb.append('\n');
@@ -183,8 +231,11 @@ public final class OrgSiteSupport {
      * Regenerate {@code src/site/asciidoc/index.adoc} from all fragments
      * in the {@code projects/} directory.
      *
-     * <p>Fragments are sorted alphabetically by filename. The index
-     * preamble (title, description) is embedded here as a template.
+     * <p>Registered projects are split into two sections: foundation
+     * members (see {@link #FOUNDATION}, rendered in parent-tier order)
+     * and everything else (the examples, rendered alphabetically). The
+     * index preamble and section intros are embedded here as a
+     * template.
      *
      * @param orgRoot root of the cloned org repository
      * @throws MojoException if fragments cannot be read or index cannot be written
@@ -207,6 +258,22 @@ public final class OrgSiteSupport {
         }
         Collections.sort(fragmentNames);
 
+        // Foundation members in parent-tier order; everything else
+        // (the examples) keeps the alphabetical order.
+        List<String> foundation = new ArrayList<>();
+        for (String id : FOUNDATION.keySet()) {
+            String fragment = id + ".adoc";
+            if (fragmentNames.contains(fragment)) {
+                foundation.add(fragment);
+            }
+        }
+        List<String> examples = new ArrayList<>();
+        for (String fragment : fragmentNames) {
+            if (!foundation.contains(fragment)) {
+                examples.add(fragment);
+            }
+        }
+
         var sb = new StringBuilder();
         sb.append("= IKE Network\n");
         sb.append(":icons: font\n");
@@ -215,16 +282,27 @@ public final class OrgSiteSupport {
         sb.append("fabric where knowledge compounds.\n");
         sb.append('\n');
 
-        if (!fragmentNames.isEmpty()) {
-            sb.append("== Projects\n");
+        if (!foundation.isEmpty()) {
+            sb.append("== Foundation\n");
             sb.append('\n');
-            // Relative path from src/site/asciidoc/ to projects/
-            for (String fragment : fragmentNames) {
-                sb.append("include::../../../projects/")
-                        .append(fragment)
-                        .append("[leveloffset=+1]\n");
-                sb.append('\n');
-            }
+            sb.append("The IKE foundation — published to Maven Central and\n");
+            sb.append("inheritable by any project. Each layer builds on the\n");
+            sb.append("one above it.\n");
+            sb.append('\n');
+            appendIncludes(sb, foundation);
+        }
+
+        if (!examples.isEmpty()) {
+            sb.append("== Examples\n");
+            sb.append('\n');
+            sb.append("Reference projects that show how to consume the IKE\n");
+            sb.append("foundation. They are deliberately *not* published to\n");
+            sb.append("Maven Central: they are worked examples to read and\n");
+            sb.append("copy, not libraries to depend on. Publishing them as\n");
+            sb.append("artifacts would invite accidental coupling to code\n");
+            sb.append("that exists only to illustrate a pattern.\n");
+            sb.append('\n');
+            appendIncludes(sb, examples);
         }
 
         Path indexFile = orgRoot.toPath().resolve(INDEX_ADOC);
@@ -234,6 +312,24 @@ public final class OrgSiteSupport {
         } catch (IOException e) {
             throw new MojoException(
                     "Could not write index: " + indexFile, e);
+        }
+    }
+
+    /**
+     * Append {@code include::} directives for the given fragment
+     * filenames to the index buffer, one per line with a trailing
+     * blank line. The path is relative to {@code src/site/asciidoc/}.
+     *
+     * @param sb        the index buffer being assembled
+     * @param fragments fragment filenames (e.g. {@code ike-docs.adoc})
+     */
+    private static void appendIncludes(StringBuilder sb,
+                                       List<String> fragments) {
+        for (String fragment : fragments) {
+            sb.append("include::../../../projects/")
+                    .append(fragment)
+                    .append("[leveloffset=+1]\n");
+            sb.append('\n');
         }
     }
 
