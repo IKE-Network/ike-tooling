@@ -808,8 +808,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         + stagingDir.toAbsolutePath());
         pruneBuildPoms(stagingDir);
         getLog().info("Publishing to Maven Central via JReleaser...");
+        // -N (non-recursive): jreleaser:deploy runs once, at the reactor
+        // root, uploading the whole staging directory as a single bundle.
+        // Without it the goal runs per module — the first invocation
+        // publishes everything, the rest fail "artifacts already deployed".
         ReleaseSupport.exec(gitRoot, getLog(),
-                mvnw.getAbsolutePath(), "jreleaser:deploy", "-B");
+                mvnw.getAbsolutePath(), "jreleaser:deploy", "-N", "-B");
     }
 
     /**
