@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConstantBackedEnum.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Java Support</a> &gt; <a href="index.source.html" class="el_package">network.ike.support.enums</a> &gt; <span class="el_source">ConstantBackedEnum.java</span></div><h1>ConstantBackedEnum.java</h1><pre class="source lang-java linenums">package network.ike.support.enums;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.BiPredicate;
+
+/**
+ * Pairs each constant of an enum with a matched
+ * {@code public static final String} mirror field and verifies the
+ * one-to-one correspondence at class-load time.
+ *
+ * &lt;p&gt;Annotation element values in Java must be constant expressions
+ * (JLS &amp;sect;15.28). {@code MyEnum.FOO.toString()} is not — method
+ * calls never are; {@code MyEnum.FOO} itself is not, even when the
+ * annotation element is {@code String}-typed. The only constant
+ * handle on an enum-shaped name is a sibling
+ * {@code public static final String NAME_FOO = &quot;foo&quot;;} on the enum
+ * class. This interface formalises that pattern: each constant passes
+ * its mirror to the constructor by &lt;em&gt;qualified&lt;/em&gt; name
+ * ({@code Goal.NAME_FOO}) — a &lt;em&gt;simple-name&lt;/em&gt; forward reference to
+ * a field declared later is illegal under JLS &amp;sect;8.3.3, but a
+ * qualified reference is exempt from that restriction. The interface
+ * contributes the {@link #literalName()} contract, and {@link #verify}
+ * guarantees the constants and their {@code NAME_*} mirrors stay in
+ * lockstep.
+ *
+ * &lt;p&gt;Usage — the consuming enum runs {@link #verify} from its static
+ * initializer, so a structural mismatch makes the class permanently
+ * unloadable rather than silently miscompiling whatever the mirror
+ * feeds (e.g. a {@code plugin.xml} goal name):
+ *
+ * &lt;pre&gt;{@code
+ * public enum Goal implements ConstantBackedEnum {
+ *     CREATE(Goal.NAME_CREATE),
+ *     ALIGN (Goal.NAME_ALIGN);
+ *
+ *     public static final String NAME_CREATE = &quot;create&quot;;
+ *     public static final String NAME_ALIGN  = &quot;align&quot;;
+ *
+ *     public final String mojoName;
+ *     Goal(String n) { this.mojoName = n; }
+ *
+ *     @Override public String literalName() { return mojoName; }
+ *
+ *     static { ConstantBackedEnum.verify(Goal.class); }
+ * }
+ * }&lt;/pre&gt;
+ *
+ * Annotation site: {@code @Mojo(name = Goal.NAME_CREATE)}.
+ */
+public interface ConstantBackedEnum {
+
+    /**
+     * The String literal carried by this constant.
+     *
+     * @return the literal, equal to the corresponding {@code NAME_*}
+     *         mirror constant on the implementing enum
+     */
+    String literalName();
+
+    /**
+     * Field-name prefix for the mirror constants.
+     *
+     * @return the default prefix, {@code &quot;NAME_&quot;}
+     */
+<span class="fc" id="L68">    static String defaultPrefix() { return &quot;NAME_&quot;; }</span>
+
+    /**
+     * Verify mirror correspondence with the {@link #defaultPrefix()}
+     * prefix and no value-shape check.
+     *
+     * @param enumClass the enum class to verify
+     * @param &lt;E&gt;       the enum type
+     */
+    static &lt;E extends Enum&lt;E&gt; &amp; ConstantBackedEnum&gt; void verify(Class&lt;E&gt; enumClass) {
+<span class="fc" id="L78">        verify(enumClass, defaultPrefix(), null);</span>
+<span class="fc" id="L79">    }</span>
+
+    /**
+     * Verify that every constant of {@code enumClass} has a matching
+     * {@code public static final String} mirror field named
+     * {@code prefix + constantName} whose value equals the constant's
+     * {@link #literalName()}, that no mirror field is orphaned, and —
+     * when {@code valueShape} is supplied — that each value satisfies
+     * the shape predicate.
+     *
+     * @param enumClass  the enum class to verify
+     * @param prefix     the mirror-field name prefix
+     * @param valueShape optional per-constant value-shape check, or
+     *                   {@code null} to skip it
+     * @param &lt;E&gt;        the enum type
+     * @throws AssertionError on any mismatch — intentionally, so the
+     *                        violation surfaces as
+     *                        {@code ExceptionInInitializerError} and
+     *                        renders the class unusable
+     */
+    static &lt;E extends Enum&lt;E&gt; &amp; ConstantBackedEnum&gt; void verify(
+            Class&lt;E&gt; enumClass,
+            String prefix,
+            BiPredicate&lt;E, String&gt; valueShape) {
+
+<span class="fc" id="L104">        Map&lt;String, String&gt; fields = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L105" title="All 2 branches covered.">        for (Field f : enumClass.getDeclaredFields()) {</span>
+<span class="fc" id="L106">            int m = f.getModifiers();</span>
+<span class="pc bpc" id="L107" title="1 of 4 branches missed.">            if (Modifier.isStatic(m) &amp;&amp; Modifier.isFinal(m)</span>
+<span class="fc bfc" id="L108" title="All 2 branches covered.">                &amp;&amp; f.getType() == String.class</span>
+<span class="pc bpc" id="L109" title="1 of 2 branches missed.">                &amp;&amp; f.getName().startsWith(prefix)) {</span>
+<span class="fc" id="L110">                try { fields.put(f.getName(), (String) f.get(null)); }</span>
+<span class="pc" id="L111">                catch (IllegalAccessException e) { throw new AssertionError(e); }</span>
+            }
+        }
+
+<span class="fc bfc" id="L115" title="All 2 branches covered.">        for (E e : enumClass.getEnumConstants()) {</span>
+<span class="fc" id="L116">            String fname = prefix + e.name();</span>
+<span class="fc" id="L117">            String fval  = fields.remove(fname);</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">            if (fval == null)</span>
+<span class="fc" id="L119">                throw new AssertionError(&quot;Missing &quot; + enumClass.getSimpleName() + &quot;.&quot; + fname);</span>
+<span class="fc bfc" id="L120" title="All 2 branches covered.">            if (!fval.equals(e.literalName()))</span>
+<span class="fc" id="L121">                throw new AssertionError(enumClass.getSimpleName() + &quot;.&quot; + e.name()</span>
+<span class="fc" id="L122">                    + &quot;: literalName=\&quot;&quot; + e.literalName() + &quot;\&quot; but &quot;</span>
+                    + fname + &quot;=\&quot;&quot; + fval + &quot;\&quot;&quot;);
+<span class="fc bfc" id="L124" title="All 4 branches covered.">            if (valueShape != null &amp;&amp; !valueShape.test(e, fval))</span>
+<span class="fc" id="L125">                throw new AssertionError(enumClass.getSimpleName() + &quot;.&quot; + e.name()</span>
+                    + &quot;: value \&quot;&quot; + fval + &quot;\&quot; fails shape check&quot;);
+        }
+
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        if (!fields.isEmpty())</span>
+<span class="fc" id="L130">            throw new AssertionError(&quot;Orphan &quot; + prefix + &quot;* constants in &quot;</span>
+<span class="fc" id="L131">                + enumClass.getSimpleName() + &quot;: &quot; + fields.keySet());</span>
+<span class="fc" id="L132">    }</span>
+
+    /**
+     * Build an immutable {@code literalName -&gt; constant} lookup index,
+     * rejecting duplicate literals.
+     *
+     * @param enumClass the enum class to index
+     * @param &lt;E&gt;       the enum type
+     * @return an immutable map keyed by {@link #literalName()}
+     * @throws AssertionError if two constants share a literal name
+     */
+    static &lt;E extends Enum&lt;E&gt; &amp; ConstantBackedEnum&gt; Map&lt;String, E&gt; index(Class&lt;E&gt; enumClass) {
+<span class="fc" id="L144">        E[] consts = enumClass.getEnumConstants();</span>
+<span class="fc" id="L145">        Map&lt;String, E&gt; map = new LinkedHashMap&lt;&gt;(consts.length * 2);</span>
+<span class="fc bfc" id="L146" title="All 2 branches covered.">        for (E e : consts) {</span>
+<span class="fc" id="L147">            E prior = map.put(e.literalName(), e);</span>
+<span class="fc bfc" id="L148" title="All 2 branches covered.">            if (prior != null)</span>
+<span class="fc" id="L149">                throw new AssertionError(&quot;Duplicate literalName \&quot;&quot; + e.literalName()</span>
+                    + &quot;\&quot; on &quot; + prior + &quot; and &quot; + e);
+        }
+<span class="fc" id="L152">        return Map.copyOf(map);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

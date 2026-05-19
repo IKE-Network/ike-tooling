@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CodesignNativesMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">CodesignNativesMojo.java</span></div><h1>CodesignNativesMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CodesignNativesMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">CodesignNativesMojo.java</span></div><h1>CodesignNativesMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
 
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
@@ -54,7 +54,7 @@ import java.util.zip.ZipOutputStream;
  * @see &lt;a href=&quot;https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution&quot;&gt;
  *      Apple: Notarizing macOS Software Before Distribution&lt;/a&gt;
  */
-@Mojo(name = &quot;codesign-natives&quot;,
+@Mojo(name = IkeGoal.NAME_CODESIGN_NATIVES,
       defaultPhase = &quot;package&quot;,
       projectRequired = true)
 public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
@@ -98,6 +98,19 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
     private boolean skip;
 
     /**
+     * Treat a signing identity that is absent from the keychain as a
+     * hard failure rather than a graceful skip.
+     *
+     * &lt;p&gt;Off by default so a routine build on a machine without the
+     * configured Developer ID certificate still succeeds — it logs a
+     * warning and skips signing. Release builds set this to {@code true}
+     * so a missing identity fails the build loudly instead of silently
+     * shipping unsigned output.
+     */
+    @Parameter(property = &quot;codesign.requireIdentity&quot;, defaultValue = &quot;false&quot;)
+    private boolean requireIdentity;
+
+    /**
      * Keychain password for unlocking the signing keychain before codesign.
      * Read from {@code CODESIGN_KEYCHAIN_PASSWORD} environment variable
      * if not set via Maven property. When provided, the login keychain
@@ -109,61 +122,76 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
 
     @Override
     public void execute() throws MojoException {
-<span class="nc bnc" id="L112" title="All 2 branches missed.">        if (skip) {</span>
-<span class="nc" id="L113">            getLog().info(&quot;Native codesigning skipped (codesign.skip=true)&quot;);</span>
-<span class="nc" id="L114">            return;</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L126">            getLog().info(&quot;Native codesigning skipped (codesign.skip=true)&quot;);</span>
+<span class="nc" id="L127">            return;</span>
         }
 
-<span class="nc bnc" id="L117" title="All 2 branches missed.">        if (!ReleaseSupport.isMacOS()) {</span>
-<span class="nc" id="L118">            getLog().info(&quot;Native codesigning skipped \u2014 not running on macOS&quot;);</span>
-<span class="nc" id="L119">            return;</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">        if (!ReleaseSupport.isMacOS()) {</span>
+<span class="nc" id="L131">            getLog().info(&quot;Native codesigning skipped \u2014 not running on macOS&quot;);</span>
+<span class="nc" id="L132">            return;</span>
         }
 
-<span class="nc bnc" id="L122" title="All 4 branches missed.">        if (runtimeImageDir == null || !runtimeImageDir.isDirectory()) {</span>
-<span class="nc" id="L123">            getLog().warn(&quot;Runtime image directory does not exist: &quot; + runtimeImageDir</span>
+<span class="nc bnc" id="L135" title="All 4 branches missed.">        if (runtimeImageDir == null || !runtimeImageDir.isDirectory()) {</span>
+<span class="nc" id="L136">            getLog().warn(&quot;Runtime image directory does not exist: &quot; + runtimeImageDir</span>
                     + &quot; \u2014 skipping native codesigning&quot;);
-<span class="nc" id="L125">            return;</span>
+<span class="nc" id="L138">            return;</span>
         }
 
-<span class="nc bnc" id="L128" title="All 4 branches missed.">        if (signingIdentity == null || signingIdentity.isBlank()) {</span>
-<span class="nc" id="L129">            getLog().info(&quot;Native codesigning skipped \u2014 no signing identity provided&quot;);</span>
-<span class="nc" id="L130">            getLog().info(&quot;  To sign, pass -Dcodesign.identity=\&quot;Developer ID Application: ...\&quot;&quot;);</span>
-<span class="nc" id="L131">            return;</span>
+<span class="nc bnc" id="L141" title="All 4 branches missed.">        if (signingIdentity == null || signingIdentity.isBlank()) {</span>
+<span class="nc" id="L142">            getLog().info(&quot;Native codesigning skipped \u2014 no signing identity provided&quot;);</span>
+<span class="nc" id="L143">            getLog().info(&quot;  To sign, pass -Dcodesign.identity=\&quot;Developer ID Application: ...\&quot;&quot;);</span>
+<span class="nc" id="L144">            return;</span>
         }
 
-<span class="nc" id="L134">        unlockKeychainIfNeeded();</span>
+<span class="nc" id="L147">        unlockKeychainIfNeeded();</span>
 
-<span class="nc" id="L136">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L137">        getLog().info(&quot;Native Library Codesigning&quot;);</span>
-<span class="nc" id="L138">        getLog().info(&quot;\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550&quot;);</span>
-<span class="nc" id="L139">        getLog().info(&quot;  Runtime image:   &quot; + runtimeImageDir);</span>
-<span class="nc" id="L140">        getLog().info(&quot;  Identity:        &quot; + signingIdentity);</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">        if (!CodesignSupport.identityInKeychain(signingIdentity, getLog())) {</span>
+<span class="nc" id="L150">            String msg = &quot;Signing identity not found in keychain: \&quot;&quot;</span>
+                    + signingIdentity + &quot;\&quot;&quot;;
+<span class="nc bnc" id="L152" title="All 2 branches missed.">            if (requireIdentity) {</span>
+<span class="nc" id="L153">                throw new MojoException(msg</span>
+                        + &quot; — codesign.requireIdentity=true. Install the&quot;
+                        + &quot; Developer ID certificate on this machine, or&quot;
+                        + &quot; unset the strict flag for an unsigned build.&quot;);
+            }
+<span class="nc" id="L158">            getLog().warn(msg + &quot; — skipping native codesigning.&quot;);</span>
+<span class="nc" id="L159">            getLog().warn(&quot;  Pass -Dcodesign.requireIdentity=true to make&quot;</span>
+                    + &quot; a missing identity a hard failure (release builds).&quot;);
+<span class="nc" id="L161">            return;</span>
+        }
+
+<span class="nc" id="L164">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L165">        getLog().info(&quot;Native Library Codesigning&quot;);</span>
+<span class="nc" id="L166">        getLog().info(&quot;\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550&quot;);</span>
+<span class="nc" id="L167">        getLog().info(&quot;  Runtime image:   &quot; + runtimeImageDir);</span>
+<span class="nc" id="L168">        getLog().info(&quot;  Identity:        &quot; + signingIdentity);</span>
 
         // Phase 1: Discover native files and JARs containing natives
-<span class="nc" id="L143">        List&lt;Path&gt; looseNatives = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L144">        List&lt;Path&gt; jarsWithNatives = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L145">        scanTree(runtimeImageDir.toPath(), looseNatives, jarsWithNatives);</span>
+<span class="nc" id="L171">        List&lt;Path&gt; looseNatives = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L172">        List&lt;Path&gt; jarsWithNatives = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L173">        scanTree(runtimeImageDir.toPath(), looseNatives, jarsWithNatives);</span>
 
-<span class="nc" id="L147">        getLog().info(&quot;  Loose natives:   &quot; + looseNatives.size());</span>
-<span class="nc" id="L148">        getLog().info(&quot;  JARs to repack:  &quot; + jarsWithNatives.size());</span>
+<span class="nc" id="L175">        getLog().info(&quot;  Loose natives:   &quot; + looseNatives.size());</span>
+<span class="nc" id="L176">        getLog().info(&quot;  JARs to repack:  &quot; + jarsWithNatives.size());</span>
 
-<span class="nc" id="L150">        int signedCount = 0;</span>
+<span class="nc" id="L178">        int signedCount = 0;</span>
 
         // Phase 2: Sign loose native files directly
-<span class="nc bnc" id="L153" title="All 2 branches missed.">        for (Path nativeFile : looseNatives) {</span>
-<span class="nc" id="L154">            codesign(nativeFile);</span>
-<span class="nc" id="L155">            signedCount++;</span>
-<span class="nc" id="L156">        }</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        for (Path nativeFile : looseNatives) {</span>
+<span class="nc" id="L182">            codesign(nativeFile);</span>
+<span class="nc" id="L183">            signedCount++;</span>
+<span class="nc" id="L184">        }</span>
 
         // Phase 3: Extract, sign, and repack JARs with embedded natives
-<span class="nc bnc" id="L159" title="All 2 branches missed.">        for (Path jarPath : jarsWithNatives) {</span>
-<span class="nc" id="L160">            signedCount += processJar(jarPath);</span>
-<span class="nc" id="L161">        }</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">        for (Path jarPath : jarsWithNatives) {</span>
+<span class="nc" id="L188">            signedCount += processJar(jarPath);</span>
+<span class="nc" id="L189">        }</span>
 
-<span class="nc" id="L163">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L164">        getLog().info(&quot;Codesigning complete \u2014 &quot; + signedCount + &quot; native(s) signed&quot;);</span>
-<span class="nc" id="L165">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L166">    }</span>
+<span class="nc" id="L191">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L192">        getLog().info(&quot;Codesigning complete \u2014 &quot; + signedCount + &quot; native(s) signed&quot;);</span>
+<span class="nc" id="L193">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L194">    }</span>
 
     /**
      * Walk the directory tree, collecting loose native files and JARs
@@ -173,44 +201,44 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
                           List&lt;Path&gt; jarsWithNatives)
             throws MojoException {
         try {
-<span class="nc" id="L176">            Files.walkFileTree(root, new SimpleFileVisitor&lt;&gt;() {</span>
+<span class="nc" id="L204">            Files.walkFileTree(root, new SimpleFileVisitor&lt;&gt;() {</span>
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-<span class="nc" id="L179">                    String name = file.getFileName().toString().toLowerCase(Locale.ROOT);</span>
-<span class="nc bnc" id="L180" title="All 2 branches missed.">                    if (isNativeFile(name)) {</span>
-<span class="nc" id="L181">                        looseNatives.add(file);</span>
-<span class="nc bnc" id="L182" title="All 2 branches missed.">                    } else if (name.endsWith(&quot;.jar&quot;)) {</span>
+<span class="nc" id="L207">                    String name = file.getFileName().toString().toLowerCase(Locale.ROOT);</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">                    if (isNativeFile(name)) {</span>
+<span class="nc" id="L209">                        looseNatives.add(file);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">                    } else if (name.endsWith(&quot;.jar&quot;)) {</span>
                         try {
-<span class="nc bnc" id="L184" title="All 2 branches missed.">                            if (jarContainsNatives(file)) {</span>
-<span class="nc" id="L185">                                jarsWithNatives.add(file);</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">                            if (jarContainsNatives(file)) {</span>
+<span class="nc" id="L213">                                jarsWithNatives.add(file);</span>
                             }
-<span class="nc" id="L187">                        } catch (IOException e) {</span>
-<span class="nc" id="L188">                            getLog().warn(&quot;Could not inspect JAR: &quot; + file + &quot; \u2014 &quot; + e.getMessage());</span>
-<span class="nc" id="L189">                        }</span>
+<span class="nc" id="L215">                        } catch (IOException e) {</span>
+<span class="nc" id="L216">                            getLog().warn(&quot;Could not inspect JAR: &quot; + file + &quot; \u2014 &quot; + e.getMessage());</span>
+<span class="nc" id="L217">                        }</span>
                     }
-<span class="nc" id="L191">                    return FileVisitResult.CONTINUE;</span>
+<span class="nc" id="L219">                    return FileVisitResult.CONTINUE;</span>
                 }
             });
-<span class="nc" id="L194">        } catch (IOException e) {</span>
-<span class="nc" id="L195">            throw new MojoException(</span>
+<span class="nc" id="L222">        } catch (IOException e) {</span>
+<span class="nc" id="L223">            throw new MojoException(</span>
                     &quot;Failed to scan runtime image: &quot; + root, e);
-<span class="nc" id="L197">        }</span>
-<span class="nc" id="L198">    }</span>
+<span class="nc" id="L225">        }</span>
+<span class="nc" id="L226">    }</span>
 
     /**
      * Check if a JAR contains any native library entries.
      */
     static boolean jarContainsNatives(Path jarPath) throws IOException {
-<span class="nc" id="L204">        try (ZipFile zip = new ZipFile(jarPath.toFile())) {</span>
-<span class="nc" id="L205">            Enumeration&lt;? extends ZipEntry&gt; entries = zip.entries();</span>
-<span class="nc bnc" id="L206" title="All 2 branches missed.">            while (entries.hasMoreElements()) {</span>
-<span class="nc" id="L207">                String name = entries.nextElement().getName().toLowerCase(Locale.ROOT);</span>
-<span class="nc bnc" id="L208" title="All 2 branches missed.">                if (isNativeFile(name)) {</span>
-<span class="nc" id="L209">                    return true;</span>
+<span class="nc" id="L232">        try (ZipFile zip = new ZipFile(jarPath.toFile())) {</span>
+<span class="nc" id="L233">            Enumeration&lt;? extends ZipEntry&gt; entries = zip.entries();</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">            while (entries.hasMoreElements()) {</span>
+<span class="nc" id="L235">                String name = entries.nextElement().getName().toLowerCase(Locale.ROOT);</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">                if (isNativeFile(name)) {</span>
+<span class="nc" id="L237">                    return true;</span>
                 }
-<span class="nc" id="L211">            }</span>
-<span class="nc" id="L212">        }</span>
-<span class="nc" id="L213">        return false;</span>
+<span class="nc" id="L239">            }</span>
+<span class="nc" id="L240">        }</span>
+<span class="nc" id="L241">        return false;</span>
     }
 
     /**
@@ -219,75 +247,75 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
      * @return the number of native files signed in this JAR
      */
     private int processJar(Path jarPath) throws MojoException {
-<span class="nc" id="L222">        String jarName = jarPath.getFileName().toString();</span>
-<span class="nc" id="L223">        getLog().info(&quot;Processing JAR: &quot; + jarName);</span>
+<span class="nc" id="L250">        String jarName = jarPath.getFileName().toString();</span>
+<span class="nc" id="L251">        getLog().info(&quot;Processing JAR: &quot; + jarName);</span>
 
         Path tempDir;
         try {
-<span class="nc" id="L227">            tempDir = Files.createTempDirectory(&quot;codesign-jar-&quot;);</span>
-<span class="nc" id="L228">        } catch (IOException e) {</span>
-<span class="nc" id="L229">            throw new MojoException(&quot;Failed to create temp directory&quot;, e);</span>
-<span class="nc" id="L230">        }</span>
+<span class="nc" id="L255">            tempDir = Files.createTempDirectory(&quot;codesign-jar-&quot;);</span>
+<span class="nc" id="L256">        } catch (IOException e) {</span>
+<span class="nc" id="L257">            throw new MojoException(&quot;Failed to create temp directory&quot;, e);</span>
+<span class="nc" id="L258">        }</span>
 
         try {
             // Step 1: Extract native entries and record their info
-<span class="nc" id="L234">            List&lt;String&gt; nativeEntries = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L235">            try (ZipFile zip = new ZipFile(jarPath.toFile())) {</span>
-<span class="nc" id="L236">                Enumeration&lt;? extends ZipEntry&gt; entries = zip.entries();</span>
-<span class="nc bnc" id="L237" title="All 2 branches missed.">                while (entries.hasMoreElements()) {</span>
-<span class="nc" id="L238">                    ZipEntry entry = entries.nextElement();</span>
-<span class="nc bnc" id="L239" title="All 2 branches missed.">                    if (entry.isDirectory()) continue;</span>
-<span class="nc bnc" id="L240" title="All 2 branches missed.">                    if (!isNativeFile(entry.getName().toLowerCase(Locale.ROOT))) continue;</span>
+<span class="nc" id="L262">            List&lt;String&gt; nativeEntries = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L263">            try (ZipFile zip = new ZipFile(jarPath.toFile())) {</span>
+<span class="nc" id="L264">                Enumeration&lt;? extends ZipEntry&gt; entries = zip.entries();</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">                while (entries.hasMoreElements()) {</span>
+<span class="nc" id="L266">                    ZipEntry entry = entries.nextElement();</span>
+<span class="nc bnc" id="L267" title="All 2 branches missed.">                    if (entry.isDirectory()) continue;</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">                    if (!isNativeFile(entry.getName().toLowerCase(Locale.ROOT))) continue;</span>
 
-<span class="nc" id="L242">                    nativeEntries.add(entry.getName());</span>
-<span class="nc" id="L243">                    Path extractTarget = tempDir.resolve(entry.getName());</span>
-<span class="nc" id="L244">                    Files.createDirectories(extractTarget.getParent());</span>
-<span class="nc" id="L245">                    try (InputStream in = zip.getInputStream(entry)) {</span>
-<span class="nc" id="L246">                        Files.copy(in, extractTarget, StandardCopyOption.REPLACE_EXISTING);</span>
+<span class="nc" id="L270">                    nativeEntries.add(entry.getName());</span>
+<span class="nc" id="L271">                    Path extractTarget = tempDir.resolve(entry.getName());</span>
+<span class="nc" id="L272">                    Files.createDirectories(extractTarget.getParent());</span>
+<span class="nc" id="L273">                    try (InputStream in = zip.getInputStream(entry)) {</span>
+<span class="nc" id="L274">                        Files.copy(in, extractTarget, StandardCopyOption.REPLACE_EXISTING);</span>
                     }
-<span class="nc" id="L248">                }</span>
-<span class="nc" id="L249">            } catch (IOException e) {</span>
-<span class="nc" id="L250">                throw new MojoException(</span>
+<span class="nc" id="L276">                }</span>
+<span class="nc" id="L277">            } catch (IOException e) {</span>
+<span class="nc" id="L278">                throw new MojoException(</span>
                         &quot;Failed to extract natives from &quot; + jarPath, e);
-<span class="nc" id="L252">            }</span>
+<span class="nc" id="L280">            }</span>
 
-<span class="nc bnc" id="L254" title="All 2 branches missed.">            if (nativeEntries.isEmpty()) {</span>
-<span class="nc" id="L255">                return 0;</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">            if (nativeEntries.isEmpty()) {</span>
+<span class="nc" id="L283">                return 0;</span>
             }
 
             // Step 2: Sign each extracted native
-<span class="nc bnc" id="L259" title="All 2 branches missed.">            for (String entryName : nativeEntries) {</span>
-<span class="nc" id="L260">                Path extracted = tempDir.resolve(entryName);</span>
-<span class="nc" id="L261">                codesign(extracted);</span>
-<span class="nc" id="L262">            }</span>
+<span class="nc bnc" id="L287" title="All 2 branches missed.">            for (String entryName : nativeEntries) {</span>
+<span class="nc" id="L288">                Path extracted = tempDir.resolve(entryName);</span>
+<span class="nc" id="L289">                codesign(extracted);</span>
+<span class="nc" id="L290">            }</span>
 
             // Step 3: Repack the JAR with signed natives replacing originals
-<span class="nc" id="L265">            Path repackedJar = tempDir.resolve(&quot;repacked.jar&quot;);</span>
-<span class="nc" id="L266">            repackJar(jarPath, repackedJar, tempDir, nativeEntries);</span>
+<span class="nc" id="L293">            Path repackedJar = tempDir.resolve(&quot;repacked.jar&quot;);</span>
+<span class="nc" id="L294">            repackJar(jarPath, repackedJar, tempDir, nativeEntries);</span>
 
             // Step 4: Atomically replace the original JAR
             try {
-<span class="nc" id="L270">                Files.move(repackedJar, jarPath,</span>
+<span class="nc" id="L298">                Files.move(repackedJar, jarPath,</span>
                         StandardCopyOption.REPLACE_EXISTING,
                         StandardCopyOption.ATOMIC_MOVE);
-<span class="nc" id="L273">            } catch (IOException e) {</span>
+<span class="nc" id="L301">            } catch (IOException e) {</span>
                 // ATOMIC_MOVE may not be supported across filesystems
                 try {
-<span class="nc" id="L276">                    Files.move(repackedJar, jarPath,</span>
+<span class="nc" id="L304">                    Files.move(repackedJar, jarPath,</span>
                             StandardCopyOption.REPLACE_EXISTING);
-<span class="nc" id="L278">                } catch (IOException e2) {</span>
-<span class="nc" id="L279">                    throw new MojoException(</span>
+<span class="nc" id="L306">                } catch (IOException e2) {</span>
+<span class="nc" id="L307">                    throw new MojoException(</span>
                             &quot;Failed to replace JAR: &quot; + jarPath, e2);
-<span class="nc" id="L281">                }</span>
-<span class="nc" id="L282">            }</span>
+<span class="nc" id="L309">                }</span>
+<span class="nc" id="L310">            }</span>
 
-<span class="nc" id="L284">            getLog().info(&quot;  Signed &quot; + nativeEntries.size()</span>
+<span class="nc" id="L312">            getLog().info(&quot;  Signed &quot; + nativeEntries.size()</span>
                     + &quot; native(s) in &quot; + jarName);
-<span class="nc" id="L286">            return nativeEntries.size();</span>
+<span class="nc" id="L314">            return nativeEntries.size();</span>
 
         } finally {
             // Clean up temp directory
-<span class="nc" id="L290">            deleteRecursively(tempDir);</span>
+<span class="nc" id="L318">            deleteRecursively(tempDir);</span>
         }
     }
 
@@ -298,63 +326,63 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
     private void repackJar(Path originalJar, Path outputJar,
                            Path signedDir, List&lt;String&gt; nativeEntries)
             throws MojoException {
-<span class="nc" id="L301">        try (ZipFile original = new ZipFile(originalJar.toFile());</span>
-<span class="nc" id="L302">             OutputStream fos = Files.newOutputStream(outputJar);</span>
-<span class="nc" id="L303">             ZipOutputStream zos = new ZipOutputStream(fos)) {</span>
+<span class="nc" id="L329">        try (ZipFile original = new ZipFile(originalJar.toFile());</span>
+<span class="nc" id="L330">             OutputStream fos = Files.newOutputStream(outputJar);</span>
+<span class="nc" id="L331">             ZipOutputStream zos = new ZipOutputStream(fos)) {</span>
 
-<span class="nc" id="L305">            Enumeration&lt;? extends ZipEntry&gt; entries = original.entries();</span>
-<span class="nc bnc" id="L306" title="All 2 branches missed.">            while (entries.hasMoreElements()) {</span>
-<span class="nc" id="L307">                ZipEntry oldEntry = entries.nextElement();</span>
-<span class="nc" id="L308">                ZipEntry newEntry = new ZipEntry(oldEntry.getName());</span>
+<span class="nc" id="L333">            Enumeration&lt;? extends ZipEntry&gt; entries = original.entries();</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">            while (entries.hasMoreElements()) {</span>
+<span class="nc" id="L335">                ZipEntry oldEntry = entries.nextElement();</span>
+<span class="nc" id="L336">                ZipEntry newEntry = new ZipEntry(oldEntry.getName());</span>
 
                 // Preserve compression method
-<span class="nc" id="L311">                newEntry.setMethod(oldEntry.getMethod());</span>
-<span class="nc bnc" id="L312" title="All 2 branches missed.">                if (oldEntry.getMethod() == ZipEntry.STORED) {</span>
+<span class="nc" id="L339">                newEntry.setMethod(oldEntry.getMethod());</span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">                if (oldEntry.getMethod() == ZipEntry.STORED) {</span>
                     // STORED entries need explicit size and CRC
-<span class="nc bnc" id="L314" title="All 2 branches missed.">                    if (nativeEntries.contains(oldEntry.getName())) {</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">                    if (nativeEntries.contains(oldEntry.getName())) {</span>
                         // Will be set from the signed file
-<span class="nc" id="L316">                        Path signedFile = signedDir.resolve(oldEntry.getName());</span>
-<span class="nc" id="L317">                        long size = Files.size(signedFile);</span>
-<span class="nc" id="L318">                        newEntry.setSize(size);</span>
-<span class="nc" id="L319">                        newEntry.setCompressedSize(size);</span>
-<span class="nc" id="L320">                        newEntry.setCrc(computeCrc(signedFile));</span>
-<span class="nc" id="L321">                    } else {</span>
-<span class="nc" id="L322">                        newEntry.setSize(oldEntry.getSize());</span>
-<span class="nc" id="L323">                        newEntry.setCompressedSize(oldEntry.getCompressedSize());</span>
-<span class="nc" id="L324">                        newEntry.setCrc(oldEntry.getCrc());</span>
+<span class="nc" id="L344">                        Path signedFile = signedDir.resolve(oldEntry.getName());</span>
+<span class="nc" id="L345">                        long size = Files.size(signedFile);</span>
+<span class="nc" id="L346">                        newEntry.setSize(size);</span>
+<span class="nc" id="L347">                        newEntry.setCompressedSize(size);</span>
+<span class="nc" id="L348">                        newEntry.setCrc(computeCrc(signedFile));</span>
+<span class="nc" id="L349">                    } else {</span>
+<span class="nc" id="L350">                        newEntry.setSize(oldEntry.getSize());</span>
+<span class="nc" id="L351">                        newEntry.setCompressedSize(oldEntry.getCompressedSize());</span>
+<span class="nc" id="L352">                        newEntry.setCrc(oldEntry.getCrc());</span>
                     }
                 }
-<span class="nc bnc" id="L327" title="All 2 branches missed.">                if (oldEntry.getExtra() != null) {</span>
-<span class="nc" id="L328">                    newEntry.setExtra(oldEntry.getExtra());</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">                if (oldEntry.getExtra() != null) {</span>
+<span class="nc" id="L356">                    newEntry.setExtra(oldEntry.getExtra());</span>
                 }
-<span class="nc bnc" id="L330" title="All 2 branches missed.">                if (oldEntry.getComment() != null) {</span>
-<span class="nc" id="L331">                    newEntry.setComment(oldEntry.getComment());</span>
+<span class="nc bnc" id="L358" title="All 2 branches missed.">                if (oldEntry.getComment() != null) {</span>
+<span class="nc" id="L359">                    newEntry.setComment(oldEntry.getComment());</span>
                 }
-<span class="nc" id="L333">                newEntry.setTime(oldEntry.getTime());</span>
+<span class="nc" id="L361">                newEntry.setTime(oldEntry.getTime());</span>
 
-<span class="nc" id="L335">                zos.putNextEntry(newEntry);</span>
+<span class="nc" id="L363">                zos.putNextEntry(newEntry);</span>
 
-<span class="nc bnc" id="L337" title="All 2 branches missed.">                if (!oldEntry.isDirectory()) {</span>
-<span class="nc bnc" id="L338" title="All 2 branches missed.">                    if (nativeEntries.contains(oldEntry.getName())) {</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                if (!oldEntry.isDirectory()) {</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                    if (nativeEntries.contains(oldEntry.getName())) {</span>
                         // Substitute with signed version
-<span class="nc" id="L340">                        Path signedFile = signedDir.resolve(oldEntry.getName());</span>
-<span class="nc" id="L341">                        Files.copy(signedFile, zos);</span>
-<span class="nc" id="L342">                    } else {</span>
+<span class="nc" id="L368">                        Path signedFile = signedDir.resolve(oldEntry.getName());</span>
+<span class="nc" id="L369">                        Files.copy(signedFile, zos);</span>
+<span class="nc" id="L370">                    } else {</span>
                         // Copy original bytes
-<span class="nc" id="L344">                        try (InputStream in = original.getInputStream(oldEntry)) {</span>
-<span class="nc" id="L345">                            in.transferTo(zos);</span>
+<span class="nc" id="L372">                        try (InputStream in = original.getInputStream(oldEntry)) {</span>
+<span class="nc" id="L373">                            in.transferTo(zos);</span>
                         }
                     }
                 }
 
-<span class="nc" id="L350">                zos.closeEntry();</span>
-<span class="nc" id="L351">            }</span>
+<span class="nc" id="L378">                zos.closeEntry();</span>
+<span class="nc" id="L379">            }</span>
 
-<span class="nc" id="L353">        } catch (IOException e) {</span>
-<span class="nc" id="L354">            throw new MojoException(</span>
+<span class="nc" id="L381">        } catch (IOException e) {</span>
+<span class="nc" id="L382">            throw new MojoException(</span>
                     &quot;Failed to repack JAR: &quot; + originalJar, e);
-<span class="nc" id="L356">        }</span>
-<span class="nc" id="L357">    }</span>
+<span class="nc" id="L384">        }</span>
+<span class="nc" id="L385">    }</span>
 
     /**
      * Unlock the login keychain if a password is available.
@@ -362,23 +390,23 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
      * and is required for CI where no GUI is available.
      */
     private void unlockKeychainIfNeeded() throws MojoException {
-<span class="nc bnc" id="L365" title="All 4 branches missed.">        if (keychainPassword == null || keychainPassword.isBlank()) {</span>
-<span class="nc" id="L366">            return;</span>
+<span class="nc bnc" id="L393" title="All 4 branches missed.">        if (keychainPassword == null || keychainPassword.isBlank()) {</span>
+<span class="nc" id="L394">            return;</span>
         }
-<span class="nc" id="L368">        getLog().info(&quot;  Unlocking keychain for codesign...&quot;);</span>
-<span class="nc" id="L369">        ReleaseSupport.exec(new java.io.File(&quot;.&quot;), getLog(),</span>
+<span class="nc" id="L396">        getLog().info(&quot;  Unlocking keychain for codesign...&quot;);</span>
+<span class="nc" id="L397">        ReleaseSupport.exec(new java.io.File(&quot;.&quot;), getLog(),</span>
                 &quot;security&quot;, &quot;unlock-keychain&quot;,
                 &quot;-p&quot;, keychainPassword,
-<span class="nc" id="L372">                System.getProperty(&quot;user.home&quot;)</span>
+<span class="nc" id="L400">                System.getProperty(&quot;user.home&quot;)</span>
                         + &quot;/Library/Keychains/login.keychain-db&quot;);
         // Also set the partition list so codesign can access the key
-<span class="nc" id="L375">        ReleaseSupport.exec(new java.io.File(&quot;.&quot;), getLog(),</span>
+<span class="nc" id="L403">        ReleaseSupport.exec(new java.io.File(&quot;.&quot;), getLog(),</span>
                 &quot;security&quot;, &quot;set-key-partition-list&quot;,
                 &quot;-S&quot;, &quot;apple-tool:,apple:,codesign:&quot;,
                 &quot;-s&quot;, &quot;-k&quot;, keychainPassword,
-<span class="nc" id="L379">                System.getProperty(&quot;user.home&quot;)</span>
+<span class="nc" id="L407">                System.getProperty(&quot;user.home&quot;)</span>
                         + &quot;/Library/Keychains/login.keychain-db&quot;);
-<span class="nc" id="L381">    }</span>
+<span class="nc" id="L409">    }</span>
 
     /**
      * Sign a single native file with {@code codesign}.
@@ -387,41 +415,41 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
      */
     private void codesign(Path file) throws MojoException {
         try {
-<span class="nc" id="L390">            ReleaseSupport.execCaptureAndLog(</span>
-<span class="nc" id="L391">                    file.getParent().toFile(), getLog(),</span>
+<span class="nc" id="L418">            ReleaseSupport.execCaptureAndLog(</span>
+<span class="nc" id="L419">                    file.getParent().toFile(), getLog(),</span>
                     &quot;codesign&quot;, &quot;--force&quot;, &quot;--timestamp&quot;,
                     &quot;--options&quot;, &quot;runtime&quot;,
                     &quot;--sign&quot;, signingIdentity,
-<span class="nc" id="L395">                    file.toString());</span>
-<span class="nc" id="L396">        } catch (MojoException e) {</span>
+<span class="nc" id="L423">                    file.toString());</span>
+<span class="nc" id="L424">        } catch (MojoException e) {</span>
             // Re-throw with the file path for context — the captured
             // output was already logged by execCaptureAndLog
-<span class="nc" id="L399">            throw new MojoException(</span>
-<span class="nc" id="L400">                    &quot;codesign failed for &quot; + file.getFileName()</span>
-<span class="nc" id="L401">                    + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L402">        }</span>
-<span class="nc" id="L403">    }</span>
+<span class="nc" id="L427">            throw new MojoException(</span>
+<span class="nc" id="L428">                    &quot;codesign failed for &quot; + file.getFileName()</span>
+<span class="nc" id="L429">                    + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L430">        }</span>
+<span class="nc" id="L431">    }</span>
 
     /**
      * Check if a filename represents a native library.
      */
     static boolean isNativeFile(String name) {
-<span class="nc bnc" id="L409" title="All 4 branches missed.">        return name.endsWith(&quot;.dylib&quot;) || name.endsWith(&quot;.jnilib&quot;);</span>
+<span class="nc bnc" id="L437" title="All 4 branches missed.">        return name.endsWith(&quot;.dylib&quot;) || name.endsWith(&quot;.jnilib&quot;);</span>
     }
 
     /**
      * Compute CRC-32 for a file (needed for STORED zip entries).
      */
     private static long computeCrc(Path file) throws IOException {
-<span class="nc" id="L416">        java.util.zip.CRC32 crc = new java.util.zip.CRC32();</span>
-<span class="nc" id="L417">        try (InputStream in = Files.newInputStream(file)) {</span>
-<span class="nc" id="L418">            byte[] buf = new byte[8192];</span>
+<span class="nc" id="L444">        java.util.zip.CRC32 crc = new java.util.zip.CRC32();</span>
+<span class="nc" id="L445">        try (InputStream in = Files.newInputStream(file)) {</span>
+<span class="nc" id="L446">            byte[] buf = new byte[8192];</span>
             int n;
-<span class="nc bnc" id="L420" title="All 2 branches missed.">            while ((n = in.read(buf)) != -1) {</span>
-<span class="nc" id="L421">                crc.update(buf, 0, n);</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">            while ((n = in.read(buf)) != -1) {</span>
+<span class="nc" id="L449">                crc.update(buf, 0, n);</span>
             }
         }
-<span class="nc" id="L424">        return crc.getValue();</span>
+<span class="nc" id="L452">        return crc.getValue();</span>
     }
 
     /**
@@ -429,24 +457,24 @@ public class CodesignNativesMojo implements org.apache.maven.api.plugin.Mojo {
      */
     private static void deleteRecursively(Path dir) {
         try {
-<span class="nc" id="L432">            Files.walkFileTree(dir, new SimpleFileVisitor&lt;&gt;() {</span>
+<span class="nc" id="L460">            Files.walkFileTree(dir, new SimpleFileVisitor&lt;&gt;() {</span>
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
                         throws IOException {
-<span class="nc" id="L436">                    Files.delete(file);</span>
-<span class="nc" id="L437">                    return FileVisitResult.CONTINUE;</span>
+<span class="nc" id="L464">                    Files.delete(file);</span>
+<span class="nc" id="L465">                    return FileVisitResult.CONTINUE;</span>
                 }
 
                 @Override
                 public FileVisitResult postVisitDirectory(Path d, IOException exc)
                         throws IOException {
-<span class="nc" id="L443">                    Files.delete(d);</span>
-<span class="nc" id="L444">                    return FileVisitResult.CONTINUE;</span>
+<span class="nc" id="L471">                    Files.delete(d);</span>
+<span class="nc" id="L472">                    return FileVisitResult.CONTINUE;</span>
                 }
             });
-<span class="nc" id="L447">        } catch (IOException _) {</span>
+<span class="nc" id="L475">        } catch (IOException _) {</span>
             // Best-effort cleanup
-<span class="nc" id="L449">        }</span>
-<span class="nc" id="L450">    }</span>
+<span class="nc" id="L477">        }</span>
+<span class="nc" id="L478">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

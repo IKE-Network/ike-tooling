@@ -51,11 +51,11 @@ A subproject is in one of four alignment states at any moment:
 | **external-consumer** | `state="external-consumer"`. The subproject lives outside the workspace’s release cadence; we only consume it. Treated as read-only by alignment goals. |
 | **unrelated** | `state="unrelated"`. Co-located but not part of the workspace’s Maven graph. Excluded from all alignment operations. |
 
-The four-state model (ike-issues#233) replaces an earlier two-state design that conflated "released" and "checkpoint-tagged". Splitting them lets `ws:align` and `ws:checkpoint` have non-overlapping behavior without ambiguity.
+The four-state model (ike-issues#233) replaces an earlier two-state design that conflated "released" and "checkpoint-tagged". Splitting them lets `ws:align-publish` and `ws:checkpoint-publish` have non-overlapping behavior without ambiguity.
 
 ## [#branch-coherence](#branch-coherence)Branch coherence
 
-A workspace-wide invariant: every checked-out subproject must be on the same git branch as the workspace repo itself. There is no per-subproject opt-out from this rule. When `ws:feature-start` creates `feature/foo`, **all** subprojects move to `feature/foo`. When `ws:switch` checks out a different branch, **all** subprojects switch.
+A workspace-wide invariant: every checked-out subproject must be on the same git branch as the workspace repo itself. There is no per-subproject opt-out from this rule. When `ws:feature-start-publish` creates `feature/foo`, **all** subprojects move to `feature/foo`. When `ws:switch-publish` checks out a different branch, **all** subprojects switch.
 
 This invariant simplifies reasoning (the workspace state is one branch, not N) and makes it possible to release a coherent set of artifacts.
 
