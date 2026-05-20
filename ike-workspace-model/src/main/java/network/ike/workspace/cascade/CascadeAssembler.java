@@ -75,17 +75,26 @@ public final class CascadeAssembler {
     public static ReleaseCascade assemble(CascadeEdge start,
                                           ProjectCascade startCascade,
                                           CascadeResolver resolver) {
-        Map<String, CascadeRepo> byGroupId = new LinkedHashMap<>();
+        // Identity is groupId+artifactId (CascadeRepo.ga()), NOT
+        // groupId alone — two foundation members can share a groupId.
+        // For example, `network.ike.tooling:ike-tooling` and
+        // `network.ike.tooling:ike-workspace-extension` both live
+        // under the `network.ike.tooling` group, but they are
+        // independent cascade heads with different downstream edges.
+        // Keying any of these maps by groupId would collide the two
+        // nodes and silently drop edges, which used to surface as a
+        // false-positive cycle (IKE-Network/ike-issues#466).
+        Map<String, CascadeRepo> byGa = new LinkedHashMap<>();
         Deque<CascadeRepo> frontier = new ArrayDeque<>();
 
         CascadeRepo startNode = node(start, startCascade);
-        byGroupId.put(startNode.groupId(), startNode);
+        byGa.put(startNode.ga(), startNode);
         frontier.add(startNode);
 
         while (!frontier.isEmpty()) {
             CascadeRepo current = frontier.poll();
             for (CascadeEdge edge : neighbourEdges(current)) {
-                if (byGroupId.containsKey(edge.groupId())) {
+                if (byGa.containsKey(edge.ga())) {
                     continue;
                 }
                 ProjectCascade resolved;
@@ -103,13 +112,13 @@ public final class CascadeAssembler {
                             + " cascade member " + edge.ga());
                 }
                 CascadeRepo neighbour = node(edge, resolved);
-                byGroupId.put(neighbour.groupId(), neighbour);
+                byGa.put(neighbour.ga(), neighbour);
                 frontier.add(neighbour);
             }
         }
 
-        verifyReciprocity(byGroupId);
-        return new ReleaseCascade(topologicalOrder(byGroupId));
+        verifyReciprocity(byGa);
+        return new ReleaseCascade(topologicalOrder(byGa));
     }
 
     private static CascadeRepo node(CascadeEdge identity,
@@ -129,13 +138,12 @@ public final class CascadeAssembler {
      * neighbour: A→B {@code downstream} ⇔ B→A {@code upstream}.
      */
     private static void verifyReciprocity(
-            Map<String, CascadeRepo> byGroupId) {
-        for (CascadeRepo node : byGroupId.values()) {
+            Map<String, CascadeRepo> byGa) {
+        for (CascadeRepo node : byGa.values()) {
             for (CascadeEdge down : node.downstream()) {
-                CascadeRepo target = byGroupId.get(down.groupId());
+                CascadeRepo target = byGa.get(down.ga());
                 if (target == null || target.upstream().stream()
-                        .noneMatch(u -> u.groupId()
-                                .equals(node.groupId()))) {
+                        .noneMatch(u -> u.ga().equals(node.ga()))) {
                     throw new IllegalArgumentException(
                             "one-sided cascade edge: " + node.ga()
                             + " lists " + down.ga() + " as downstream,"
@@ -144,10 +152,9 @@ public final class CascadeAssembler {
                 }
             }
             for (CascadeEdge up : node.upstream()) {
-                CascadeRepo source = byGroupId.get(up.groupId());
+                CascadeRepo source = byGa.get(up.ga());
                 if (source == null || source.downstream().stream()
-                        .noneMatch(d -> d.groupId()
-                                .equals(node.groupId()))) {
+                        .noneMatch(d -> d.ga().equals(node.ga()))) {
                     throw new IllegalArgumentException(
                             "one-sided cascade edge: " + node.ga()
                             + " lists " + up.ga() + " as upstream,"
@@ -160,35 +167,35 @@ public final class CascadeAssembler {
 
     /**
      * Kahn topological sort — a node follows every node it consumes.
-     * Ties break on groupId so the order is deterministic.
+     * Ties break on ga so the order is deterministic.
      */
     private static List<CascadeRepo> topologicalOrder(
-            Map<String, CascadeRepo> byGroupId) {
+            Map<String, CascadeRepo> byGa) {
         Map<String, Integer> inDegree = new HashMap<>();
-        for (CascadeRepo node : byGroupId.values()) {
-            inDegree.put(node.groupId(), node.upstream().size());
+        for (CascadeRepo node : byGa.values()) {
+            inDegree.put(node.ga(), node.upstream().size());
         }
         TreeSet<String> ready = new TreeSet<>();
-        inDegree.forEach((groupId, degree) -> {
+        inDegree.forEach((ga, degree) -> {
             if (degree == 0) {
-                ready.add(groupId);
+                ready.add(ga);
             }
         });
 
         List<CascadeRepo> order = new ArrayList<>();
         while (!ready.isEmpty()) {
-            String groupId = ready.pollFirst();
-            CascadeRepo node = byGroupId.get(groupId);
+            String ga = ready.pollFirst();
+            CascadeRepo node = byGa.get(ga);
             order.add(node);
             for (CascadeEdge down : node.downstream()) {
                 int remaining = inDegree.merge(
-                        down.groupId(), -1, Integer::sum);
+                        down.ga(), -1, Integer::sum);
                 if (remaining == 0) {
-                    ready.add(down.groupId());
+                    ready.add(down.ga());
                 }
             }
         }
-        if (order.size() != byGroupId.size()) {
+        if (order.size() != byGa.size()) {
             throw new IllegalArgumentException(
                     "release cascade contains a cycle — no release"
                     + " order exists");

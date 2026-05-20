@@ -43,9 +43,9 @@ class ReleaseCascadeTest {
             true, List.of());
 
     private static final Map<String, ProjectCascade> FOUNDATION = Map.of(
-            "network.ike.tooling", TOOLING_CASCADE,
-            "network.ike.docs", DOCS_CASCADE,
-            "network.ike.platform", PLATFORM_CASCADE);
+            "network.ike.tooling:ike-tooling", TOOLING_CASCADE,
+            "network.ike.docs:ike-docs", DOCS_CASCADE,
+            "network.ike.platform:ike-platform", PLATFORM_CASCADE);
 
     private static CascadeEdge upstream(CascadeEdge identity,
                                         String versionProperty) {
@@ -57,7 +57,7 @@ class ReleaseCascadeTest {
                                                ProjectCascade startCascade,
                                                Map<String, ProjectCascade> all) {
         return CascadeAssembler.assemble(start, startCascade,
-                edge -> all.get(edge.groupId()));
+                edge -> all.get(edge.ga()));
     }
 
     @Test
@@ -67,7 +67,7 @@ class ReleaseCascadeTest {
 
         assertThat(cascade.repos()).extracting(CascadeRepo::artifactId)
                 .containsExactly("ike-tooling", "ike-docs", "ike-platform");
-        assertThat(cascade.find("network.ike.docs")).get()
+        assertThat(cascade.find("network.ike.docs:ike-docs")).get()
                 .extracting(CascadeRepo::ga)
                 .isEqualTo("network.ike.docs:ike-docs");
     }
@@ -87,15 +87,16 @@ class ReleaseCascadeTest {
         ReleaseCascade cascade = assembleFrom(
                 TOOLING, TOOLING_CASCADE, FOUNDATION);
 
-        assertThat(cascade.downstreamOf("network.ike.tooling")
+        assertThat(cascade.downstreamOf("network.ike.tooling:ike-tooling")
                         .stream().map(CascadeRepo::artifactId))
                 .containsExactly("ike-docs", "ike-platform");
-        assertThat(cascade.downstreamOf("network.ike.docs")
+        assertThat(cascade.downstreamOf("network.ike.docs:ike-docs")
                         .stream().map(CascadeRepo::artifactId))
                 .containsExactly("ike-platform");
-        assertThat(cascade.downstreamOf("network.ike.platform")).isEmpty();
-        assertThat(cascade.downstreamOf("dev.ikm.komet")).isEmpty();
-        assertThat(cascade.contains("dev.ikm.komet")).isFalse();
+        assertThat(cascade.downstreamOf("network.ike.platform:ike-platform"))
+                .isEmpty();
+        assertThat(cascade.downstreamOf("dev.ikm.komet:komet")).isEmpty();
+        assertThat(cascade.contains("dev.ikm.komet:komet")).isFalse();
     }
 
     @Test
@@ -103,9 +104,9 @@ class ReleaseCascadeTest {
         ReleaseCascade cascade = assembleFrom(
                 TOOLING, TOOLING_CASCADE, FOUNDATION);
 
-        assertThat(cascade.find("network.ike.platform")).get()
+        assertThat(cascade.find("network.ike.platform:ike-platform")).get()
                 .extracting(CascadeRepo::terminal).isEqualTo(true);
-        assertThat(cascade.find("network.ike.tooling")).get()
+        assertThat(cascade.find("network.ike.tooling:ike-tooling")).get()
                 .extracting(CascadeRepo::head).isEqualTo(true);
     }
 
@@ -116,9 +117,9 @@ class ReleaseCascadeTest {
         ProjectCascade orphanDocs = new ProjectCascade(
                 1, true, List.of(), false, List.of(PLATFORM));
         Map<String, ProjectCascade> broken = Map.of(
-                "network.ike.tooling", TOOLING_CASCADE,
-                "network.ike.docs", orphanDocs,
-                "network.ike.platform", PLATFORM_CASCADE);
+                "network.ike.tooling:ike-tooling", TOOLING_CASCADE,
+                "network.ike.docs:ike-docs", orphanDocs,
+                "network.ike.platform:ike-platform", PLATFORM_CASCADE);
 
         assertThatThrownBy(() -> assembleFrom(
                 TOOLING, TOOLING_CASCADE, broken))
@@ -129,13 +130,130 @@ class ReleaseCascadeTest {
     @Test
     void unresolvable_edge_is_rejected() {
         Map<String, ProjectCascade> missing = Map.of(
-                "network.ike.tooling", TOOLING_CASCADE,
-                "network.ike.docs", DOCS_CASCADE);
+                "network.ike.tooling:ike-tooling", TOOLING_CASCADE,
+                "network.ike.docs:ike-docs", DOCS_CASCADE);
 
         assertThatThrownBy(() -> assembleFrom(
                 TOOLING, TOOLING_CASCADE, missing))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ike-platform");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // #466 regression: two cascade heads sharing a groupId.
+    //
+    // Before the fix, CascadeAssembler's internal maps were keyed by
+    // groupId alone. With ike-tooling and ike-workspace-extension both
+    // under network.ike.tooling, the second head silently dropped out
+    // of the assembled graph and the topological sort then reported
+    // a false-positive cycle.
+    // ──────────────────────────────────────────────────────────────────
+
+    private static final CascadeEdge EXTENSION = new CascadeEdge(
+            "network.ike.tooling", "ike-workspace-extension",
+            "ike-workspace-extension",
+            "https://github.com/IKE-Network/ike-workspace-extension.git",
+            null);
+
+    /** ike-workspace-extension: second head — downstream ike-platform only. */
+    private static final ProjectCascade EXTENSION_CASCADE = new ProjectCascade(
+            1, true, List.of(), false, List.of(PLATFORM));
+
+    /**
+     * ike-platform with both ike-tooling, ike-docs, AND
+     * ike-workspace-extension upstream (today's real shape).
+     */
+    private static final ProjectCascade PLATFORM_CASCADE_WITH_EXTENSION =
+            new ProjectCascade(1, false,
+                    List.of(upstream(TOOLING, "ike-tooling.version"),
+                            upstream(DOCS, "ike-docs.version"),
+                            upstream(EXTENSION,
+                                    "ike-workspace-extension.version")),
+                    true, List.of());
+
+    @Test
+    void two_heads_same_groupId_assemble_without_false_cycle() {
+        // ike-tooling and ike-workspace-extension both live under
+        // network.ike.tooling. The assembler's internal maps must key
+        // by ga (groupId:artifactId), not groupId alone, or one head
+        // collapses into the other and the topo sort reports a
+        // bogus cycle (#466).
+        Map<String, ProjectCascade> foundation = Map.of(
+                "network.ike.tooling:ike-tooling", TOOLING_CASCADE,
+                "network.ike.docs:ike-docs", DOCS_CASCADE,
+                "network.ike.tooling:ike-workspace-extension",
+                        EXTENSION_CASCADE,
+                "network.ike.platform:ike-platform",
+                        PLATFORM_CASCADE_WITH_EXTENSION);
+
+        ReleaseCascade cascade = assembleFrom(
+                TOOLING, TOOLING_CASCADE, foundation);
+
+        // All four members present.
+        assertThat(cascade.repos()).extracting(CascadeRepo::ga)
+                .containsExactlyInAnyOrder(
+                        "network.ike.tooling:ike-tooling",
+                        "network.ike.docs:ike-docs",
+                        "network.ike.tooling:ike-workspace-extension",
+                        "network.ike.platform:ike-platform");
+        // Terminal lands last; both heads land before it.
+        assertThat(cascade.repos().get(cascade.repos().size() - 1).ga())
+                .isEqualTo("network.ike.platform:ike-platform");
+        // The two same-groupId members are distinct nodes.
+        assertThat(cascade.find("network.ike.tooling:ike-tooling")).get()
+                .extracting(CascadeRepo::head).isEqualTo(true);
+        assertThat(cascade.find(
+                "network.ike.tooling:ike-workspace-extension")).get()
+                .extracting(CascadeRepo::head).isEqualTo(true);
+    }
+
+    @Test
+    void two_heads_same_groupId_assemble_starting_from_terminal() {
+        // Same graph, but start the walk from the terminal so the
+        // assembler walks up to both heads via the upstream list.
+        // Exercises the byGa-collision path on the upstream side too.
+        Map<String, ProjectCascade> foundation = Map.of(
+                "network.ike.tooling:ike-tooling", TOOLING_CASCADE,
+                "network.ike.docs:ike-docs", DOCS_CASCADE,
+                "network.ike.tooling:ike-workspace-extension",
+                        EXTENSION_CASCADE,
+                "network.ike.platform:ike-platform",
+                        PLATFORM_CASCADE_WITH_EXTENSION);
+
+        ReleaseCascade cascade = assembleFrom(
+                PLATFORM, PLATFORM_CASCADE_WITH_EXTENSION, foundation);
+
+        assertThat(cascade.repos()).extracting(CascadeRepo::ga)
+                .containsExactlyInAnyOrder(
+                        "network.ike.tooling:ike-tooling",
+                        "network.ike.docs:ike-docs",
+                        "network.ike.tooling:ike-workspace-extension",
+                        "network.ike.platform:ike-platform");
+    }
+
+    @Test
+    void downstreamOf_distinguishes_same_groupId_heads() {
+        // After fix: downstreamOf treats GA, not groupId, so the two
+        // heads' stale sets are independent (the extension does not
+        // make ike-docs stale; releasing ike-tooling does).
+        Map<String, ProjectCascade> foundation = Map.of(
+                "network.ike.tooling:ike-tooling", TOOLING_CASCADE,
+                "network.ike.docs:ike-docs", DOCS_CASCADE,
+                "network.ike.tooling:ike-workspace-extension",
+                        EXTENSION_CASCADE,
+                "network.ike.platform:ike-platform",
+                        PLATFORM_CASCADE_WITH_EXTENSION);
+        ReleaseCascade cascade = assembleFrom(
+                TOOLING, TOOLING_CASCADE, foundation);
+
+        assertThat(cascade.downstreamOf(
+                "network.ike.tooling:ike-tooling")
+                        .stream().map(CascadeRepo::artifactId))
+                .containsExactly("ike-docs", "ike-platform");
+        assertThat(cascade.downstreamOf(
+                "network.ike.tooling:ike-workspace-extension")
+                        .stream().map(CascadeRepo::artifactId))
+                .containsExactly("ike-platform");
     }
 
     @Test
