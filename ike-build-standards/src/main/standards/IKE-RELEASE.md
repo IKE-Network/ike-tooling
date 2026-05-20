@@ -199,6 +199,63 @@ silently forgotten:
 A repo with no `release-cascade.yaml` (an ordinary consumer) sees no
 cascade output — the cascade only orders the foundation.
 
+### The cascade graph today
+
+The current foundation members and their edges:
+
+| Repo | Tier | Upstream | Downstream |
+|---|---|---|---|
+| `ike-base-parent` | Tier 0 (apex) | _none — parent-inheritance bumps are not yet cascade-tracked, see #462_ | (every Tier 1 — but no cascade edges today) |
+| `ike-tooling` | Tier 1 | _none in this column today; ike-base-parent inheritance pending #462_ | `ike-docs`, `ike-platform` |
+| `ike-docs` | Tier 1 | `ike-tooling` (via `${ike-tooling.version}`) | `ike-platform` |
+| `ike-workspace-extension` | Standalone | _none today; ike-base-parent inheritance pending #462_ | `ike-platform` |
+| `ike-platform` | Tier 1 / terminal | `ike-tooling`, `ike-docs`, `ike-workspace-extension` (all via `${X.version}`) | _none — `terminal: true`_ |
+
+### Adding a new foundation artifact
+
+When you spin up a new IKE-Network artifact (anything under
+`network.ike.*`, published to Maven Central, inheriting from
+`ike-base-parent`), the cascade must learn about it explicitly.
+Each step below is a manifest edit in a different file — the cost
+of the decentralized design is that the convention has to be
+applied consistently. Miss any of these and the cascade either
+falls back to manual driving (best case) or silently ships a
+release on a stale foundation (worst case).
+
+1. **In the new repo:** create
+   `src/main/cascade/release-cascade.yaml`. Declare `upstream`
+   (any IKE foundation artifacts this repo consumes via
+   `${X.version}` property), `downstream` (any IKE foundation
+   artifacts that consume this one), and — when applicable —
+   `head: true` (no upstream) or `terminal: true` (no
+   downstream). The schema is enforced positively so a forgotten
+   edge is a hard error, not a silent omission.
+
+2. **In every downstream repo's `release-cascade.yaml`:** add a
+   matching `upstream` entry with the consuming
+   `version-property`. The graph is bidirectional — both ends of
+   the edge must be declared so the traversal closes.
+
+3. **In every downstream repo's parent POM (or reactor root):**
+   declare the `${X.version}` property. The cascade aligns this
+   literal before a release; without the property, the alignment
+   is a no-op.
+
+4. **If the artifact is consumed by `ws:scaffold-init`** (i.e.
+   `WorkspaceBootstrap` writes it into a workspace's `.mvn/`
+   files), also add the property to
+   `ike-workspace-maven-plugin/src/main/resources/network/ike/plugin/ws/ws-plugin.properties`
+   so the build-time literal is reachable from
+   `loadBuildProperty`.
+
+5. **In the cascade graph table above:** add the new row.
+
+For Tier 0 artifacts (those that downstreams inherit via
+`<parent>`), no cascade edges can be declared yet — parent-version
+bumps are not cascade-tracked. Drive parent bumps by hand until
+[`IKE-Network/ike-issues#462`](https://github.com/IKE-Network/ike-issues/issues/462)
+ships.
+
 ### Topology vs. execution
 
 The per-project manifests declare *topology* — which repos, in what

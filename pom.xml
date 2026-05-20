@@ -24,7 +24,7 @@
     <parent>
         <groupId>network.ike</groupId>
         <artifactId>ike-base-parent</artifactId>
-        <version>1</version>
+        <version>3</version>
     </parent>
 
     <groupId>network.ike.tooling</groupId>
@@ -70,26 +70,16 @@
     </scm>
 
     <distributionManagement>
-        <repository>
-            <!-- Developer releases go to ike-staging.
-                 TeamCity promotes to ike-releases after verification.
-                 ike-public group aggregates both for resolution. -->
-            <id>ike-staging</id>
-            <url>https://nexus.tinkar.org/repository/ike-staging/</url>
-        </repository>
-        <snapshotRepository>
-            <id>ike-snapshots</id>
-            <url>https://nexus.tinkar.org/repository/ike-snapshots/</url>
-        </snapshotRepository>
-        <!-- <site> URL is the canonical published location for
-             relative-path computation by site:stage. Pre-#304 this
-             was scpexe://proxy/srv/ike-site/ike-tooling (and
-             site-deploy actually wrote there); post-#304 the
-             scpexe deploy is retired but site:stage still consults
-             this URL to compute cross-module relative paths.
-             Pointing at the gh-pages URL means relative-link math
-             matches the published reality. The actual content
-             publish goes through
+        <!-- <repository>/<snapshotRepository> are inherited from
+             ike-base-parent v3 (#461). Only the project-specific
+             <site> stays here — per ike-base-parent's CLAUDE.md
+             rule, inheriting projects MUST override the site URL
+             because the parent template points at ike-base-parent's
+             own gh-pages location.
+
+             <site> URL is the canonical published location for
+             relative-path computation by site:stage. The actual
+             content publish goes through
              ReleaseSupport.publishProjectSiteToGhPages, not via
              site:deploy. -->
         <site>
@@ -99,9 +89,9 @@
     </distributionManagement>
 
     <properties>
-        <!-- Opt in to Maven Central publishing via ike:release-publish
-             (ReleaseDraftMojo; IKE-Network/ike-issues#445). -->
-        <ike.publishToCentral>true</ike.publishToCentral>
+        <!-- ike.publishToCentral inherited from ike-base-parent v3
+             (defaults to true). Override with -Dike.publishToCentral=false
+             for an internal-only release. -->
 
         <!-- Nexus deploy URLs -->
         <deploy.staging.url>https://nexus.tinkar.org/repository/ike-staging/</deploy.staging.url>
@@ -534,67 +524,13 @@
             </build>
         </profile>
 
-        <!-- Activated by ike:release for Nexus deployment -->
-        <profile>
-            <id>release</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-source-plugin</artifactId>
-                        <version>3.3.1</version>
-                        <executions>
-                            <execution>
-                                <id>attach-sources</id>
-                                <goals><goal>jar-no-fork</goal></goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-javadoc-plugin</artifactId>
-                        <version>3.11.2</version>
-                        <configuration>
-                            <doclint>${ike.javadoc.doclint}</doclint>
-                            <failOnWarnings>${ike.javadoc.failOnWarnings}</failOnWarnings>
-                        </configuration>
-                        <executions>
-                            <execution>
-                                <id>attach-javadocs</id>
-                                <goals><goal>jar</goal></goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-        <profile>
-            <id>signArtifacts</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-gpg-plugin</artifactId>
-                        <version>3.2.8</version>
-                        <configuration>
-                            <!-- Use Bouncy Castle signer for parallel-safe signing
-                                 without gpg-agent contention.
-                                 Reads key from gpg.keyFilePath, passphrase from
-                                 MAVEN_GPG_PASSPHRASE env var. Do NOT switch to
-                                 native gpg — it breaks parallel reactor builds. -->
-                            <signer>bc</signer>
-                        </configuration>
-                        <executions>
-                            <execution>
-                                <id>sign-artifacts</id>
-                                <phase>verify</phase>
-                                <goals><goal>sign</goal></goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
+        <!-- `release` and `signArtifacts` profiles are inherited
+             from ike-base-parent v3 (#461). Each was previously
+             duplicated here with identical contents (maven-source-plugin
+             + maven-javadoc-plugin for `release`, maven-gpg-plugin
+             with BC signer for `signArtifacts`); now they live once
+             at Tier 0. -->
+
 
         <!-- ── releaseSelfSite ─ X-SNAPSHOT bootstrap (1 of 2) ──────── -->
         <!-- ike-issues#370.                                            -->
