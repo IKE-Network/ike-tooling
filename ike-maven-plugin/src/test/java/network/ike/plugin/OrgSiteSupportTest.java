@@ -1,6 +1,11 @@
 package network.ike.plugin;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -74,5 +79,61 @@ class OrgSiteSupportTest {
                     .as("badge for foundation member " + id)
                     .isNotNull();
         }
+    }
+
+    // ── Foundation dependency diagram in the landing-page preamble ──
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void regenerated_index_includes_dependency_diagram() throws Exception {
+        // Seed two foundation fragments so the Foundation section
+        // (which carries the diagram) is rendered. Diagram presence
+        // is gated on having a non-empty foundation listing.
+        File orgRoot = newOrgRepoWithFragments("ike-base-parent", "ike-platform");
+
+        OrgSiteSupport.regenerateIndex(orgRoot);
+
+        String index = Files.readString(orgRoot.toPath()
+                .resolve("src/site/asciidoc/index.adoc"));
+
+        assertThat(index)
+                .contains(".Build/release dependency order")
+                .contains("[source]")
+                .contains("ike-base-parent")
+                .contains("ike-tooling")
+                .contains("ike-workspace-extension")
+                .contains("ike-docs")
+                .contains("ike-platform")
+                // The diagram explains the parallel level for tooling/extension.
+                .contains("can release in either order or in parallel");
+    }
+
+    @Test
+    void regenerated_index_omits_diagram_when_no_foundation_members() throws Exception {
+        // Examples-only org (no foundation fragments) should NOT
+        // render the Foundation section or the diagram.
+        File orgRoot = newOrgRepoWithFragments("doc-example");
+
+        OrgSiteSupport.regenerateIndex(orgRoot);
+
+        String index = Files.readString(orgRoot.toPath()
+                .resolve("src/site/asciidoc/index.adoc"));
+
+        assertThat(index)
+                .doesNotContain("== Foundation")
+                .doesNotContain("Build/release dependency order")
+                .contains("== Examples");
+    }
+
+    private File newOrgRepoWithFragments(String... artifactIds) throws Exception {
+        Path projects = Files.createDirectories(
+                tempDir.resolve("projects"));
+        for (String id : artifactIds) {
+            Files.writeString(projects.resolve(id + ".adoc"),
+                    "= " + id + "\n");
+        }
+        return tempDir.toFile();
     }
 }
