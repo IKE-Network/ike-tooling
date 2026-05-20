@@ -88,11 +88,19 @@ public final class OrgSiteSupport {
     static final Map<String, String> FOUNDATION = foundationCoordinates();
 
     private static Map<String, String> foundationCoordinates() {
+        // Order here drives the rendered Foundation section ordering on
+        // https://ike.network/. Slot each entry where the project sits
+        // in the dependency direction (upstream → downstream): every
+        // entry below depends on every entry above.
         Map<String, String> m = new LinkedHashMap<>();
-        m.put("ike-base-parent", "network.ike:ike-base-parent");
-        m.put("ike-tooling",     "network.ike.tooling:ike-tooling");
-        m.put("ike-docs",        "network.ike.docs:ike-docs");
-        m.put("ike-platform",    "network.ike.platform:ike-platform");
+        m.put("ike-base-parent",         "network.ike:ike-base-parent");
+        m.put("ike-tooling",             "network.ike.tooling:ike-tooling");
+        m.put("ike-docs",                "network.ike.docs:ike-docs");
+        // Standalone Tier-0 artifact consumed by ike-platform at
+        // workspace runtime (#460). Listed before platform so the
+        // section reads in dependency order.
+        m.put("ike-workspace-extension", "network.ike.tooling:ike-workspace-extension");
+        m.put("ike-platform",            "network.ike.platform:ike-platform");
         return Collections.unmodifiableMap(m);
     }
 
