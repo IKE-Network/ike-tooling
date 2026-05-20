@@ -160,8 +160,12 @@ on the first run of `ws:align-publish`. See "Schema Migration" above.
 
 ### Subproject Fields
 
-Each subproject entry is keyed by its name (which must match the
-directory name on disk). The entry is a map of these fields:
+Each subproject entry is keyed by its name. Per the IKE Naming
+Policy (`IKE-NAMING.md`), the key must equal four things: the
+on-disk directory, the subproject's POM `<artifactId>`, and the
+last path segment of the `repo:` URL (the git repo name on
+GitHub). One name everywhere; no aliases. The entry is a map of
+these fields:
 
 | Field | Required | Description |
 |-------|----------|-------------|

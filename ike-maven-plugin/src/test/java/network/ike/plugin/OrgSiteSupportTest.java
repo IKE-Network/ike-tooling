@@ -68,7 +68,7 @@ class OrgSiteSupportTest {
         // they're deliberately not on Maven Central.
         assertThat(OrgSiteSupport.mavenCentralBadge("doc-example"))
                 .isNull();
-        assertThat(OrgSiteSupport.mavenCentralBadge("example-project"))
+        assertThat(OrgSiteSupport.mavenCentralBadge("project-example"))
                 .isNull();
     }
 

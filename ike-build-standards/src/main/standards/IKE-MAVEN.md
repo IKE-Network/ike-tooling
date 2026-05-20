@@ -6,54 +6,56 @@ All IKE artifacts use `network.ike` as the group ID.
 
 ## Artifact Naming Convention
 
-### Core rule
-
-**Submodule directory name = submodule artifactId. Always.**
-No abbreviations, no different naming. The directory `ike-workspace-model/`
-contains the POM with `<artifactId>ike-workspace-model</artifactId>`.
+See `IKE-NAMING.md` for the canonical naming policy (one rule:
+artifact ID == git repo name == on-disk directory == workspace.yaml
+subproject key). This section covers Maven-specific naming
+patterns that compose with that rule.
 
 ### Naming patterns
 
 | Concept | Pattern | Example |
 |---------|---------|---------|
-| Aggregator workspace | `{name}-ws` or `{name}-workspace` | `ike-example-ws` |
-| Multi-module reactor | Descriptive, no `-reactor` suffix | `ike-tooling`, `ike-platform`, `ike-docs` |
-| Maven plugin | `{prefix}-maven-plugin` (required) | `ike-maven-plugin`, `ike-workspace-maven-plugin`, `ike-doc-maven-plugin` |
-| Library | `{project}-{purpose}` | `ike-workspace-model` |
-| Parent POM | `{project}-parent` | `ike-parent` |
-| BOM | `{project}-bom` | `ike-bom` |
-| Build standards | `{project}-build-standards` | `ike-build-standards` |
+| Foundation reactor | `ike-{purpose}` | `ike-tooling`, `ike-platform`, `ike-docs` |
+| Foundation parent POM | `ike-{project}-parent` or `ike-parent` | `ike-base-parent`, `ike-parent` |
+| Foundation BOM | `ike-{project}-bom` or `ike-bom` | `ike-bom` |
+| Maven plugin | `{purpose}-maven-plugin` (required) | `ike-maven-plugin`, `ike-workspace-maven-plugin`, `ike-doc-maven-plugin` |
+| Build extension | `ike-{purpose}-extension` | `ike-workspace-extension` |
+| Build standards | `ike-build-standards` | `ike-build-standards` |
+| Example template | `{role}-example` (no `ike-` prefix) | `doc-example`, `project-example`, `integration-tests-example`, `workspace-example` |
+| Library inside foundation reactor | `ike-{purpose}` | `ike-workspace-model` |
 
-### Rules
+### Maven-side requirements
 
-1. **Submodule directory = artifactId** — no exceptions.
-2. **Reactor artifactId must not collide with any submodule artifactId.**
-   If the reactor contains a plugin module named `ike-maven-plugin`, the
-   reactor POM cannot also be `ike-maven-plugin`.
-3. **Maven plugins must follow `{prefix}-maven-plugin`** — required for
-   Maven prefix resolution (`mvn ike:release-publish` resolves to
+1. **Maven plugins must follow `{purpose}-maven-plugin`** — required
+   for Maven prefix resolution (`mvn ike:release-publish` resolves to
    `ike-maven-plugin`; `mvn ws:overview` resolves to
    `ike-workspace-maven-plugin`).
-4. **No `-reactor` suffix** — use a meaningful name that describes the
-   project's purpose (`ike-tooling`, `ike-platform`, `ike-docs`).
-5. **Git repo name should match the most recognizable artifact** — for a
-   single-module project, repo = artifactId. For multi-module, the repo
-   name may match the primary artifact rather than the reactor artifactId.
-   Example: repo `ike-maven-plugin` with reactor artifactId `ike-tooling`.
+2. **Reactor artifactId must not collide with any submodule artifactId.**
+   If the reactor contains a submodule `ike-maven-plugin`, the reactor
+   POM cannot also be `ike-maven-plugin`.
+3. **No `-reactor` suffix** — use a meaningful descriptive name
+   (`ike-tooling`, not `ike-tooling-reactor`).
 
 ### Aggregator workspaces vs. multi-module reactors
 
-An **aggregator workspace** (`ike-workspace`) is a developer-local project
-that ties multiple independent Git repositories together via `workspace.yaml`
-and file-activated `<subprojects>` profiles. It is not deployed to Nexus.
+An **aggregator workspace** (`workspace-example`, `ike-komet-ws`) is
+a developer-local project that ties multiple independent git
+repositories together via `workspace.yaml`. It is not published to
+Maven Central.
 
 A **multi-module reactor** (`ike-tooling`, `ike-platform`, `ike-docs`)
-is a single Git repository with tightly coupled modules that share a
-version and release together. It IS deployed to Nexus.
+is a single git repository with tightly coupled modules that share a
+version and release together. It IS published to Maven Central.
 
-The two serve different purposes: workspaces coordinate across repos,
-reactors coordinate within a repo. A workspace may contain multiple
-reactors as checked-out subprojects.
+The two serve different purposes: workspaces coordinate *across*
+repos, reactors coordinate *within* a repo. A workspace may contain
+multiple reactors as checked-out subprojects.
+
+The `<role>-example` workspace naming convention (`workspace-example`)
+is canonical for new workspaces; the older `<name>-ws` suffix
+(`ike-example-ws` &rarr; renamed; `ike-komet-ws` retained) is
+deprecated. See `IKE-NAMING.md` for the policy decision and the
+example-template prefix rule.
 
 ## Parent POM Inheritance
 

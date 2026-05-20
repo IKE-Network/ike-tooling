@@ -376,7 +376,7 @@ class VerifyReleasePublishedMojoTest {
     @Test
     void readPomSubprojects_inProfile_picksThemUp(@TempDir Path tmp)
             throws IOException {
-        // ike-example-ws pattern: subprojects inside file-activated
+        // workspace-example pattern: subprojects inside file-activated
         // profiles. The cross-reference should still see them so the
         // workspace verify covers all declared subprojects.
         Path pom = tmp.resolve("pom.xml");
@@ -390,9 +390,9 @@ class VerifyReleasePublishedMojoTest {
                       </subprojects>
                     </profile>
                     <profile>
-                      <id>with-example-project</id>
+                      <id>with-project-example</id>
                       <subprojects>
-                        <subproject>example-project</subproject>
+                        <subproject>project-example</subproject>
                       </subprojects>
                     </profile>
                   </profiles>
@@ -400,7 +400,7 @@ class VerifyReleasePublishedMojoTest {
                 """);
         assertThat(VerifyReleasePublishedMojo.readPomSubprojects(
                 pom.toFile()))
-                .containsExactly("doc-example", "example-project");
+                .containsExactly("doc-example", "project-example");
     }
 
     @Test
