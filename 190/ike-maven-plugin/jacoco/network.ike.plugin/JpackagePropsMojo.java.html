@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>JpackagePropsMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">JpackagePropsMojo.java</span></div><h1>JpackagePropsMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.ProjectManager;
+
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+
+
+/**
+ * Compute build timestamp, platform, and JPackage version properties.
+ *
+ * &lt;p&gt;Sets ~19 Maven project properties consumed by JReleaser's jpackage
+ * assembler via resource-filtered YAML. Replaces build-helper-maven-plugin
+ * timestamp/regex executions, maven-antrun-plugin derived-property logic,
+ * and OS-activated Maven profiles for platform detection.
+ *
+ * &lt;p&gt;All timestamps are UTC. Platform detection uses {@code os.name} and
+ * {@code os.arch} system properties mapped to JReleaser canonical names.
+ * Windows MSI version constraints (Minor &amp;le; 255) are handled automatically.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;
+ * mvn ike:jpackage-props
+ * &lt;/pre&gt;
+ */
+@Mojo(name = IkeGoal.NAME_JPACKAGE_PROPS,
+      defaultPhase = &quot;initialize&quot;,
+      projectRequired = true)
+public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L46">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /** Creates this goal instance. */
+<span class="fc" id="L49">    public JpackagePropsMojo() {}</span>
+
+    /** The current Maven session. */
+    @org.apache.maven.api.di.Inject
+    private Session session;
+
+    /** The current project (injected by Maven 4). */
+    @org.apache.maven.api.di.Inject
+    private Project project;
+
+    /**
+     * Application name pattern. Placeholders:
+     * &lt;ul&gt;
+     *   &lt;li&gt;{@code {date}} — display date (yyyy-MM-dd)&lt;/li&gt;
+     *   &lt;li&gt;{@code {hhmm}} — UTC time (leading-zero-stripped)&lt;/li&gt;
+     *   &lt;li&gt;{@code {s}} — &quot;s&quot; for SNAPSHOT, empty for release&lt;/li&gt;
+     * &lt;/ul&gt;
+     */
+    @Parameter(property = &quot;jpackage.appNamePattern&quot;,
+               defaultValue = &quot;Komet Desktop {date} {hhmm}{s}&quot;)
+    private String appNamePattern;
+
+    /**
+     * Explicit build timestamp (ISO-8601 instant, e.g. {@code 2026-04-08T19:01:00Z}).
+     * Defaults to current time.
+     */
+    @Parameter(property = &quot;jpackage.buildTimestamp&quot;)
+    private String buildTimestamp;
+
+    @Override
+    public void execute() throws MojoException {
+        Instant instant;
+        try {
+<span class="nc bnc" id="L82" title="All 4 branches missed.">            instant = (buildTimestamp != null &amp;&amp; !buildTimestamp.isBlank())</span>
+<span class="nc" id="L83">                    ? Instant.parse(buildTimestamp)</span>
+<span class="nc" id="L84">                    : Instant.now();</span>
+<span class="nc" id="L85">        } catch (Exception e) {</span>
+<span class="nc" id="L86">            throw new MojoException(</span>
+                    &quot;Invalid jpackage.buildTimestamp: &quot; + buildTimestamp, e);
+<span class="nc" id="L88">        }</span>
+
+<span class="nc" id="L90">        BuildProps props = computeProps(</span>
+                instant,
+<span class="nc" id="L92">                project.getVersion(),</span>
+<span class="nc" id="L93">                System.getProperty(&quot;os.name&quot;, &quot;&quot;),</span>
+<span class="nc" id="L94">                System.getProperty(&quot;os.arch&quot;, &quot;&quot;),</span>
+                appNamePattern);
+
+<span class="nc" id="L97">        ProjectManager pm = session.getService(ProjectManager.class);</span>
+<span class="nc" id="L98">        pm.setProperty(project, &quot;build.date&quot;, props.buildDate());</span>
+<span class="nc" id="L99">        pm.setProperty(project, &quot;build.year&quot;, props.buildYear());</span>
+<span class="nc" id="L100">        pm.setProperty(project, &quot;build.month&quot;, props.buildMonth());</span>
+<span class="nc" id="L101">        pm.setProperty(project, &quot;build.monthday&quot;, props.buildMonthday());</span>
+<span class="nc" id="L102">        pm.setProperty(project, &quot;build.hhmm&quot;, props.buildHhmm());</span>
+<span class="nc" id="L103">        pm.setProperty(project, &quot;build.display.date&quot;, props.buildDisplayDate());</span>
+<span class="nc" id="L104">        pm.setProperty(project, &quot;jreleaser.platform&quot;, props.platform());</span>
+<span class="nc" id="L105">        pm.setProperty(project, &quot;jreleaser.platform.work&quot;, props.platformWork());</span>
+<span class="nc" id="L106">        pm.setProperty(project, &quot;jreleaser.platform.suffix&quot;, props.platformSuffix());</span>
+<span class="nc" id="L107">        pm.setProperty(project, &quot;is.snapshot&quot;, String.valueOf(props.isSnapshot()));</span>
+<span class="nc" id="L108">        pm.setProperty(project, &quot;build.qualifier&quot;, props.buildQualifier());</span>
+<span class="nc" id="L109">        pm.setProperty(project, &quot;jpackage.app.version&quot;, props.jpackageAppVersion());</span>
+<span class="nc" id="L110">        pm.setProperty(project, &quot;jpackage.app.name&quot;, props.jpackageAppName());</span>
+<span class="nc" id="L111">        pm.setProperty(project, &quot;win.app.version&quot;, props.winAppVersion());</span>
+<span class="nc" id="L112">        pm.setProperty(project, &quot;win.version.major&quot;, props.winVersionMajor());</span>
+<span class="nc" id="L113">        pm.setProperty(project, &quot;win.version.minor&quot;, props.winVersionMinor());</span>
+<span class="nc" id="L114">        pm.setProperty(project, &quot;win.version.build&quot;, props.winVersionBuild());</span>
+<span class="nc" id="L115">        pm.setProperty(project, &quot;win.version.revision&quot;, props.winVersionRevision());</span>
+
+<span class="nc" id="L117">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L118">        getLog().info(&quot;JPackage Build Properties&quot;);</span>
+<span class="nc" id="L119">        getLog().info(&quot;\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550&quot;);</span>
+<span class="nc" id="L120">        getLog().info(&quot;  Platform:          &quot; + props.platform());</span>
+<span class="nc" id="L121">        getLog().info(&quot;  Is Snapshot:       &quot; + props.isSnapshot());</span>
+<span class="nc" id="L122">        getLog().info(&quot;  Build Qualifier:   &quot; + props.buildQualifier());</span>
+<span class="nc" id="L123">        getLog().info(&quot;  App Name:          &quot; + props.jpackageAppName());</span>
+<span class="nc" id="L124">        getLog().info(&quot;  App Version:       &quot; + props.jpackageAppVersion());</span>
+<span class="nc" id="L125">        getLog().info(&quot;  Windows Version:   &quot; + props.winAppVersion());</span>
+<span class="nc" id="L126">        getLog().info(&quot;  Build Date:        &quot; + props.buildDisplayDate());</span>
+<span class="nc" id="L127">        getLog().info(&quot;  Build HHmm:        &quot; + props.buildHhmm());</span>
+<span class="nc" id="L128">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L129">    }</span>
+
+    /**
+     * All computed properties returned as a record for testability.
+     */
+<span class="fc" id="L134">    record BuildProps(</span>
+            String buildDate, String buildYear, String buildMonth,
+            String buildMonthday, String buildHhmm, String buildDisplayDate,
+            String platform, String platformWork, String platformSuffix,
+            boolean isSnapshot, String buildQualifier,
+            String jpackageAppVersion, String jpackageAppName,
+            String winAppVersion, String winVersionMajor, String winVersionMinor,
+            String winVersionBuild, String winVersionRevision
+    ) {}
+
+    /**
+     * Pure computation of all properties — no Maven or system dependencies.
+     *
+     * @param buildInstant   the build timestamp
+     * @param projectVersion the Maven project version (e.g. &quot;3.0.0-SNAPSHOT&quot;)
+     * @param osName         value of {@code os.name} system property
+     * @param osArch         value of {@code os.arch} system property
+     * @param appNamePattern pattern with {date}, {hhmm}, {s} placeholders
+     * @return all computed properties
+     */
+    static BuildProps computeProps(Instant buildInstant,
+                                   String projectVersion,
+                                   String osName,
+                                   String osArch,
+                                   String appNamePattern) {
+<span class="fc" id="L159">        ZonedDateTime utc = buildInstant.atZone(ZoneOffset.UTC);</span>
+
+        // Timestamp properties
+<span class="fc" id="L162">        String buildDate = utc.format(DateTimeFormatter.ofPattern(&quot;yyyyMMdd&quot;));</span>
+<span class="fc" id="L163">        String buildYear = utc.format(DateTimeFormatter.ofPattern(&quot;yy&quot;));</span>
+<span class="fc" id="L164">        String buildMonth = String.valueOf(utc.getMonthValue());</span>
+<span class="fc" id="L165">        String buildDisplayDate = utc.format(DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd&quot;));</span>
+
+        // monthday and hhmm as integers (no leading zeros)
+<span class="fc" id="L168">        int monthday = utc.getMonthValue() * 100 + utc.getDayOfMonth();</span>
+<span class="fc" id="L169">        int hhmm = utc.getHour() * 100 + utc.getMinute();</span>
+<span class="fc bfc" id="L170" title="All 2 branches covered.">        if (hhmm == 0) hhmm = 1; // midnight: 0000 -&gt; 1</span>
+
+<span class="fc" id="L172">        String buildMonthday = String.valueOf(monthday);</span>
+<span class="fc" id="L173">        String buildHhmm = String.valueOf(hhmm);</span>
+
+        // Platform detection
+<span class="fc" id="L176">        String osLower = osName.toLowerCase(Locale.ROOT);</span>
+<span class="fc" id="L177">        String archLower = osArch.toLowerCase(Locale.ROOT);</span>
+
+        String platform;
+        String platformSuffix;
+<span class="pc bpc" id="L181" title="1 of 4 branches missed.">        if (osLower.contains(&quot;mac&quot;) || osLower.contains(&quot;darwin&quot;)) {</span>
+<span class="pc bpc" id="L182" title="1 of 4 branches missed.">            if (archLower.equals(&quot;aarch64&quot;) || archLower.equals(&quot;arm64&quot;)) {</span>
+<span class="fc" id="L183">                platform = &quot;osx-aarch_64&quot;;</span>
+<span class="fc" id="L184">                platformSuffix = &quot;osx-aarch64&quot;;</span>
+            } else {
+<span class="fc" id="L186">                platform = &quot;osx-x86_64&quot;;</span>
+<span class="fc" id="L187">                platformSuffix = &quot;osx-x86_64&quot;;</span>
+            }
+<span class="fc bfc" id="L189" title="All 2 branches covered.">        } else if (osLower.contains(&quot;linux&quot;)) {</span>
+<span class="fc" id="L190">            platform = &quot;linux-x86_64&quot;;</span>
+<span class="fc" id="L191">            platformSuffix = &quot;linux-x86_64&quot;;</span>
+<span class="pc bpc" id="L192" title="1 of 2 branches missed.">        } else if (osLower.contains(&quot;windows&quot;)) {</span>
+<span class="fc" id="L193">            platform = &quot;windows-x86_64&quot;;</span>
+<span class="fc" id="L194">            platformSuffix = &quot;windows-x86_64&quot;;</span>
+        } else {
+<span class="nc" id="L196">            platform = &quot;unknown&quot;;</span>
+<span class="nc" id="L197">            platformSuffix = &quot;unknown&quot;;</span>
+        }
+<span class="fc" id="L199">        String platformWork = &quot;work-&quot; + platform;</span>
+<span class="fc" id="L200">        boolean isWindows = osLower.contains(&quot;windows&quot;);</span>
+
+        // Derived properties
+<span class="pc bpc" id="L203" title="1 of 4 branches missed.">        boolean isSnapshot = projectVersion != null &amp;&amp; projectVersion.endsWith(&quot;-SNAPSHOT&quot;);</span>
+<span class="fc bfc" id="L204" title="All 2 branches covered.">        String buildQualifier = isSnapshot ? &quot;777&quot; : &quot;0&quot;;</span>
+
+        // JPackage version: Windows MSI requires Minor &lt;= 255
+<span class="fc bfc" id="L207" title="All 2 branches covered.">        String jpackageAppVersion = isWindows</span>
+<span class="fc" id="L208">                ? buildYear + &quot;.&quot; + buildMonth + &quot;.&quot; + buildHhmm</span>
+<span class="fc" id="L209">                : buildYear + &quot;.&quot; + buildMonthday + &quot;.&quot; + buildHhmm;</span>
+
+        // App name from pattern
+<span class="fc bfc" id="L212" title="All 2 branches covered.">        String snapshotSuffix = isSnapshot ? &quot;s&quot; : &quot;&quot;;</span>
+<span class="fc" id="L213">        String jpackageAppName = appNamePattern</span>
+<span class="fc" id="L214">                .replace(&quot;{date}&quot;, buildDisplayDate)</span>
+<span class="fc" id="L215">                .replace(&quot;{hhmm}&quot;, buildHhmm)</span>
+<span class="fc" id="L216">                .replace(&quot;{s}&quot;, snapshotSuffix);</span>
+
+        // Windows version components
+<span class="fc" id="L219">        String winVersionMajor = buildYear;</span>
+<span class="fc" id="L220">        String winVersionMinor = buildMonthday;</span>
+<span class="fc" id="L221">        String winVersionBuild = buildHhmm;</span>
+<span class="fc" id="L222">        String winVersionRevision = buildQualifier;</span>
+<span class="fc" id="L223">        String winAppVersion = winVersionMajor + &quot;.&quot; + winVersionMinor + &quot;.&quot;</span>
+                + winVersionBuild + &quot;.&quot; + winVersionRevision;
+
+<span class="fc" id="L226">        return new BuildProps(</span>
+                buildDate, buildYear, buildMonth, buildMonthday, buildHhmm,
+                buildDisplayDate, platform, platformWork, platformSuffix,
+                isSnapshot, buildQualifier, jpackageAppVersion, jpackageAppName,
+                winAppVersion, winVersionMajor, winVersionMinor, winVersionBuild,
+                winVersionRevision);
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
