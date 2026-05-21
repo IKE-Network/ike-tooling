@@ -137,7 +137,9 @@ All plugin versions are declared in `<pluginManagement>` in the parent POM. Chil
 
 ## Property Naming Convention
 
-IKE-specific properties use the `ike.` prefix:
+### Behavior flags
+
+IKE-specific behavior-flag properties use the `ike.` prefix:
 
 | Pattern | Purpose | Examples |
 |---|---|---|
@@ -146,6 +148,13 @@ IKE-specific properties use the `ike.` prefix:
 | `ike.html.*` | HTML variant activation | `ike.html.single` |
 | `ike.document.name` | Output document filename | Defaults to `${project.artifactId}` |
 | `ike.assembly.directory` | Assembly descriptor location | Path to `src/assembly/` |
+
+### Version pins
+
+Properties that pin Maven artifact versions follow the GA-encoded
+convention: property name is `<groupId·artifactId>` (U+00B7 MIDDLE
+DOT separator), value is the version. See `IKE-VERSIONS.md` for
+the full standard, rationale, migration policy, and alias rules.
 
 ## Version Strategy
 
