@@ -19,13 +19,18 @@ This module produces six classified ZIP artifacts:
 - `classifier=asciidoctorconfig` — shared `.asciidoctorconfig` fragment
 - `classifier=scaffold`         — scaffold manifest + template files consumed by
                                    `ike:scaffold-draft/publish/revert` (#221, #222)
-- `classifier=site-theme`       — canonical Forest theme `site.css` + `ike-logo.svg`,
-                                   unpacked at `pre-site` by `ike-parent`'s
-                                   `site-resources` profile so every consuming project
-                                   inherits the same Maven-Site theme without carrying
-                                   per-repo copies (#318). Hosted here rather than in
-                                   `ike-doc-resources` so `ike-tooling` itself can
-                                   consume it (#308) without inverting the cascade.
+- `classifier=site-theme`       — **DEPRECATED** as of ike-base-parent v5
+                                   (IKE-Network/ike-issues#464). Canonical Forest theme
+                                   moved to `network.ike:ike-base-parent:site-theme:zip`
+                                   so direct ike-base-parent inheritors get the theme
+                                   natively and Tier 0 no longer depends on Tier 1.
+                                   This artifact stays one cycle for back-compat
+                                   (consumers that pinned `ike-build-standards:site-theme`
+                                   directly) and will be removed in a future
+                                   ike-tooling release. New consumers should use
+                                   `network.ike:ike-base-parent:site-theme:zip`
+                                   instead, automatically resolved by ike-parent's
+                                   `site-resources` profile.
 - `classifier=built-with`       — platform-wide Built-With supplement (`supplement.yaml`)
                                    unpacked at `initialize` by `ike-parent` to
                                    `target/built-with-supplement.yaml`. The `ike:built-with`
