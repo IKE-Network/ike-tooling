@@ -1136,12 +1136,32 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * the sentinel on each transition. Static + side-effect-free
      * so the script body is straightforward to unit-test.
      *
+     * <p>The script runs inside a temporary {@code git worktree}
+     * at the {@code v<version>} tag — critical for correctness
+     * since the main worktree is restored to {@code main} and
+     * bumped to next-SNAPSHOT immediately after the spawn.
+     * Without this isolation, JReleaser would read the post-bump
+     * pom.xml, see a snapshot version, and silently skip the
+     * Sonatype deployer ({@code [WARNING] Deployer ...:sonatype
+     * is not enabled. Skipping}).
+     *
+     * <p>Each attempt is logged to a per-attempt file; on
+     * mvn-exit-0 the script asserts the log contains
+     * {@code uploaded as deployment} (proves a real upload
+     * happened) AND does not contain {@code is not enabled.
+     * Skipping} (catches deployer-disabled silent no-op).
+     * Either check failing marks the attempt as a retry-eligible
+     * failure rather than success.
+     *
+     * <p>The worktree is cleaned up via {@code trap EXIT}, so
+     * even an interrupted subprocess leaves no stray git state.
+     *
      * @param gitRoot       absolute repository root
      * @param mvnw          absolute path to the Maven wrapper
      * @param sentinel      absolute path to the sentinel file
      * @param log           absolute path to the deploy log file
      * @param artifactId    project artifactId
-     * @param version       release version
+     * @param version       release version (matches v&lt;version&gt; tag)
      * @param maxAttempts   configured max attempts
      * @param backoff       inter-attempt waits in seconds
      * @param started       deploy start instant (UTC)
@@ -1177,6 +1197,21 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 MAX_ATTEMPTS=%d
                 BACKOFFS=(%s)
 
+                # Isolated worktree at the release tag — see method
+                # javadoc for why this is required.
+                WORKTREE_PARENT="$(mktemp -d -t ike-release-XXXXXX)"
+                WORKTREE="$WORKTREE_PARENT/$ARTIFACT_ID-$VERSION"
+
+                cleanup() {
+                  if [ -n "${WORKTREE:-}" ] && [ -d "$WORKTREE" ]; then
+                    git -C "$GIT_ROOT" worktree remove --force "$WORKTREE" >> "$LOG" 2>&1 || true
+                  fi
+                  if [ -n "${WORKTREE_PARENT:-}" ] && [ -d "$WORKTREE_PARENT" ]; then
+                    rm -rf "$WORKTREE_PARENT"
+                  fi
+                }
+                trap cleanup EXIT
+
                 write_sentinel() {
                   local state="$1"
                   local extra="$2"
@@ -1206,9 +1241,61 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                   echo "[$(date)] Async Central deploy starting"
                   echo "  artifact: $ARTIFACT_ID-$VERSION"
                   echo "  git root: $GIT_ROOT"
+                  echo "  worktree: $WORKTREE"
                   echo "  max attempts: $MAX_ATTEMPTS"
                   echo "  backoffs (s): ${BACKOFFS[*]}"
                 } >> "$LOG"
+
+                # One-time: create the isolated worktree at v<version>.
+                # All deploy attempts reuse it (clean deploy inside the
+                # worktree wipes its own target/).
+                if ! git -C "$GIT_ROOT" worktree add "$WORKTREE" "v$VERSION" >> "$LOG" 2>&1; then
+                  write_sentinel "FAILURE" "lastError=could not create worktree at v$VERSION"
+                  echo "[$(date)] FAILURE: worktree add" >> "$LOG"
+                  exit 1
+                fi
+
+                run_attempt() {
+                  local attempt_log="$WORKTREE/target/jreleaser-attempt-$ATTEMPTS.log"
+                  # Step 1: stage signed artifacts to the worktree's
+                  # target/staging-deploy.
+                  if ! (cd "$WORKTREE" && "$MVNW" clean deploy -B -T 1 \\
+                      -P release,signArtifacts \\
+                      -DaltDeploymentRepository=local::file://"$WORKTREE/target/staging-deploy") >> "$LOG" 2>&1; then
+                    echo "[$(date)] Stage failed on attempt $ATTEMPTS" >> "$LOG"
+                    return 1
+                  fi
+                  # Step 2: prune -build.pom (Maven 4 build POMs, not
+                  # published to Central).
+                  find "$WORKTREE/target/staging-deploy" \\
+                      \\( -name '*-build.pom' -o -name '*-build.pom.asc' \\
+                         -o -name '*-build.pom.md5' \\
+                         -o -name '*-build.pom.sha1' \\
+                         -o -name '*-build.pom.sha256' \\
+                         -o -name '*-build.pom.sha512' \\) \\
+                      -delete >> "$LOG" 2>&1 || true
+                  # Step 3: upload via JReleaser. Capture to per-attempt
+                  # log for validation.
+                  if ! (cd "$WORKTREE" && "$MVNW" jreleaser:deploy -N -B) > "$attempt_log" 2>&1; then
+                    cat "$attempt_log" >> "$LOG"
+                    echo "[$(date)] JReleaser upload failed on attempt $ATTEMPTS" >> "$LOG"
+                    return 1
+                  fi
+                  cat "$attempt_log" >> "$LOG"
+                  # Step 4: validate. JReleaser silently skips when the
+                  # deployer isn't enabled (e.g. snapshot version), and
+                  # the mvn exit code is still 0. Confirm a real upload
+                  # happened — see method javadoc.
+                  if grep -q "is not enabled. Skipping" "$attempt_log"; then
+                    echo "[$(date)] JReleaser logged 'Skipping' — deployer not active" >> "$LOG"
+                    return 1
+                  fi
+                  if ! grep -q "uploaded as deployment" "$attempt_log"; then
+                    echo "[$(date)] JReleaser did not log an uploaded deployment" >> "$LOG"
+                    return 1
+                  fi
+                  return 0
+                }
 
                 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
                   ATTEMPTS=$((ATTEMPTS + 1))
@@ -1216,7 +1303,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                   # Refresh PENDING with current attempt count so
                   # ike:central-status reflects progress.
                   write_sentinel "PENDING" ""
-                  if (cd "$GIT_ROOT" && "$MVNW" jreleaser:deploy -N -B) >> "$LOG" 2>&1; then
+                  if run_attempt; then
                     write_sentinel "SUCCESS" ""
                     echo "[$(date)] SUCCESS on attempt $ATTEMPTS" >> "$LOG"
                     exit 0

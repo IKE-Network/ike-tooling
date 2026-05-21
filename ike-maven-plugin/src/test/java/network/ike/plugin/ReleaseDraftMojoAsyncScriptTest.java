@@ -1,7 +1,9 @@
 package network.ike.plugin;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
@@ -63,6 +65,91 @@ class ReleaseDraftMojoAsyncScriptTest {
         // -B: batch mode, no interactive prompts.
         String script = render();
         assertThat(script).contains("\"$MVNW\" jreleaser:deploy -N -B");
+    }
+
+    @Test
+    void script_creates_isolated_git_worktree_at_release_tag() {
+        // The main worktree gets restored to main + bumped to
+        // next-SNAPSHOT immediately after the spawn. Without an
+        // isolated worktree at v<version>, JReleaser reads the
+        // post-bump pom.xml, sees a snapshot version, and silently
+        // skips the Sonatype deployer. v197 hit this — async fix
+        // requires the worktree.
+        String script = render();
+        assertThat(script).contains(
+                "git -C \"$GIT_ROOT\" worktree add \"$WORKTREE\" \"v$VERSION\"");
+        assertThat(script).contains("WORKTREE_PARENT=\"$(mktemp -d");
+    }
+
+    @Test
+    void script_cleans_up_worktree_on_exit() {
+        // trap EXIT removes the worktree and parent temp dir whether
+        // the run succeeds, fails, or is killed. Without this an
+        // interrupted subprocess leaves stale git worktree metadata
+        // that breaks subsequent runs ("'<path>' already exists").
+        String script = render();
+        assertThat(script).contains("trap cleanup EXIT");
+        assertThat(script).contains(
+                "git -C \"$GIT_ROOT\" worktree remove --force \"$WORKTREE\"");
+    }
+
+    @Test
+    void script_stages_signed_artifacts_inside_worktree() {
+        // Staging runs inside the worktree so target/staging-deploy
+        // is built from the v<version> pom.xml, not the post-bump
+        // pom on the main worktree.
+        String script = render();
+        assertThat(script).contains("cd \"$WORKTREE\"")
+                .contains("\"$MVNW\" clean deploy -B -T 1")
+                .contains("-P release,signArtifacts")
+                .contains("-DaltDeploymentRepository=local::file://\"$WORKTREE/target/staging-deploy\"");
+    }
+
+    @Test
+    void script_validates_deployment_actually_happened() {
+        // JReleaser silently skips the deployer when configuration
+        // disables it (e.g. snapshot version), with mvn exit 0. The
+        // first async impl trusted exit 0 and recorded SUCCESS for
+        // a no-op deploy (v197 case). Defense-in-depth: assert log
+        // contains an upload-confirmation line AND lacks the
+        // skip-warning line. Either check failing = retry-eligible.
+        String script = render();
+        assertThat(script).contains(
+                "grep -q \"is not enabled. Skipping\" \"$attempt_log\"");
+        assertThat(script).contains(
+                "grep -q \"uploaded as deployment\" \"$attempt_log\"");
+    }
+
+    @Test
+    void script_passes_bash_syntax_check(@TempDir Path tempDir)
+            throws Exception {
+        // `bash -n` parses without executing — catches HEREDOC slip-ups,
+        // unclosed braces, mis-escaped %% sequences from the Java
+        // text-block formatter. Cheap insurance against template
+        // regressions in renderRetryScript.
+        Path scriptFile = tempDir.resolve("deploy.sh");
+        Files.writeString(scriptFile, render());
+        Process p = new ProcessBuilder("bash", "-n",
+                scriptFile.toString())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(
+                p.getInputStream().readAllBytes());
+        int exit = p.waitFor();
+        assertThat(exit)
+                .as("bash -n output: %s", output)
+                .isZero();
+    }
+
+    @Test
+    void script_prunes_build_pom_artifacts_recursively() {
+        // Maven 4 emits an extra -build.pom per module that must not
+        // ship to Central (#445). Prune from staging dir before
+        // JReleaser uploads.
+        String script = render();
+        assertThat(script).contains("find \"$WORKTREE/target/staging-deploy\"")
+                .contains("-name '*-build.pom'")
+                .contains("-delete");
     }
 
     @Test
