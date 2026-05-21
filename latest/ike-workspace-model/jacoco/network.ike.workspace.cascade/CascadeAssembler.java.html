@@ -75,53 +75,62 @@ public final class CascadeAssembler {
     public static ReleaseCascade assemble(CascadeEdge start,
                                           ProjectCascade startCascade,
                                           CascadeResolver resolver) {
-<span class="fc" id="L78">        Map&lt;String, CascadeRepo&gt; byGroupId = new LinkedHashMap&lt;&gt;();</span>
-<span class="fc" id="L79">        Deque&lt;CascadeRepo&gt; frontier = new ArrayDeque&lt;&gt;();</span>
+        // Identity is groupId+artifactId (CascadeRepo.ga()), NOT
+        // groupId alone — two foundation members can share a groupId.
+        // For example, `network.ike.tooling:ike-tooling` and
+        // `network.ike.tooling:ike-workspace-extension` both live
+        // under the `network.ike.tooling` group, but they are
+        // independent cascade heads with different downstream edges.
+        // Keying any of these maps by groupId would collide the two
+        // nodes and silently drop edges, which used to surface as a
+        // false-positive cycle (IKE-Network/ike-issues#466).
+<span class="fc" id="L87">        Map&lt;String, CascadeRepo&gt; byGa = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L88">        Deque&lt;CascadeRepo&gt; frontier = new ArrayDeque&lt;&gt;();</span>
 
-<span class="fc" id="L81">        CascadeRepo startNode = node(start, startCascade);</span>
-<span class="fc" id="L82">        byGroupId.put(startNode.groupId(), startNode);</span>
-<span class="fc" id="L83">        frontier.add(startNode);</span>
+<span class="fc" id="L90">        CascadeRepo startNode = node(start, startCascade);</span>
+<span class="fc" id="L91">        byGa.put(startNode.ga(), startNode);</span>
+<span class="fc" id="L92">        frontier.add(startNode);</span>
 
-<span class="fc bfc" id="L85" title="All 2 branches covered.">        while (!frontier.isEmpty()) {</span>
-<span class="fc" id="L86">            CascadeRepo current = frontier.poll();</span>
-<span class="fc bfc" id="L87" title="All 2 branches covered.">            for (CascadeEdge edge : neighbourEdges(current)) {</span>
-<span class="fc bfc" id="L88" title="All 2 branches covered.">                if (byGroupId.containsKey(edge.groupId())) {</span>
-<span class="fc" id="L89">                    continue;</span>
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        while (!frontier.isEmpty()) {</span>
+<span class="fc" id="L95">            CascadeRepo current = frontier.poll();</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">            for (CascadeEdge edge : neighbourEdges(current)) {</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">                if (byGa.containsKey(edge.ga())) {</span>
+<span class="fc" id="L98">                    continue;</span>
                 }
                 ProjectCascade resolved;
                 try {
-<span class="fc" id="L93">                    resolved = resolver.resolve(edge);</span>
-<span class="nc" id="L94">                } catch (RuntimeException e) {</span>
-<span class="nc" id="L95">                    throw new IllegalArgumentException(</span>
+<span class="fc" id="L102">                    resolved = resolver.resolve(edge);</span>
+<span class="nc" id="L103">                } catch (RuntimeException e) {</span>
+<span class="nc" id="L104">                    throw new IllegalArgumentException(</span>
                             &quot;cannot resolve release-cascade.yaml for&quot;
-<span class="nc" id="L97">                            + &quot; cascade member &quot; + edge.ga() + &quot;: &quot;</span>
-<span class="nc" id="L98">                            + e.getMessage(), e);</span>
-<span class="fc" id="L99">                }</span>
-<span class="fc bfc" id="L100" title="All 2 branches covered.">                if (resolved == null) {</span>
-<span class="fc" id="L101">                    throw new IllegalArgumentException(</span>
+<span class="nc" id="L106">                            + &quot; cascade member &quot; + edge.ga() + &quot;: &quot;</span>
+<span class="nc" id="L107">                            + e.getMessage(), e);</span>
+<span class="fc" id="L108">                }</span>
+<span class="fc bfc" id="L109" title="All 2 branches covered.">                if (resolved == null) {</span>
+<span class="fc" id="L110">                    throw new IllegalArgumentException(</span>
                             &quot;cannot resolve release-cascade.yaml for&quot;
-<span class="fc" id="L103">                            + &quot; cascade member &quot; + edge.ga());</span>
+<span class="fc" id="L112">                            + &quot; cascade member &quot; + edge.ga());</span>
                 }
-<span class="fc" id="L105">                CascadeRepo neighbour = node(edge, resolved);</span>
-<span class="fc" id="L106">                byGroupId.put(neighbour.groupId(), neighbour);</span>
-<span class="fc" id="L107">                frontier.add(neighbour);</span>
-<span class="fc" id="L108">            }</span>
-<span class="fc" id="L109">        }</span>
+<span class="fc" id="L114">                CascadeRepo neighbour = node(edge, resolved);</span>
+<span class="fc" id="L115">                byGa.put(neighbour.ga(), neighbour);</span>
+<span class="fc" id="L116">                frontier.add(neighbour);</span>
+<span class="fc" id="L117">            }</span>
+<span class="fc" id="L118">        }</span>
 
-<span class="fc" id="L111">        verifyReciprocity(byGroupId);</span>
-<span class="fc" id="L112">        return new ReleaseCascade(topologicalOrder(byGroupId));</span>
+<span class="fc" id="L120">        verifyReciprocity(byGa);</span>
+<span class="fc" id="L121">        return new ReleaseCascade(topologicalOrder(byGa));</span>
     }
 
     private static CascadeRepo node(CascadeEdge identity,
                                     ProjectCascade cascade) {
-<span class="fc" id="L117">        return new CascadeRepo(identity.groupId(), identity.artifactId(),</span>
-<span class="fc" id="L118">                identity.repo(), identity.url(), cascade);</span>
+<span class="fc" id="L126">        return new CascadeRepo(identity.groupId(), identity.artifactId(),</span>
+<span class="fc" id="L127">                identity.repo(), identity.url(), cascade);</span>
     }
 
     private static List&lt;CascadeEdge&gt; neighbourEdges(CascadeRepo node) {
-<span class="fc" id="L122">        List&lt;CascadeEdge&gt; edges = new ArrayList&lt;&gt;(node.upstream());</span>
-<span class="fc" id="L123">        edges.addAll(node.downstream());</span>
-<span class="fc" id="L124">        return edges;</span>
+<span class="fc" id="L131">        List&lt;CascadeEdge&gt; edges = new ArrayList&lt;&gt;(node.upstream());</span>
+<span class="fc" id="L132">        edges.addAll(node.downstream());</span>
+<span class="fc" id="L133">        return edges;</span>
     }
 
     /**
@@ -129,71 +138,69 @@ public final class CascadeAssembler {
      * neighbour: A→B {@code downstream} ⇔ B→A {@code upstream}.
      */
     private static void verifyReciprocity(
-            Map&lt;String, CascadeRepo&gt; byGroupId) {
-<span class="fc bfc" id="L133" title="All 2 branches covered.">        for (CascadeRepo node : byGroupId.values()) {</span>
-<span class="fc bfc" id="L134" title="All 2 branches covered.">            for (CascadeEdge down : node.downstream()) {</span>
-<span class="fc" id="L135">                CascadeRepo target = byGroupId.get(down.groupId());</span>
-<span class="pc bpc" id="L136" title="1 of 2 branches missed.">                if (target == null || target.upstream().stream()</span>
-<span class="fc bfc" id="L137" title="All 2 branches covered.">                        .noneMatch(u -&gt; u.groupId()</span>
-<span class="fc" id="L138">                                .equals(node.groupId()))) {</span>
-<span class="fc" id="L139">                    throw new IllegalArgumentException(</span>
-<span class="fc" id="L140">                            &quot;one-sided cascade edge: &quot; + node.ga()</span>
-<span class="fc" id="L141">                            + &quot; lists &quot; + down.ga() + &quot; as downstream,&quot;</span>
-<span class="fc" id="L142">                            + &quot; but &quot; + down.ga() + &quot; does not list &quot;</span>
-<span class="fc" id="L143">                            + node.ga() + &quot; as upstream&quot;);</span>
+            Map&lt;String, CascadeRepo&gt; byGa) {
+<span class="fc bfc" id="L142" title="All 2 branches covered.">        for (CascadeRepo node : byGa.values()) {</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">            for (CascadeEdge down : node.downstream()) {</span>
+<span class="fc" id="L144">                CascadeRepo target = byGa.get(down.ga());</span>
+<span class="pc bpc" id="L145" title="1 of 2 branches missed.">                if (target == null || target.upstream().stream()</span>
+<span class="fc bfc" id="L146" title="All 2 branches covered.">                        .noneMatch(u -&gt; u.ga().equals(node.ga()))) {</span>
+<span class="fc" id="L147">                    throw new IllegalArgumentException(</span>
+<span class="fc" id="L148">                            &quot;one-sided cascade edge: &quot; + node.ga()</span>
+<span class="fc" id="L149">                            + &quot; lists &quot; + down.ga() + &quot; as downstream,&quot;</span>
+<span class="fc" id="L150">                            + &quot; but &quot; + down.ga() + &quot; does not list &quot;</span>
+<span class="fc" id="L151">                            + node.ga() + &quot; as upstream&quot;);</span>
                 }
-<span class="fc" id="L145">            }</span>
-<span class="fc bfc" id="L146" title="All 2 branches covered.">            for (CascadeEdge up : node.upstream()) {</span>
-<span class="fc" id="L147">                CascadeRepo source = byGroupId.get(up.groupId());</span>
-<span class="pc bpc" id="L148" title="1 of 2 branches missed.">                if (source == null || source.downstream().stream()</span>
-<span class="pc bpc" id="L149" title="1 of 2 branches missed.">                        .noneMatch(d -&gt; d.groupId()</span>
-<span class="fc" id="L150">                                .equals(node.groupId()))) {</span>
-<span class="nc" id="L151">                    throw new IllegalArgumentException(</span>
-<span class="nc" id="L152">                            &quot;one-sided cascade edge: &quot; + node.ga()</span>
-<span class="nc" id="L153">                            + &quot; lists &quot; + up.ga() + &quot; as upstream,&quot;</span>
-<span class="nc" id="L154">                            + &quot; but &quot; + up.ga() + &quot; does not list &quot;</span>
-<span class="nc" id="L155">                            + node.ga() + &quot; as downstream&quot;);</span>
+<span class="fc" id="L153">            }</span>
+<span class="fc bfc" id="L154" title="All 2 branches covered.">            for (CascadeEdge up : node.upstream()) {</span>
+<span class="fc" id="L155">                CascadeRepo source = byGa.get(up.ga());</span>
+<span class="pc bpc" id="L156" title="1 of 2 branches missed.">                if (source == null || source.downstream().stream()</span>
+<span class="pc bpc" id="L157" title="1 of 2 branches missed.">                        .noneMatch(d -&gt; d.ga().equals(node.ga()))) {</span>
+<span class="nc" id="L158">                    throw new IllegalArgumentException(</span>
+<span class="nc" id="L159">                            &quot;one-sided cascade edge: &quot; + node.ga()</span>
+<span class="nc" id="L160">                            + &quot; lists &quot; + up.ga() + &quot; as upstream,&quot;</span>
+<span class="nc" id="L161">                            + &quot; but &quot; + up.ga() + &quot; does not list &quot;</span>
+<span class="nc" id="L162">                            + node.ga() + &quot; as downstream&quot;);</span>
                 }
-<span class="fc" id="L157">            }</span>
-<span class="fc" id="L158">        }</span>
-<span class="fc" id="L159">    }</span>
+<span class="fc" id="L164">            }</span>
+<span class="fc" id="L165">        }</span>
+<span class="fc" id="L166">    }</span>
 
     /**
      * Kahn topological sort — a node follows every node it consumes.
-     * Ties break on groupId so the order is deterministic.
+     * Ties break on ga so the order is deterministic.
      */
     private static List&lt;CascadeRepo&gt; topologicalOrder(
-            Map&lt;String, CascadeRepo&gt; byGroupId) {
-<span class="fc" id="L167">        Map&lt;String, Integer&gt; inDegree = new HashMap&lt;&gt;();</span>
-<span class="fc bfc" id="L168" title="All 2 branches covered.">        for (CascadeRepo node : byGroupId.values()) {</span>
-<span class="fc" id="L169">            inDegree.put(node.groupId(), node.upstream().size());</span>
-<span class="fc" id="L170">        }</span>
-<span class="fc" id="L171">        TreeSet&lt;String&gt; ready = new TreeSet&lt;&gt;();</span>
-<span class="fc" id="L172">        inDegree.forEach((groupId, degree) -&gt; {</span>
-<span class="fc bfc" id="L173" title="All 2 branches covered.">            if (degree == 0) {</span>
-<span class="fc" id="L174">                ready.add(groupId);</span>
+            Map&lt;String, CascadeRepo&gt; byGa) {
+<span class="fc" id="L174">        Map&lt;String, Integer&gt; inDegree = new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L175" title="All 2 branches covered.">        for (CascadeRepo node : byGa.values()) {</span>
+<span class="fc" id="L176">            inDegree.put(node.ga(), node.upstream().size());</span>
+<span class="fc" id="L177">        }</span>
+<span class="fc" id="L178">        TreeSet&lt;String&gt; ready = new TreeSet&lt;&gt;();</span>
+<span class="fc" id="L179">        inDegree.forEach((ga, degree) -&gt; {</span>
+<span class="fc bfc" id="L180" title="All 2 branches covered.">            if (degree == 0) {</span>
+<span class="fc" id="L181">                ready.add(ga);</span>
             }
-<span class="fc" id="L176">        });</span>
+<span class="fc" id="L183">        });</span>
 
-<span class="fc" id="L178">        List&lt;CascadeRepo&gt; order = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L179" title="All 2 branches covered.">        while (!ready.isEmpty()) {</span>
-<span class="fc" id="L180">            String groupId = ready.pollFirst();</span>
-<span class="fc" id="L181">            CascadeRepo node = byGroupId.get(groupId);</span>
-<span class="fc" id="L182">            order.add(node);</span>
-<span class="fc bfc" id="L183" title="All 2 branches covered.">            for (CascadeEdge down : node.downstream()) {</span>
-<span class="fc" id="L184">                int remaining = inDegree.merge(</span>
-<span class="fc" id="L185">                        down.groupId(), -1, Integer::sum);</span>
-<span class="fc bfc" id="L186" title="All 2 branches covered.">                if (remaining == 0) {</span>
-<span class="fc" id="L187">                    ready.add(down.groupId());</span>
+<span class="fc" id="L185">        List&lt;CascadeRepo&gt; order = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L186" title="All 2 branches covered.">        while (!ready.isEmpty()) {</span>
+<span class="fc" id="L187">            String ga = ready.pollFirst();</span>
+<span class="fc" id="L188">            CascadeRepo node = byGa.get(ga);</span>
+<span class="fc" id="L189">            order.add(node);</span>
+<span class="fc bfc" id="L190" title="All 2 branches covered.">            for (CascadeEdge down : node.downstream()) {</span>
+<span class="fc" id="L191">                int remaining = inDegree.merge(</span>
+<span class="fc" id="L192">                        down.ga(), -1, Integer::sum);</span>
+<span class="fc bfc" id="L193" title="All 2 branches covered.">                if (remaining == 0) {</span>
+<span class="fc" id="L194">                    ready.add(down.ga());</span>
                 }
-<span class="fc" id="L189">            }</span>
-<span class="fc" id="L190">        }</span>
-<span class="pc bpc" id="L191" title="1 of 2 branches missed.">        if (order.size() != byGroupId.size()) {</span>
-<span class="nc" id="L192">            throw new IllegalArgumentException(</span>
+<span class="fc" id="L196">            }</span>
+<span class="fc" id="L197">        }</span>
+<span class="pc bpc" id="L198" title="1 of 2 branches missed.">        if (order.size() != byGa.size()) {</span>
+<span class="nc" id="L199">            throw new IllegalArgumentException(</span>
                     &quot;release cascade contains a cycle — no release&quot;
                     + &quot; order exists&quot;);
         }
-<span class="fc" id="L196">        return order;</span>
+<span class="fc" id="L203">        return order;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
