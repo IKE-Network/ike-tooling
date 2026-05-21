@@ -12,14 +12,14 @@ canonical_url: https://ike.network/ike-tooling/ike-java-support/dependency-info.
 <dependency>
   <groupId>network.ike.tooling</groupId>
   <artifactId>ike-java-support</artifactId>
-  <version>195</version>
+  <version>196</version>
 </dependency>
 ```
 
 ## [Apache Ivy](#apache-ivy)
 
 ```
-<dependency org="network.ike.tooling" name="ike-java-support" rev="195">
+<dependency org="network.ike.tooling" name="ike-java-support" rev="196">
   <artifact name="ike-java-support" type="jar" />
 </dependency>
 ```
@@ -28,24 +28,24 @@ canonical_url: https://ike.network/ike-tooling/ike-java-support/dependency-info.
 
 ```
 @Grapes(
-@Grab(group='network.ike.tooling', module='ike-java-support', version='195')
+@Grab(group='network.ike.tooling', module='ike-java-support', version='196')
 )
 ```
 
 ## [Gradle/Grails](#gradle-grails)
 
 ```
-implementation 'network.ike.tooling:ike-java-support:195'
+implementation 'network.ike.tooling:ike-java-support:196'
 ```
 
 ## [Scala SBT](#scala-sbt)
 
 ```
-libraryDependencies += "network.ike.tooling" % "ike-java-support" % "195"
+libraryDependencies += "network.ike.tooling" % "ike-java-support" % "196"
 ```
 
 ## [Leiningen](#leiningen)
 
 ```
-[network.ike.tooling/ike-java-support "195"]
+[network.ike.tooling/ike-java-support "196"]
 ```

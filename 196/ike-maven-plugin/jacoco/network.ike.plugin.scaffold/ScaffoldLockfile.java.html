@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldLockfile.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">ScaffoldLockfile.java</span></div><h1>ScaffoldLockfile.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * In-memory representation of a scaffold lockfile.
+ *
+ * &lt;p&gt;Two lockfile instances exist per scaffold run:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code {project.root}/.ike/scaffold.lock} — committed to git,
+ *       tracks what the scaffold has installed in a project.&lt;/li&gt;
+ *   &lt;li&gt;{@code {user.home}/.ike/scaffold.lock} — local to a machine,
+ *       tracks what the scaffold has installed in the user-home tier
+ *       ({@code ~/.git-hooks/}, {@code ~/.m2/settings.xml}, etc.).&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;The on-disk format is YAML; see
+ * {@code ScaffoldLockfileIo} for parse/emit.
+ *
+ * &lt;p&gt;This class records only current scaffold-owned state; it never
+ * stores user secrets or free-form user content.
+ *
+ * @param schema           lockfile schema version (currently
+ *                         {@link #CURRENT_SCHEMA}); future schema
+ *                         bumps will be accompanied by an in-place
+ *                         migrator
+ * @param standardsVersion {@code ike-build-standards} version that
+ *                         produced the last applied state; may be
+ *                         {@code null} for a newly created lockfile
+ *                         that has not yet had a successful publish
+ * @param applied          UTC timestamp of the last successful
+ *                         publish; may be {@code null} (never
+ *                         published)
+ * @param files            per-file entries, keyed by scaffold path.
+ *                         Paths are normalised to forward slashes and
+ *                         may use the {@code &quot;~/&quot;} prefix for
+ *                         user-home scope. Insertion order is
+ *                         preserved. The stored map is unmodifiable.
+ */
+public record ScaffoldLockfile(
+        int schema,
+        String standardsVersion,
+        Instant applied,
+        Map&lt;String, LockfileEntry&gt; files) {
+
+    /**
+     * The current on-disk schema version. Bumps here must be paired
+     * with a migration in {@code ScaffoldLockfileIo}.
+     */
+    public static final int CURRENT_SCHEMA = 1;
+
+    /**
+     * Canonical constructor with validation and defensive copying of
+     * the file map.
+     */
+<span class="fc" id="L61">    public ScaffoldLockfile {</span>
+<span class="fc bfc" id="L62" title="All 2 branches covered.">        if (schema &lt;= 0) {</span>
+<span class="fc" id="L63">            throw new IllegalArgumentException(</span>
+                    &quot;schema must be positive&quot;);
+        }
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        files = files == null</span>
+<span class="nc" id="L67">                ? Collections.emptyMap()</span>
+<span class="fc" id="L68">                : Collections.unmodifiableMap(</span>
+                        new LinkedHashMap&lt;&gt;(files));
+<span class="fc bfc" id="L70" title="All 2 branches covered.">        for (Map.Entry&lt;String, LockfileEntry&gt; e : files.entrySet()) {</span>
+<span class="fc" id="L71">            Objects.requireNonNull(e.getKey(),</span>
+                    &quot;lockfile entry key must not be null&quot;);
+<span class="fc" id="L73">            Objects.requireNonNull(e.getValue(),</span>
+                    &quot;lockfile entry value must not be null&quot;);
+<span class="fc bfc" id="L75" title="All 2 branches covered.">            if (e.getKey().isBlank()) {</span>
+<span class="fc" id="L76">                throw new IllegalArgumentException(</span>
+                        &quot;lockfile entry key must not be blank&quot;);
+            }
+<span class="fc" id="L79">        }</span>
+<span class="fc" id="L80">    }</span>
+
+    /**
+     * Create an empty lockfile at the current schema with no entries
+     * and no applied state. Useful for initialising a new scaffold
+     * target.
+     *
+     * @return a blank {@code ScaffoldLockfile} at
+     *         {@link #CURRENT_SCHEMA}
+     */
+    public static ScaffoldLockfile empty() {
+<span class="fc" id="L91">        return new ScaffoldLockfile(</span>
+                CURRENT_SCHEMA,
+                null,
+                null,
+<span class="fc" id="L95">                Collections.emptyMap());</span>
+    }
+
+    /**
+     * Return a copy of this lockfile with one entry added or replaced.
+     *
+     * @param path  scaffold path key
+     * @param entry entry to store
+     * @return a new lockfile with the entry in place (insertion order
+     *         preserved: new keys append; existing keys keep their
+     *         position)
+     */
+    public ScaffoldLockfile withEntry(String path, LockfileEntry entry) {
+<span class="fc" id="L108">        Objects.requireNonNull(path, &quot;path&quot;);</span>
+<span class="fc" id="L109">        Objects.requireNonNull(entry, &quot;entry&quot;);</span>
+<span class="fc" id="L110">        LinkedHashMap&lt;String, LockfileEntry&gt; next =</span>
+                new LinkedHashMap&lt;&gt;(files);
+<span class="fc" id="L112">        next.put(path, entry);</span>
+<span class="fc" id="L113">        return new ScaffoldLockfile(</span>
+                schema, standardsVersion, applied, next);
+    }
+
+    /**
+     * Return a copy of this lockfile with one entry removed.
+     *
+     * @param path scaffold path key to drop; missing keys are ignored
+     * @return a new lockfile without that entry; the same instance
+     *         if the entry was already absent
+     */
+    public ScaffoldLockfile withoutEntry(String path) {
+<span class="fc" id="L125">        Objects.requireNonNull(path, &quot;path&quot;);</span>
+<span class="fc bfc" id="L126" title="All 2 branches covered.">        if (!files.containsKey(path)) {</span>
+<span class="fc" id="L127">            return this;</span>
+        }
+<span class="fc" id="L129">        LinkedHashMap&lt;String, LockfileEntry&gt; next =</span>
+                new LinkedHashMap&lt;&gt;(files);
+<span class="fc" id="L131">        next.remove(path);</span>
+<span class="fc" id="L132">        return new ScaffoldLockfile(</span>
+                schema, standardsVersion, applied, next);
+    }
+
+    /**
+     * Return a copy with the top-level {@code standardsVersion} and
+     * {@code applied} stamps updated (used when publish completes).
+     *
+     * @param standardsVersion the ike-build-standards version just
+     *                         applied; must not be {@code null}
+     * @param applied          timestamp of the publish; must not be
+     *                         {@code null}
+     * @return a new lockfile with updated stamps
+     */
+    public ScaffoldLockfile withAppliedStamp(
+            String standardsVersion, Instant applied) {
+<span class="fc" id="L148">        Objects.requireNonNull(standardsVersion, &quot;standardsVersion&quot;);</span>
+<span class="fc" id="L149">        Objects.requireNonNull(applied, &quot;applied&quot;);</span>
+<span class="fc" id="L150">        return new ScaffoldLockfile(</span>
+                schema, standardsVersion, applied, files);
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

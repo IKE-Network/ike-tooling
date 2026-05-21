@@ -27,5 +27,5 @@ canonical_url: https://ike.network/ike-tooling/ike-build-standards/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-build-standards |
-| Version | 195 |
+| Version | 196 |
 | Type | pom |
