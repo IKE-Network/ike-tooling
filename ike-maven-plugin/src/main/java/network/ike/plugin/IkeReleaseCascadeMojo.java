@@ -28,9 +28,28 @@ import java.util.regex.Pattern;
  * declaring only its own edges. This goal reads the local repo's
  * manifest, walks the edges into the sibling checkouts to assemble
  * the full ordered graph, and runs {@code ike:release-publish} on
- * every repo that has unreleased changes — in order, so each repo's
- * Nexus deploy completes before the next (which {@code ike:release-publish}
- * aligns to its upstreams, #419-B) begins.
+ * every {@link #releasePending release-pending} member in topological
+ * order. Each member's Nexus deploy completes before the next
+ * (which {@code ike:release-publish} aligns to its upstreams,
+ * {@code alignUpstreamProperties}, #419-B) begins.
+ *
+ * <p>A member is release-pending when either:
+ * <ul>
+ *   <li>it has at least one non-release-cadence commit since its
+ *       latest {@code v*} tag (substantive change), OR</li>
+ *   <li>at least one of its upstream's {@code ${X.version}} property
+ *       pin in the local POM is older than that upstream's latest
+ *       released tag (stale upstream pin, #468).</li>
+ * </ul>
+ *
+ * <p>The walk is a single full-graph topological sweep, not a
+ * single-source downstream walk: from any starting node the assembler
+ * reaches every connected member, and every release-pending node
+ * releases exactly once even when the graph has multiple heads that
+ * converge on a shared terminal (#468). The walker is idempotent —
+ * re-running with no release-pending nodes is a no-op — and
+ * crash-safe — re-running after a partial cascade re-evaluates the
+ * release-pending set and picks up from the first unfinished member.
  *
  * <p>This is the {@code ike:}-tier cascade executor. The foundation
  * repos cannot form a workspace — {@code ike-workspace-maven-plugin}
@@ -121,7 +140,7 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
         List<Outcome> outcomes = new ArrayList<>();
         for (CascadeRepo repo : cascade.repos()) {
             File dir = new File(siblings, repo.repo());
-            Outcome outcome = walkOne(dir, repo.repo());
+            Outcome outcome = walkOne(dir, repo, siblings);
             outcomes.add(outcome);
             if (outcome.kind() == Kind.FAILED) {
                 reportSummary(outcomes);
@@ -178,14 +197,26 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
     }
 
     /**
-     * Processes one cascade member: detect git state, release it when
-     * it has unreleased changes.
+     * Processes one cascade member: detect release-pending state,
+     * release the member when its substantive commits or stale
+     * upstream pins make it release-pending.
      *
-     * @param dir  the member's checkout directory
-     * @param name the member's repo name
+     * <p>The release-pending decision combines two independent signals
+     * — substantive commits since the last {@code v*} tag, and stale
+     * upstream version-property pins relative to each upstream's
+     * latest tag. Either signal is sufficient. Both are reported in
+     * the per-member log so the operator can see WHY each member
+     * released (or didn't).
+     *
+     * @param dir      the member's checkout directory
+     * @param repo     the member's assembled cascade node (carries
+     *                 its upstream edges)
+     * @param siblings the parent directory containing every
+     *                 cascade-member checkout
      * @return the outcome
      */
-    private Outcome walkOne(File dir, String name) {
+    private Outcome walkOne(File dir, CascadeRepo repo, File siblings) {
+        String name = repo.repo();
         getLog().info("─── " + name + " ───");
         if (!dir.isDirectory() || !new File(dir, ".git").exists()
                 || !new File(dir, "pom.xml").isFile()) {
@@ -195,19 +226,36 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
         }
 
         String tag = latestReleaseTag(dir);
-        if (tag == null) {
+        int meaningful = tag == null
+                ? 0  // first release reported via tag==null branch below
+                : meaningfulCommitsSinceTag(dir, tag);
+        List<String> stalePins = stalePinsFor(repo, dir, siblings);
+        boolean firstRelease = tag == null;
+
+        if (!firstRelease && meaningful == 0 && stalePins.isEmpty()) {
+            getLog().info("  At " + tag + "; no meaningful commits"
+                    + " since and no stale upstream pins —"
+                    + " skipping (already released).");
+            getLog().info("");
+            return new Outcome(name, Kind.UP_TO_DATE, tag);
+        }
+
+        if (firstRelease) {
             getLog().info("  Never released — releasing for the"
                     + " first time.");
-        } else {
-            int meaningful = meaningfulCommitsSinceTag(dir, tag);
-            if (meaningful == 0) {
-                getLog().info("  At " + tag + "; no meaningful commits"
-                        + " since — skipping (already released).");
-                getLog().info("");
-                return new Outcome(name, Kind.UP_TO_DATE, tag);
-            }
+        } else if (meaningful > 0) {
             getLog().info("  At " + tag + "; " + meaningful
                     + " meaningful commit(s) since.");
+        } else {
+            getLog().info("  At " + tag
+                    + "; no meaningful commits since.");
+        }
+        if (!stalePins.isEmpty()) {
+            getLog().info("  Stale upstream pin(s) (release-publish"
+                    + " will align before tagging):");
+            for (String pin : stalePins) {
+                getLog().info("    • " + pin);
+            }
         }
 
         File mvnw = ReleaseSupport.resolveMavenWrapper(dir, getLog());
@@ -242,8 +290,71 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
         }
     }
 
+    /**
+     * Returns descriptions of stale upstream version-property pins
+     * for {@code node}. A pin is stale when the local POM's
+     * {@code <${X.version}>} value is older than the upstream's
+     * latest {@code v*} tag (the upstream's last known release).
+     *
+     * <p>Format is {@code "ike-tooling.version  (191 → 192)"} so the
+     * cascade log can show the operator exactly which property
+     * release-publish's {@code alignUpstreamProperties} will bump.
+     *
+     * <p>Empty list when every upstream is at its latest tag, when
+     * {@code node} has no upstream edges (cascade head), or when an
+     * upstream's checkout is missing (the walker reports that
+     * separately when it tries to walk the missing member).
+     *
+     * <p>Visible for testing.
+     *
+     * @param node     the cascade node being inspected
+     * @param nodeDir  the node's checkout directory (its POM lives at
+     *                 {@code nodeDir/pom.xml})
+     * @param siblings the directory containing every cascade-member
+     *                 checkout
+     * @return per-pin stale descriptions, never null
+     */
+    static List<String> stalePinsFor(CascadeRepo node, File nodeDir,
+                                     File siblings) {
+        List<String> stale = new ArrayList<>();
+        File pom = new File(nodeDir, "pom.xml");
+        if (!pom.isFile()) {
+            return stale;
+        }
+        for (CascadeEdge up : node.upstream()) {
+            String property = up.versionProperty();
+            if (property == null || property.isBlank()) {
+                // Upstream edge with no version-property — nothing to
+                // pin-check. Shouldn't normally happen for non-head
+                // nodes, but treat as not-stale rather than failing.
+                continue;
+            }
+            File upstreamDir = new File(siblings, up.repo());
+            if (!upstreamDir.isDirectory()) {
+                continue;
+            }
+            String upstreamTag = latestReleaseTag(upstreamDir);
+            if (upstreamTag == null) {
+                continue;
+            }
+            String upstreamLatest = upstreamTag.startsWith("v")
+                    ? upstreamTag.substring(1)
+                    : upstreamTag;
+            String pinned = ReleaseSupport.readPomProperty(pom, property);
+            if (pinned == null || pinned.isBlank()
+                    || pinned.contains("${")) {
+                continue;
+            }
+            if (!pinned.equals(upstreamLatest)) {
+                stale.add(property + "  (" + pinned + " → "
+                        + upstreamLatest + ")");
+            }
+        }
+        return stale;
+    }
+
     /** The newest {@code v*} release tag in a repo, or null. */
-    private static String latestReleaseTag(File dir) {
+    static String latestReleaseTag(File dir) {
         try {
             String tags = ReleaseSupport.execCapture(dir, "git", "tag",
                     "-l", "v*", "--sort=-version:refname");
