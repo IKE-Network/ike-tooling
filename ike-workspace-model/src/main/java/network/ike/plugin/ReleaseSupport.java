@@ -48,6 +48,48 @@ public class ReleaseSupport {
     }
 
     /**
+     * Env var key inspected by the VCS Bridge pre-commit hook
+     * ({@code ~/.git-hooks/pre-commit}) — IKE-Network/ike-issues#485.
+     */
+    static final String IKE_VCS_CONTEXT_KEY = "IKE_VCS_CONTEXT";
+
+    /**
+     * Env var value declaring a commit as tooling-initiated, so
+     * the VCS Bridge bypasses the same-machine cross-branch
+     * check. IKE-Network/ike-issues#485.
+     */
+    static final String IKE_VCS_CONTEXT_VALUE = "ike-maven-plugin";
+
+    /**
+     * Build a {@link ProcessBuilder} for an IKE tooling subprocess.
+     *
+     * <p>Sets {@code IKE_VCS_CONTEXT=ike-maven-plugin} in the
+     * subprocess environment so the VCS Bridge pre-commit hook
+     * recognizes tooling-initiated commits and bypasses the
+     * same-machine cross-branch check. Without this, multi-commit
+     * sequences like {@code ike:release-publish} fail when the
+     * release flow's branch switches between
+     * {@code release/<version>} and {@code main}: the pre-commit
+     * hook reads a stale state file from the intervening
+     * post-commit write and rejects the cross-branch commit.
+     *
+     * <p>Harmless for non-git subprocesses — the env var is only
+     * read by the bridge hooks. Package-private for testability.
+     * IKE-Network/ike-issues#485.
+     *
+     * @param workDir working directory for the subprocess
+     * @param command the command and arguments to execute
+     * @return a configured {@code ProcessBuilder} (caller still
+     *         sets redirects and starts the process)
+     */
+    static ProcessBuilder ikeProcessBuilder(File workDir,
+                                             String... command) {
+        ProcessBuilder pb = new ProcessBuilder(command).directory(workDir);
+        pb.environment().put(IKE_VCS_CONTEXT_KEY, IKE_VCS_CONTEXT_VALUE);
+        return pb;
+    }
+
+    /**
      * Run a command, inherit IO so output streams to the Maven console.
      * Throws on non-zero exit code.
      *
@@ -60,8 +102,7 @@ public class ReleaseSupport {
             throws MojoException {
         log.debug("» " + String.join(" ", command));
         try {
-            Process proc = new ProcessBuilder(command)
-                    .directory(workDir)
+            Process proc = ikeProcessBuilder(workDir, command)
                     .redirectErrorStream(true)
                     .start();
             // Route subprocess output through Maven's logger, stripping
@@ -187,8 +228,8 @@ public class ReleaseSupport {
                     .name("exec-" + task.label())
                     .start(() -> {
                         try {
-                            Process process = new ProcessBuilder(task.command())
-                                    .directory(workDir)
+                            Process process = ikeProcessBuilder(
+                                            workDir, task.command())
                                     .redirectErrorStream(true)
                                     .start();
 
@@ -241,8 +282,7 @@ public class ReleaseSupport {
     public static String execCapture(File workDir, String... command)
             throws MojoException {
         try {
-            Process process = new ProcessBuilder(command)
-                    .directory(workDir)
+            Process process = ikeProcessBuilder(workDir, command)
                     .redirectErrorStream(false)
                     .start();
             String output;
@@ -278,8 +318,7 @@ public class ReleaseSupport {
             throws MojoException {
         log.debug("» " + String.join(" ", command));
         try {
-            Process proc = new ProcessBuilder(command)
-                    .directory(workDir)
+            Process proc = ikeProcessBuilder(workDir, command)
                     .redirectErrorStream(true)
                     .start();
             StringBuilder captured = new StringBuilder();

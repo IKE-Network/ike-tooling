@@ -27,6 +27,50 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class ReleaseSupportTest {
 
+    // ── ikeProcessBuilder ────────────────────────────────────────────
+
+    /**
+     * The VCS Bridge bypass contract (IKE-Network/ike-issues#485):
+     * every subprocess spawned via {@code ReleaseSupport} must carry
+     * {@code IKE_VCS_CONTEXT=ike-maven-plugin} in its environment.
+     * Without this, multi-commit release sequences fail on machines
+     * with the bridge hooks installed.
+     */
+    @Test
+    void ikeProcessBuilder_setsVcsContextEnvVar(@TempDir Path tempDir) {
+        ProcessBuilder pb = ReleaseSupport.ikeProcessBuilder(
+                tempDir.toFile(), "echo", "hello");
+        assertThat(pb.environment())
+                .containsEntry(
+                        ReleaseSupport.IKE_VCS_CONTEXT_KEY,
+                        ReleaseSupport.IKE_VCS_CONTEXT_VALUE);
+        assertThat(ReleaseSupport.IKE_VCS_CONTEXT_KEY)
+                .isEqualTo("IKE_VCS_CONTEXT");
+        assertThat(ReleaseSupport.IKE_VCS_CONTEXT_VALUE)
+                .isEqualTo("ike-maven-plugin");
+    }
+
+    @Test
+    void ikeProcessBuilder_setsCommandAndWorkDir(@TempDir Path tempDir) {
+        ProcessBuilder pb = ReleaseSupport.ikeProcessBuilder(
+                tempDir.toFile(), "git", "status");
+        assertThat(pb.command()).containsExactly("git", "status");
+        assertThat(pb.directory()).isEqualTo(tempDir.toFile());
+    }
+
+    @Test
+    void ikeProcessBuilder_preservesInheritedEnv(@TempDir Path tempDir) {
+        // The env var is added, not replaced — PATH, HOME, and other
+        // inherited vars must survive. Critical because the
+        // subprocess (e.g., the JReleaser deploy script in the async
+        // path) reads JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_USERNAME
+        // and other inherited credentials.
+        ProcessBuilder pb = ReleaseSupport.ikeProcessBuilder(
+                tempDir.toFile(), "echo");
+        // PATH is essentially universal — assert it survived.
+        assertThat(pb.environment()).containsKey("PATH");
+    }
+
     // ── deriveReleaseVersion ─────────────────────────────────────────
 
     @Test
