@@ -35,6 +35,13 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "or .properties so a CI meta-runner can generate "
                     + "build-chain edges from release-cascade.yaml "
                     + "instead of hand-wiring them."),
+    /** {@code ike:central-status} — report async Maven Central deploy state (#484). */
+    CENTRAL_STATUS(IkeGoal.NAME_CENTRAL_STATUS, CentralStatusMojo.class,
+            "Report the status of asynchronous Maven Central deploys "
+                    + "spawned by ike:release-publish "
+                    + "-Dike.deploy.central.async=true. Walks the "
+                    + "sentinel cache (~/.cache/ike-release/) and "
+                    + "reports state, attempts, and log paths."),
     /** {@code ike:codesign-natives} — sign macOS native binaries in a runtime image. */
     CODESIGN_NATIVES(IkeGoal.NAME_CODESIGN_NATIVES, CodesignNativesMojo.class,
             "Sign macOS native libraries and executables inside a runtime image."),
@@ -148,6 +155,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
     /** Mirror for {@link #CASCADE_EXPORT}. */
     public static final String NAME_CASCADE_EXPORT = "cascade-export";
+    /** Mirror for {@link #CENTRAL_STATUS}. */
+    public static final String NAME_CENTRAL_STATUS = "central-status";
     /** Mirror for {@link #CODESIGN_NATIVES}. */
     public static final String NAME_CODESIGN_NATIVES = "codesign-natives";
     /** Mirror for {@link #CODESIGN_PKG}. */

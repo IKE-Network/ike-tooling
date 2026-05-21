@@ -24,6 +24,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -208,6 +209,39 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     @Parameter(property = "ike.skipCentralDeploy", defaultValue = "false")
     boolean skipCentralDeploy;
 
+    /**
+     * Run the Maven Central deploy phase asynchronously
+     * (IKE-Network/ike-issues#484). Defaults to false; opt in
+     * with {@code -Dike.deploy.central.async=true} or set the
+     * POM property in {@code ike-base-parent} once the feature
+     * is validated.
+     *
+     * <p>When true, after Nexus phase 1 succeeds the release
+     * goal writes a {@code PENDING} sentinel under
+     * {@code ~/.cache/ike-release/}, spawns a detached
+     * subprocess that runs the JReleaser upload with the same
+     * retry budget as the sync path, and returns control
+     * immediately. The subprocess rewrites the sentinel on
+     * completion. Track outcomes with {@code ike:central-status}.
+     *
+     * <p>Primary motivation: a foundation cascade
+     * ({@code ike-tooling → ike-docs → ike-platform → ...})
+     * no longer waits for Sonatype validation between members,
+     * since inter-cascade dependencies resolve through Nexus.
+     */
+    @Parameter(property = "ike.deploy.central.async",
+            defaultValue = "false")
+    boolean centralDeployAsync;
+
+    /**
+     * Override the sentinel directory for async Central
+     * deploys. Defaults to {@link CentralDeploySentinel#DEFAULT_DIR}.
+     * Mainly for tests; production releases should use the
+     * default so {@code ike:central-status} finds them.
+     */
+    @Parameter(property = "ike.central.sentinelDir")
+    String centralSentinelDir;
+
     // ── Deploy-phase outcome tracking (#482) ─────────────────────
     // Written by deployArtifacts(), read by the post-release log
     // and buildReleaseReport(). Defaults represent the "did not
@@ -221,6 +255,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     private String centralDeploySkipReason;
     /** Non-null when Central was attempted and exhausted retries. */
     private String centralDeployFailureSummary;
+    /** True when async path spawned the detached Central subprocess (#484). */
+    private boolean centralDeployAsyncSpawned;
+    /** Sentinel file for the async spawn; null in sync mode. */
+    private Path centralDeploySentinelPath;
+    /** Log file the async subprocess streams its output to. */
+    private Path centralDeployLogPath;
 
     /**
      * GitHub repository for issue tracking, used to look up a milestone
@@ -834,7 +874,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     + "(ike.skipNexusDeploy=true)");
         }
         if (publishToCentral) {
-            if (centralDeploySucceeded) {
+            if (centralDeployAsyncSpawned) {
+                getLog().info("  Maven Central: running async — "
+                        + "track with `mvn "
+                        + IkeGoal.CENTRAL_STATUS.qualified()
+                        + "`, tail " + centralDeployLogPath);
+            } else if (centralDeploySucceeded) {
                 getLog().info("  Published to Maven Central "
                         + "(attempt " + centralDeployAttempts
                         + "/" + centralDeployMaxAttempts + ")");
@@ -942,7 +987,262 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     + ", and run `mvn jreleaser:deploy`.");
             return;
         }
-        deployToMavenCentralWithRetry(gitRoot, mvnw);
+        if (centralDeployAsync) {
+            spawnCentralDeployAsync(gitRoot, mvnw);
+        } else {
+            deployToMavenCentralWithRetry(gitRoot, mvnw);
+        }
+    }
+
+    /**
+     * Spawn the Maven Central deploy as a detached subprocess
+     * (IKE-Network/ike-issues#484). The subprocess runs the retry
+     * loop in a bash wrapper that writes its own start/success/
+     * failure sentinel under {@code ~/.cache/ike-release/}, so the
+     * outcome survives the originating Maven JVM exit.
+     *
+     * <p>Why bash and not Java: the wrapper has to outlive this
+     * Maven invocation. A Java {@code ProcessBuilder.start()}
+     * child reparents to launchd cleanly on macOS/Linux, but the
+     * inherited stdin/stdout/stderr need explicit detachment to
+     * survive a terminal close. A bash {@code nohup ... &} pattern
+     * handles both — SIGHUP immunity and full background — with
+     * less platform-specific Java code.
+     *
+     * @param gitRoot the release working tree at v&lt;version&gt;
+     * @param mvnw    the Maven wrapper executable
+     */
+    private void spawnCentralDeployAsync(File gitRoot, File mvnw) {
+        Path sentinelDir = centralSentinelDir == null
+                || centralSentinelDir.isBlank()
+                        ? CentralDeploySentinel.DEFAULT_DIR
+                        : Paths.get(centralSentinelDir);
+        String artifactId = gitRoot.getName();
+        centralDeploySentinelPath = CentralDeploySentinel
+                .resolvePath(sentinelDir, artifactId, releaseVersion);
+        centralDeployLogPath = sentinelDir.resolve(
+                artifactId + "-" + releaseVersion + ".log");
+
+        try {
+            Files.createDirectories(sentinelDir);
+        } catch (IOException e) {
+            throw new MojoException("Could not create sentinel dir "
+                    + sentinelDir + ": " + e.getMessage(), e);
+        }
+
+        // Write initial PENDING sentinel before the subprocess starts.
+        // The subprocess updates it to SUCCESS/FAILURE on completion;
+        // if the subprocess never starts (spawn failure below), the
+        // PENDING record is replaced with FAILURE before this method
+        // throws.
+        Instant now = Instant.now();
+        CentralDeploySentinel pending = CentralDeploySentinel.builder()
+                .state(CentralDeploySentinel.State.PENDING)
+                .artifactId(artifactId)
+                .version(releaseVersion)
+                .started(now)
+                .attempts(0)
+                .maxAttempts(centralDeployMaxAttempts)
+                .logFile(centralDeployLogPath)
+                .path(centralDeploySentinelPath)
+                .build();
+        pending.write();
+
+        int[] backoff = parseBackoffSeconds(
+                "ike.deploy.central.backoffSeconds",
+                centralDeployBackoffSeconds);
+        Path scriptPath = sentinelDir.resolve(
+                artifactId + "-" + releaseVersion + ".sh");
+        String script = renderRetryScript(
+                gitRoot.toPath(), mvnw.toPath(),
+                centralDeploySentinelPath, centralDeployLogPath,
+                artifactId, releaseVersion,
+                centralDeployMaxAttempts, backoff, now);
+        try {
+            Files.writeString(scriptPath, script);
+            scriptPath.toFile().setExecutable(true);
+        } catch (IOException e) {
+            markAsyncSpawnFailure(pending,
+                    "Could not write retry script: " + e.getMessage());
+            throw new MojoException("Could not write Central deploy "
+                    + "retry script " + scriptPath + ": "
+                    + e.getMessage(), e);
+        }
+
+        // Detach: `bash -c "nohup <script> < /dev/null > /dev/null
+        // 2>&1 &"`. The outer bash forks the script into the
+        // background, immune to SIGHUP, and exits in microseconds.
+        // Inherited env (JRELEASER_*, PATH, etc.) propagates to the
+        // script. The script writes its own log via $LOG.
+        String spawnCommand = "nohup '" + scriptPath + "' "
+                + "< /dev/null > /dev/null 2>&1 &";
+        ProcessBuilder pb = new ProcessBuilder("bash", "-c", spawnCommand);
+        pb.directory(gitRoot);
+        try {
+            Process p = pb.start();
+            int exit = p.waitFor();
+            if (exit != 0) {
+                markAsyncSpawnFailure(pending,
+                        "bash forker exited " + exit);
+                throw new MojoException("Could not spawn detached "
+                        + "Central deploy: bash exited " + exit);
+            }
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            markAsyncSpawnFailure(pending,
+                    "Spawn failed: " + e.getMessage());
+            throw new MojoException("Could not spawn detached "
+                    + "Central deploy: " + e.getMessage(), e);
+        }
+
+        centralDeployAsyncSpawned = true;
+        getLog().info("Spawned async Maven Central deploy "
+                + "(IKE-Network/ike-issues#484).");
+        getLog().info("  Sentinel: " + centralDeploySentinelPath);
+        getLog().info("  Log:      " + centralDeployLogPath);
+        getLog().info("  Track:    mvn " + IkeGoal.CENTRAL_STATUS.qualified());
+    }
+
+    /**
+     * Rewrite a {@code PENDING} sentinel to {@code FAILURE} when
+     * the async spawn itself fails (script unwritable, bash exits
+     * non-zero). Without this the sentinel would stay {@code
+     * PENDING} forever despite no subprocess being alive.
+     *
+     * @param pending the PENDING sentinel to update
+     * @param reason  short failure summary
+     */
+    private void markAsyncSpawnFailure(CentralDeploySentinel pending,
+                                        String reason) {
+        try {
+            pending.toBuilder()
+                    .state(CentralDeploySentinel.State.FAILURE)
+                    .finished(Instant.now())
+                    .lastError(reason)
+                    .build()
+                    .write();
+        } catch (RuntimeException ignored) {
+            // Best-effort cleanup — surface the original failure
+            // upstream rather than masking it with a sentinel-write
+            // error.
+        }
+    }
+
+    /**
+     * Render the bash retry-loop script that runs
+     * {@code jreleaser:deploy} with bounded retries and rewrites
+     * the sentinel on each transition. Static + side-effect-free
+     * so the script body is straightforward to unit-test.
+     *
+     * @param gitRoot       absolute repository root
+     * @param mvnw          absolute path to the Maven wrapper
+     * @param sentinel      absolute path to the sentinel file
+     * @param log           absolute path to the deploy log file
+     * @param artifactId    project artifactId
+     * @param version       release version
+     * @param maxAttempts   configured max attempts
+     * @param backoff       inter-attempt waits in seconds
+     * @param started       deploy start instant (UTC)
+     * @return the script source
+     */
+    static String renderRetryScript(Path gitRoot, Path mvnw,
+                                     Path sentinel, Path log,
+                                     String artifactId, String version,
+                                     int maxAttempts, int[] backoff,
+                                     Instant started) {
+        StringBuilder backoffArr = new StringBuilder();
+        for (int i = 0; i < backoff.length; i++) {
+            if (i > 0) backoffArr.append(' ');
+            backoffArr.append(backoff[i]);
+        }
+        // The script is intentionally explicit (no Maven helpers) so a
+        // human can read it, run it directly to debug, or copy the
+        // jreleaser:deploy line for a manual retry.
+        return """
+                #!/bin/bash
+                # ike:release-publish Central deploy retry wrapper
+                # (IKE-Network/ike-issues#484). Generated %s.
+                # Safe to delete after sentinel reaches SUCCESS/FAILURE.
+                set -uo pipefail
+
+                ARTIFACT_ID="%s"
+                VERSION="%s"
+                STARTED="%s"
+                SENTINEL="%s"
+                LOG="%s"
+                GIT_ROOT="%s"
+                MVNW="%s"
+                MAX_ATTEMPTS=%d
+                BACKOFFS=(%s)
+
+                write_sentinel() {
+                  local state="$1"
+                  local extra="$2"
+                  local finished
+                  finished="$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)"
+                  local tmp="${SENTINEL}.tmp"
+                  {
+                    echo "#ike:release-publish Central deploy sentinel"
+                    echo "state=$state"
+                    echo "artifactId=$ARTIFACT_ID"
+                    echo "version=$VERSION"
+                    echo "started=$STARTED"
+                    echo "finished=$finished"
+                    echo "attempts=$ATTEMPTS"
+                    echo "maxAttempts=$MAX_ATTEMPTS"
+                    echo "logFile=$LOG"
+                    echo "pid=$$"
+                    if [ -n "$extra" ]; then
+                      printf '%%s\\n' "$extra"
+                    fi
+                  } > "$tmp"
+                  mv -f "$tmp" "$SENTINEL"
+                }
+
+                ATTEMPTS=0
+                {
+                  echo "[$(date)] Async Central deploy starting"
+                  echo "  artifact: $ARTIFACT_ID-$VERSION"
+                  echo "  git root: $GIT_ROOT"
+                  echo "  max attempts: $MAX_ATTEMPTS"
+                  echo "  backoffs (s): ${BACKOFFS[*]}"
+                } >> "$LOG"
+
+                while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+                  ATTEMPTS=$((ATTEMPTS + 1))
+                  echo "[$(date)] Attempt $ATTEMPTS/$MAX_ATTEMPTS" >> "$LOG"
+                  # Refresh PENDING with current attempt count so
+                  # ike:central-status reflects progress.
+                  write_sentinel "PENDING" ""
+                  if (cd "$GIT_ROOT" && "$MVNW" jreleaser:deploy -N -B) >> "$LOG" 2>&1; then
+                    write_sentinel "SUCCESS" ""
+                    echo "[$(date)] SUCCESS on attempt $ATTEMPTS" >> "$LOG"
+                    exit 0
+                  fi
+                  if [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; then
+                    IDX=$((ATTEMPTS - 1))
+                    if [ $IDX -ge ${#BACKOFFS[@]} ]; then
+                      IDX=$((${#BACKOFFS[@]} - 1))
+                    fi
+                    WAIT=${BACKOFFS[$IDX]}
+                    echo "[$(date)] Sleeping ${WAIT}s before next attempt" >> "$LOG"
+                    sleep "$WAIT"
+                  fi
+                done
+
+                write_sentinel "FAILURE" "lastError=exhausted $MAX_ATTEMPTS attempts; see $LOG"
+                echo "[$(date)] FAILURE after $ATTEMPTS attempts" >> "$LOG"
+                exit 1
+                """.formatted(
+                    started.toString(),
+                    artifactId, version, started.toString(),
+                    sentinel.toAbsolutePath(),
+                    log.toAbsolutePath(),
+                    gitRoot.toAbsolutePath(),
+                    mvnw.toAbsolutePath(),
+                    maxAttempts, backoffArr);
     }
 
     /**
@@ -1334,7 +1634,21 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     .append('\n');
             if (publishToCentral) {
                 deploy.append("- **Maven Central:** ");
-                if (centralDeploySucceeded) {
+                if (centralDeployAsyncSpawned) {
+                    // Async path (#484) — outcome unknown at this
+                    // point. Point the operator at the discovery
+                    // surface (sentinel + log + status goal) rather
+                    // than the (unknown) attempt count.
+                    deploy.append("⏳ running async (#484) — track "
+                                    + "with `mvn ")
+                            .append(IkeGoal.CENTRAL_STATUS.qualified())
+                            .append("`")
+                            .append("\n  - Sentinel: `")
+                            .append(centralDeploySentinelPath)
+                            .append("`\n  - Log: `")
+                            .append(centralDeployLogPath)
+                            .append('`');
+                } else if (centralDeploySucceeded) {
                     deploy.append("✅ succeeded on attempt ")
                             .append(centralDeployAttempts).append("/")
                             .append(centralDeployMaxAttempts);
@@ -1387,6 +1701,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * @return the outcome suffix
      */
     private String centralOutcomeSuffix() {
+        if (centralDeployAsyncSpawned) {
+            return " (async — see Deploy details)";
+        }
         if (centralDeploySucceeded) {
             return " (attempt " + centralDeployAttempts + "/"
                     + centralDeployMaxAttempts + ")";
