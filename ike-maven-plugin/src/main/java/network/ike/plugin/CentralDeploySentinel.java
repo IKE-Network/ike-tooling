@@ -83,27 +83,89 @@ public final class CentralDeploySentinel {
         this.path = b.path;
     }
 
-    /** @return the lifecycle state */
+    /**
+     * Lifecycle state of this sentinel.
+     *
+     * @return the state
+     */
     public State state() { return state; }
-    /** @return the project artifactId */
+
+    /**
+     * Project artifactId the deploy belongs to.
+     *
+     * @return the artifactId
+     */
     public String artifactId() { return artifactId; }
-    /** @return the release version */
+
+    /**
+     * Release version being deployed.
+     *
+     * @return the version
+     */
     public String version() { return version; }
-    /** @return when the deploy was spawned (UTC) */
+
+    /**
+     * When the deploy was spawned (UTC).
+     *
+     * @return the start instant
+     */
     public Instant started() { return started; }
-    /** @return when the deploy finished, or {@code null} when pending */
+
+    /**
+     * When the deploy reached a terminal state, or {@code null}
+     * while still {@link State#PENDING}.
+     *
+     * @return the finish instant, or {@code null} when pending
+     */
     public Instant finished() { return finished; }
-    /** @return number of attempts taken */
+
+    /**
+     * Number of attempts taken — refreshed by the subprocess
+     * before each upload so {@code ike:central-status} reflects
+     * live progress.
+     *
+     * @return attempts taken so far
+     */
     public int attempts() { return attempts; }
-    /** @return configured maximum attempts */
+
+    /**
+     * Configured maximum attempts for the retry loop, recorded
+     * so the displayed {@code attempts/max} ratio is meaningful
+     * even after the configuration changes between releases.
+     *
+     * @return the configured maximum
+     */
     public int maxAttempts() { return maxAttempts; }
-    /** @return failure summary, or {@code null} when not failed */
+
+    /**
+     * Short failure summary captured by the subprocess when the
+     * retry budget is exhausted.
+     *
+     * @return failure summary, or {@code null} when not failed
+     */
     public String lastError() { return lastError; }
-    /** @return path to the deploy log file */
+
+    /**
+     * Path the subprocess streams its deploy log to.
+     *
+     * @return the log-file path, or {@code null} if not recorded
+     */
     public Path logFile() { return logFile; }
-    /** @return PID of the spawned subprocess (when pending), or 0 */
+
+    /**
+     * PID of the spawned subprocess. Written while {@link State#PENDING}
+     * so {@code ike:central-status} can detect orphaned sentinels
+     * (subprocess died, sentinel never advanced).
+     *
+     * @return the PID, or 0 if not recorded
+     */
     public long pid() { return pid; }
-    /** @return path to this sentinel file */
+
+    /**
+     * Absolute path to this sentinel file on disk.
+     *
+     * @return the sentinel file path
+     */
     public Path path() { return path; }
 
     /**
@@ -229,10 +291,21 @@ public final class CentralDeploySentinel {
         }
     }
 
-    /** Start a new builder. */
+    /**
+     * Start a new, empty builder.
+     *
+     * @return a fresh builder
+     */
     public static Builder builder() { return new Builder(); }
 
-    /** @return a builder pre-seeded with this sentinel's fields */
+    /**
+     * Start a builder pre-seeded with this sentinel's fields —
+     * the typical entry point for the subprocess transitioning
+     * {@link State#PENDING} to {@link State#SUCCESS} or
+     * {@link State#FAILURE} without restating immutable fields.
+     *
+     * @return a builder seeded from this sentinel
+     */
     public Builder toBuilder() {
         return new Builder()
                 .state(state)
@@ -248,7 +321,12 @@ public final class CentralDeploySentinel {
                 .path(path);
     }
 
-    /** Builder for {@link CentralDeploySentinel}. */
+    /**
+     * Fluent builder for {@link CentralDeploySentinel}. Required
+     * fields ({@code state, artifactId, version, started, path})
+     * are validated by {@link #build()}; the rest are optional
+     * and default to their type's zero / {@code null}.
+     */
     public static final class Builder {
         private State state;
         private String artifactId;
@@ -262,30 +340,107 @@ public final class CentralDeploySentinel {
         private long pid;
         private Path path;
 
-        /** @param v lifecycle state */
+        /** Creates an empty builder; use {@link #builder()}. */
+        Builder() {}
+
+        /**
+         * Set the lifecycle state.
+         *
+         * @param v lifecycle state (must not be {@code null})
+         * @return this builder for chaining
+         */
         public Builder state(State v) { this.state = v; return this; }
-        /** @param v project artifactId */
+
+        /**
+         * Set the project artifactId.
+         *
+         * @param v project artifactId
+         * @return this builder for chaining
+         */
         public Builder artifactId(String v) { this.artifactId = v; return this; }
-        /** @param v release version */
+
+        /**
+         * Set the release version.
+         *
+         * @param v release version
+         * @return this builder for chaining
+         */
         public Builder version(String v) { this.version = v; return this; }
-        /** @param v start instant (UTC) */
+
+        /**
+         * Set the start instant.
+         *
+         * @param v start instant (UTC)
+         * @return this builder for chaining
+         */
         public Builder started(Instant v) { this.started = v; return this; }
-        /** @param v finish instant or null if still pending */
+
+        /**
+         * Set the finish instant; pass {@code null} for a
+         * sentinel still in {@link State#PENDING}.
+         *
+         * @param v finish instant, or {@code null} if pending
+         * @return this builder for chaining
+         */
         public Builder finished(Instant v) { this.finished = v; return this; }
-        /** @param v attempts taken */
+
+        /**
+         * Set the number of attempts taken.
+         *
+         * @param v attempts taken so far
+         * @return this builder for chaining
+         */
         public Builder attempts(int v) { this.attempts = v; return this; }
-        /** @param v configured max attempts */
+
+        /**
+         * Set the configured maximum attempts.
+         *
+         * @param v configured max attempts
+         * @return this builder for chaining
+         */
         public Builder maxAttempts(int v) { this.maxAttempts = v; return this; }
-        /** @param v failure summary or null */
+
+        /**
+         * Set the failure summary; pass {@code null} when not failed.
+         *
+         * @param v failure summary, or {@code null}
+         * @return this builder for chaining
+         */
         public Builder lastError(String v) { this.lastError = v; return this; }
-        /** @param v deploy log file path */
+
+        /**
+         * Set the deploy-log file path.
+         *
+         * @param v deploy log file path
+         * @return this builder for chaining
+         */
         public Builder logFile(Path v) { this.logFile = v; return this; }
-        /** @param v subprocess PID or 0 */
+
+        /**
+         * Set the subprocess PID.
+         *
+         * @param v subprocess PID, or 0 if not recorded
+         * @return this builder for chaining
+         */
         public Builder pid(long v) { this.pid = v; return this; }
-        /** @param v sentinel file path */
+
+        /**
+         * Set the sentinel-file path on disk. Required.
+         *
+         * @param v sentinel file path
+         * @return this builder for chaining
+         */
         public Builder path(Path v) { this.path = v; return this; }
 
-        /** @return the built immutable sentinel */
+        /**
+         * Validate required fields and build the immutable
+         * sentinel value.
+         *
+         * @return the built immutable sentinel
+         * @throws IllegalStateException if any required field
+         *         ({@code state, artifactId, version, started,
+         *         path}) is unset
+         */
         public CentralDeploySentinel build() {
             if (state == null || artifactId == null || version == null
                     || started == null || path == null) {
