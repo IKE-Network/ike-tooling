@@ -28,9 +28,9 @@ import java.util.regex.Pattern;
  * declaring only its own edges. This goal reads the local repo's
  * manifest, walks the edges into the sibling checkouts to assemble
  * the full ordered graph, and runs {@code ike:release-publish} on
- * every {@link #releasePending release-pending} member in topological
- * order. Each member's Nexus deploy completes before the next
- * (which {@code ike:release-publish} aligns to its upstreams,
+ * every release-pending member in topological order. Each member's
+ * Nexus deploy completes before the next (which
+ * {@code ike:release-publish} aligns to its upstreams via
  * {@code alignUpstreamProperties}, #419-B) begins.
  *
  * <p>A member is release-pending when either:
