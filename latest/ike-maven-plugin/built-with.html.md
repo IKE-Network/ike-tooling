@@ -6,7 +6,7 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/built-with.html
 
 # Built With
 
-Open-source software that `ike-maven-plugin` 193 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-maven-plugin` 194 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 
@@ -68,7 +68,7 @@ Direct dependencies of this module, grouped by SPDX expression. Generated from `
 
 | SPDX Expression | Components |
 | --- | --- |
-| `Apache-2.0` | 53 |
+| `Apache-2.0` | 54 |
 | `BSD-2-Clause` | 2 |
 | `EPL-2.0 OR GPL-2.0 OR LGPL-2.1` | 3 |
 | `BSD-3-Clause` | 6 |
@@ -80,7 +80,7 @@ Direct dependencies of this module, grouped by SPDX expression. Generated from `
 | `Apache-2.0 OR LGPL-2.1-or-later` | 2 |
 | `BSD-2-Clause OR CC0-1.0` | 1 |
 | `CC0-1.0` | 1 |
-| **Total** | **78** |
+| **Total** | **79** |
 
 For full per-component detail (group, artifact, version, hashes, transitive deps), see [bom.json](bom.json)[1] or [licenses.html](licenses.html)[2].
 

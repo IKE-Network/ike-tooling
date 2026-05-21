@@ -15,8 +15,9 @@ This document provides an overview of the various documents and links that are p
 | [About](index.html)[2] | Workspace management, release orchestration, gitflow workflows, and build-time utilities for IKE Network projects. |
 | [Summary](summary.html)[3] | This document lists other related information of this project |
 | [Licenses](licenses.html)[4] | This document lists the project license(s). |
-| [Maven Coordinates](dependency-info.html)[5] | This document describes how to include this project as a dependency using various dependency management tools. |
-| [Dependency Management](dependency-management.html)[6] | This document lists the dependencies that are defined through dependencyManagement. |
-| [Plugins](plugins.html)[7] | This document lists the build plugins and the report plugins used by this project. |
-| [Plugin Management](plugin-management.html)[8] | This document lists the plugins that are defined through pluginManagement. |
-| [Distribution Management](distribution-management.html)[9] | This document provides informations on the distribution management of this project. |
+| [Dependencies](dependencies.html)[5] | This document lists the project's dependencies and provides information on each dependency. |
+| [Maven Coordinates](dependency-info.html)[6] | This document describes how to include this project as a dependency using various dependency management tools. |
+| [Dependency Management](dependency-management.html)[7] | This document lists the dependencies that are defined through dependencyManagement. |
+| [Plugins](plugins.html)[8] | This document lists the build plugins and the report plugins used by this project. |
+| [Plugin Management](plugin-management.html)[9] | This document lists the plugins that are defined through pluginManagement. |
+| [Distribution Management](distribution-management.html)[10] | This document provides informations on the distribution management of this project. |

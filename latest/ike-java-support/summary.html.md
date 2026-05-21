@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-java-support/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-java-support |
-| Version | 193 |
+| Version | 194 |
 | Type | jar |
 | Java Version | 25 |
