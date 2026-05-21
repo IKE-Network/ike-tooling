@@ -211,10 +211,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
 
     /**
      * Run the Maven Central deploy phase asynchronously
-     * (IKE-Network/ike-issues#484). Defaults to false; opt in
-     * with {@code -Dike.deploy.central.async=true} or set the
-     * POM property in {@code ike-base-parent} once the feature
-     * is validated.
+     * (IKE-Network/ike-issues#484). Defaults to true; opt out
+     * with {@code -Dike.deploy.central.async=false} for a
+     * release where the operator wants to block on Central
+     * completion.
      *
      * <p>When true, after Nexus phase 1 succeeds the release
      * goal writes a {@code PENDING} sentinel under
@@ -230,7 +230,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * since inter-cascade dependencies resolve through Nexus.
      */
     @Parameter(property = "ike.deploy.central.async",
-            defaultValue = "false")
+            defaultValue = "true")
     boolean centralDeployAsync;
 
     /**
