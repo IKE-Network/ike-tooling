@@ -1,0 +1,2151 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReleaseSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ReleaseSupport.java</span></div><h1>ReleaseSupport.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.Log;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+
+/**
+ * Shared utilities for release mojos.
+ *
+ * &lt;p&gt;All subprocess invocations use {@link ProcessBuilder} — no
+ * library dependencies beyond the JDK and maven-plugin-api.
+ */
+public class ReleaseSupport {
+
+<span class="fc" id="L35">    private static final Pattern VERSION_PATTERN =</span>
+<span class="fc" id="L36">            Pattern.compile(&quot;&lt;version&gt;([^&lt;]+)&lt;/version&gt;&quot;);</span>
+
+    private ReleaseSupport() {}
+
+    /**
+     * Check if the current platform is macOS.
+     *
+     * @return {@code true} if running on macOS or Darwin
+     */
+    public static boolean isMacOS() {
+<span class="nc" id="L46">        String osName = System.getProperty(&quot;os.name&quot;, &quot;&quot;).toLowerCase(java.util.Locale.ROOT);</span>
+<span class="nc bnc" id="L47" title="All 4 branches missed.">        return osName.contains(&quot;mac&quot;) || osName.contains(&quot;darwin&quot;);</span>
+    }
+
+    /**
+     * Run a command, inherit IO so output streams to the Maven console.
+     * Throws on non-zero exit code.
+     *
+     * @param workDir working directory for the subprocess
+     * @param log     Maven logger for output routing
+     * @param command the command and arguments to execute
+     * @throws MojoException if the command exits non-zero or cannot be started
+     */
+    public static void exec(File workDir, Log log, String... command)
+            throws MojoException {
+<span class="fc" id="L61">        log.debug(&quot;» &quot; + String.join(&quot; &quot;, command));</span>
+        try {
+<span class="fc" id="L63">            Process proc = new ProcessBuilder(command)</span>
+<span class="fc" id="L64">                    .directory(workDir)</span>
+<span class="fc" id="L65">                    .redirectErrorStream(true)</span>
+<span class="fc" id="L66">                    .start();</span>
+            // Route subprocess output through Maven's logger, stripping
+            // Maven log prefixes to avoid redundant [INFO] [stdout] [INFO].
+            // Maps subprocess [WARNING]/[ERROR] to the correct parent level.
+<span class="fc" id="L70">            try (var reader = new java.io.BufferedReader(</span>
+<span class="fc" id="L71">                    new java.io.InputStreamReader(proc.getInputStream()))) {</span>
+                String line;
+<span class="fc bfc" id="L73" title="All 2 branches covered.">                while ((line = reader.readLine()) != null) {</span>
+<span class="fc" id="L74">                    routeSubprocessLine(log, line);</span>
+                }
+            }
+<span class="fc" id="L77">            int exit = proc.waitFor();</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">            if (exit != 0) {</span>
+<span class="fc" id="L79">                throw new MojoException(</span>
+                        &quot;Command failed (exit &quot; + exit + &quot;): &quot; +
+<span class="fc" id="L81">                                String.join(&quot; &quot;, command));</span>
+            }
+<span class="nc" id="L83">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L84">            throw new MojoException(</span>
+<span class="nc" id="L85">                    &quot;Failed to execute: &quot; + String.join(&quot; &quot;, command), e);</span>
+<span class="fc" id="L86">        }</span>
+<span class="fc" id="L87">    }</span>
+
+    /**
+     * Route a subprocess output line through Maven's logger at the
+     * correct level. Strips Maven log prefixes ([INFO], [WARNING],
+     * [ERROR]) from the line to avoid redundant nesting.
+     *
+     * @param log  Maven logger
+     * @param line raw subprocess output line
+     */
+    public static void routeSubprocessLine(Log log, String line) {
+<span class="fc" id="L98">        routeSubprocessLine(log, line, &quot;&quot;);</span>
+<span class="fc" id="L99">    }</span>
+
+    /**
+     * Route a subprocess output line through Maven's logger with a prefix.
+     *
+     * &lt;p&gt;Recognized prefixes are stripped and routed to the matching
+     * Maven log level. Unrecognized lines are routed to {@code info}
+     * so that subprocess activity (especially {@code git} operations
+     * during release) is visible in the build log.
+     *
+     * &lt;p&gt;Specific git error patterns ({@code fatal:}, {@code error:},
+     * {@code remote: error:}, {@code ! [rejected]}, {@code ! [remote rejected]})
+     * are detected explicitly and routed to {@code error} so they
+     * cannot be missed in the log. Earlier behavior routed all
+     * unprefixed output to {@code debug}, which silently hid
+     * gh-pages push failures (see {@code IKE-Network/ike-issues#329}).
+     *
+     * @param log    Maven logger
+     * @param line   raw subprocess output line
+     * @param prefix string prepended to each routed line
+     */
+    public static void routeSubprocessLine(Log log, String line, String prefix) {
+<span class="fc bfc" id="L121" title="All 2 branches covered.">        if (line.startsWith(&quot;[ERROR] &quot;)) {</span>
+<span class="fc" id="L122">            log.error(prefix + line.substring(8));</span>
+<span class="fc bfc" id="L123" title="All 2 branches covered.">        } else if (line.startsWith(&quot;[WARNING] &quot;)) {</span>
+<span class="fc" id="L124">            log.warn(prefix + line.substring(10));</span>
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        } else if (line.startsWith(&quot;[INFO] &quot;)) {</span>
+<span class="fc" id="L126">            log.info(prefix + line.substring(7));</span>
+<span class="fc bfc" id="L127" title="All 2 branches covered.">        } else if (line.startsWith(&quot;[DEBUG] &quot;)) {</span>
+<span class="fc" id="L128">            log.debug(prefix + line.substring(8));</span>
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        } else if (line.startsWith(&quot;WARNING: &quot;)) {</span>
+            // JVM-style warnings (e.g., sun.misc.Unsafe deprecation)
+<span class="fc" id="L131">            log.warn(prefix + line.substring(9));</span>
+<span class="fc bfc" id="L132" title="All 2 branches covered.">        } else if (line.startsWith(&quot;ERROR: &quot;)) {</span>
+            // JVM-style errors
+<span class="fc" id="L134">            log.error(prefix + line.substring(7));</span>
+<span class="fc bfc" id="L135" title="All 2 branches covered.">        } else if (line.startsWith(&quot;fatal: &quot;)</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">                || line.startsWith(&quot;error: &quot;)</span>
+<span class="fc bfc" id="L137" title="All 2 branches covered.">                || line.startsWith(&quot;remote: error:&quot;)</span>
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">                || line.startsWith(&quot;remote: fatal:&quot;)</span>
+<span class="fc bfc" id="L139" title="All 2 branches covered.">                || line.startsWith(&quot;! [rejected]&quot;)</span>
+<span class="pc bpc" id="L140" title="1 of 2 branches missed.">                || line.startsWith(&quot;! [remote rejected]&quot;)) {</span>
+            // Git error patterns — must be visible. Without these,
+            // a failed `git push` was effectively silent because the
+            // exit-code-only signal got swallowed by the catching
+            // wrapper that logged only e.getMessage().
+<span class="fc" id="L145">            log.error(prefix + line);</span>
+        } else {
+            // Plain subprocess output (e.g., git push success indicators
+            // &quot;remote: ...&quot;, &quot;To &lt;url&gt;&quot;, &quot;* [new branch] X -&gt; Y&quot;).
+            // Earlier behavior was log.debug — hid both successes and
+            // any unrecognized failures. Route to info for visibility.
+<span class="fc" id="L151">            log.info(prefix + line);</span>
+        }
+<span class="fc" id="L153">    }</span>
+
+    /**
+     * A command paired with a display label for parallel execution.
+     *
+     * @param label   human-readable name shown in log output
+     * @param command the command and arguments to execute
+     */
+<span class="fc" id="L161">    public record LabeledTask(String label, String[] command) {}</span>
+
+    /**
+     * Run multiple commands concurrently, prefixing each line of output
+     * with the task's label (e.g., {@code [nexus] ...}).
+     *
+     * &lt;p&gt;Spawns virtual threads to read stdout/stderr from each process.
+     * All processes run to completion even if one fails — the exception
+     * reports which task(s) failed.
+     *
+     * @param workDir working directory for each subprocess
+     * @param log     Maven logger for output routing
+     * @param tasks   the labeled tasks to run concurrently
+     * @throws MojoException if any task fails or execution is interrupted
+     */
+    public static void execParallel(File workDir, Log log, LabeledTask... tasks)
+            throws MojoException {
+<span class="fc bfc" id="L178" title="All 2 branches covered.">        for (LabeledTask task : tasks) {</span>
+<span class="fc" id="L179">            log.debug(&quot;» [&quot; + task.label() + &quot;] &quot; + String.join(&quot; &quot;, task.command()));</span>
+        }
+
+<span class="fc" id="L182">        List&lt;String&gt; failures = new CopyOnWriteArrayList&lt;&gt;();</span>
+<span class="fc" id="L183">        List&lt;Thread&gt; threads = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L185" title="All 2 branches covered.">        for (LabeledTask task : tasks) {</span>
+<span class="fc" id="L186">            Thread thread = Thread.ofVirtual()</span>
+<span class="fc" id="L187">                    .name(&quot;exec-&quot; + task.label())</span>
+<span class="fc" id="L188">                    .start(() -&gt; {</span>
+                        try {
+<span class="fc" id="L190">                            Process process = new ProcessBuilder(task.command())</span>
+<span class="fc" id="L191">                                    .directory(workDir)</span>
+<span class="fc" id="L192">                                    .redirectErrorStream(true)</span>
+<span class="fc" id="L193">                                    .start();</span>
+
+<span class="fc" id="L195">                            try (BufferedReader reader = new BufferedReader(</span>
+<span class="fc" id="L196">                                    new InputStreamReader(process.getInputStream(),</span>
+                                            StandardCharsets.UTF_8))) {
+                                String line;
+<span class="fc bfc" id="L199" title="All 2 branches covered.">                                while ((line = reader.readLine()) != null) {</span>
+<span class="fc" id="L200">                                    String prefix = &quot;[&quot; + task.label() + &quot;] &quot;;</span>
+<span class="fc" id="L201">                                    synchronized (log) {</span>
+<span class="fc" id="L202">                                        routeSubprocessLine(log, line, prefix);</span>
+<span class="fc" id="L203">                                    }</span>
+<span class="fc" id="L204">                                }</span>
+                            }
+
+<span class="fc" id="L207">                            int exit = process.waitFor();</span>
+<span class="fc bfc" id="L208" title="All 2 branches covered.">                            if (exit != 0) {</span>
+<span class="fc" id="L209">                                failures.add(task.label() + &quot; (exit &quot; + exit + &quot;)&quot;);</span>
+                            }
+<span class="nc" id="L211">                        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L212">                            failures.add(task.label() + &quot; (&quot; + e.getMessage() + &quot;)&quot;);</span>
+<span class="fc" id="L213">                        }</span>
+<span class="fc" id="L214">                    });</span>
+<span class="fc" id="L215">            threads.add(thread);</span>
+        }
+
+        try {
+<span class="fc bfc" id="L219" title="All 2 branches covered.">            for (Thread thread : threads) {</span>
+<span class="fc" id="L220">                thread.join();</span>
+<span class="fc" id="L221">            }</span>
+<span class="nc" id="L222">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L223">            throw new MojoException(&quot;Parallel execution interrupted&quot;, e);</span>
+<span class="fc" id="L224">        }</span>
+
+<span class="fc bfc" id="L226" title="All 2 branches covered.">        if (!failures.isEmpty()) {</span>
+<span class="fc" id="L227">            throw new MojoException(</span>
+<span class="fc" id="L228">                    &quot;Parallel tasks failed: &quot; + String.join(&quot;, &quot;, failures));</span>
+        }
+<span class="fc" id="L230">    }</span>
+
+    /**
+     * Run a command and capture stdout as a trimmed String.
+     * Throws on non-zero exit code.
+     *
+     * @param workDir working directory for the subprocess
+     * @param command the command and arguments to execute
+     * @return trimmed stdout output
+     * @throws MojoException if the command exits non-zero or cannot be started
+     */
+    public static String execCapture(File workDir, String... command)
+            throws MojoException {
+        try {
+<span class="fc" id="L244">            Process process = new ProcessBuilder(command)</span>
+<span class="fc" id="L245">                    .directory(workDir)</span>
+<span class="fc" id="L246">                    .redirectErrorStream(false)</span>
+<span class="fc" id="L247">                    .start();</span>
+            String output;
+<span class="fc" id="L249">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="fc" id="L250">                    new InputStreamReader(process.getInputStream(),</span>
+                            StandardCharsets.UTF_8))) {
+<span class="fc" id="L252">                output = reader.lines().collect(Collectors.joining(&quot;\n&quot;)).trim();</span>
+            }
+<span class="fc" id="L254">            int exit = process.waitFor();</span>
+<span class="fc bfc" id="L255" title="All 2 branches covered.">            if (exit != 0) {</span>
+<span class="fc" id="L256">                throw new MojoException(</span>
+                        &quot;Command failed (exit &quot; + exit + &quot;): &quot; +
+<span class="fc" id="L258">                                String.join(&quot; &quot;, command));</span>
+            }
+<span class="fc" id="L260">            return output;</span>
+<span class="fc" id="L261">        } catch (IOException | InterruptedException e) {</span>
+<span class="fc" id="L262">            throw new MojoException(</span>
+<span class="fc" id="L263">                    &quot;Failed to execute: &quot; + String.join(&quot; &quot;, command), e);</span>
+        }
+    }
+
+    /**
+     * Run a command, streaming output through Maven's logger AND
+     * capturing the full output as a String. Throws on non-zero exit.
+     *
+     * @param workDir working directory for the subprocess
+     * @param log     Maven logger for real-time output
+     * @param command the command and arguments to execute
+     * @return the complete stdout+stderr output as a trimmed string
+     * @throws MojoException if the command exits non-zero
+     */
+    public static String execCaptureAndLog(File workDir, Log log, String... command)
+            throws MojoException {
+<span class="nc" id="L279">        log.debug(&quot;» &quot; + String.join(&quot; &quot;, command));</span>
+        try {
+<span class="nc" id="L281">            Process proc = new ProcessBuilder(command)</span>
+<span class="nc" id="L282">                    .directory(workDir)</span>
+<span class="nc" id="L283">                    .redirectErrorStream(true)</span>
+<span class="nc" id="L284">                    .start();</span>
+<span class="nc" id="L285">            StringBuilder captured = new StringBuilder();</span>
+<span class="nc" id="L286">            try (var reader = new BufferedReader(</span>
+<span class="nc" id="L287">                    new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {</span>
+                String line;
+<span class="nc bnc" id="L289" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
+<span class="nc" id="L290">                    routeSubprocessLine(log, line);</span>
+<span class="nc" id="L291">                    captured.append(line).append('\n');</span>
+                }
+            }
+<span class="nc" id="L294">            int exit = proc.waitFor();</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">            if (exit != 0) {</span>
+<span class="nc" id="L296">                String output = captured.toString().trim();</span>
+<span class="nc bnc" id="L297" title="All 2 branches missed.">                String detail = output.isEmpty()</span>
+<span class="nc" id="L298">                        ? &quot;&quot;</span>
+<span class="nc" id="L299">                        : &quot;\nOutput:\n&quot; + output;</span>
+<span class="nc" id="L300">                throw new MojoException(</span>
+                        &quot;Command failed (exit &quot; + exit + &quot;): &quot;
+<span class="nc" id="L302">                                + String.join(&quot; &quot;, command) + detail);</span>
+            }
+<span class="nc" id="L304">            return captured.toString().trim();</span>
+<span class="nc" id="L305">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L306">            throw new MojoException(</span>
+<span class="nc" id="L307">                    &quot;Failed to execute: &quot; + String.join(&quot; &quot;, command), e);</span>
+        }
+    }
+
+    /**
+     * Read the project's own {@code &lt;version&gt;} from a POM file,
+     * skipping any {@code &lt;version&gt;} inside the {@code &lt;parent&gt;} block.
+     *
+     * @param pomFile the POM file to read
+     * @return the version string
+     * @throws MojoException if the file cannot be read or has no version
+     */
+    public static String readPomVersion(File pomFile) throws MojoException {
+        try {
+<span class="fc" id="L321">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+
+            // Strip the &lt;parent&gt;...&lt;/parent&gt; block so we don't match
+            // the parent version instead of the project version.
+<span class="fc" id="L325">            String stripped = content.replaceFirst(</span>
+                    &quot;(?s)&lt;parent&gt;.*?&lt;/parent&gt;&quot;, &quot;&quot;);
+<span class="fc" id="L327">            Matcher matcher = VERSION_PATTERN.matcher(stripped);</span>
+<span class="fc bfc" id="L328" title="All 2 branches covered.">            if (matcher.find()) {</span>
+<span class="fc" id="L329">                return matcher.group(1);</span>
+            }
+<span class="fc" id="L331">            throw new MojoException(</span>
+                    &quot;Could not extract &lt;version&gt; from &quot; + pomFile);
+<span class="nc" id="L333">        } catch (IOException e) {</span>
+<span class="nc" id="L334">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+        }
+    }
+
+    /**
+     * Stamp {@code &lt;project.build.outputTimestamp&gt;} in the root POM to
+     * {@code newTimestamp}, enabling reproducible builds for the release.
+     *
+     * &lt;p&gt;The property must already exist in the POM (inherited from
+     * ike-parent). If it is absent this method is a no-op with a warning.
+     *
+     * @param pomFile      the root POM to update
+     * @param newTimestamp ISO-8601 UTC timestamp, e.g. {@code 2026-03-30T12:00:00Z}
+     * @param log          Maven log (used for warnings only)
+     * @throws MojoException if the file cannot be read or written
+     */
+    public static void stampOutputTimestamp(File pomFile, String newTimestamp, Log log)
+            throws MojoException {
+        try {
+<span class="nc" id="L353">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L354">            java.util.regex.Pattern pat = java.util.regex.Pattern.compile(</span>
+                    &quot;(&lt;project\\.build\\.outputTimestamp&gt;)[^&lt;]*(&lt;/project\\.build\\.outputTimestamp&gt;)&quot;);
+<span class="nc" id="L356">            java.util.regex.Matcher m = pat.matcher(content);</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">            if (!m.find()) {</span>
+<span class="nc" id="L358">                log.warn(&quot;project.build.outputTimestamp not found in &quot; + pomFile</span>
+                        + &quot; — reproducible build stamp skipped&quot;);
+<span class="nc" id="L360">                return;</span>
+            }
+<span class="nc" id="L362">            String updated = m.replaceFirst(&quot;$1&quot; + newTimestamp + &quot;$2&quot;);</span>
+<span class="nc" id="L363">            Files.writeString(pomFile.toPath(), updated, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L364">        } catch (IOException e) {</span>
+<span class="nc" id="L365">            throw new MojoException(</span>
+                    &quot;Failed to stamp outputTimestamp in &quot; + pomFile, e);
+<span class="nc" id="L367">        }</span>
+<span class="nc" id="L368">    }</span>
+
+    /**
+     * Replace the project's own {@code &lt;version&gt;old&lt;/version&gt;} with
+     * {@code &lt;version&gt;new&lt;/version&gt;}, skipping any version inside
+     * the {@code &lt;parent&gt;} block.
+     *
+     * @param pomFile    the POM file to update
+     * @param oldVersion the current version string to replace
+     * @param newVersion the new version string
+     * @throws MojoException if the version is not found or the file cannot be updated
+     */
+    public static void setPomVersion(File pomFile, String oldVersion, String newVersion)
+            throws MojoException {
+        try {
+<span class="fc" id="L383">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L384">            String oldTag = &quot;&lt;version&gt;&quot; + oldVersion + &quot;&lt;/version&gt;&quot;;</span>
+<span class="fc" id="L385">            String newTag = &quot;&lt;version&gt;&quot; + newVersion + &quot;&lt;/version&gt;&quot;;</span>
+
+            // Find the end of the &lt;parent&gt; block (if any) so we skip it
+<span class="fc" id="L388">            int searchStart = 0;</span>
+<span class="fc" id="L389">            Matcher parentEnd = Pattern.compile(&quot;&lt;/parent&gt;&quot;).matcher(content);</span>
+<span class="fc bfc" id="L390" title="All 2 branches covered.">            if (parentEnd.find()) {</span>
+<span class="fc" id="L391">                searchStart = parentEnd.end();</span>
+            }
+
+<span class="fc" id="L394">            int idx = content.indexOf(oldTag, searchStart);</span>
+<span class="fc bfc" id="L395" title="All 2 branches covered.">            if (idx &lt; 0) {</span>
+<span class="fc" id="L396">                throw new MojoException(</span>
+                        &quot;POM does not contain &quot; + oldTag +
+                                &quot; (outside &lt;parent&gt; block)&quot;);
+            }
+<span class="fc" id="L400">            String updated = content.substring(0, idx) + newTag +</span>
+<span class="fc" id="L401">                    content.substring(idx + oldTag.length());</span>
+<span class="fc" id="L402">            Files.writeString(pomFile.toPath(), updated, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L403">        } catch (IOException e) {</span>
+<span class="nc" id="L404">            throw new MojoException(&quot;Failed to update &quot; + pomFile, e);</span>
+<span class="fc" id="L405">        }</span>
+<span class="fc" id="L406">    }</span>
+
+    /**
+     * Check if the current platform is Windows.
+     *
+     * @return {@code true} if {@code os.name} contains &quot;win&quot;
+     */
+    public static boolean isWindows() {
+<span class="fc" id="L414">        return System.getProperty(&quot;os.name&quot;, &quot;&quot;)</span>
+<span class="fc" id="L415">                .toLowerCase(java.util.Locale.ROOT).contains(&quot;win&quot;);</span>
+    }
+
+    /**
+     * Resolve the Maven executable. Prefers the Maven wrapper
+     * ({@code mvnw} on Unix, {@code mvnw.cmd} on Windows) at the
+     * git root; falls back to system Maven located via {@code which}
+     * on Unix or {@code where} on Windows.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @return the resolved Maven executable
+     * @throws MojoException if neither wrapper nor system Maven is found
+     */
+    public static File resolveMavenWrapper(File gitRoot, Log log) throws MojoException {
+<span class="fc" id="L430">        return resolveMavenWrapperFor(gitRoot, log, isWindows());</span>
+    }
+
+    /**
+     * OS-injected variant of {@link #resolveMavenWrapper(File, Log)} for testing.
+     * Production callers should use the two-argument overload.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @param windows {@code true} to use Windows wrapper/lookup conventions,
+     *                {@code false} for Unix conventions
+     * @return the resolved Maven executable
+     * @throws MojoException if neither wrapper nor system Maven is found
+     */
+    static File resolveMavenWrapperFor(File gitRoot, Log log, boolean windows)
+            throws MojoException {
+<span class="fc bfc" id="L446" title="All 2 branches covered.">        String wrapperName = windows ? &quot;mvnw.cmd&quot; : &quot;mvnw&quot;;</span>
+<span class="fc" id="L447">        File wrapper = new File(gitRoot, wrapperName);</span>
+<span class="fc bfc" id="L448" title="All 2 branches covered.">        if (wrapper.exists()) {</span>
+<span class="fc" id="L449">            return wrapper;</span>
+        }
+        // Fall back to system mvn — resolve via PATH
+<span class="fc bfc" id="L452" title="All 2 branches covered.">        String systemName = windows ? &quot;mvn.cmd&quot; : &quot;mvn&quot;;</span>
+<span class="fc bfc" id="L453" title="All 2 branches covered.">        String lookupTool = windows ? &quot;where&quot; : &quot;which&quot;;</span>
+        try {
+<span class="fc" id="L455">            String output = execCapture(gitRoot, lookupTool, systemName);</span>
+<span class="fc" id="L456">            String path = firstNonEmptyLine(output);</span>
+<span class="fc" id="L457">            log.info(&quot;No Maven wrapper found; using system '&quot; + path + &quot;'&quot;);</span>
+<span class="fc" id="L458">            return new File(path);</span>
+<span class="fc" id="L459">        } catch (MojoException _) {</span>
+<span class="fc" id="L460">            throw new MojoException(</span>
+<span class="fc" id="L461">                    &quot;Neither Maven wrapper (&quot; + wrapper.getAbsolutePath() +</span>
+                            &quot;) nor system '&quot; + systemName + &quot;' found on PATH.&quot;);
+        }
+    }
+
+    /**
+     * Return the first non-empty line of {@code output}, trimmed.
+     * Handles the Windows {@code where} command, which may emit multiple
+     * matches separated by newlines (e.g. {@code mvn.cmd} from a wrapper
+     * shim and from a system install).
+     *
+     * @param output multi-line command output
+     * @return first non-empty line trimmed, or the trimmed full output
+     *         if no non-empty line exists
+     */
+    static String firstNonEmptyLine(String output) {
+<span class="fc" id="L477">        return output.lines()</span>
+<span class="fc" id="L478">                .map(String::trim)</span>
+<span class="fc bfc" id="L479" title="All 2 branches covered.">                .filter(s -&gt; !s.isEmpty())</span>
+<span class="fc" id="L480">                .findFirst()</span>
+<span class="fc" id="L481">                .orElse(output.trim());</span>
+    }
+
+    /**
+     * Get the git repository root directory.
+     *
+     * @param startDir any directory inside the repository
+     * @return the repository root directory
+     * @throws MojoException if git rev-parse fails
+     */
+    public static File gitRoot(File startDir) throws MojoException {
+        try {
+<span class="fc" id="L493">            String root = execCapture(startDir,</span>
+                    &quot;git&quot;, &quot;rev-parse&quot;, &quot;--show-toplevel&quot;);
+<span class="fc" id="L495">            return new File(root);</span>
+<span class="fc" id="L496">        } catch (MojoException e) {</span>
+            String absPath;
+            try {
+<span class="fc" id="L499">                absPath = startDir.getCanonicalPath();</span>
+<span class="nc" id="L500">            } catch (IOException io) {</span>
+<span class="nc" id="L501">                absPath = startDir.getAbsolutePath();</span>
+<span class="fc" id="L502">            }</span>
+<span class="fc" id="L503">            throw new MojoException(</span>
+                    &quot;Could not resolve git repository root from &quot;
+                            + absPath
+                            + &quot;. `git rev-parse --show-toplevel` failed.&quot;
+                            + &quot; If you invoked this goal with `-pl &lt;module&gt;`&quot;
+                            + &quot; from a parent that is itself a git repo and&quot;
+                            + &quot; the subproject was newly synced via Syncthing,&quot;
+                            + &quot; its `.git/` directory may not yet exist; run&quot;
+                            + &quot; the repo's `_git-init.sh` (or `git init &amp;&amp;&quot;
+                            + &quot; git remote add origin ...`) first. Or `cd`&quot;
+                            + &quot; into the subproject and run the goal directly.&quot;
+                            + &quot; ike-issues#357.&quot;, e);
+        }
+    }
+
+    /**
+     * Assert that the git working tree is clean (no staged or unstaged changes).
+     *
+     * @param workDir any directory inside the repository
+     * @throws MojoException if the working tree has uncommitted changes
+     */
+    public static void requireCleanWorktree(File workDir) throws MojoException {
+        try {
+<span class="fc" id="L526">            execCapture(workDir, &quot;git&quot;, &quot;diff&quot;, &quot;--quiet&quot;);</span>
+<span class="fc" id="L527">        } catch (MojoException _) {</span>
+<span class="fc" id="L528">            throw new MojoException(</span>
+                    &quot;Working tree has unstaged changes. Commit or stash before proceeding.&quot;);
+<span class="fc" id="L530">        }</span>
+        try {
+<span class="fc" id="L532">            execCapture(workDir, &quot;git&quot;, &quot;diff&quot;, &quot;--cached&quot;, &quot;--quiet&quot;);</span>
+<span class="fc" id="L533">        } catch (MojoException _) {</span>
+<span class="fc" id="L534">            throw new MojoException(</span>
+                    &quot;Working tree has staged changes. Commit or stash before proceeding.&quot;);
+<span class="fc" id="L536">        }</span>
+<span class="fc" id="L537">    }</span>
+
+    /**
+     * Get the current git branch name.
+     *
+     * @param workDir any directory inside the repository
+     * @return the current branch name
+     * @throws MojoException if git rev-parse fails
+     */
+    public static String currentBranch(File workDir) throws MojoException {
+<span class="fc" id="L547">        return execCapture(workDir, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--abbrev-ref&quot;, &quot;HEAD&quot;);</span>
+    }
+
+    /**
+     * Check whether a named git remote exists.
+     *
+     * @param workDir    any directory inside the repository
+     * @param remoteName the remote name to check (e.g., &quot;origin&quot;)
+     * @return {@code true} if the remote exists
+     */
+    public static boolean hasRemote(File workDir, String remoteName) {
+        try {
+<span class="fc" id="L559">            String remotes = execCapture(workDir, &quot;git&quot;, &quot;remote&quot;);</span>
+<span class="fc" id="L560">            return remotes.lines().anyMatch(line -&gt; line.trim().equals(remoteName));</span>
+<span class="nc" id="L561">        } catch (MojoException _) {</span>
+<span class="nc" id="L562">            return false;</span>
+        }
+    }
+
+    /**
+     * Return the URL of a named git remote, or null if the remote does
+     * not exist.
+     *
+     * @param workDir    any directory inside the repository
+     * @param remoteName the remote name (typically {@code &quot;origin&quot;})
+     * @return the remote URL, or null if the remote is absent
+     */
+    public static String getRemoteUrl(File workDir, String remoteName) {
+        try {
+<span class="nc" id="L576">            String url = execCapture(workDir,</span>
+                    &quot;git&quot;, &quot;remote&quot;, &quot;get-url&quot;, remoteName);
+<span class="nc bnc" id="L578" title="All 2 branches missed.">            return url.isBlank() ? null : url.trim();</span>
+<span class="nc" id="L579">        } catch (MojoException _) {</span>
+<span class="nc" id="L580">            return null;</span>
+        }
+    }
+
+    /**
+     * Derive the release version from a SNAPSHOT version.
+     * {@code &quot;2-SNAPSHOT&quot;} becomes {@code &quot;2&quot;};
+     * {@code &quot;1.1.0-SNAPSHOT&quot;} becomes {@code &quot;1.1.0&quot;}.
+     *
+     * @param snapshotVersion the SNAPSHOT version string
+     * @return the release version without the -SNAPSHOT suffix
+     */
+    public static String deriveReleaseVersion(String snapshotVersion) {
+<span class="fc" id="L593">        return snapshotVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+    }
+
+    /**
+     * Derive the next SNAPSHOT version by incrementing the last numeric
+     * segment. {@code &quot;2&quot;} becomes {@code &quot;3-SNAPSHOT&quot;};
+     * {@code &quot;1.1.0&quot;} becomes {@code &quot;1.1.1-SNAPSHOT&quot;}.
+     *
+     * @param releaseVersion the release version to increment
+     * @return the next SNAPSHOT version
+     */
+    public static String deriveNextSnapshot(String releaseVersion) {
+<span class="fc" id="L605">        String base = releaseVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+<span class="fc" id="L606">        int lastDot = base.lastIndexOf('.');</span>
+<span class="fc bfc" id="L607" title="All 2 branches covered.">        if (lastDot &gt;= 0) {</span>
+<span class="fc" id="L608">            String prefix = base.substring(0, lastDot + 1);</span>
+<span class="fc" id="L609">            String last = base.substring(lastDot + 1);</span>
+<span class="fc" id="L610">            return prefix + (Integer.parseInt(last) + 1) + &quot;-SNAPSHOT&quot;;</span>
+        }
+        // Simple integer version (e.g., &quot;2&quot; -&gt; &quot;3-SNAPSHOT&quot;)
+<span class="fc" id="L613">        return (Integer.parseInt(base) + 1) + &quot;-SNAPSHOT&quot;;</span>
+    }
+
+    /**
+     * Update a named Maven property in POM content.
+     * Replaces {@code &lt;propertyName&gt;oldValue&lt;/propertyName&gt;} with
+     * {@code &lt;propertyName&gt;newVersion&lt;/propertyName&gt;}.
+     *
+     * @param pomContent   the POM file content as a string
+     * @param propertyName the Maven property name (e.g., &quot;ike-bom.version&quot;)
+     * @param newVersion   the new version value
+     * @return the updated POM content (unchanged if property not found)
+     */
+    public static String updateVersionProperty(String pomContent,
+                                         String propertyName,
+                                         String newVersion) {
+<span class="nc" id="L629">        String propPattern = &quot;&lt;&quot; + java.util.regex.Pattern.quote(propertyName)</span>
+<span class="nc" id="L630">                + &quot;&gt;[^&lt;]+&lt;/&quot; + java.util.regex.Pattern.quote(propertyName) + &quot;&gt;&quot;;</span>
+<span class="nc" id="L631">        return pomContent.replaceAll(propPattern,</span>
+                &quot;&lt;&quot; + propertyName + &quot;&gt;&quot; + newVersion + &quot;&lt;/&quot; + propertyName + &quot;&gt;&quot;);
+    }
+
+    private static final String PROJECT_VERSION_EXPR = &quot;${project.version}&quot;;
+    private static final String BACKUP_SUFFIX = &quot;.ike-backup&quot;;
+
+    /**
+     * Find all {@code pom.xml} files under the git root, excluding
+     * {@code target/} directories and the {@code .mvn/} directory.
+     *
+     * @param gitRoot the git repository root directory
+     * @return list of discovered POM files
+     * @throws MojoException if the file tree cannot be walked
+     */
+    public static List&lt;File&gt; findPomFiles(File gitRoot) throws MojoException {
+<span class="fc" id="L647">        try (Stream&lt;Path&gt; walk = Files.walk(gitRoot.toPath())) {</span>
+<span class="fc" id="L648">            return walk</span>
+<span class="fc" id="L649">                    .filter(p -&gt; p.getFileName().toString().equals(&quot;pom.xml&quot;))</span>
+<span class="fc" id="L650">                    .filter(p -&gt; {</span>
+<span class="fc" id="L651">                        String rel = gitRoot.toPath().relativize(p).toString();</span>
+<span class="fc bfc" id="L652" title="All 2 branches covered.">                        return !rel.contains(&quot;target&quot; + File.separator)</span>
+<span class="fc bfc" id="L653" title="All 2 branches covered.">                                &amp;&amp; !rel.startsWith(&quot;.mvn&quot; + File.separator);</span>
+                    })
+<span class="fc" id="L655">                    .map(Path::toFile)</span>
+<span class="fc" id="L656">                    .collect(Collectors.toList());</span>
+<span class="nc" id="L657">        } catch (IOException e) {</span>
+<span class="nc" id="L658">            throw new MojoException(&quot;Failed to scan for POM files&quot;, e);</span>
+        }
+    }
+
+    /**
+     * Replace all occurrences of {@code ${project.version}} with a
+     * literal version string in every POM file under the git root.
+     * Before replacing, each affected file is saved as
+     * {@code pom.xml.ike-backup} so it can be restored later.
+     *
+     * @param gitRoot the git repository root directory
+     * @param version the literal version to substitute
+     * @param log     Maven logger
+     * @return the list of POM files that were modified
+     * @throws MojoException if a file cannot be read or written
+     */
+    public static List&lt;File&gt; replaceProjectVersionRefs(File gitRoot, String version,
+                                                 Log log)
+            throws MojoException {
+<span class="fc" id="L677">        List&lt;File&gt; pomFiles = findPomFiles(gitRoot);</span>
+<span class="fc" id="L678">        List&lt;File&gt; modified = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L680" title="All 2 branches covered.">        for (File pom : pomFiles) {</span>
+            try {
+<span class="fc" id="L682">                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);</span>
+<span class="fc bfc" id="L683" title="All 2 branches covered.">                if (!content.contains(PROJECT_VERSION_EXPR)) {</span>
+<span class="fc" id="L684">                    continue;</span>
+                }
+                // Save backup before modifying
+<span class="fc" id="L687">                Path backup = pom.toPath().resolveSibling(pom.getName() + BACKUP_SUFFIX);</span>
+<span class="fc" id="L688">                Files.copy(pom.toPath(), backup, StandardCopyOption.REPLACE_EXISTING);</span>
+
+                // Replace all occurrences
+<span class="fc" id="L691">                String updated = content.replace(PROJECT_VERSION_EXPR, version);</span>
+<span class="fc" id="L692">                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);</span>
+
+<span class="fc" id="L694">                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();</span>
+<span class="fc" id="L695">                log.info(&quot;  Resolved ${project.version} -&gt; &quot; + version +</span>
+                        &quot; in &quot; + rel);
+<span class="fc" id="L697">                modified.add(pom);</span>
+<span class="nc" id="L698">            } catch (IOException e) {</span>
+<span class="nc" id="L699">                throw new MojoException(</span>
+                        &quot;Failed to process &quot; + pom, e);
+<span class="fc" id="L701">            }</span>
+<span class="fc" id="L702">        }</span>
+<span class="fc" id="L703">        return modified;</span>
+    }
+
+    /**
+     * Restore all POM files from their {@code .ike-backup} copies and
+     * delete the backup files. This reverses
+     * {@link #replaceProjectVersionRefs}.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @return the list of POM files that were restored
+     * @throws MojoException if a backup cannot be restored
+     */
+    public static List&lt;File&gt; restoreBackups(File gitRoot, Log log)
+            throws MojoException {
+<span class="fc" id="L718">        List&lt;File&gt; pomFiles = findPomFiles(gitRoot);</span>
+<span class="fc" id="L719">        List&lt;File&gt; restored = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L721" title="All 2 branches covered.">        for (File pom : pomFiles) {</span>
+<span class="fc" id="L722">            Path backup = pom.toPath().resolveSibling(pom.getName() + BACKUP_SUFFIX);</span>
+<span class="fc bfc" id="L723" title="All 2 branches covered.">            if (!Files.exists(backup)) {</span>
+<span class="fc" id="L724">                continue;</span>
+            }
+            try {
+<span class="fc" id="L727">                Files.copy(backup, pom.toPath(), StandardCopyOption.REPLACE_EXISTING);</span>
+<span class="fc" id="L728">                Files.delete(backup);</span>
+
+<span class="fc" id="L730">                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();</span>
+<span class="fc" id="L731">                log.info(&quot;  Restored ${project.version} in &quot; + rel);</span>
+<span class="fc" id="L732">                restored.add(pom);</span>
+<span class="nc" id="L733">            } catch (IOException e) {</span>
+<span class="nc" id="L734">                throw new MojoException(</span>
+                        &quot;Failed to restore backup for &quot; + pom, e);
+<span class="fc" id="L736">            }</span>
+<span class="fc" id="L737">        }</span>
+<span class="fc" id="L738">        return restored;</span>
+    }
+
+    /**
+     * Stage a list of files with {@code git add}.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @param files   the files to stage
+     * @throws MojoException if the git add command fails
+     */
+    public static void gitAddFiles(File gitRoot, Log log, List&lt;File&gt; files)
+            throws MojoException {
+<span class="fc bfc" id="L751" title="All 2 branches covered.">        if (files.isEmpty()) return;</span>
+<span class="fc" id="L752">        List&lt;String&gt; command = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L753">        command.add(&quot;git&quot;);</span>
+<span class="fc" id="L754">        command.add(&quot;add&quot;);</span>
+<span class="fc bfc" id="L755" title="All 2 branches covered.">        for (File f : files) {</span>
+<span class="fc" id="L756">            command.add(gitRoot.toPath().relativize(f.toPath()).toString());</span>
+<span class="fc" id="L757">        }</span>
+<span class="fc" id="L758">        exec(gitRoot, log, command.toArray(new String[0]));</span>
+<span class="fc" id="L759">    }</span>
+
+<span class="fc" id="L761">    private static final DateTimeFormatter CHECKPOINT_DATE_FMT =</span>
+<span class="fc" id="L762">            DateTimeFormatter.ofPattern(&quot;yyyyMMdd&quot;);</span>
+
+    /**
+     * Derive a checkpoint version from the current POM version.
+     *
+     * &lt;p&gt;Format: {@code {base}-checkpoint.{yyyyMMdd}.{shortSha}} where
+     * {@code base} is the POM version minus {@code -SNAPSHOT}, and
+     * {@code shortSha} is the abbreviated SHA of the current HEAD commit.
+     *
+     * &lt;p&gt;This scheme is fully deterministic — the same commit on any
+     * machine always produces the same version string. No tag-sequence
+     * coordination across machines is required.
+     *
+     * @param pomVersion current POM version (may include -SNAPSHOT)
+     * @param gitRoot    git repository root (for HEAD SHA lookup)
+     * @return the checkpoint version string
+     * @throws MojoException if the HEAD SHA cannot be resolved
+     */
+    public static String deriveCheckpointVersion(String pomVersion, File gitRoot)
+            throws MojoException {
+<span class="fc" id="L782">        String base = pomVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+<span class="fc" id="L783">        String date = LocalDate.now().format(CHECKPOINT_DATE_FMT);</span>
+<span class="fc" id="L784">        String shortSha = execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--short&quot;, &quot;HEAD&quot;);</span>
+<span class="fc" id="L785">        return base + &quot;-checkpoint.&quot; + date + &quot;.&quot; + shortSha;</span>
+    }
+
+    /**
+     * Check whether a git tag exists (locally).
+     *
+     * @param gitRoot the git repository root directory
+     * @param tagName the tag name to check
+     * @return {@code true} if the tag exists locally
+     */
+    public static boolean tagExists(File gitRoot, String tagName) {
+        try {
+<span class="fc" id="L797">            execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--verify&quot;, &quot;refs/tags/&quot; + tagName);</span>
+<span class="fc" id="L798">            return true;</span>
+<span class="fc" id="L799">        } catch (MojoException _) {</span>
+<span class="fc" id="L800">            return false;</span>
+        }
+    }
+
+    /** Base path on the site server. */
+    public static final String SITE_DISK_BASE = &quot;/srv/ike-site/&quot;;
+
+    /** SSH host alias used by wagon-ssh-external. */
+    public static final String SITE_SSH_HOST = &quot;proxy&quot;;
+
+    /**
+     * Remove a directory tree on the site server via SSH.
+     *
+     * &lt;p&gt;Used to clean up snapshot sites after release or feature-finish.
+     *
+     * &lt;p&gt;Safety: validates the path starts with {@link #SITE_DISK_BASE}
+     * and contains at least two path components after the base to
+     * prevent accidental deletion of the entire site root.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath absolute path on the server (e.g.,
+     *                   {@code /srv/ike-site/ike-pipeline/snapshot/main})
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath)
+            throws MojoException {
+<span class="nc" id="L827">        cleanRemoteSiteDir(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L828">    }</span>
+
+    /**
+     * Overload accepting an explicit SSH command prefix — package-private
+     * for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath absolute path on the server to remove
+     * @param sshPrefix  the SSH command tokens (e.g., &quot;ssh&quot;, &quot;-i&quot;, &quot;key&quot;,
+     *                   &quot;-p&quot;, &quot;2222&quot;, &quot;user@localhost&quot;)
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath,
+                                    String... sshPrefix)
+            throws MojoException {
+<span class="nc" id="L844">        validateRemotePath(remotePath);</span>
+<span class="nc" id="L845">        log.debug(&quot;Cleaning remote site: &quot; + remotePath);</span>
+<span class="nc" id="L846">        String[] cmd = new String[sshPrefix.length + 3];</span>
+<span class="nc" id="L847">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="nc" id="L848">        cmd[sshPrefix.length] = &quot;rm&quot;;</span>
+<span class="nc" id="L849">        cmd[sshPrefix.length + 1] = &quot;-rf&quot;;</span>
+<span class="nc" id="L850">        cmd[sshPrefix.length + 2] = remotePath;</span>
+<span class="nc" id="L851">        exec(workDir, log, cmd);</span>
+<span class="nc" id="L852">    }</span>
+
+    /**
+     * Atomically swap a newly deployed site into place on the server.
+     *
+     * &lt;p&gt;The deployment flow is:
+     * &lt;ol&gt;
+     *   &lt;li&gt;SCP deploys to a staging path ({@code &lt;target&gt;.staging})&lt;/li&gt;
+     *   &lt;li&gt;This method renames the old directory to {@code &lt;target&gt;.old}&lt;/li&gt;
+     *   &lt;li&gt;Renames the staging directory to the final target&lt;/li&gt;
+     *   &lt;li&gt;Removes the old directory&lt;/li&gt;
+     * &lt;/ol&gt;
+     *
+     * &lt;p&gt;This avoids a window where the site is missing (rm + deploy)
+     * and ensures the site always serves either the old or new version.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath final target path on the server
+     * @throws MojoException if SSH commands fail
+     */
+    public static void swapRemoteSiteDir(File workDir, Log log, String remotePath)
+            throws MojoException {
+<span class="nc" id="L875">        swapRemoteSiteDir(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L876">    }</span>
+
+    /**
+     * Overload accepting an explicit SSH command prefix — package-private
+     * for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath final target path on the server
+     * @param sshPrefix  the SSH command tokens (e.g., &quot;ssh&quot;, &quot;-i&quot;, &quot;key&quot;,
+     *                   &quot;-p&quot;, &quot;2222&quot;, &quot;user@localhost&quot;)
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void swapRemoteSiteDir(File workDir, Log log, String remotePath,
+                                   String... sshPrefix)
+            throws MojoException {
+<span class="nc" id="L892">        validateRemotePath(remotePath);</span>
+<span class="nc" id="L893">        String staging = remotePath + &quot;.staging&quot;;</span>
+<span class="nc" id="L894">        String old = remotePath + &quot;.old&quot;;</span>
+
+<span class="nc" id="L896">        log.info(&quot;Swapping site: &quot; + staging + &quot; → &quot; + remotePath);</span>
+<span class="nc" id="L897">        String[] cmd = new String[sshPrefix.length + 1];</span>
+<span class="nc" id="L898">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="nc" id="L899">        cmd[sshPrefix.length] = &quot;rm -rf &quot; + old</span>
+                + &quot; &amp;&amp; (mv &quot; + remotePath + &quot; &quot; + old + &quot; 2&gt;/dev/null || true)&quot;
+                + &quot; &amp;&amp; mv &quot; + staging + &quot; &quot; + remotePath
+                + &quot; &amp;&amp; rm -rf &quot; + old;
+<span class="nc" id="L903">        exec(workDir, log, cmd);</span>
+<span class="nc" id="L904">    }</span>
+
+    /**
+     * Return the staging path for a site deploy (final path + &quot;.staging&quot;).
+     *
+     * @param diskPath the final on-disk site path
+     * @return {@code diskPath} with {@code .staging} appended
+     */
+    public static String siteStagingPath(String diskPath) {
+<span class="fc" id="L913">        return diskPath + &quot;.staging&quot;;</span>
+    }
+
+    /**
+     * Update the {@code latest} symlink alongside a version-prefixed
+     * site deploy so that {@code &lt;site-base&gt;/latest/} always points at
+     * the most recent release (ike-issues#303).
+     *
+     * &lt;p&gt;For a release deployed to
+     * {@code /srv/ike-site/ike-platform/17/}, this issues
+     * {@code cd /srv/ike-site/ike-platform &amp;&amp; ln -snf 17 latest} on the
+     * site host. Idempotent — the {@code -f} flag replaces any prior
+     * symlink target.
+     *
+     * &lt;p&gt;Uses the same SSH host as {@link #swapRemoteSiteDir}.
+     * Best-effort: callers should catch {@link MojoException} and
+     * surface as a warning rather than failing the release — the
+     * version-prefixed site is reachable at its own URL even if the
+     * alias update fails.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath the version-prefixed final site path
+     *                   (e.g. {@code /srv/ike-site/ike-platform/17})
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void updateLatestSymlink(File workDir, Log log,
+                                           String remotePath)
+            throws MojoException {
+<span class="nc" id="L942">        updateLatestSymlink(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L943">    }</span>
+
+    /**
+     * Overload accepting an explicit SSH command prefix —
+     * package-private for testing against containers.
+     *
+     * @param workDir    local directory for process execution
+     * @param log        Maven log
+     * @param remotePath the version-prefixed final site path
+     * @param sshPrefix  the SSH command tokens
+     * @throws MojoException if the path is unsafe or SSH fails
+     */
+    public static void updateLatestSymlink(File workDir, Log log,
+                                           String remotePath,
+                                           String... sshPrefix)
+            throws MojoException {
+<span class="fc" id="L959">        validateRemotePath(remotePath);</span>
+<span class="fc" id="L960">        String parent = parentDir(remotePath);</span>
+<span class="fc" id="L961">        String leaf = leafName(remotePath);</span>
+<span class="pc bpc" id="L962" title="3 of 6 branches missed.">        if (parent == null || leaf == null || leaf.isEmpty()) {</span>
+<span class="nc" id="L963">            throw new MojoException(</span>
+                    &quot;Cannot derive parent/leaf from site path: &quot; + remotePath);
+        }
+
+<span class="fc" id="L967">        log.info(&quot;Updating latest symlink: &quot; + parent + &quot;/latest -&gt; &quot; + leaf);</span>
+<span class="fc" id="L968">        String[] cmd = new String[sshPrefix.length + 1];</span>
+<span class="fc" id="L969">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="fc" id="L970">        cmd[sshPrefix.length] = &quot;cd &quot; + parent</span>
+                + &quot; &amp;&amp; ln -snf &quot; + leaf + &quot; latest&quot;;
+<span class="fc" id="L972">        exec(workDir, log, cmd);</span>
+<span class="fc" id="L973">    }</span>
+
+    /**
+     * Compute the parent directory of a Unix-style absolute path
+     * without crossing the {@link #SITE_DISK_BASE} boundary. Returns
+     * {@code null} when the input is at or above the base.
+     *
+     * &lt;p&gt;Package-private for testing.
+     */
+    static String parentDir(String absPath) {
+<span class="fc" id="L983">        int lastSlash = absPath.lastIndexOf('/');</span>
+<span class="fc bfc" id="L984" title="All 2 branches covered.">        if (lastSlash &lt;= 0) return null;</span>
+<span class="fc" id="L985">        String parent = absPath.substring(0, lastSlash);</span>
+<span class="fc bfc" id="L986" title="All 2 branches covered.">        return parent.startsWith(SITE_DISK_BASE.replaceAll(&quot;/$&quot;, &quot;&quot;))</span>
+<span class="fc" id="L987">                ? parent : null;</span>
+    }
+
+    /**
+     * Last path segment of a Unix-style absolute path — the basename.
+     * Trailing slashes are tolerated.
+     *
+     * &lt;p&gt;Package-private for testing.
+     */
+    static String leafName(String absPath) {
+<span class="fc bfc" id="L997" title="All 2 branches covered.">        String trimmed = absPath.endsWith(&quot;/&quot;)</span>
+<span class="fc" id="L998">                ? absPath.substring(0, absPath.length() - 1) : absPath;</span>
+<span class="fc" id="L999">        int lastSlash = trimmed.lastIndexOf('/');</span>
+<span class="pc bpc" id="L1000" title="1 of 2 branches missed.">        return lastSlash &lt; 0 ? trimmed : trimmed.substring(lastSlash + 1);</span>
+    }
+
+    /**
+     * Return the scpexe URL for the staging directory.
+     *
+     * @param targetUrl the final site URL
+     * @return {@code targetUrl} with {@code .staging} appended
+     */
+    public static String siteStagingUrl(String targetUrl) {
+<span class="fc" id="L1010">        return targetUrl + &quot;.staging&quot;;</span>
+    }
+
+    /**
+     * Publish a project's rendered site to its repo's {@code gh-pages}
+     * branch using the hybrid structure (ike-issues#312, #332).
+     *
+     * &lt;p&gt;Layout produced after each release:
+     * &lt;ul&gt;
+     *   &lt;li&gt;{@code /} — the just-released version's site at the root
+     *       (so {@code https://ike.network/&lt;repo&gt;/} serves the current
+     *       release, the same as before).&lt;/li&gt;
+     *   &lt;li&gt;{@code /&lt;version&gt;/} — the just-released version preserved
+     *       under a versioned subdirectory for citations and
+     *       reproducibility.&lt;/li&gt;
+     *   &lt;li&gt;{@code /latest/} — a copy of the just-released version
+     *       under the canonical &quot;latest&quot; path. Not a git symlink:
+     *       GitHub Pages doesn't follow them reliably.&lt;/li&gt;
+     *   &lt;li&gt;Earlier {@code /&lt;version&gt;/} subdirectories from prior
+     *       releases are preserved unchanged.&lt;/li&gt;
+     * &lt;/ul&gt;
+     *
+     * &lt;p&gt;Mechanics: the existing {@code gh-pages} branch is cloned
+     * (preserving full history including all prior {@code &lt;version&gt;/}
+     * subdirs); root-level files and non-version root subdirs are
+     * wiped (stale assets from the previous release shouldn't linger);
+     * staging is copied to root, to {@code &lt;version&gt;/}, and to
+     * {@code latest/}; an additive commit is pushed (no
+     * {@code --force}). On first-time publish (no {@code gh-pages}
+     * branch yet) the bootstrap path uses {@code git checkout
+     * --orphan} and force-push.
+     *
+     * &lt;p&gt;Adds a {@code .nojekyll} marker so GitHub Pages skips Jekyll
+     * processing — the content is already rendered HTML and we don't
+     * want underscore-prefixed directories to be stripped.
+     *
+     * &lt;p&gt;Does NOT write a {@code CNAME} file: the org-level
+     * {@code IKE-Network.github.io/CNAME} (set to {@code ike.network})
+     * extends to all project pages under the org automatically. A
+     * per-project CNAME would either be ignored or conflict.
+     *
+     * &lt;p&gt;Patterned on {@code OrgSiteSupport.publishToGhPages} (in
+     * the ike-maven-plugin module) but generalized to any project's
+     * staging dir + remote. ike-workspace-model can't {@code @link}
+     * directly to ike-maven-plugin classes — it sits below in the
+     * dependency stack, so they're not on its javadoc classpath.
+     *
+     * @param stagingDir directory containing the rendered site
+     *                   (typically {@code target/staging/})
+     * @param repoUrl    git URL of the project repo to push to
+     * @param log        Maven logger
+     * @param projectId  project artifact ID, used in the commit message
+     * @param version    release version, used in the commit message
+     * @throws MojoException if any step fails
+     */
+    public static void publishProjectSiteToGhPages(Path stagingDir,
+                                                    String repoUrl,
+                                                    Log log,
+                                                    String projectId,
+                                                    String version)
+            throws MojoException {
+<span class="pc bpc" id="L1071" title="1 of 2 branches missed.">        if (!Files.isDirectory(stagingDir)) {</span>
+<span class="nc" id="L1072">            throw new MojoException(</span>
+                    &quot;Staging directory does not exist: &quot; + stagingDir
+                            + &quot;. Site build may have failed.&quot;);
+        }
+
+        // Empty-staging guard (ike-issues#334). Earlier behavior: an
+        // empty-but-existing dir passed isDirectory() and shipped a
+        // .nojekyll-only tree to gh-pages — silent publication of an
+        // empty site. Now we fail loud so the caller (or an upstream
+        // fallback to target/site/) gets a clear signal.
+<span class="pc bpc" id="L1082" title="1 of 2 branches missed.">        if (isEmptyDirectory(stagingDir)) {</span>
+<span class="fc" id="L1083">            throw new MojoException(</span>
+                    &quot;Staging directory is empty: &quot; + stagingDir
+                            + &quot;. Site build produced no content. &quot;
+                            + &quot;For single-module projects, mvn site:stage &quot;
+                            + &quot;is a no-op (it's designed to aggregate &quot;
+                            + &quot;child module sites in a multi-module &quot;
+                            + &quot;reactor); the rendered content lives at &quot;
+                            + &quot;target/site/. The release flow's empty-&quot;
+                            + &quot;staging fallback (ReleaseDraftMojo) should &quot;
+                            + &quot;have detected this and substituted &quot;
+                            + &quot;target/site/ before reaching this point. &quot;
+                            + &quot;If you're calling publishProjectSiteToGhPages &quot;
+                            + &quot;directly, pass target/site/ instead of &quot;
+                            + &quot;target/staging/ for single-module projects.&quot;);
+        }
+
+        // Detect version-nested staging (ike-issues#337). When a
+        // project's site.deploy.url contains the version segment
+        // (e.g., scpexe://...//ike-platform/${project.version}/),
+        // mvn site:stage produces target/staging/&lt;version&gt;/&lt;actual
+        // content&gt; rather than target/staging/&lt;actual content&gt;.
+        // Unwrap whenever the version subdir exists, regardless of
+        // whether the staging dir has stale prior-release subdirs
+        // (which it usually does on ike-platform because
+        // maven-clean-plugin preserves target/staging across clean).
+        // Earlier behavior required exactly-one-entry, which failed
+        // the second time the same project released (count &gt;1 due
+        // to leftovers); the over-narrow check stripped both the
+        // current version and the stale ones via the
+        // copyDirectoryExcludingTopLevelVersionDirs filter, leaving
+        // the gh-pages /&lt;version&gt;/ subdir empty. The fix here is
+        // simpler: if the per-version subdir exists, that's
+        // unambiguously the source.
+<span class="nc" id="L1116">        Path effectiveStagingSource = stagingDir;</span>
+
+        // Detect URL-as-path staging (ike-issues#359). When a
+        // multi-module reactor declares an https:// &lt;site&gt;&lt;url&gt;,
+        // maven-site-plugin's site:stage stages content at
+        // target/staging/https:/&lt;host&gt;/&lt;projectId&gt;/[&lt;version&gt;/]
+        // — scheme, host, and every path segment become literal
+        // directory names. Pre-#304 the foundation repos used
+        // scpexe:// URLs which produced clean target/staging/
+        // &lt;path-segments&gt;/ trees; post-#304 the https:// URLs came
+        // with this URL-as-path side effect. Detect the pattern
+        // first so the existing version-nested (#337) and
+        // parent-artifactId (#342) unwraps run against the
+        // already-narrowed effective source.
+<span class="nc" id="L1130">        Path urlAsPathUnwrap = detectHttpsUrlStaging(stagingDir, projectId);</span>
+<span class="nc bnc" id="L1131" title="All 2 branches missed.">        if (urlAsPathUnwrap != null) {</span>
+<span class="nc" id="L1132">            log.info(&quot;  Detected https://-URL-as-path staging at &quot;</span>
+                    + urlAsPathUnwrap
+                    + &quot; — using it as the gh-pages source. (Project's &quot;
+                    + &quot;&lt;site&gt;&lt;url&gt; is an https:// URL and maven-site-plugin &quot;
+                    + &quot;stages content at target/staging/https:/&lt;host&gt;/&quot;
+                    + &quot;&lt;projectId&gt;/; ike-issues#359.)&quot;);
+<span class="nc" id="L1138">            effectiveStagingSource = urlAsPathUnwrap;</span>
+        }
+
+        // Capture the layer at which sibling submodule sites live
+        // BEFORE the version-nested unwrap narrows further. For
+        // ike-platform the URL is .../ike-platform/&lt;version&gt;/ so
+        // siblings (ike-workspace-maven-plugin/, ike-parent/) live
+        // alongside the version dir, one level up from the final
+        // narrowed source. For ike-tooling/ike-docs (no version in
+        // URL) siblings live at the same layer. ike-issues#363.
+<span class="nc" id="L1148">        Path siblingSubmoduleLayer = effectiveStagingSource;</span>
+
+<span class="nc" id="L1150">        Path nestedVersionDir = effectiveStagingSource.resolve(version);</span>
+<span class="nc bnc" id="L1151" title="All 2 branches missed.">        if (Files.isDirectory(nestedVersionDir)</span>
+<span class="nc bnc" id="L1152" title="All 2 branches missed.">                &amp;&amp; !isEmptyDirectory(nestedVersionDir)) {</span>
+<span class="nc" id="L1153">            log.info(&quot;  Detected version-nested staging at &quot;</span>
+                    + nestedVersionDir
+                    + &quot; — using it as the gh-pages source. &quot;
+                    + &quot;(Project's site.deploy.url contains the &quot;
+                    + &quot;version segment so site:stage nested &quot;
+                    + &quot;content under it; ike-issues#337.)&quot;);
+<span class="nc" id="L1159">            effectiveStagingSource = nestedVersionDir;</span>
+        }
+
+        // Detect parent-artifactId staging nesting (ike-issues#342).
+        // When a project has a &lt;parent&gt; block, maven-site-plugin's
+        // site:stage derives the staging directory from the parent
+        // artifactId, producing target/staging/&lt;parentArtifactId&gt;/
+        // &lt;projectId&gt;/&lt;actual content&gt;. This is orthogonal to the
+        // version-nested case above (#337) — they can compound, but
+        // the version-nested unwrap runs first; this check is then
+        // applied to whatever effective source survived.
+        // Detection: effective staging has exactly one entry that's
+        // a directory, and that directory contains a non-empty
+        // subdirectory whose name matches projectId. Unwrap to
+        // &lt;singleEntry&gt;/&lt;projectId&gt;/.
+<span class="nc" id="L1174">        Path parentArtifactUnwrap =</span>
+<span class="nc" id="L1175">                detectParentArtifactNesting(effectiveStagingSource, projectId);</span>
+<span class="nc bnc" id="L1176" title="All 2 branches missed.">        if (parentArtifactUnwrap != null) {</span>
+<span class="nc" id="L1177">            log.info(&quot;  Detected parent-artifactId staging nesting at &quot;</span>
+                    + parentArtifactUnwrap
+                    + &quot; — using it as the gh-pages source. (Project &quot;
+                    + &quot;has a &lt;parent&gt; block so site:stage nested &quot;
+                    + &quot;content under &lt;parentArtifactId&gt;/&lt;artifactId&gt;/; &quot;
+                    + &quot;ike-issues#342.)&quot;);
+<span class="nc" id="L1183">            effectiveStagingSource = parentArtifactUnwrap;</span>
+        }
+
+        // Detect aggregated-reactor staging where the project's own
+        // site is one of several top-level entries (ike-issues#351).
+        // When a workspace pom inherits a &lt;site&gt; URL via property
+        // indirection that produces no common ancestor with its
+        // subprojects (e.g. https://ike.network/${project.artifactId}/
+        // per project), site:stage flattens each module at its own
+        // top-level path under target/staging/. The workspace's own
+        // content lives in staging/&lt;projectId&gt;/ and the subprojects
+        // are siblings. Without this unwrap, publishProjectSiteToGhPages
+        // would copy the whole flattened tree as the gh-pages root —
+        // workspace's own pages end up in /&lt;projectId&gt;/, the
+        // subprojects' aggregated sites take over the actual root,
+        // and the wrong index.html ships. Unwrap to &lt;projectId&gt;/
+        // pulls just the workspace's own content to the gh-pages root.
+        // Orthogonal to #337 (version-nested) and #342 (parent-artifactId);
+        // applies whenever the project's own subdir exists alongside
+        // other top-level entries.
+<span class="nc" id="L1203">        Path aggregatedUnwrap =</span>
+<span class="nc" id="L1204">                detectAggregatedStaging(effectiveStagingSource, projectId);</span>
+<span class="nc bnc" id="L1205" title="All 2 branches missed.">        if (aggregatedUnwrap != null) {</span>
+<span class="nc" id="L1206">            log.info(&quot;  Detected aggregated-reactor staging at &quot;</span>
+                    + effectiveStagingSource
+                    + &quot; — using &quot; + aggregatedUnwrap
+                    + &quot; as the gh-pages source. (Reactor site:stage &quot;
+                    + &quot;flattened module sites at the staging root; &quot;
+                    + &quot;ike-issues#351.)&quot;);
+<span class="nc" id="L1212">            effectiveStagingSource = aggregatedUnwrap;</span>
+        }
+
+<span class="nc" id="L1215">        log.info(&quot;Publishing &quot; + projectId + &quot; site to gh-pages...&quot;);</span>
+
+        Path tempDir;
+        try {
+<span class="nc" id="L1219">            tempDir = Files.createTempDirectory(&quot;ike-project-gh-pages-&quot;);</span>
+<span class="nc" id="L1220">        } catch (IOException e) {</span>
+<span class="nc" id="L1221">            throw new MojoException(</span>
+                    &quot;Could not create temp directory for gh-pages publish&quot;, e);
+<span class="nc" id="L1223">        }</span>
+
+        try {
+<span class="nc" id="L1226">            File tempRoot = tempDir.toFile();</span>
+
+            // Try cloning the existing gh-pages branch so we preserve
+            // history and any prior &lt;version&gt;/ subdirs. If the branch
+            // doesn't yet exist on the remote (first publish), the
+            // clone fails and we bootstrap with an orphan branch.
+<span class="nc" id="L1232">            boolean firstTimeBootstrap = false;</span>
+            try {
+<span class="nc" id="L1234">                exec(tempRoot, log, &quot;git&quot;, &quot;clone&quot;,</span>
+                        &quot;--branch&quot;, &quot;gh-pages&quot;,
+                        &quot;--single-branch&quot;,
+                        repoUrl, &quot;.&quot;);
+<span class="nc" id="L1238">                log.info(&quot;  Cloned existing gh-pages branch (additive publish)&quot;);</span>
+<span class="nc" id="L1239">            } catch (MojoException cloneFailed) {</span>
+                // Most likely: the branch doesn't exist yet on this repo.
+                // Bootstrap: init + orphan checkout, then force-push at
+                // the end.
+<span class="nc" id="L1243">                log.info(&quot;  No existing gh-pages branch — bootstrapping &quot;</span>
+                        + &quot;with orphan checkout (first-time publish)&quot;);
+<span class="nc" id="L1245">                firstTimeBootstrap = true;</span>
+                // Clear any partial state from the failed clone attempt.
+<span class="nc" id="L1247">                try (Stream&lt;Path&gt; entries = Files.list(tempDir)) {</span>
+<span class="nc" id="L1248">                    entries.forEach(p -&gt; {</span>
+<span class="nc bnc" id="L1249" title="All 2 branches missed.">                        if (Files.isDirectory(p)) {</span>
+<span class="nc" id="L1250">                            deleteDirectory(p);</span>
+                        } else {
+<span class="nc" id="L1252">                            try { Files.delete(p); } catch (IOException ignore) {</span>
+                                // best effort
+<span class="nc" id="L1254">                            }</span>
+                        }
+<span class="nc" id="L1256">                    });</span>
+<span class="nc" id="L1257">                } catch (IOException ignore) {</span>
+                    // best effort
+<span class="nc" id="L1259">                }</span>
+<span class="nc" id="L1260">                exec(tempRoot, log, &quot;git&quot;, &quot;init&quot;);</span>
+<span class="nc" id="L1261">                exec(tempRoot, log, &quot;git&quot;, &quot;checkout&quot;, &quot;--orphan&quot;, &quot;gh-pages&quot;);</span>
+<span class="nc" id="L1262">            }</span>
+
+            // Wipe root-level files and non-version subdirs before
+            // overlaying the new release. Preserves .git/, the latest/
+            // alias (which we'll repopulate), and any directory whose
+            // name starts with a digit (a versioned snapshot from a
+            // prior release).
+            try {
+<span class="nc" id="L1270">                wipeGhPagesRootForRepublish(tempDir, log);</span>
+<span class="nc" id="L1271">            } catch (IOException e) {</span>
+<span class="nc" id="L1272">                throw new MojoException(</span>
+<span class="nc" id="L1273">                        &quot;Failed to wipe root for republish: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1274">            }</span>
+
+            // (1) Copy staging to root — current release at /&lt;projectId&gt;/.
+            //     Filter top-level version-prefixed entries (#337):
+            //     they're either pollution from earlier release cycles
+            //     preserved by maven-clean's exclude-staging rule, or
+            //     the same content already preserved at root by the
+            //     wipe step above. In either case we don't want them
+            //     coming through staging — version subdirs are managed
+            //     explicitly by the caller (steps 2 and 3 below).
+            try {
+<span class="nc" id="L1285">                copyDirectoryExcludingTopLevelVersionDirs(</span>
+                        effectiveStagingSource, tempDir);
+<span class="nc" id="L1287">            } catch (IOException e) {</span>
+<span class="nc" id="L1288">                throw new MojoException(</span>
+<span class="nc" id="L1289">                        &quot;Failed to copy staging dir to root: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1290">            }</span>
+
+            // (2) Copy staging to /&lt;version&gt;/ — preserved snapshot.
+            //     Same filter: don't recursively nest prior version
+            //     subdirs inside this release's versioned snapshot
+            //     (the bug surfaced by ike-issues#337).
+<span class="nc" id="L1296">            Path versionDir = tempDir.resolve(version);</span>
+<span class="nc" id="L1297">            deleteDirectory(versionDir);</span>
+            try {
+<span class="nc" id="L1299">                Files.createDirectories(versionDir);</span>
+<span class="nc" id="L1300">                copyDirectoryExcludingTopLevelVersionDirs(</span>
+                        effectiveStagingSource, versionDir);
+<span class="nc" id="L1302">            } catch (IOException e) {</span>
+<span class="nc" id="L1303">                throw new MojoException(</span>
+                        &quot;Failed to copy staging dir to versioned subdir &quot;
+<span class="nc" id="L1305">                                + versionDir + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1306">            }</span>
+
+            // (3) Replace /latest/ with the just-released content.
+            //     Directory copy (not symlink) — GitHub Pages does not
+            //     follow git symlinks reliably. Same version-dir
+            //     filter as above.
+<span class="nc" id="L1312">            Path latestDir = tempDir.resolve(&quot;latest&quot;);</span>
+<span class="nc" id="L1313">            deleteDirectory(latestDir);</span>
+            try {
+<span class="nc" id="L1315">                Files.createDirectories(latestDir);</span>
+<span class="nc" id="L1316">                copyDirectoryExcludingTopLevelVersionDirs(</span>
+                        effectiveStagingSource, latestDir);
+<span class="nc" id="L1318">            } catch (IOException e) {</span>
+<span class="nc" id="L1319">                throw new MojoException(</span>
+                        &quot;Failed to copy staging dir to latest/: &quot;
+<span class="nc" id="L1321">                                + e.getMessage(), e);</span>
+<span class="nc" id="L1322">            }</span>
+
+            // (4) Publish sibling submodule subtrees (ike-issues#363).
+            //     In a multi-module reactor with a per-artifactId or
+            //     per-version &lt;site&gt; URL, each child module renders
+            //     its own site into target/staging/.../&lt;moduleId&gt;/.
+            //     Without this step those subtrees never reach
+            //     gh-pages — the workspace site links to them but
+            //     they 404. We walk siblingSubmoduleLayer for
+            //     subdirs that:
+            //       (a) aren't the version-nested target we already
+            //           published (which IS the workspace's own),
+            //       (b) contain an index.html (signal of a rendered
+            //           module site, not a CSS/fonts resource dir).
+            //     Each matching subtree gets copied to both
+            //     &lt;root&gt;/&lt;moduleId&gt;/ and &lt;root&gt;/&lt;version&gt;/&lt;moduleId&gt;/.
+            // Walk THREE candidate layers for sibling submodules.
+            // Different submodule &lt;site&gt;&lt;url&gt; shapes land at
+            // different staging depths in the same reactor — we have
+            // to cover all of them or some submodules ship with 404.
+            //
+            //   (a) siblingSubmoduleLayer — the post-URL-unwrap
+            //       layer (typically target/staging/https:/&lt;host&gt;/&lt;projectId&gt;/).
+            //       Submodules with URL https://ike.network/&lt;projectId&gt;/&lt;sub&gt;/
+            //       (same form as reactor top) land as siblings of
+            //       the reactor's own site here.
+            //
+            //   (b) stagingDir — the bare staging root. Submodules
+            //       whose &lt;site&gt;&lt;url&gt; resolves to a top-level path
+            //       (e.g. https://ike.network/&lt;sub&gt;/) stage as
+            //       1-level-deep dirs in stagingDir. Pre-#380, this
+            //       is where ike-parent landed.
+            //
+            //   (c) stagingDir/&lt;projectId&gt;/ — when a submodule's URL
+            //       AND the reactor's URL share a common middle
+            //       segment (https://ike.network/&lt;projectId&gt;/...),
+            //       Maven Site can stage the submodule's content
+            //       *under* a directory named after the reactor's
+            //       projectId. Post-#380, ike-parent's URL is
+            //       https://ike.network/ike-platform/ike-parent/ and
+            //       its content lands at
+            //       target/staging/ike-platform/ike-parent/. The
+            //       depth-1 walks in (a) and (b) miss this — the
+            //       projectId-named container is rejected by the
+            //       moduleId==projectId guard below, dropping its
+            //       children with it.
+            //
+            // ike-issues#380 followup: ike-platform v51 shipped
+            // without /ike-platform/ike-parent/ because layer (c)
+            // wasn't being walked.
+            //
+            // Use a LinkedHashMap keyed by directory name to merge
+            // hits and dedupe — the same sibling could theoretically
+            // appear in multiple layers if a reactor mixes shapes.
+<span class="nc" id="L1376">            java.util.Map&lt;String, Path&gt; siblingByName =</span>
+                    new java.util.LinkedHashMap&lt;&gt;();
+<span class="nc bnc" id="L1378" title="All 2 branches missed.">            for (Path candidate : findSubmoduleSiteDirs(</span>
+                    siblingSubmoduleLayer, effectiveStagingSource)) {
+<span class="nc" id="L1380">                siblingByName.putIfAbsent(</span>
+<span class="nc" id="L1381">                        candidate.getFileName().toString(), candidate);</span>
+<span class="nc" id="L1382">            }</span>
+<span class="nc bnc" id="L1383" title="All 2 branches missed.">            if (!stagingDir.equals(siblingSubmoduleLayer)) {</span>
+<span class="nc bnc" id="L1384" title="All 2 branches missed.">                for (Path candidate : findSubmoduleSiteDirs(</span>
+                        stagingDir, effectiveStagingSource)) {
+<span class="nc" id="L1386">                    siblingByName.putIfAbsent(</span>
+<span class="nc" id="L1387">                            candidate.getFileName().toString(), candidate);</span>
+<span class="nc" id="L1388">                }</span>
+            }
+            // Layer (c): stagingDir/&lt;projectId&gt;/ — projectId-named
+            // container that holds submodule sites as children.
+<span class="nc" id="L1392">            Path projectIdContainer = stagingDir.resolve(projectId);</span>
+<span class="nc bnc" id="L1393" title="All 2 branches missed.">            if (Files.isDirectory(projectIdContainer)</span>
+<span class="nc" id="L1394">                    &amp;&amp; !projectIdContainer.toAbsolutePath().normalize()</span>
+<span class="nc bnc" id="L1395" title="All 2 branches missed.">                            .equals(siblingSubmoduleLayer</span>
+<span class="nc" id="L1396">                                    .toAbsolutePath().normalize())) {</span>
+<span class="nc bnc" id="L1397" title="All 2 branches missed.">                for (Path candidate : findSubmoduleSiteDirs(</span>
+                        projectIdContainer, effectiveStagingSource)) {
+<span class="nc" id="L1399">                    siblingByName.putIfAbsent(</span>
+<span class="nc" id="L1400">                            candidate.getFileName().toString(), candidate);</span>
+<span class="nc" id="L1401">                }</span>
+            }
+<span class="nc" id="L1403">            List&lt;Path&gt; siblings = new ArrayList&lt;&gt;(siblingByName.values());</span>
+<span class="nc bnc" id="L1404" title="All 2 branches missed.">            for (Path siblingSource : siblings) {</span>
+<span class="nc" id="L1405">                String moduleId = siblingSource.getFileName().toString();</span>
+<span class="nc bnc" id="L1406" title="All 2 branches missed.">                if (moduleId.equals(projectId)) continue;</span>
+<span class="nc" id="L1407">                Path siblingRootDest = tempDir.resolve(moduleId);</span>
+<span class="nc" id="L1408">                Path siblingVersionDest = tempDir.resolve(version)</span>
+<span class="nc" id="L1409">                        .resolve(moduleId);</span>
+                // Submodules also need a latest/ alias so the
+                // canonical pattern &lt;site-root&gt;/latest/&lt;sub&gt;/ resolves.
+                // Step (3) above populates latest/ from
+                // effectiveStagingSource, which catches submodules
+                // staging UNDER that source (ike-bom,
+                // ike-workspace-maven-plugin) but NOT submodules from
+                // the projectId-container shape introduced by #381
+                // (ike-parent under stagingDir/&lt;projectId&gt;/). Copying
+                // here covers all three layers uniformly. Redundant
+                // for siblings already in latest/ from step (3), but
+                // the second copy is idempotent (same source).
+<span class="nc" id="L1421">                Path siblingLatestDest = tempDir.resolve(&quot;latest&quot;)</span>
+<span class="nc" id="L1422">                        .resolve(moduleId);</span>
+<span class="nc" id="L1423">                deleteDirectory(siblingRootDest);</span>
+<span class="nc" id="L1424">                deleteDirectory(siblingVersionDest);</span>
+<span class="nc" id="L1425">                deleteDirectory(siblingLatestDest);</span>
+                try {
+<span class="nc" id="L1427">                    Files.createDirectories(siblingRootDest);</span>
+<span class="nc" id="L1428">                    Files.createDirectories(siblingVersionDest);</span>
+<span class="nc" id="L1429">                    Files.createDirectories(siblingLatestDest);</span>
+<span class="nc" id="L1430">                    copyDirectory(siblingSource, siblingRootDest);</span>
+<span class="nc" id="L1431">                    copyDirectory(siblingSource, siblingVersionDest);</span>
+<span class="nc" id="L1432">                    copyDirectory(siblingSource, siblingLatestDest);</span>
+<span class="nc" id="L1433">                } catch (IOException e) {</span>
+<span class="nc" id="L1434">                    throw new MojoException(</span>
+                            &quot;Failed to copy submodule subtree &quot;
+                                    + siblingSource + &quot;: &quot;
+<span class="nc" id="L1437">                                    + e.getMessage(), e);</span>
+<span class="nc" id="L1438">                }</span>
+<span class="nc" id="L1439">                log.info(&quot;  Published submodule site: &quot; + moduleId);</span>
+<span class="nc" id="L1440">            }</span>
+
+            // .nojekyll — disable Jekyll preprocessing on rendered HTML.
+<span class="nc" id="L1443">            Path nojekyll = tempDir.resolve(&quot;.nojekyll&quot;);</span>
+            try {
+<span class="nc" id="L1445">                Files.writeString(nojekyll, &quot;&quot;);</span>
+<span class="nc" id="L1446">            } catch (IOException e) {</span>
+<span class="nc" id="L1447">                throw new MojoException(</span>
+<span class="nc" id="L1448">                        &quot;Failed to write .nojekyll marker: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1449">            }</span>
+
+            // Defensive: never carry a per-repo CNAME — the org CNAME
+            // (IKE-Network.github.io -&gt; ike.network) extends down.
+            // If a stray CNAME ended up in the staging dir, drop it
+            // (root copy only — versioned subdirs are also free of it
+            // since their source was the same staging dir).
+<span class="nc" id="L1456">            Path strayCname = tempDir.resolve(&quot;CNAME&quot;);</span>
+<span class="nc bnc" id="L1457" title="All 2 branches missed.">            if (Files.exists(strayCname)) {</span>
+                try {
+<span class="nc" id="L1459">                    Files.delete(strayCname);</span>
+<span class="nc" id="L1460">                    log.info(&quot;  Dropped stray CNAME from staging &quot;</span>
+                            + &quot;(per-project CNAMEs conflict with org CNAME)&quot;);
+<span class="nc" id="L1462">                } catch (IOException e) {</span>
+<span class="nc" id="L1463">                    throw new MojoException(</span>
+<span class="nc" id="L1464">                            &quot;Could not delete stray CNAME: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1465">                }</span>
+            }
+
+<span class="nc" id="L1468">            exec(tempRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
+<span class="nc" id="L1469">            exec(tempRoot, log, &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,</span>
+                    &quot;site: publish &quot; + projectId + &quot; &quot; + version);
+<span class="nc bnc" id="L1471" title="All 2 branches missed.">            if (firstTimeBootstrap) {</span>
+<span class="nc" id="L1472">                exec(tempRoot, log, &quot;git&quot;, &quot;push&quot;, &quot;--force&quot;,</span>
+                        repoUrl, &quot;gh-pages:gh-pages&quot;);
+            } else {
+<span class="nc" id="L1475">                exec(tempRoot, log, &quot;git&quot;, &quot;push&quot;,</span>
+                        repoUrl, &quot;gh-pages:gh-pages&quot;);
+            }
+
+<span class="nc" id="L1479">            log.info(&quot;  Published:&quot;);</span>
+<span class="nc" id="L1480">            log.info(&quot;    Current:   https://ike.network/&quot; + projectId + &quot;/&quot;);</span>
+<span class="nc" id="L1481">            log.info(&quot;    Versioned: https://ike.network/&quot; + projectId</span>
+                    + &quot;/&quot; + version + &quot;/&quot;);
+<span class="nc" id="L1483">            log.info(&quot;    Latest:    https://ike.network/&quot; + projectId + &quot;/latest/&quot;);</span>
+        } finally {
+<span class="nc" id="L1485">            deleteDirectory(tempDir);</span>
+        }
+<span class="nc" id="L1487">    }</span>
+
+    /**
+     * Wipe root-level files and non-version subdirs from a freshly
+     * cloned (or freshly initialized) gh-pages working tree, in
+     * preparation for overlaying a new release.
+     *
+     * &lt;p&gt;Preserves:
+     * &lt;ul&gt;
+     *   &lt;li&gt;{@code .git/} — git internals&lt;/li&gt;
+     *   &lt;li&gt;Any directory whose name starts with a digit — assumed to
+     *       be a versioned snapshot from a prior release. Versions in
+     *       IKE projects are numeric (single-segment integers, semver,
+     *       date-based, etc.) so the digit-prefix heuristic catches all
+     *       three. {@code latest/} starts with a letter and is wiped
+     *       (will be repopulated by the caller).&lt;/li&gt;
+     * &lt;/ul&gt;
+     *
+     * &lt;p&gt;Wipes everything else: stale {@code index.html}, {@code css/},
+     * {@code js/}, {@code images/}, {@code latest/}, etc. The caller
+     * then copies the new staging contents on top.
+     *
+     * @param repoDir the cloned/initialized gh-pages working tree
+     * @param log     Maven logger
+     * @throws IOException if directory listing fails
+     */
+    private static void wipeGhPagesRootForRepublish(Path repoDir, Log log)
+            throws IOException {
+<span class="nc" id="L1515">        try (Stream&lt;Path&gt; entries = Files.list(repoDir)) {</span>
+<span class="nc" id="L1516">            entries.forEach(entry -&gt; {</span>
+<span class="nc" id="L1517">                String name = entry.getFileName().toString();</span>
+<span class="nc bnc" id="L1518" title="All 2 branches missed.">                if (&quot;.git&quot;.equals(name)) {</span>
+<span class="nc" id="L1519">                    return;</span>
+                }
+<span class="nc bnc" id="L1521" title="All 4 branches missed.">                if (Files.isDirectory(entry) &amp;&amp; isVersionDirName(name)) {</span>
+<span class="nc" id="L1522">                    log.debug(&quot;  Preserving versioned subdir: &quot; + name + &quot;/&quot;);</span>
+<span class="nc" id="L1523">                    return;</span>
+                }
+<span class="nc bnc" id="L1525" title="All 2 branches missed.">                if (Files.isDirectory(entry)) {</span>
+<span class="nc" id="L1526">                    deleteDirectory(entry);</span>
+                } else {
+                    try {
+<span class="nc" id="L1529">                        Files.delete(entry);</span>
+<span class="nc" id="L1530">                    } catch (IOException e) {</span>
+<span class="nc" id="L1531">                        log.warn(&quot;  Could not delete root file &quot;</span>
+<span class="nc" id="L1532">                                + name + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L1533">                    }</span>
+                }
+<span class="nc" id="L1535">            });</span>
+        }
+<span class="nc" id="L1537">    }</span>
+
+    /**
+     * Heuristic: does this directory name look like a release version?
+     *
+     * &lt;p&gt;IKE versions are not necessarily semver — they may be
+     * single-segment integers (e.g., {@code 145}), semver
+     * ({@code 1.2.3}), or date-based ({@code 2026-04-25}). All three
+     * forms start with a digit, while non-version directories at the
+     * gh-pages root (e.g., {@code css}, {@code js}, {@code images},
+     * {@code latest}) start with a letter.
+     *
+     * @param name the directory name
+     * @return {@code true} if the name looks like a version
+     */
+    static boolean isVersionDirName(String name) {
+<span class="fc bfc" id="L1553" title="All 2 branches covered.">        return name != null</span>
+<span class="fc bfc" id="L1554" title="All 2 branches covered.">                &amp;&amp; !name.isEmpty()</span>
+<span class="fc bfc" id="L1555" title="All 2 branches covered.">                &amp;&amp; Character.isDigit(name.charAt(0));</span>
+    }
+
+    /**
+     * Validate that a remote path is safe for deletion operations.
+     *
+     * &lt;p&gt;Ensures the path starts with {@link #SITE_DISK_BASE} and has
+     * sufficient depth to prevent accidental deletion of the site root.
+     *
+     * @param remotePath absolute path on the server
+     * @throws MojoException if the path is unsafe
+     */
+    public static void validateRemotePath(String remotePath)
+            throws MojoException {
+<span class="fc bfc" id="L1569" title="All 2 branches covered.">        if (!remotePath.startsWith(SITE_DISK_BASE)) {</span>
+<span class="fc" id="L1570">            throw new MojoException(</span>
+                    &quot;Refusing to delete — path does not start with &quot;
+                            + SITE_DISK_BASE + &quot;: &quot; + remotePath);
+        }
+<span class="fc" id="L1574">        String relative = remotePath.substring(SITE_DISK_BASE.length());</span>
+<span class="fc bfc" id="L1575" title="All 2 branches covered.">        long depth = relative.chars().filter(c -&gt; c == '/').count();</span>
+<span class="fc bfc" id="L1576" title="All 4 branches covered.">        if (relative.isBlank() || depth &lt; 1) {</span>
+<span class="fc" id="L1577">            throw new MojoException(</span>
+                    &quot;Refusing to delete — path too shallow (need project/type): &quot;
+                            + remotePath);
+        }
+<span class="fc" id="L1581">    }</span>
+
+    /**
+     * Resolve the on-disk site path for a given project, type, and
+     * optional subdirectory.
+     *
+     * @param projectId  Maven artifact ID (e.g., &quot;ike-pipeline&quot;)
+     * @param siteType   &quot;release&quot;, &quot;snapshot&quot;, or &quot;checkpoint&quot;
+     * @param subPath    optional subdirectory (branch name, version);
+     *                   null or blank to omit
+     * @return absolute path on the server
+     */
+    public static String siteDiskPath(String projectId, String siteType,
+                               String subPath) {
+<span class="fc" id="L1595">        String path = SITE_DISK_BASE + projectId + &quot;/&quot; + siteType;</span>
+<span class="fc bfc" id="L1596" title="All 4 branches covered.">        if (subPath != null &amp;&amp; !subPath.isBlank()) {</span>
+<span class="fc" id="L1597">            path += &quot;/&quot; + subPath;</span>
+        }
+<span class="fc" id="L1599">        return path;</span>
+    }
+
+    /**
+     * Convert a git branch name to a safe site path segment.
+     * Replaces {@code /} with {@code /} (keeps hierarchy for
+     * {@code feature/name} structure).
+     *
+     * @param branch git branch name
+     * @return sanitized path segment safe for use in URLs and file paths
+     */
+    public static String branchToSitePath(String branch) {
+        // Keep forward slashes for directory structure (feature/name → feature/name)
+        // but sanitize anything dangerous
+<span class="fc" id="L1613">        return branch.replaceAll(&quot;[^a-zA-Z0-9/_.-]&quot;, &quot;-&quot;);</span>
+    }
+
+<span class="fc" id="L1616">    private static final Pattern ARTIFACT_ID_PATTERN =</span>
+<span class="fc" id="L1617">            Pattern.compile(&quot;&lt;artifactId&gt;([^&lt;]+)&lt;/artifactId&gt;&quot;);</span>
+
+<span class="fc" id="L1619">    private static final Pattern GROUP_ID_PATTERN =</span>
+<span class="fc" id="L1620">            Pattern.compile(&quot;&lt;groupId&gt;([^&lt;]+)&lt;/groupId&gt;&quot;);</span>
+
+    /**
+     * Read the project's own {@code &lt;groupId&gt;} from a POM file,
+     * skipping any {@code &lt;groupId&gt;} inside the {@code &lt;parent&gt;}
+     * block.
+     *
+     * &lt;p&gt;Used by cascade self-identification (IKE-Network/ike-issues#402):
+     * a reactor-root POM declares its own {@code &lt;groupId&gt;}, which the
+     * release goals match against {@code release-cascade.yaml} entries.
+     *
+     * @param pomFile the POM file to read
+     * @return the group ID string
+     * @throws MojoException if the file cannot be read or declares no
+     *                       own group ID
+     */
+    public static String readPomGroupId(File pomFile) throws MojoException {
+        try {
+<span class="nc" id="L1638">            String content = Files.readString(</span>
+<span class="nc" id="L1639">                    pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L1640">            String stripped = content.replaceFirst(</span>
+                    &quot;(?s)&lt;parent&gt;.*?&lt;/parent&gt;&quot;, &quot;&quot;);
+<span class="nc" id="L1642">            Matcher matcher = GROUP_ID_PATTERN.matcher(stripped);</span>
+<span class="nc bnc" id="L1643" title="All 2 branches missed.">            if (matcher.find()) {</span>
+<span class="nc" id="L1644">                return matcher.group(1);</span>
+            }
+<span class="nc" id="L1646">            throw new MojoException(</span>
+                    &quot;Could not extract &lt;groupId&gt; from &quot; + pomFile);
+<span class="nc" id="L1648">        } catch (IOException e) {</span>
+<span class="nc" id="L1649">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+        }
+    }
+
+    /**
+     * Read the project's own {@code &lt;artifactId&gt;} from a POM file,
+     * skipping any {@code &lt;artifactId&gt;} inside the {@code &lt;parent&gt;} block.
+     *
+     * @param pomFile the POM file to read
+     * @return the artifact ID string
+     * @throws MojoException if the file cannot be read or has no artifact ID
+     */
+    public static String readPomArtifactId(File pomFile) throws MojoException {
+        try {
+<span class="fc" id="L1663">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L1664">            String stripped = content.replaceFirst(</span>
+                    &quot;(?s)&lt;parent&gt;.*?&lt;/parent&gt;&quot;, &quot;&quot;);
+<span class="fc" id="L1666">            Matcher matcher = ARTIFACT_ID_PATTERN.matcher(stripped);</span>
+<span class="fc bfc" id="L1667" title="All 2 branches covered.">            if (matcher.find()) {</span>
+<span class="fc" id="L1668">                return matcher.group(1);</span>
+            }
+<span class="fc" id="L1670">            throw new MojoException(</span>
+                    &quot;Could not extract &lt;artifactId&gt; from &quot; + pomFile);
+<span class="nc" id="L1672">        } catch (IOException e) {</span>
+<span class="nc" id="L1673">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+        }
+    }
+
+    /**
+     * Read a {@code &lt;properties&gt;} value from a POM file by element
+     * name.
+     *
+     * &lt;p&gt;Used by cascade resolution (IKE-Network/ike-issues#404) to
+     * read {@code ike-tooling.version} — the version at which a
+     * foundation repo resolves the {@code ike-build-standards}
+     * {@code cascade} artifact.
+     *
+     * @param pomFile      the POM file to read
+     * @param propertyName the property element name (e.g.
+     *                     {@code ike-tooling.version})
+     * @return the property value, or {@code null} if the POM declares
+     *         no such property
+     * @throws MojoException if the file cannot be read
+     */
+    public static String readPomProperty(File pomFile, String propertyName)
+            throws MojoException {
+        try {
+<span class="nc" id="L1696">            String content = Files.readString(</span>
+<span class="nc" id="L1697">                    pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L1698">            Matcher matcher = Pattern.compile(</span>
+<span class="nc" id="L1699">                    &quot;&lt;&quot; + Pattern.quote(propertyName) + &quot;&gt;([^&lt;]+)&lt;/&quot;</span>
+<span class="nc" id="L1700">                    + Pattern.quote(propertyName) + &quot;&gt;&quot;).matcher(content);</span>
+<span class="nc bnc" id="L1701" title="All 2 branches missed.">            return matcher.find() ? matcher.group(1) : null;</span>
+<span class="nc" id="L1702">        } catch (IOException e) {</span>
+<span class="nc" id="L1703">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+        }
+    }
+
+    /**
+     * Check whether a directory has no entries. Returns {@code true}
+     * if the path is a directory with zero entries; {@code false} if
+     * it has at least one entry. Throws if the path is not a
+     * readable directory.
+     *
+     * &lt;p&gt;Used by the gh-pages publish flow (ike-issues#334) to
+     * distinguish &quot;directory exists but is empty&quot; (e.g., {@code
+     * mvn site:stage} produced nothing for a single-module project)
+     * from &quot;directory exists and has content&quot; (the normal case).
+     *
+     * @param dir the directory to inspect
+     * @return {@code true} if the directory contains no entries
+     * @throws MojoException if the directory cannot be listed
+     */
+    public static boolean isEmptyDirectory(Path dir) throws MojoException {
+<span class="fc" id="L1723">        try (Stream&lt;Path&gt; entries = Files.list(dir)) {</span>
+<span class="fc" id="L1724">            return entries.findAny().isEmpty();</span>
+<span class="nc" id="L1725">        } catch (IOException e) {</span>
+<span class="nc" id="L1726">            throw new MojoException(</span>
+<span class="nc" id="L1727">                    &quot;Could not list directory &quot; + dir + &quot;: &quot; + e.getMessage(),</span>
+                    e);
+        }
+    }
+
+    /**
+     * Detect parent-artifactId staging nesting (ike-issues#342).
+     *
+     * &lt;p&gt;When a Maven project has a {@code &lt;parent&gt;} block,
+     * {@code maven-site-plugin}'s {@code site:stage} writes content
+     * to {@code target/staging/&lt;parentArtifactId&gt;/&lt;projectId&gt;/}
+     * rather than {@code target/staging/}. The hybrid gh-pages
+     * publish path treats {@code stagingDir} as the source of
+     * truth, so the published tree ends up double-nested at
+     * {@code /&lt;repo&gt;/&lt;version&gt;/&lt;parentArtifactId&gt;/&lt;projectId&gt;/}
+     * when it should be at {@code /&lt;repo&gt;/&lt;version&gt;/}.
+     *
+     * &lt;p&gt;This helper detects that wrap by checking:
+     * &lt;ol&gt;
+     *   &lt;li&gt;{@code source} contains exactly one entry that is itself
+     *       a directory, and&lt;/li&gt;
+     *   &lt;li&gt;that single directory contains a non-empty subdirectory
+     *       whose name equals {@code projectId}.&lt;/li&gt;
+     * &lt;/ol&gt;
+     *
+     * &lt;p&gt;Returns the path to {@code &lt;single-entry&gt;/&lt;projectId&gt;}
+     * when both conditions hold; otherwise returns {@code null}
+     * to indicate no unwrap is needed.
+     *
+     * &lt;p&gt;The check is intentionally conservative — it requires a
+     * single top-level entry so it does not mis-fire on staging
+     * trees that legitimately have multiple top-level dirs (the
+     * normal aggregated-reactor case where each module's site
+     * lives under its own subdirectory).
+     *
+     * @param source    the post-#337-unwrap effective staging source
+     * @param projectId the project's own artifactId
+     * @return the unwrapped path, or {@code null} if no nesting
+     *         was detected
+     * @throws MojoException if the directory cannot be inspected
+     */
+    public static Path detectParentArtifactNesting(Path source,
+                                                    String projectId)
+            throws MojoException {
+<span class="pc bpc" id="L1771" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) {</span>
+<span class="nc" id="L1772">            return null;</span>
+        }
+<span class="fc" id="L1774">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
+<span class="fc" id="L1775">            List&lt;Path&gt; topLevel = entries.toList();</span>
+<span class="fc bfc" id="L1776" title="All 2 branches covered.">            if (topLevel.size() != 1) {</span>
+<span class="fc" id="L1777">                return null;</span>
+            }
+<span class="fc" id="L1779">            Path single = topLevel.get(0);</span>
+<span class="fc bfc" id="L1780" title="All 2 branches covered.">            if (!Files.isDirectory(single)) {</span>
+<span class="fc" id="L1781">                return null;</span>
+            }
+<span class="fc" id="L1783">            Path inner = single.resolve(projectId);</span>
+<span class="fc bfc" id="L1784" title="All 4 branches covered.">            if (!Files.isDirectory(inner) || isEmptyDirectory(inner)) {</span>
+<span class="fc" id="L1785">                return null;</span>
+            }
+<span class="fc" id="L1787">            return inner;</span>
+<span class="pc bpc" id="L1788" title="3 of 6 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L1789">            throw new MojoException(</span>
+                    &quot;Could not inspect &quot; + source
+                            + &quot; for parent-artifactId nesting: &quot;
+<span class="nc" id="L1792">                            + e.getMessage(), e);</span>
+        }
+    }
+
+    /**
+     * Detect aggregated-reactor staging where the project's own site
+     * lives alongside multiple sibling subdirs (ike-issues#351).
+     *
+     * &lt;p&gt;When a workspace pom inherits a {@code &lt;site&gt;} URL with no
+     * common ancestor among its reactor subprojects' URLs (e.g.
+     * each module gets {@code https://ike.network/&lt;artifactId&gt;/}),
+     * {@code site:stage} flattens each module's site at its own
+     * top-level path under {@code target/staging/}. The workspace's
+     * own content lives in {@code staging/&lt;projectId&gt;/} and the
+     * subprojects are siblings. Without unwrap, the gh-pages root
+     * gets the whole flattened tree — wrong index.html, missing
+     * the workspace's own pages.
+     *
+     * &lt;p&gt;Detection criteria (all must hold):
+     * &lt;ol&gt;
+     *   &lt;li&gt;{@code source} contains at least one top-level entry, AND&lt;/li&gt;
+     *   &lt;li&gt;a subdirectory named {@code projectId} exists at the
+     *       top level, AND&lt;/li&gt;
+     *   &lt;li&gt;that subdirectory is non-empty.&lt;/li&gt;
+     * &lt;/ol&gt;
+     *
+     * &lt;p&gt;Single-top-level cases are handled by
+     * {@link #detectParentArtifactNesting}; this method's value-add
+     * is the multi-top-level case where {@code projectId} is one of
+     * several siblings.
+     *
+     * &lt;p&gt;Returns the path to {@code source/&lt;projectId&gt;} when the
+     * detection fires; {@code null} otherwise.
+     *
+     * @param source    the post-#337/#342-unwrap effective staging source
+     * @param projectId the project's own artifactId
+     * @return the unwrapped path, or {@code null}
+     * @throws MojoException if the directory cannot be inspected
+     */
+    public static Path detectAggregatedStaging(Path source,
+                                                String projectId)
+            throws MojoException {
+<span class="pc bpc" id="L1834" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) {</span>
+<span class="nc" id="L1835">            return null;</span>
+        }
+        // No multi-entry guard. The earlier &quot;count() &lt; 2 → return null&quot;
+        // assumed the single-entry case was always parent-artifactId
+        // nesting (handled by detectParentArtifactNesting). After the
+        // #358 fix in ike-parent v45+, single-module consumers stage
+        // their content at staging/&lt;projectId&gt;/ with NO further
+        // nesting — and that pattern has only one top-level entry too.
+        // Returning null there caused gh-pages publish to copy the
+        // whole staging tree (containing &lt;projectId&gt;/&lt;content&gt;) to
+        // gh-pages root, producing /&lt;version&gt;/&lt;projectId&gt;/&lt;content&gt;
+        // instead of /&lt;version&gt;/&lt;content&gt; — every consumer URL
+        // 404'd. ike-issues#358 followup.
+        //
+        // The detectParentArtifactNesting check runs FIRST in
+        // publishProjectSiteToGhPages and takes the deeper (doubled)
+        // path when present, so this method's shallow check only
+        // fires in the legitimate &quot;content lives at staging/&lt;projectId&gt;/&quot;
+        // case.
+        // Check shallow first: source/&lt;projectId&gt;/
+<span class="fc" id="L1855">        Path shallow = source.resolve(projectId);</span>
+<span class="fc bfc" id="L1856" title="All 4 branches covered.">        if (Files.isDirectory(shallow) &amp;&amp; !isEmptyDirectory(shallow)) {</span>
+<span class="fc" id="L1857">            return shallow;</span>
+        }
+        // Check one level deeper: source/&lt;anyDir&gt;/&lt;projectId&gt;/. This
+        // catches the compound case where the workspace's own site is
+        // nested under parent-artifactId (#342) AND the reactor's
+        // sibling subprojects flatten at the staging root (#351 v1
+        // detection didn't fire on the shallow check because the
+        // projectId subdir lives at staging/&lt;parentArtifactId&gt;/&lt;projectId&gt;/,
+        // not staging/&lt;projectId&gt;/). The first matching deeper
+        // candidate wins — staging/&lt;parentArtifactId&gt;/&lt;projectId&gt;/
+        // is the only configuration that produces this layout in
+        // practice, so we don't disambiguate.
+<span class="fc" id="L1869">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
+<span class="fc bfc" id="L1870" title="All 2 branches covered.">            for (Path top : entries.toList()) {</span>
+<span class="fc bfc" id="L1871" title="All 2 branches covered.">                if (!Files.isDirectory(top)) continue;</span>
+<span class="fc" id="L1872">                Path deeper = top.resolve(projectId);</span>
+<span class="fc bfc" id="L1873" title="All 2 branches covered.">                if (Files.isDirectory(deeper)</span>
+<span class="pc bpc" id="L1874" title="1 of 2 branches missed.">                        &amp;&amp; !isEmptyDirectory(deeper)) {</span>
+<span class="fc" id="L1875">                    return deeper;</span>
+                }
+<span class="fc" id="L1877">            }</span>
+<span class="pc bpc" id="L1878" title="1 of 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L1879">            throw new MojoException(</span>
+                    &quot;Could not inspect &quot; + source
+                            + &quot; for aggregated staging (deep): &quot;
+<span class="nc" id="L1882">                            + e.getMessage(), e);</span>
+<span class="fc" id="L1883">        }</span>
+<span class="fc" id="L1884">        return null;</span>
+    }
+
+    /**
+     * Detect URL-as-path staging where {@code site:stage} has
+     * mapped an {@code https://}-form {@code &lt;site&gt;&lt;url&gt;} to a
+     * literal directory tree under {@code target/staging/}
+     * (ike-issues#359).
+     *
+     * &lt;p&gt;For a {@code &lt;site&gt;&lt;url&gt;https://ike.network/&lt;projectId&gt;/}
+     * inside a multi-module reactor, maven-site-plugin produces
+     * {@code target/staging/https:/ike.network/&lt;projectId&gt;/&lt;content&gt;}
+     * — scheme ({@code https:}), host ({@code ike.network}), and each
+     * path segment each become a real subdirectory. The pre-#304
+     * scpexe URLs also went through this transformation, but their
+     * path segments aligned with where site-deploy actually wrote,
+     * so the layout was sensible. Post-#304 the {@code https://}
+     * URLs survive only for relative-path computation and the
+     * URL-as-path staging is wasted — the actual publish target is
+     * gh-pages.
+     *
+     * &lt;p&gt;Detection: descend into {@code source/https:/} (or
+     * {@code source/http:/}), then a single host directory, then
+     * the project's own {@code &lt;projectId&gt;/} subdirectory. When
+     * all three exist and {@code &lt;projectId&gt;/} is non-empty,
+     * return it as the effective staging source. The caller then
+     * applies the remaining unwraps (version-nested #337,
+     * parent-artifactId #342, aggregated #351) to the narrowed
+     * source — e.g. ike-platform's
+     * {@code https://ike.network/ike-platform/${project.version}/}
+     * resolves to {@code source/https:/ike.network/ike-platform/}
+     * here, then #337 descends into {@code 40/}.
+     *
+     * &lt;p&gt;Returns {@code null} if any layer of the expected
+     * structure is missing or the project's own directory is
+     * empty — staying conservative so non-matching projects
+     * (single-module reactors, scpexe-URL projects, etc.) fall
+     * through to the existing unwrap chain unchanged.
+     *
+     * @param source    the staging directory to inspect
+     * @param projectId the project's artifactId
+     * @return the unwrap target, or {@code null} if no
+     *         URL-as-path nesting was detected
+     * @throws MojoException if a directory cannot be listed
+     */
+    public static Path detectHttpsUrlStaging(Path source, String projectId)
+            throws MojoException {
+<span class="pc bpc" id="L1931" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) return null;</span>
+<span class="fc" id="L1932">        Path scheme = source.resolve(&quot;https:&quot;);</span>
+<span class="fc bfc" id="L1933" title="All 2 branches covered.">        if (!Files.isDirectory(scheme)) {</span>
+<span class="fc" id="L1934">            scheme = source.resolve(&quot;http:&quot;);</span>
+<span class="pc bpc" id="L1935" title="1 of 2 branches missed.">            if (!Files.isDirectory(scheme)) return null;</span>
+        }
+        Path host;
+<span class="fc" id="L1938">        try (Stream&lt;Path&gt; hosts = Files.list(scheme)) {</span>
+<span class="fc" id="L1939">            List&lt;Path&gt; hostDirs = hosts.filter(Files::isDirectory).toList();</span>
+<span class="fc bfc" id="L1940" title="All 2 branches covered.">            if (hostDirs.size() != 1) return null;</span>
+<span class="fc" id="L1941">            host = hostDirs.get(0);</span>
+<span class="pc bpc" id="L1942" title="1 of 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L1943">            throw new MojoException(</span>
+                    &quot;Could not inspect &quot; + scheme
+                            + &quot; for URL-as-path staging: &quot;
+<span class="nc" id="L1946">                            + e.getMessage(), e);</span>
+<span class="fc" id="L1947">        }</span>
+<span class="fc" id="L1948">        Path projectDir = host.resolve(projectId);</span>
+<span class="pc bpc" id="L1949" title="1 of 2 branches missed.">        if (!Files.isDirectory(projectDir)</span>
+<span class="fc bfc" id="L1950" title="All 2 branches covered.">                || isEmptyDirectory(projectDir)) {</span>
+<span class="fc" id="L1951">            return null;</span>
+        }
+<span class="fc" id="L1953">        return projectDir;</span>
+    }
+
+    /**
+     * Find one-level-deep subdirectories under {@code layer} that
+     * look like rendered Maven-site outputs (have an {@code index.html}
+     * at the top), excluding {@code exclude} itself (the workspace's
+     * own subtree, already published at the gh-pages root).
+     *
+     * &lt;p&gt;Used by {@link #publishProjectSiteToGhPages} step (4) to
+     * surface sibling submodule subtrees in a multi-module reactor.
+     * The conservative {@code index.html}-presence check keeps the
+     * walk from mis-classifying resource dirs ({@code css/},
+     * {@code fonts/}, {@code images/}) or version dirs as submodule
+     * sites.
+     *
+     * &lt;p&gt;Returns an empty list if {@code layer} is not a directory
+     * or has no matching entries. Order is unspecified.
+     *
+     * @param layer   the directory to scan
+     * @param exclude a path that, when matched against an entry,
+     *                causes the entry to be skipped (typically the
+     *                workspace's own narrowed staging source)
+     * @return list of submodule site directories
+     * @throws MojoException if the directory cannot be listed
+     */
+    public static List&lt;Path&gt; findSubmoduleSiteDirs(Path layer, Path exclude)
+            throws MojoException {
+<span class="fc" id="L1981">        List&lt;Path&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L1982" title="All 2 branches covered.">        if (!Files.isDirectory(layer)) return result;</span>
+<span class="fc bfc" id="L1983" title="All 2 branches covered.">        Path excludeAbs = exclude == null ? null</span>
+<span class="fc" id="L1984">                : exclude.toAbsolutePath().normalize();</span>
+<span class="fc" id="L1985">        try (Stream&lt;Path&gt; entries = Files.list(layer)) {</span>
+<span class="fc bfc" id="L1986" title="All 2 branches covered.">            for (Path entry : entries.toList()) {</span>
+<span class="pc bpc" id="L1987" title="1 of 2 branches missed.">                if (!Files.isDirectory(entry)) continue;</span>
+<span class="fc bfc" id="L1988" title="All 2 branches covered.">                if (excludeAbs != null</span>
+<span class="fc" id="L1989">                        &amp;&amp; entry.toAbsolutePath().normalize()</span>
+<span class="fc bfc" id="L1990" title="All 2 branches covered.">                                .equals(excludeAbs)) {</span>
+<span class="fc" id="L1991">                    continue;</span>
+                }
+<span class="fc" id="L1993">                Path indexHtml = entry.resolve(&quot;index.html&quot;);</span>
+<span class="fc bfc" id="L1994" title="All 2 branches covered.">                if (Files.isRegularFile(indexHtml)) {</span>
+<span class="fc" id="L1995">                    result.add(entry);</span>
+                }
+<span class="fc" id="L1997">            }</span>
+<span class="nc" id="L1998">        } catch (IOException e) {</span>
+<span class="nc" id="L1999">            throw new MojoException(</span>
+                    &quot;Could not scan for submodule sites at &quot; + layer
+<span class="nc" id="L2001">                            + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L2002">        }</span>
+<span class="fc" id="L2003">        return result;</span>
+    }
+
+    /**
+     * Recursively delete a directory and all its contents.
+     * Best-effort — failures are silently ignored.
+     *
+     * @param dir the directory to delete
+     */
+    public static void deleteDirectory(Path dir) {
+        try {
+<span class="fc" id="L2014">            Files.walkFileTree(dir, new SimpleFileVisitor&lt;&gt;() {</span>
+                @Override
+                public FileVisitResult visitFile(Path file,
+                        BasicFileAttributes attrs) throws IOException {
+<span class="fc" id="L2018">                    Files.delete(file);</span>
+<span class="fc" id="L2019">                    return FileVisitResult.CONTINUE;</span>
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path d,
+                        IOException exc) throws IOException {
+<span class="fc" id="L2025">                    Files.delete(d);</span>
+<span class="fc" id="L2026">                    return FileVisitResult.CONTINUE;</span>
+                }
+            });
+<span class="nc" id="L2029">        } catch (IOException e) {</span>
+            // Best-effort — log but don't fail
+<span class="fc" id="L2031">        }</span>
+<span class="fc" id="L2032">    }</span>
+
+    /**
+     * Recursively copy a directory tree.
+     *
+     * @param source the source directory to copy from
+     * @param target the target directory to copy to
+     * @throws IOException if a file cannot be copied
+     */
+    public static void copyDirectory(Path source, Path target) throws IOException {
+<span class="fc" id="L2042">        try (Stream&lt;Path&gt; stream = Files.walk(source)) {</span>
+<span class="fc" id="L2043">            stream.forEach(src -&gt; {</span>
+                try {
+<span class="fc" id="L2045">                    Path dest = target.resolve(source.relativize(src));</span>
+<span class="fc bfc" id="L2046" title="All 2 branches covered.">                    if (Files.isDirectory(src)) {</span>
+<span class="fc" id="L2047">                        Files.createDirectories(dest);</span>
+                    } else {
+<span class="fc" id="L2049">                        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);</span>
+                    }
+<span class="nc" id="L2051">                } catch (IOException e) {</span>
+<span class="nc" id="L2052">                    throw new RuntimeException(e);</span>
+<span class="fc" id="L2053">                }</span>
+<span class="fc" id="L2054">            });</span>
+        }
+<span class="fc" id="L2056">    }</span>
+
+    /**
+     * Recursively copy a directory tree, excluding top-level
+     * subdirectories whose names look like release versions.
+     * Files at the top level and non-version subdirectories at the
+     * top level are copied normally. Inside any non-filtered
+     * subdirectory, all entries are copied without further filtering
+     * — the exclusion applies only at depth 0.
+     *
+     * &lt;p&gt;Used by {@link #publishProjectSiteToGhPages} to keep the
+     * gh-pages source clean of staging-pollution. Three causes of
+     * top-level version-prefixed entries in the source:
+     * &lt;ol&gt;
+     *   &lt;li&gt;&lt;strong&gt;Stale local mirrors&lt;/strong&gt;: when a project's
+     *       {@code site.deploy.url} contains the version segment
+     *       and {@code maven-clean-plugin} preserves
+     *       {@code target/staging/}, prior releases'
+     *       {@code &lt;version&gt;/} subdirs accumulate there.&lt;/li&gt;
+     *   &lt;li&gt;&lt;strong&gt;Self-nesting&lt;/strong&gt;: copying staging that
+     *       already has a {@code &lt;currentVersion&gt;/} subdir into
+     *       a version subdir would produce
+     *       {@code &lt;currentVersion&gt;/&lt;currentVersion&gt;/...}.&lt;/li&gt;
+     *   &lt;li&gt;&lt;strong&gt;Race with the wipe step&lt;/strong&gt;: the wipe
+     *       preserved version dirs in the gh-pages clone; if
+     *       staging happens to also contain those names, the copy
+     *       would clobber the preserved content with potentially
+     *       stale mirror copies.&lt;/li&gt;
+     * &lt;/ol&gt;
+     *
+     * &lt;p&gt;The filter applies the same digit-prefix heuristic as
+     * {@link #isVersionDirName}: top-level dirs whose names start
+     * with a digit are skipped.
+     *
+     * @param source the source directory to copy from
+     * @param target the target directory to copy to
+     * @throws IOException if a file cannot be copied
+     * @see #publishProjectSiteToGhPages
+     * @see #isVersionDirName
+     */
+    public static void copyDirectoryExcludingTopLevelVersionDirs(
+            Path source, Path target) throws IOException {
+<span class="fc" id="L2098">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
+<span class="fc bfc" id="L2099" title="All 2 branches covered.">            for (Path entry : (Iterable&lt;Path&gt;) entries::iterator) {</span>
+<span class="fc" id="L2100">                String name = entry.getFileName().toString();</span>
+<span class="fc bfc" id="L2101" title="All 4 branches covered.">                if (Files.isDirectory(entry) &amp;&amp; isVersionDirName(name)) {</span>
+<span class="fc" id="L2102">                    continue;</span>
+                }
+<span class="fc" id="L2104">                Path dest = target.resolve(name);</span>
+<span class="fc bfc" id="L2105" title="All 2 branches covered.">                if (Files.isDirectory(entry)) {</span>
+<span class="fc" id="L2106">                    Files.createDirectories(dest);</span>
+<span class="fc" id="L2107">                    copyDirectory(entry, dest);</span>
+                } else {
+<span class="fc" id="L2109">                    Files.copy(entry, dest,</span>
+                            StandardCopyOption.REPLACE_EXISTING);
+                }
+<span class="fc" id="L2112">            }</span>
+        }
+<span class="fc" id="L2114">    }</span>
+
+    /**
+     * Read the {@code &lt;name&gt;} element from a POM file.
+     *
+     * @param pomFile the POM file to read
+     * @return the name, or null if not present
+     * @throws MojoException if the file cannot be read
+     */
+    public static String readPomName(File pomFile) throws MojoException {
+<span class="nc" id="L2124">        return readPomElement(pomFile, &quot;name&quot;);</span>
+    }
+
+    /**
+     * Read the {@code &lt;description&gt;} element from a POM file.
+     *
+     * @param pomFile the POM file to read
+     * @return the description, or null if not present
+     * @throws MojoException if the file cannot be read
+     */
+    public static String readPomDescription(File pomFile) throws MojoException {
+<span class="nc" id="L2135">        return readPomElement(pomFile, &quot;description&quot;);</span>
+    }
+
+    private static String readPomElement(File pomFile, String element)
+            throws MojoException {
+        try {
+<span class="nc" id="L2141">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L2142">            Pattern pattern = Pattern.compile(</span>
+                    &quot;&lt;&quot; + element + &quot;&gt;([^&lt;]+)&lt;/&quot; + element + &quot;&gt;&quot;);
+<span class="nc" id="L2144">            Matcher matcher = pattern.matcher(content);</span>
+<span class="nc bnc" id="L2145" title="All 2 branches missed.">            return matcher.find() ? matcher.group(1).trim() : null;</span>
+<span class="nc" id="L2146">        } catch (IOException e) {</span>
+<span class="nc" id="L2147">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
