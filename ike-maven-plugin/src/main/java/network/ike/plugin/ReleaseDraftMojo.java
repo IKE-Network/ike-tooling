@@ -146,6 +146,83 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     boolean publishToCentral;
 
     /**
+     * Maximum attempts for the Nexus deploy phase. Default 3.
+     * The Nexus phase is mandatory: failure after all attempts
+     * aborts the release before any tag/main push.
+     * IKE-Network/ike-issues#482.
+     */
+    @Parameter(property = "ike.deploy.nexus.maxAttempts",
+            defaultValue = "3")
+    int nexusDeployMaxAttempts;
+
+    /**
+     * Inter-attempt backoff for the Nexus deploy phase, as a
+     * comma-separated list of seconds. Default {@code 30,120,300}
+     * (30 s / 2 m / 5 m). Index {@code i} is the wait between
+     * attempts {@code i+1} and {@code i+2}; if shorter than
+     * {@code maxAttempts - 1}, the last entry is reused.
+     */
+    @Parameter(property = "ike.deploy.nexus.backoffSeconds",
+            defaultValue = "30,120,300")
+    String nexusDeployBackoffSeconds;
+
+    /**
+     * Skip the Nexus deploy phase entirely. A release without
+     * a Nexus deploy is incomplete by design — use only for
+     * controlled debugging.
+     */
+    @Parameter(property = "ike.skipNexusDeploy", defaultValue = "false")
+    boolean skipNexusDeploy;
+
+    /**
+     * Maximum attempts for the Maven Central deploy phase.
+     * Default 5. The Central phase is best-effort: failure after
+     * all attempts does <em>not</em> abort the release. Nexus
+     * already has the artifact (phase 1), so the team is
+     * unblocked; the post-release report flags the Central gap
+     * for human follow-up.
+     */
+    @Parameter(property = "ike.deploy.central.maxAttempts",
+            defaultValue = "5")
+    int centralDeployMaxAttempts;
+
+    /**
+     * Inter-attempt backoff for the Maven Central deploy phase,
+     * as a comma-separated list of seconds. Default
+     * {@code 60,300,900,1800,3600} (1 m / 5 m / 15 m / 30 m /
+     * 60 m). Longer than the Nexus backoff to ride through
+     * Sonatype's validation-queue throttling under load. Same
+     * shape rules as {@link #nexusDeployBackoffSeconds}.
+     */
+    @Parameter(property = "ike.deploy.central.backoffSeconds",
+            defaultValue = "60,300,900,1800,3600")
+    String centralDeployBackoffSeconds;
+
+    /**
+     * Skip the Maven Central deploy phase. Defaults to false;
+     * the step is also skipped automatically (with a warning,
+     * not a hard fail) when {@code
+     * JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_USERNAME} or
+     * {@code _PASSWORD} are absent from the environment.
+     */
+    @Parameter(property = "ike.skipCentralDeploy", defaultValue = "false")
+    boolean skipCentralDeploy;
+
+    // ── Deploy-phase outcome tracking (#482) ─────────────────────
+    // Written by deployArtifacts(), read by the post-release log
+    // and buildReleaseReport(). Defaults represent the "did not
+    // run" state — appropriate for a draft preview or a release
+    // aborted before deploy.
+    private int nexusDeployAttempts;
+    private boolean nexusDeploySucceeded;
+    private int centralDeployAttempts;
+    private boolean centralDeploySucceeded;
+    /** Non-null when Central was skipped — human-readable reason. */
+    private String centralDeploySkipReason;
+    /** Non-null when Central was attempted and exhausted retries. */
+    private String centralDeployFailureSummary;
+
+    /**
      * GitHub repository for issue tracking, used to look up a milestone
      * named {@code <artifactId> v<version>} for release notes generation.
      * If the milestone exists, its closed issues are formatted as the
@@ -683,16 +760,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
 
             // ── Artifact deploy (critical — the actual release) ──────
-            // clean deploy: fresh build ensures artifact integrity.
+            // Two-phase deploy (IKE-Network/ike-issues#482):
+            //   1. Nexus (mandatory, retried, abort on failure)
+            //   2. Maven Central via JReleaser (opt-in via
+            //      publishToCentral, retried, best-effort — failure
+            //      records the gap but lets tag/main/GH Release
+            //      still publish since Nexus already has the artifact).
             // Site was already deployed above (before clean wipes staging).
-            if (publishToCentral) {
-                deployToMavenCentral(gitRoot, mvnw);
-            } else {
-                getLog().info("Deploying to Nexus...");
-                ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(), "clean", "deploy",
-                        "-B", "-T", "1", "-P", "release,signArtifacts");
-            }
+            deployArtifacts(gitRoot, mvnw);
         } finally {
             // Always return to main, even if deploy fails.
             //
@@ -746,9 +821,35 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().info("");
         getLog().info("Release " + releaseVersion + " complete.");
         getLog().info("  Tagged: v" + releaseVersion);
-        getLog().info(publishToCentral
-                ? "  Published to Maven Central"
-                : "  Deployed to Nexus");
+        // Two-phase deploy outcome (#482). Nexus is mandatory and a
+        // failure aborts before this point, so a successful release
+        // by definition has nexusDeploySucceeded — but log defensively
+        // in case skipNexusDeploy was set.
+        if (nexusDeploySucceeded) {
+            getLog().info("  Deployed to Nexus (attempt "
+                    + nexusDeployAttempts + "/"
+                    + nexusDeployMaxAttempts + ")");
+        } else if (skipNexusDeploy) {
+            getLog().warn("  Nexus deploy skipped "
+                    + "(ike.skipNexusDeploy=true)");
+        }
+        if (publishToCentral) {
+            if (centralDeploySucceeded) {
+                getLog().info("  Published to Maven Central "
+                        + "(attempt " + centralDeployAttempts
+                        + "/" + centralDeployMaxAttempts + ")");
+            } else if (centralDeploySkipReason != null) {
+                getLog().warn("  Maven Central skipped: "
+                        + centralDeploySkipReason);
+            } else if (centralDeployAttempts > 0) {
+                getLog().warn("  Maven Central deploy FAILED after "
+                        + centralDeployAttempts + "/"
+                        + centralDeployMaxAttempts + " attempts — "
+                        + "Nexus has v" + releaseVersion + "; "
+                        + "retry: checkout v" + releaseVersion
+                        + " and run `mvn jreleaser:deploy`");
+            }
+        }
         // GitHub Pages publish (the canonical site distribution post-#304).
         // Earlier revisions also printed scpexe://proxy URLs (internal
         // mirror at ike.komet.sh); that path was retired in #304 since
@@ -788,7 +889,159 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     }
 
     /**
-     * Publishes the release to Maven Central via JReleaser.
+     * Two-phase artifact deploy (IKE-Network/ike-issues#482).
+     *
+     * <p>Phase 1 — Nexus. Mandatory. Retried per
+     * {@code ike.deploy.nexus.{maxAttempts,backoffSeconds}}.
+     * Failure after all attempts aborts the release before any
+     * tag/main push.
+     *
+     * <p>Phase 2 — Maven Central via JReleaser. Opt-in via
+     * {@link #publishToCentral}. Retried per
+     * {@code ike.deploy.central.{maxAttempts,backoffSeconds}}.
+     * Skipped (with a warning, not a hard fail) when Central
+     * credentials are absent. Failure after all attempts records
+     * the gap on the run but does <em>not</em> throw — Nexus
+     * already has the artifact, so the team is unblocked and
+     * tag/main/GH Release still publish.
+     *
+     * @param gitRoot the release working tree, checked out at the
+     *                {@code v<version>} release tag
+     * @param mvnw    the resolved Maven wrapper executable
+     */
+    private void deployArtifacts(File gitRoot, File mvnw) {
+        // ── Phase 1: Nexus ────────────────────────────────────────
+        if (skipNexusDeploy) {
+            getLog().warn("Skipping Nexus deploy "
+                    + "(ike.skipNexusDeploy=true). "
+                    + "Release is incomplete for internal consumers.");
+        } else {
+            deployToNexusWithRetry(gitRoot, mvnw);
+        }
+
+        // ── Phase 2: Maven Central (opt-in, best-effort) ─────────
+        if (!publishToCentral) {
+            return;
+        }
+        if (skipCentralDeploy) {
+            centralDeploySkipReason = "explicit ike.skipCentralDeploy=true";
+            getLog().warn("Skipping Maven Central deploy "
+                    + "(ike.skipCentralDeploy=true).");
+            return;
+        }
+        String missingCreds = missingCentralCredentials();
+        if (missingCreds != null) {
+            centralDeploySkipReason = missingCreds;
+            getLog().warn("Skipping Maven Central deploy: "
+                    + missingCreds);
+            getLog().warn("  Nexus already has v" + releaseVersion
+                    + "; internal consumers are unblocked. To push "
+                    + "to Central later: set the missing env var(s) "
+                    + "(typically via `op run --env-file=~/.config/"
+                    + "ike/release.env`), check out v" + releaseVersion
+                    + ", and run `mvn jreleaser:deploy`.");
+            return;
+        }
+        deployToMavenCentralWithRetry(gitRoot, mvnw);
+    }
+
+    /**
+     * Nexus deploy with bounded retry. Throws on exhaustion: a
+     * release with no Nexus artifact has no internal consumers
+     * unblocked, so abort before tag/main push is appropriate.
+     *
+     * @param gitRoot the release working tree
+     * @param mvnw    the Maven wrapper executable
+     * @throws MojoException after the final attempt fails
+     */
+    private void deployToNexusWithRetry(File gitRoot, File mvnw) {
+        int[] backoff = parseBackoffSeconds(
+                "ike.deploy.nexus.backoffSeconds",
+                nexusDeployBackoffSeconds);
+        Throwable last = null;
+        for (int attempt = 1; attempt <= nexusDeployMaxAttempts; attempt++) {
+            nexusDeployAttempts = attempt;
+            if (attempt > 1) {
+                int wait = backoff[Math.min(attempt - 2,
+                        backoff.length - 1)];
+                sleepBeforeRetry(wait, "Nexus deploy",
+                        attempt, nexusDeployMaxAttempts);
+            }
+            getLog().info("Deploying to Nexus (attempt "
+                    + attempt + "/" + nexusDeployMaxAttempts + ")...");
+            try {
+                ReleaseSupport.exec(gitRoot, getLog(),
+                        mvnw.getAbsolutePath(), "clean", "deploy",
+                        "-B", "-T", "1", "-P", "release,signArtifacts");
+                nexusDeploySucceeded = true;
+                return;
+            } catch (MojoException e) {
+                last = e;
+                getLog().warn("Nexus deploy attempt " + attempt
+                        + "/" + nexusDeployMaxAttempts
+                        + " failed: " + e.getMessage());
+            }
+        }
+        throw new MojoException(
+                "Nexus deploy failed after " + nexusDeployMaxAttempts
+                        + " attempts. The release is aborted before "
+                        + "any tag or main push. Last error: "
+                        + (last == null ? "(none captured)"
+                                : last.getMessage()),
+                last);
+    }
+
+    /**
+     * Maven Central deploy with bounded retry. Does not throw on
+     * exhaustion — phase-1 Nexus already has the artifact, so the
+     * release continues to tag/main push and a follow-up Central
+     * retry from the tagged commit is mechanical.
+     *
+     * @param gitRoot the release working tree
+     * @param mvnw    the Maven wrapper executable
+     */
+    private void deployToMavenCentralWithRetry(File gitRoot, File mvnw) {
+        int[] backoff = parseBackoffSeconds(
+                "ike.deploy.central.backoffSeconds",
+                centralDeployBackoffSeconds);
+        Throwable last = null;
+        for (int attempt = 1; attempt <= centralDeployMaxAttempts; attempt++) {
+            centralDeployAttempts = attempt;
+            if (attempt > 1) {
+                int wait = backoff[Math.min(attempt - 2,
+                        backoff.length - 1)];
+                sleepBeforeRetry(wait, "Maven Central deploy",
+                        attempt, centralDeployMaxAttempts);
+            }
+            getLog().info("Publishing to Maven Central (attempt "
+                    + attempt + "/" + centralDeployMaxAttempts + ")...");
+            try {
+                deployToMavenCentralCore(gitRoot, mvnw);
+                centralDeploySucceeded = true;
+                return;
+            } catch (MojoException e) {
+                last = e;
+                getLog().warn("Maven Central attempt " + attempt
+                        + "/" + centralDeployMaxAttempts
+                        + " failed: " + e.getMessage());
+            }
+        }
+        centralDeployFailureSummary = last == null
+                ? "unknown failure"
+                : last.getMessage();
+        getLog().warn("Maven Central deploy did not succeed after "
+                + centralDeployMaxAttempts + " attempts. "
+                + "Nexus already has v" + releaseVersion
+                + "; tag and main will still publish. "
+                + "To retry Central later: check out v"
+                + releaseVersion + " and run "
+                + "`mvn jreleaser:deploy`.");
+    }
+
+    /**
+     * Single-shot Central staging + JReleaser upload. The retry
+     * wrapper ({@link #deployToMavenCentralWithRetry}) calls this
+     * per attempt.
      *
      * <p>Three steps: a signed {@code clean deploy} to a local
      * staging directory ({@code target/staging-deploy}); a prune of
@@ -800,7 +1053,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      *                {@code v<version>} release tag
      * @param mvnw    the resolved Maven wrapper executable
      */
-    private void deployToMavenCentral(File gitRoot, File mvnw) {
+    private void deployToMavenCentralCore(File gitRoot, File mvnw) {
         Path stagingDir = gitRoot.toPath()
                 .resolve("target").resolve("staging-deploy");
         getLog().info("Staging signed artifacts for Maven Central...");
@@ -810,13 +1063,109 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 "-DaltDeploymentRepository=local::file://"
                         + stagingDir.toAbsolutePath());
         pruneBuildPoms(stagingDir);
-        getLog().info("Publishing to Maven Central via JReleaser...");
+        getLog().info("Uploading bundle via JReleaser...");
         // -N (non-recursive): jreleaser:deploy runs once, at the reactor
         // root, uploading the whole staging directory as a single bundle.
         // Without it the goal runs per module — the first invocation
         // publishes everything, the rest fail "artifacts already deployed".
         ReleaseSupport.exec(gitRoot, getLog(),
                 mvnw.getAbsolutePath(), "jreleaser:deploy", "-N", "-B");
+    }
+
+    /**
+     * Returns {@code null} when Maven Central credentials are
+     * present in the environment; otherwise a human-readable
+     * reason naming the missing variables.
+     *
+     * <p>JReleaser reads
+     * {@code JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_USERNAME} and
+     * {@code _PASSWORD} (see {@code ike-base-parent} JReleaser
+     * config). Both must be present and non-blank.
+     *
+     * @return missing-credentials reason, or {@code null} when all
+     *         required env vars are set
+     */
+    private String missingCentralCredentials() {
+        List<String> missing = new ArrayList<>();
+        String[] required = {
+                "JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_USERNAME",
+                "JRELEASER_DEPLOY_MAVEN_MAVENCENTRAL_PASSWORD"
+        };
+        for (String name : required) {
+            String value = System.getenv(name);
+            if (value == null || value.isBlank()) {
+                missing.add(name);
+            }
+        }
+        if (missing.isEmpty()) {
+            return null;
+        }
+        return "missing env var(s) " + String.join(", ", missing);
+    }
+
+    /**
+     * Parse a comma-separated list of non-negative integer
+     * seconds. Used for both Nexus and Central backoff configs.
+     *
+     * @param property property name (for error messages)
+     * @param csv      raw comma-separated value
+     * @return parsed seconds array (length &gt;= 1)
+     * @throws MojoException if any entry is missing, non-integer,
+     *                       or negative
+     */
+    static int[] parseBackoffSeconds(String property, String csv) {
+        if (csv == null || csv.isBlank()) {
+            throw new MojoException(property
+                    + " must be a non-empty comma-separated list "
+                    + "of non-negative integer seconds");
+        }
+        String[] parts = csv.split(",");
+        int[] arr = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            String trimmed = parts[i].trim();
+            int value;
+            try {
+                value = Integer.parseInt(trimmed);
+            } catch (NumberFormatException e) {
+                throw new MojoException("Invalid " + property
+                        + " entry '" + trimmed + "' — expected "
+                        + "comma-separated non-negative integers "
+                        + "(seconds)", e);
+            }
+            if (value < 0) {
+                throw new MojoException(property
+                        + " entries must be >= 0: " + trimmed);
+            }
+            arr[i] = value;
+        }
+        return arr;
+    }
+
+    /**
+     * Sleep before the next retry, with a clear log line so the
+     * operator knows the build isn't hung.
+     *
+     * @param seconds      seconds to wait (0 = no sleep)
+     * @param label        phase label ("Nexus deploy" /
+     *                     "Maven Central deploy")
+     * @param nextAttempt  the upcoming attempt number
+     * @param maxAttempts  configured max attempts
+     */
+    private void sleepBeforeRetry(int seconds, String label,
+                                   int nextAttempt, int maxAttempts) {
+        if (seconds <= 0) {
+            return;
+        }
+        getLog().info("Waiting " + seconds + "s before " + label
+                + " attempt " + nextAttempt + "/" + maxAttempts
+                + "...");
+        try {
+            Thread.sleep(seconds * 1000L);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new MojoException("Interrupted while waiting to "
+                    + "retry " + label, e);
+        }
     }
 
     /**
@@ -943,7 +1292,17 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         }
         external.append(step++).append(". ").append(verb)
                 .append(" deploy to Nexus from tag `v")
-                .append(releaseVersion).append("`\n");
+                .append(releaseVersion).append("`")
+                .append(deployAttemptSuffix(
+                        nexusDeployAttempts, nexusDeployMaxAttempts))
+                .append('\n');
+        if (publishToCentral) {
+            external.append(step++).append(". ").append(verb)
+                    .append(" publish to Maven Central from tag `v")
+                    .append(releaseVersion).append("`")
+                    .append(centralOutcomeSuffix())
+                    .append('\n');
+        }
         if (publishSite) {
             external.append(step++).append(". ").append(verb)
                     .append(" force-push site to gh-pages on origin "
@@ -956,7 +1315,90 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 .append(" create GitHub Release\n");
         report.raw(external.toString());
 
+        // Deploy details section (publish mode only — draft has no
+        // attempt data to report). Always renders the Nexus line.
+        // The Maven Central line renders only when publishToCentral
+        // is set, with three possible outcomes (success / skip /
+        // failure). IKE-Network/ike-issues#482.
+        if (!draft) {
+            report.section("Deploy details");
+            StringBuilder deploy = new StringBuilder();
+            deploy.append("- **Nexus:** ")
+                    .append(nexusDeploySucceeded
+                            ? "✅ succeeded on attempt "
+                                    + nexusDeployAttempts + "/"
+                                    + nexusDeployMaxAttempts
+                            : skipNexusDeploy
+                                    ? "⚠ skipped (ike.skipNexusDeploy=true)"
+                                    : "❌ did not run")
+                    .append('\n');
+            if (publishToCentral) {
+                deploy.append("- **Maven Central:** ");
+                if (centralDeploySucceeded) {
+                    deploy.append("✅ succeeded on attempt ")
+                            .append(centralDeployAttempts).append("/")
+                            .append(centralDeployMaxAttempts);
+                } else if (centralDeploySkipReason != null) {
+                    deploy.append("⚠ skipped — ")
+                            .append(centralDeploySkipReason);
+                } else if (centralDeployAttempts > 0) {
+                    deploy.append("❌ failed after ")
+                            .append(centralDeployAttempts).append("/")
+                            .append(centralDeployMaxAttempts)
+                            .append(" attempts");
+                    if (centralDeployFailureSummary != null) {
+                        deploy.append(" — ")
+                                .append(centralDeployFailureSummary);
+                    }
+                    deploy.append("\n  Retry: `git checkout v")
+                            .append(releaseVersion)
+                            .append(" && mvn jreleaser:deploy`");
+                } else {
+                    deploy.append("⚠ did not run");
+                }
+                deploy.append('\n');
+            }
+            report.raw(deploy.toString());
+        }
+
         return report.build();
+    }
+
+    /**
+     * Render a {@code " (attempt N/M)"} suffix for the post-release
+     * report, or empty when no attempts were tracked (draft mode).
+     *
+     * @param attempts attempts taken (0 = none)
+     * @param max      configured max
+     * @return the suffix, possibly empty
+     */
+    private static String deployAttemptSuffix(int attempts, int max) {
+        if (attempts <= 0) {
+            return "";
+        }
+        return " (attempt " + attempts + "/" + max + ")";
+    }
+
+    /**
+     * Render an outcome suffix for the Maven Central row in the
+     * External-actions list. Distinguishes succeeded / skipped /
+     * failed / pending-draft.
+     *
+     * @return the outcome suffix
+     */
+    private String centralOutcomeSuffix() {
+        if (centralDeploySucceeded) {
+            return " (attempt " + centralDeployAttempts + "/"
+                    + centralDeployMaxAttempts + ")";
+        }
+        if (centralDeploySkipReason != null) {
+            return " — skipped (" + centralDeploySkipReason + ")";
+        }
+        if (centralDeployAttempts > 0) {
+            return " — FAILED after " + centralDeployAttempts + "/"
+                    + centralDeployMaxAttempts + " attempts";
+        }
+        return "";
     }
 
     /**
