@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CascadeAssembler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">CascadeAssembler.java</span></div><h1>CascadeAssembler.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
+
+/**
+ * Assembles the full IKE release cascade graph by traversing the
+ * per-project {@code release-cascade.yaml} manifests
+ * (IKE-Network/ike-issues#420).
+ *
+ * &lt;p&gt;The cascade is a loosely-coupled distributed system: each
+ * project version-controls only its own {@code upstream}/{@code downstream}
+ * edges. This assembler starts from one project, follows every edge
+ * to its neighbours (resolving each neighbour's manifest through a
+ * caller-supplied {@link CascadeResolver}), and stitches the result
+ * into a single topologically ordered {@link ReleaseCascade}.
+ *
+ * &lt;p&gt;Two consistency rules are enforced during assembly:
+ * &lt;ul&gt;
+ *   &lt;li&gt;&lt;b&gt;Edge reciprocity&lt;/b&gt; — if project A names B as
+ *       {@code downstream}, B must name A as {@code upstream}, and
+ *       vice versa. A one-sided edge is a manifest error.&lt;/li&gt;
+ *   &lt;li&gt;&lt;b&gt;Acyclicity&lt;/b&gt; — the consume relation must be a DAG;
+ *       a cycle has no release order.&lt;/li&gt;
+ * &lt;/ul&gt;
+ */
+public final class CascadeAssembler {
+
+    /**
+     * Resolves the {@link ProjectCascade} for a cascade neighbour.
+     *
+     * &lt;p&gt;The caller decides how a neighbour is reached — a sibling
+     * directory on disk, or a git checkout from the edge's
+     * {@code url} — and reads its
+     * {@code src/main/cascade/release-cascade.yaml}.
+     */
+    @FunctionalInterface
+    public interface CascadeResolver {
+
+        /**
+         * Resolves and parses one neighbour's manifest.
+         *
+         * @param edge the edge naming the neighbour (carries its
+         *             coordinates, {@code repo}, and {@code url})
+         * @return the neighbour's parsed manifest
+         * @throws RuntimeException if the neighbour's manifest cannot
+         *                          be located or parsed
+         */
+        ProjectCascade resolve(CascadeEdge edge);
+    }
+
+    private CascadeAssembler() {}
+
+    /**
+     * Assembles the cascade graph rooted at one known project.
+     *
+     * @param start        an edge identifying the starting project —
+     *                     its coordinates and locators ({@code groupId},
+     *                     {@code artifactId}, {@code repo},
+     *                     {@code url}); {@code versionProperty} is
+     *                     unused and may be {@code null}
+     * @param startCascade the starting project's already-parsed
+     *                     manifest
+     * @param resolver     resolves every other project's manifest
+     * @return the assembled, topologically ordered cascade
+     * @throws IllegalArgumentException if an edge is one-sided or the
+     *                                  graph contains a cycle
+     */
+    public static ReleaseCascade assemble(CascadeEdge start,
+                                          ProjectCascade startCascade,
+                                          CascadeResolver resolver) {
+        // Identity is groupId+artifactId (CascadeRepo.ga()), NOT
+        // groupId alone — two foundation members can share a groupId.
+        // For example, `network.ike.tooling:ike-tooling` and
+        // `network.ike.tooling:ike-workspace-extension` both live
+        // under the `network.ike.tooling` group, but they are
+        // independent cascade heads with different downstream edges.
+        // Keying any of these maps by groupId would collide the two
+        // nodes and silently drop edges, which used to surface as a
+        // false-positive cycle (IKE-Network/ike-issues#466).
+<span class="fc" id="L87">        Map&lt;String, CascadeRepo&gt; byGa = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L88">        Deque&lt;CascadeRepo&gt; frontier = new ArrayDeque&lt;&gt;();</span>
+
+<span class="fc" id="L90">        CascadeRepo startNode = node(start, startCascade);</span>
+<span class="fc" id="L91">        byGa.put(startNode.ga(), startNode);</span>
+<span class="fc" id="L92">        frontier.add(startNode);</span>
+
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        while (!frontier.isEmpty()) {</span>
+<span class="fc" id="L95">            CascadeRepo current = frontier.poll();</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">            for (CascadeEdge edge : neighbourEdges(current)) {</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">                if (byGa.containsKey(edge.ga())) {</span>
+<span class="fc" id="L98">                    continue;</span>
+                }
+                ProjectCascade resolved;
+                try {
+<span class="fc" id="L102">                    resolved = resolver.resolve(edge);</span>
+<span class="nc" id="L103">                } catch (RuntimeException e) {</span>
+<span class="nc" id="L104">                    throw new IllegalArgumentException(</span>
+                            &quot;cannot resolve release-cascade.yaml for&quot;
+<span class="nc" id="L106">                            + &quot; cascade member &quot; + edge.ga() + &quot;: &quot;</span>
+<span class="nc" id="L107">                            + e.getMessage(), e);</span>
+<span class="fc" id="L108">                }</span>
+<span class="fc bfc" id="L109" title="All 2 branches covered.">                if (resolved == null) {</span>
+<span class="fc" id="L110">                    throw new IllegalArgumentException(</span>
+                            &quot;cannot resolve release-cascade.yaml for&quot;
+<span class="fc" id="L112">                            + &quot; cascade member &quot; + edge.ga());</span>
+                }
+<span class="fc" id="L114">                CascadeRepo neighbour = node(edge, resolved);</span>
+<span class="fc" id="L115">                byGa.put(neighbour.ga(), neighbour);</span>
+<span class="fc" id="L116">                frontier.add(neighbour);</span>
+<span class="fc" id="L117">            }</span>
+<span class="fc" id="L118">        }</span>
+
+<span class="fc" id="L120">        verifyReciprocity(byGa);</span>
+<span class="fc" id="L121">        return new ReleaseCascade(topologicalOrder(byGa));</span>
+    }
+
+    private static CascadeRepo node(CascadeEdge identity,
+                                    ProjectCascade cascade) {
+<span class="fc" id="L126">        return new CascadeRepo(identity.groupId(), identity.artifactId(),</span>
+<span class="fc" id="L127">                identity.repo(), identity.url(), cascade);</span>
+    }
+
+    private static List&lt;CascadeEdge&gt; neighbourEdges(CascadeRepo node) {
+<span class="fc" id="L131">        List&lt;CascadeEdge&gt; edges = new ArrayList&lt;&gt;(node.upstream());</span>
+<span class="fc" id="L132">        edges.addAll(node.downstream());</span>
+<span class="fc" id="L133">        return edges;</span>
+    }
+
+    /**
+     * Verifies every edge is matched by a reciprocal edge on the
+     * neighbour: A→B {@code downstream} ⇔ B→A {@code upstream}.
+     */
+    private static void verifyReciprocity(
+            Map&lt;String, CascadeRepo&gt; byGa) {
+<span class="fc bfc" id="L142" title="All 2 branches covered.">        for (CascadeRepo node : byGa.values()) {</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">            for (CascadeEdge down : node.downstream()) {</span>
+<span class="fc" id="L144">                CascadeRepo target = byGa.get(down.ga());</span>
+<span class="pc bpc" id="L145" title="1 of 2 branches missed.">                if (target == null || target.upstream().stream()</span>
+<span class="fc bfc" id="L146" title="All 2 branches covered.">                        .noneMatch(u -&gt; u.ga().equals(node.ga()))) {</span>
+<span class="fc" id="L147">                    throw new IllegalArgumentException(</span>
+<span class="fc" id="L148">                            &quot;one-sided cascade edge: &quot; + node.ga()</span>
+<span class="fc" id="L149">                            + &quot; lists &quot; + down.ga() + &quot; as downstream,&quot;</span>
+<span class="fc" id="L150">                            + &quot; but &quot; + down.ga() + &quot; does not list &quot;</span>
+<span class="fc" id="L151">                            + node.ga() + &quot; as upstream&quot;);</span>
+                }
+<span class="fc" id="L153">            }</span>
+<span class="fc bfc" id="L154" title="All 2 branches covered.">            for (CascadeEdge up : node.upstream()) {</span>
+<span class="fc" id="L155">                CascadeRepo source = byGa.get(up.ga());</span>
+<span class="pc bpc" id="L156" title="1 of 2 branches missed.">                if (source == null || source.downstream().stream()</span>
+<span class="pc bpc" id="L157" title="1 of 2 branches missed.">                        .noneMatch(d -&gt; d.ga().equals(node.ga()))) {</span>
+<span class="nc" id="L158">                    throw new IllegalArgumentException(</span>
+<span class="nc" id="L159">                            &quot;one-sided cascade edge: &quot; + node.ga()</span>
+<span class="nc" id="L160">                            + &quot; lists &quot; + up.ga() + &quot; as upstream,&quot;</span>
+<span class="nc" id="L161">                            + &quot; but &quot; + up.ga() + &quot; does not list &quot;</span>
+<span class="nc" id="L162">                            + node.ga() + &quot; as downstream&quot;);</span>
+                }
+<span class="fc" id="L164">            }</span>
+<span class="fc" id="L165">        }</span>
+<span class="fc" id="L166">    }</span>
+
+    /**
+     * Kahn topological sort — a node follows every node it consumes.
+     * Ties break on ga so the order is deterministic.
+     */
+    private static List&lt;CascadeRepo&gt; topologicalOrder(
+            Map&lt;String, CascadeRepo&gt; byGa) {
+<span class="fc" id="L174">        Map&lt;String, Integer&gt; inDegree = new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L175" title="All 2 branches covered.">        for (CascadeRepo node : byGa.values()) {</span>
+<span class="fc" id="L176">            inDegree.put(node.ga(), node.upstream().size());</span>
+<span class="fc" id="L177">        }</span>
+<span class="fc" id="L178">        TreeSet&lt;String&gt; ready = new TreeSet&lt;&gt;();</span>
+<span class="fc" id="L179">        inDegree.forEach((ga, degree) -&gt; {</span>
+<span class="fc bfc" id="L180" title="All 2 branches covered.">            if (degree == 0) {</span>
+<span class="fc" id="L181">                ready.add(ga);</span>
+            }
+<span class="fc" id="L183">        });</span>
+
+<span class="fc" id="L185">        List&lt;CascadeRepo&gt; order = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L186" title="All 2 branches covered.">        while (!ready.isEmpty()) {</span>
+<span class="fc" id="L187">            String ga = ready.pollFirst();</span>
+<span class="fc" id="L188">            CascadeRepo node = byGa.get(ga);</span>
+<span class="fc" id="L189">            order.add(node);</span>
+<span class="fc bfc" id="L190" title="All 2 branches covered.">            for (CascadeEdge down : node.downstream()) {</span>
+<span class="fc" id="L191">                int remaining = inDegree.merge(</span>
+<span class="fc" id="L192">                        down.ga(), -1, Integer::sum);</span>
+<span class="fc bfc" id="L193" title="All 2 branches covered.">                if (remaining == 0) {</span>
+<span class="fc" id="L194">                    ready.add(down.ga());</span>
+                }
+<span class="fc" id="L196">            }</span>
+<span class="fc" id="L197">        }</span>
+<span class="pc bpc" id="L198" title="1 of 2 branches missed.">        if (order.size() != byGa.size()) {</span>
+<span class="nc" id="L199">            throw new IllegalArgumentException(</span>
+                    &quot;release cascade contains a cycle — no release&quot;
+                    + &quot; order exists&quot;);
+        }
+<span class="fc" id="L203">        return order;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
