@@ -58,7 +58,7 @@ class CentralStatusMojoTest {
         assertThat(row).contains("⏳")
                 .contains("ike-tooling-197")
                 .contains("PENDING")
-                .contains("attempt 2/5")
+                .contains("cycle 2/5")
                 .contains("running for 3m42s");
     }
 
@@ -83,7 +83,7 @@ class CentralStatusMojoTest {
         assertThat(row).contains("✅")
                 .contains("ike-docs-42")
                 .contains("SUCCESS")
-                .contains("attempt 1/5")
+                .contains("cycle 1/5")
                 .contains("took 8m15s");
     }
 

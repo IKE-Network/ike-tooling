@@ -19,7 +19,7 @@ import java.util.List;
  *
  * <p>Walks the sentinel directory ({@code ~/.cache/ike-release/}
  * by default) and prints one line per recorded deploy with state,
- * attempts, elapsed time, and the log-file path. Exits non-zero
+ * retry cycles, elapsed time, and the log-file path. Exits non-zero
  * when any sentinel is in {@link CentralDeploySentinel.State#FAILURE}
  * — so a shell pipeline can branch on it — but treats
  * {@link CentralDeploySentinel.State#PENDING} as informational
@@ -96,6 +96,9 @@ public class CentralStatusMojo implements Mojo {
                     && s.lastError() != null) {
                 getLog().info("      error: " + s.lastError());
             }
+            if (s.note() != null) {
+                getLog().info("      note:  " + s.note());
+            }
             if (s.logFile() != null) {
                 getLog().info("      log:   " + s.logFile());
             }
@@ -133,7 +136,7 @@ public class CentralStatusMojo implements Mojo {
             case FAILURE -> "❌";
         };
         String coord = s.artifactId() + "-" + s.version();
-        String attempts = s.attempts() + "/" + s.maxAttempts();
+        String cycles = s.attempts() + "/" + s.maxAttempts();
         String elapsed;
         if (s.state() == CentralDeploySentinel.State.PENDING) {
             elapsed = "running for "
@@ -145,8 +148,8 @@ public class CentralStatusMojo implements Mojo {
         } else {
             elapsed = "(no finish time)";
         }
-        return String.format("%s %-40s %-8s attempt %s, %s",
-                icon, coord, s.state(), attempts, elapsed);
+        return String.format("%s %-40s %-8s cycle %s, %s",
+                icon, coord, s.state(), cycles, elapsed);
     }
 
     /**

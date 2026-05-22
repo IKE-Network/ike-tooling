@@ -56,6 +56,7 @@ public final class CentralDeploySentinel {
     static final String KEY_LAST_ERROR = "lastError";
     static final String KEY_LOG_FILE = "logFile";
     static final String KEY_PID = "pid";
+    static final String KEY_NOTE = "note";
 
     private final State state;
     private final String artifactId;
@@ -67,6 +68,7 @@ public final class CentralDeploySentinel {
     private final String lastError;
     private final Path logFile;
     private final long pid;
+    private final String note;
     private final Path path;
 
     private CentralDeploySentinel(Builder b) {
@@ -80,6 +82,7 @@ public final class CentralDeploySentinel {
         this.lastError = b.lastError;
         this.logFile = b.logFile;
         this.pid = b.pid;
+        this.note = b.note;
         this.path = b.path;
     }
 
@@ -162,6 +165,17 @@ public final class CentralDeploySentinel {
     public long pid() { return pid; }
 
     /**
+     * Advisory note recorded alongside a non-failure outcome —
+     * e.g. a SUCCESS where JReleaser's publish poll timed out, so
+     * the upload is confirmed but PUBLISHED was never observed.
+     * Distinct from {@link #lastError()}, which is set only on
+     * FAILURE.
+     *
+     * @return the note, or {@code null} if none was recorded
+     */
+    public String note() { return note; }
+
+    /**
      * Absolute path to this sentinel file on disk.
      *
      * @return the sentinel file path
@@ -211,6 +225,7 @@ public final class CentralDeploySentinel {
                 .lastError(p.getProperty(KEY_LAST_ERROR))
                 .logFile(parseOptionalPath(p, KEY_LOG_FILE))
                 .pid(parseLong(p, KEY_PID, 0L))
+                .note(p.getProperty(KEY_NOTE))
                 .build();
     }
 
@@ -273,6 +288,9 @@ public final class CentralDeploySentinel {
         if (pid != 0L) {
             p.setProperty(KEY_PID, Long.toString(pid));
         }
+        if (note != null) {
+            p.setProperty(KEY_NOTE, note);
+        }
         try {
             Files.createDirectories(path.getParent());
             Path tmp = path.resolveSibling(
@@ -318,6 +336,7 @@ public final class CentralDeploySentinel {
                 .lastError(lastError)
                 .logFile(logFile)
                 .pid(pid)
+                .note(note)
                 .path(path);
     }
 
@@ -338,6 +357,7 @@ public final class CentralDeploySentinel {
         private String lastError;
         private Path logFile;
         private long pid;
+        private String note;
         private Path path;
 
         /** Creates an empty builder; use {@link #builder()}. */
@@ -423,6 +443,14 @@ public final class CentralDeploySentinel {
          * @return this builder for chaining
          */
         public Builder pid(long v) { this.pid = v; return this; }
+
+        /**
+         * Set the advisory note; pass {@code null} when none.
+         *
+         * @param v advisory note, or {@code null}
+         * @return this builder for chaining
+         */
+        public Builder note(String v) { this.note = v; return this; }
 
         /**
          * Set the sentinel-file path on disk. Required.

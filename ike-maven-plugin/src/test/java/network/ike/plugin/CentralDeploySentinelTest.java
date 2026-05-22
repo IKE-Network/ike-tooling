@@ -123,6 +123,54 @@ class CentralDeploySentinelTest {
     }
 
     @Test
+    void round_trips_note_on_success() {
+        // The note carries a non-failure advisory — e.g. a SUCCESS
+        // where JReleaser's publish poll timed out so the upload is
+        // confirmed but PUBLISHED was never observed (#484).
+        Path sentinelPath = CentralDeploySentinel.resolvePath(
+                tempDir, "ike-tooling", "198");
+        CentralDeploySentinel.builder()
+                .state(CentralDeploySentinel.State.SUCCESS)
+                .artifactId("ike-tooling")
+                .version("198")
+                .started(Instant.parse("2026-05-21T19:00:00Z"))
+                .finished(Instant.parse("2026-05-21T19:35:00Z"))
+                .attempts(1)
+                .maxAttempts(5)
+                .note("upload accepted by Sonatype; publication unconfirmed")
+                .path(sentinelPath)
+                .build()
+                .write();
+
+        CentralDeploySentinel read = CentralDeploySentinel.read(
+                sentinelPath);
+        assertThat(read.state())
+                .isEqualTo(CentralDeploySentinel.State.SUCCESS);
+        assertThat(read.note())
+                .isEqualTo("upload accepted by Sonatype; "
+                        + "publication unconfirmed");
+    }
+
+    @Test
+    void note_is_null_when_not_set() {
+        Path sentinelPath = CentralDeploySentinel.resolvePath(
+                tempDir, "ike-docs", "52");
+        CentralDeploySentinel.builder()
+                .state(CentralDeploySentinel.State.SUCCESS)
+                .artifactId("ike-docs")
+                .version("52")
+                .started(Instant.parse("2026-05-21T19:00:00Z"))
+                .finished(Instant.parse("2026-05-21T19:05:00Z"))
+                .maxAttempts(5)
+                .path(sentinelPath)
+                .build()
+                .write();
+
+        assertThat(CentralDeploySentinel.read(sentinelPath).note())
+                .isNull();
+    }
+
+    @Test
     void rejects_missing_state() throws Exception {
         Path sentinelPath = tempDir.resolve("no-state.properties");
         Files.writeString(sentinelPath,

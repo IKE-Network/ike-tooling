@@ -170,12 +170,49 @@ class ReleaseDraftMojoAsyncScriptTest {
     }
 
     @Test
-    void script_refreshes_pending_per_attempt() {
-        // Per-attempt PENDING refresh updates the attempts counter
+    void script_refreshes_pending_per_cycle() {
+        // Per-cycle PENDING refresh updates the attempts counter
         // so ike:central-status reflects retry progress in real time.
         String script = render();
         assertThat(script).contains("write_sentinel \"PENDING\" \"\"");
-        assertThat(script).contains("Attempt $ATTEMPTS/$MAX_ATTEMPTS");
+        assertThat(script).contains("Cycle $ATTEMPTS/$MAX_ATTEMPTS");
+    }
+
+    @Test
+    void script_uses_cycle_not_attempt_in_log_output() {
+        // The outer retry loop logs "cycle", never "attempt" — so
+        // its log lines don't visually collide with JReleaser's own
+        // "[mavenCentral] Attempt N of 101" status-poll lines.
+        // IKE-Network/ike-issues#484 follow-up; jreleaser#2125.
+        String script = render();
+        assertThat(script).contains("Cycle $ATTEMPTS/$MAX_ATTEMPTS");
+        assertThat(script).contains("SUCCESS on cycle $ATTEMPTS");
+        assertThat(script).contains("FAILURE after $ATTEMPTS cycles");
+        assertThat(script).contains("before next cycle");
+    }
+
+    @Test
+    void script_writes_finished_only_on_terminal_state() {
+        // A PENDING refresh must not write `finished` — that would
+        // read as a completed deploy in ike:central-status. The
+        // finish timestamp is gated behind a non-PENDING check.
+        String script = render();
+        assertThat(script).contains("if [ \"$state\" != \"PENDING\" ]; then");
+        assertThat(script).contains("echo \"finished=$(date");
+    }
+
+    @Test
+    void script_records_note_on_jreleaser_poll_timeout() {
+        // A JReleaser "Deployment timeout exceeded" is not a deploy
+        // failure (the upload succeeded). The script detects it,
+        // keeps the cycle a success, and records a note on the
+        // sentinel so ike:central-status flags publication as
+        // unconfirmed. IKE-Network/ike-issues#484.
+        String script = render();
+        assertThat(script).contains(
+                "grep -q \"Deployment timeout exceeded\" \"$attempt_log\"");
+        assertThat(script).contains("DEPLOY_NOTE=\"note=");
+        assertThat(script).contains("write_sentinel \"SUCCESS\" \"$DEPLOY_NOTE\"");
     }
 
     @Test

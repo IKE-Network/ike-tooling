@@ -50,8 +50,17 @@ import java.util.regex.Pattern;
  *   <li>Build site (pre-flight — catches javadoc errors early)</li>
  *   <li>Commit, tag</li>
  *   <li>Restore {@code ${project.version}}, merge to main</li>
- *   <li>Bump to next SNAPSHOT version, verify, commit</li>
+ *   <li>Bump to next SNAPSHOT version, verify, install, commit</li>
  * </ol>
+ *
+ * <p>The post-bump build runs {@code install} (not just
+ * {@code verify}) so the new {@code -SNAPSHOT} artifacts land in
+ * the local repository. For a self-hosting repo whose POM pins
+ * {@code ike-maven-plugin} to {@code ${project.version}}, this
+ * means the next {@code ike:*} invocation — including an
+ * {@code ike:release-cascade} walk to the next member — resolves
+ * the plugin without a manual {@code install}.
+ * IKE-Network/ike-issues#486.
  *
  * <p><strong>External phase (most reversible first, irreversible last):</strong></p>
  * <ol>
@@ -620,9 +629,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         String currentVersion = ReleaseSupport.readPomVersion(rootPom);
         ReleaseSupport.setPomVersion(rootPom, currentVersion, nextVersion);
 
-        // Verify build with new SNAPSHOT version
+        // Verify AND install the new SNAPSHOT (IKE-Network/ike-issues#486).
+        // `install` (not just `verify`) puts the post-bump -SNAPSHOT in
+        // the local repo so a self-hosting repo — whose POM pins
+        // ike-maven-plugin to ${project.version} — can run the next
+        // ike:* goal (or an ike:release-cascade walk to the next
+        // member) without a manual `mvn install` first.
         ReleaseSupport.exec(gitRoot, getLog(),
-                mvnw.getAbsolutePath(), "clean", "verify", "-B", "-T", "1");
+                mvnw.getAbsolutePath(), "clean", "install", "-B", "-T", "1");
 
         // Commit
         ReleaseSupport.exec(gitRoot, getLog(), "git", "add", "pom.xml");
@@ -866,7 +880,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // by definition has nexusDeploySucceeded — but log defensively
         // in case skipNexusDeploy was set.
         if (nexusDeploySucceeded) {
-            getLog().info("  Deployed to Nexus (attempt "
+            getLog().info("  Deployed to Nexus (cycle "
                     + nexusDeployAttempts + "/"
                     + nexusDeployMaxAttempts + ")");
         } else if (skipNexusDeploy) {
@@ -881,7 +895,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         + "`, tail " + centralDeployLogPath);
             } else if (centralDeploySucceeded) {
                 getLog().info("  Published to Maven Central "
-                        + "(attempt " + centralDeployAttempts
+                        + "(cycle " + centralDeployAttempts
                         + "/" + centralDeployMaxAttempts + ")");
             } else if (centralDeploySkipReason != null) {
                 getLog().warn("  Maven Central skipped: "
@@ -889,7 +903,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             } else if (centralDeployAttempts > 0) {
                 getLog().warn("  Maven Central deploy FAILED after "
                         + centralDeployAttempts + "/"
-                        + centralDeployMaxAttempts + " attempts — "
+                        + centralDeployMaxAttempts + " cycles — "
                         + "Nexus has v" + releaseVersion + "; "
                         + "retry: checkout v" + releaseVersion
                         + " and run `mvn jreleaser:deploy`");
@@ -1145,13 +1159,16 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * Sonatype deployer ({@code [WARNING] Deployer ...:sonatype
      * is not enabled. Skipping}).
      *
-     * <p>Each attempt is logged to a per-attempt file; on
+     * <p>Each retry cycle is logged to a per-cycle file; on
      * mvn-exit-0 the script asserts the log contains
      * {@code uploaded as deployment} (proves a real upload
      * happened) AND does not contain {@code is not enabled.
      * Skipping} (catches deployer-disabled silent no-op).
-     * Either check failing marks the attempt as a retry-eligible
-     * failure rather than success.
+     * Either check failing marks the cycle as a retry-eligible
+     * failure rather than success. A {@code Deployment timeout
+     * exceeded} line — JReleaser giving up its publish poll — is
+     * not a failure: the upload succeeded, so the cycle passes
+     * and a {@code note} is recorded on the sentinel.
      *
      * <p>The worktree is cleaned up via {@code trap EXIT}, so
      * even an interrupted subprocess leaves no stray git state.
@@ -1215,8 +1232,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 write_sentinel() {
                   local state="$1"
                   local extra="$2"
-                  local finished
-                  finished="$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)"
                   local tmp="${SENTINEL}.tmp"
                   {
                     echo "#ike:release-publish Central deploy sentinel"
@@ -1224,7 +1239,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     echo "artifactId=$ARTIFACT_ID"
                     echo "version=$VERSION"
                     echo "started=$STARTED"
-                    echo "finished=$finished"
+                    # Only a terminal state has a finish time. A PENDING
+                    # refresh must not write `finished` — it would read
+                    # as a completed deploy in ike:central-status.
+                    if [ "$state" != "PENDING" ]; then
+                      echo "finished=$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)"
+                    fi
                     echo "attempts=$ATTEMPTS"
                     echo "maxAttempts=$MAX_ATTEMPTS"
                     echo "logFile=$LOG"
@@ -1237,17 +1257,18 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 }
 
                 ATTEMPTS=0
+                DEPLOY_NOTE=""
                 {
                   echo "[$(date)] Async Central deploy starting"
                   echo "  artifact: $ARTIFACT_ID-$VERSION"
                   echo "  git root: $GIT_ROOT"
                   echo "  worktree: $WORKTREE"
-                  echo "  max attempts: $MAX_ATTEMPTS"
+                  echo "  max cycles: $MAX_ATTEMPTS"
                   echo "  backoffs (s): ${BACKOFFS[*]}"
                 } >> "$LOG"
 
                 # One-time: create the isolated worktree at v<version>.
-                # All deploy attempts reuse it (clean deploy inside the
+                # All deploy cycles reuse it (clean deploy inside the
                 # worktree wipes its own target/).
                 if ! git -C "$GIT_ROOT" worktree add "$WORKTREE" "v$VERSION" >> "$LOG" 2>&1; then
                   write_sentinel "FAILURE" "lastError=could not create worktree at v$VERSION"
@@ -1256,13 +1277,13 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 fi
 
                 run_attempt() {
-                  local attempt_log="$WORKTREE/target/jreleaser-attempt-$ATTEMPTS.log"
+                  local attempt_log="$WORKTREE/target/jreleaser-cycle-$ATTEMPTS.log"
                   # Step 1: stage signed artifacts to the worktree's
                   # target/staging-deploy.
                   if ! (cd "$WORKTREE" && "$MVNW" clean deploy -B -T 1 \\
                       -P release,signArtifacts \\
                       -DaltDeploymentRepository=local::file://"$WORKTREE/target/staging-deploy") >> "$LOG" 2>&1; then
-                    echo "[$(date)] Stage failed on attempt $ATTEMPTS" >> "$LOG"
+                    echo "[$(date)] Stage failed on cycle $ATTEMPTS" >> "$LOG"
                     return 1
                   fi
                   # Step 2: prune -build.pom (Maven 4 build POMs, not
@@ -1274,11 +1295,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                          -o -name '*-build.pom.sha256' \\
                          -o -name '*-build.pom.sha512' \\) \\
                       -delete >> "$LOG" 2>&1 || true
-                  # Step 3: upload via JReleaser. Capture to per-attempt
+                  # Step 3: upload via JReleaser. Capture to per-cycle
                   # log for validation.
                   if ! (cd "$WORKTREE" && "$MVNW" jreleaser:deploy -N -B) > "$attempt_log" 2>&1; then
                     cat "$attempt_log" >> "$LOG"
-                    echo "[$(date)] JReleaser upload failed on attempt $ATTEMPTS" >> "$LOG"
+                    echo "[$(date)] JReleaser upload failed on cycle $ATTEMPTS" >> "$LOG"
                     return 1
                   fi
                   cat "$attempt_log" >> "$LOG"
@@ -1294,18 +1315,28 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     echo "[$(date)] JReleaser did not log an uploaded deployment" >> "$LOG"
                     return 1
                   fi
+                  # The upload succeeded. JReleaser may still have timed
+                  # out polling Sonatype for the PUBLISHED transition —
+                  # that is NOT a deploy failure (the bundle is on
+                  # Sonatype's side and will publish), but record a note
+                  # so ike:central-status flags publication as
+                  # unconfirmed. IKE-Network/ike-issues#484.
+                  if grep -q "Deployment timeout exceeded" "$attempt_log"; then
+                    DEPLOY_NOTE="note=upload accepted by Sonatype; JReleaser poll for PUBLISHED timed out - publication unconfirmed, verify on the Central Portal"
+                    echo "[$(date)] Upload confirmed; JReleaser poll timed out before PUBLISHED (non-fatal)" >> "$LOG"
+                  fi
                   return 0
                 }
 
                 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
                   ATTEMPTS=$((ATTEMPTS + 1))
-                  echo "[$(date)] Attempt $ATTEMPTS/$MAX_ATTEMPTS" >> "$LOG"
-                  # Refresh PENDING with current attempt count so
+                  echo "[$(date)] Cycle $ATTEMPTS/$MAX_ATTEMPTS" >> "$LOG"
+                  # Refresh PENDING with current cycle count so
                   # ike:central-status reflects progress.
                   write_sentinel "PENDING" ""
                   if run_attempt; then
-                    write_sentinel "SUCCESS" ""
-                    echo "[$(date)] SUCCESS on attempt $ATTEMPTS" >> "$LOG"
+                    write_sentinel "SUCCESS" "$DEPLOY_NOTE"
+                    echo "[$(date)] SUCCESS on cycle $ATTEMPTS" >> "$LOG"
                     exit 0
                   fi
                   if [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; then
@@ -1314,13 +1345,13 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                       IDX=$((${#BACKOFFS[@]} - 1))
                     fi
                     WAIT=${BACKOFFS[$IDX]}
-                    echo "[$(date)] Sleeping ${WAIT}s before next attempt" >> "$LOG"
+                    echo "[$(date)] Sleeping ${WAIT}s before next cycle" >> "$LOG"
                     sleep "$WAIT"
                   fi
                 done
 
-                write_sentinel "FAILURE" "lastError=exhausted $MAX_ATTEMPTS attempts; see $LOG"
-                echo "[$(date)] FAILURE after $ATTEMPTS attempts" >> "$LOG"
+                write_sentinel "FAILURE" "lastError=exhausted $MAX_ATTEMPTS cycles; see $LOG"
+                echo "[$(date)] FAILURE after $ATTEMPTS cycles" >> "$LOG"
                 exit 1
                 """.formatted(
                     started.toString(),
@@ -1354,7 +1385,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 sleepBeforeRetry(wait, "Nexus deploy",
                         attempt, nexusDeployMaxAttempts);
             }
-            getLog().info("Deploying to Nexus (attempt "
+            getLog().info("Deploying to Nexus (cycle "
                     + attempt + "/" + nexusDeployMaxAttempts + ")...");
             try {
                 ReleaseSupport.exec(gitRoot, getLog(),
@@ -1364,14 +1395,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 return;
             } catch (MojoException e) {
                 last = e;
-                getLog().warn("Nexus deploy attempt " + attempt
+                getLog().warn("Nexus deploy cycle " + attempt
                         + "/" + nexusDeployMaxAttempts
                         + " failed: " + e.getMessage());
             }
         }
         throw new MojoException(
                 "Nexus deploy failed after " + nexusDeployMaxAttempts
-                        + " attempts. The release is aborted before "
+                        + " cycles. The release is aborted before "
                         + "any tag or main push. Last error: "
                         + (last == null ? "(none captured)"
                                 : last.getMessage()),
@@ -1400,7 +1431,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 sleepBeforeRetry(wait, "Maven Central deploy",
                         attempt, centralDeployMaxAttempts);
             }
-            getLog().info("Publishing to Maven Central (attempt "
+            getLog().info("Publishing to Maven Central (cycle "
                     + attempt + "/" + centralDeployMaxAttempts + ")...");
             try {
                 deployToMavenCentralCore(gitRoot, mvnw);
@@ -1408,7 +1439,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 return;
             } catch (MojoException e) {
                 last = e;
-                getLog().warn("Maven Central attempt " + attempt
+                getLog().warn("Maven Central cycle " + attempt
                         + "/" + centralDeployMaxAttempts
                         + " failed: " + e.getMessage());
             }
@@ -1417,7 +1448,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 ? "unknown failure"
                 : last.getMessage();
         getLog().warn("Maven Central deploy did not succeed after "
-                + centralDeployMaxAttempts + " attempts. "
+                + centralDeployMaxAttempts + " cycles. "
                 + "Nexus already has v" + releaseVersion
                 + "; tag and main will still publish. "
                 + "To retry Central later: check out v"
@@ -1529,14 +1560,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     }
 
     /**
-     * Sleep before the next retry, with a clear log line so the
-     * operator knows the build isn't hung.
+     * Sleep before the next retry cycle, with a clear log line so
+     * the operator knows the build isn't hung.
      *
      * @param seconds      seconds to wait (0 = no sleep)
      * @param label        phase label ("Nexus deploy" /
      *                     "Maven Central deploy")
-     * @param nextAttempt  the upcoming attempt number
-     * @param maxAttempts  configured max attempts
+     * @param nextAttempt  the upcoming cycle number
+     * @param maxAttempts  configured max cycles
      */
     private void sleepBeforeRetry(int seconds, String label,
                                    int nextAttempt, int maxAttempts) {
@@ -1544,7 +1575,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             return;
         }
         getLog().info("Waiting " + seconds + "s before " + label
-                + " attempt " + nextAttempt + "/" + maxAttempts
+                + " cycle " + nextAttempt + "/" + maxAttempts
                 + "...");
         try {
             Thread.sleep(seconds * 1000L);
@@ -1703,7 +1734,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         report.raw(external.toString());
 
         // Deploy details section (publish mode only — draft has no
-        // attempt data to report). Always renders the Nexus line.
+        // cycle data to report). Always renders the Nexus line.
         // The Maven Central line renders only when publishToCentral
         // is set, with three possible outcomes (success / skip /
         // failure). IKE-Network/ike-issues#482.
@@ -1712,7 +1743,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             StringBuilder deploy = new StringBuilder();
             deploy.append("- **Nexus:** ")
                     .append(nexusDeploySucceeded
-                            ? "✅ succeeded on attempt "
+                            ? "✅ succeeded on cycle "
                                     + nexusDeployAttempts + "/"
                                     + nexusDeployMaxAttempts
                             : skipNexusDeploy
@@ -1725,7 +1756,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     // Async path (#484) — outcome unknown at this
                     // point. Point the operator at the discovery
                     // surface (sentinel + log + status goal) rather
-                    // than the (unknown) attempt count.
+                    // than the (unknown) cycle count.
                     deploy.append("⏳ running async (#484) — track "
                                     + "with `mvn ")
                             .append(IkeGoal.CENTRAL_STATUS.qualified())
@@ -1736,7 +1767,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                             .append(centralDeployLogPath)
                             .append('`');
                 } else if (centralDeploySucceeded) {
-                    deploy.append("✅ succeeded on attempt ")
+                    deploy.append("✅ succeeded on cycle ")
                             .append(centralDeployAttempts).append("/")
                             .append(centralDeployMaxAttempts);
                 } else if (centralDeploySkipReason != null) {
@@ -1746,7 +1777,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     deploy.append("❌ failed after ")
                             .append(centralDeployAttempts).append("/")
                             .append(centralDeployMaxAttempts)
-                            .append(" attempts");
+                            .append(" cycles");
                     if (centralDeployFailureSummary != null) {
                         deploy.append(" — ")
                                 .append(centralDeployFailureSummary);
@@ -1766,18 +1797,18 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     }
 
     /**
-     * Render a {@code " (attempt N/M)"} suffix for the post-release
-     * report, or empty when no attempts were tracked (draft mode).
+     * Render a {@code " (cycle N/M)"} suffix for the post-release
+     * report, or empty when no cycles were tracked (draft mode).
      *
-     * @param attempts attempts taken (0 = none)
-     * @param max      configured max
+     * @param attempts retry cycles taken (0 = none)
+     * @param max      configured max cycles
      * @return the suffix, possibly empty
      */
     private static String deployAttemptSuffix(int attempts, int max) {
         if (attempts <= 0) {
             return "";
         }
-        return " (attempt " + attempts + "/" + max + ")";
+        return " (cycle " + attempts + "/" + max + ")";
     }
 
     /**
@@ -1792,7 +1823,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             return " (async — see Deploy details)";
         }
         if (centralDeploySucceeded) {
-            return " (attempt " + centralDeployAttempts + "/"
+            return " (cycle " + centralDeployAttempts + "/"
                     + centralDeployMaxAttempts + ")";
         }
         if (centralDeploySkipReason != null) {
@@ -1800,7 +1831,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         }
         if (centralDeployAttempts > 0) {
             return " — FAILED after " + centralDeployAttempts + "/"
-                    + centralDeployMaxAttempts + " attempts";
+                    + centralDeployMaxAttempts + " cycles";
         }
         return "";
     }
