@@ -1,5 +1,7 @@
 package network.ike.plugin;
 
+import network.ike.plugin.release.central.CentralOutcome;
+import network.ike.plugin.release.nexus.NexusOutcome;
 import network.ike.plugin.scaffold.FoundationBaker;
 import network.ike.plugin.scaffold.ScaffoldManifest;
 import network.ike.plugin.scaffold.ScaffoldManifestIo;
@@ -256,21 +258,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     // Written by deployArtifacts(), read by the post-release log
     // and buildReleaseReport(). Defaults represent the "did not
     // run" state — appropriate for a draft preview or a release
-    // aborted before deploy.
-    private int nexusDeployAttempts;
-    private boolean nexusDeploySucceeded;
-    private int centralDeployAttempts;
-    private boolean centralDeploySucceeded;
-    /** Non-null when Central was skipped — human-readable reason. */
-    private String centralDeploySkipReason;
-    /** Non-null when Central was attempted and exhausted retries. */
-    private String centralDeployFailureSummary;
-    /** True when async path spawned the detached Central subprocess (#484). */
-    private boolean centralDeployAsyncSpawned;
-    /** Sentinel file for the async spawn; null in sync mode. */
-    private Path centralDeploySentinelPath;
-    /** Log file the async subprocess streams its output to. */
-    private Path centralDeployLogPath;
+    // aborted before deploy. Outcome records were extracted to
+    // their future packages during the Phase 4 P1 prep commit
+    // (IKE-Network/ike-issues#489).
+    private NexusOutcome nexusOutcome = NexusOutcome.initial();
+    private CentralOutcome centralOutcome = CentralOutcome.initial();
 
     /**
      * GitHub repository for issue tracking, used to look up a milestone
@@ -878,32 +870,32 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().info("  Tagged: v" + releaseVersion);
         // Two-phase deploy outcome (#482). Nexus is mandatory and a
         // failure aborts before this point, so a successful release
-        // by definition has nexusDeploySucceeded — but log defensively
-        // in case skipNexusDeploy was set.
-        if (nexusDeploySucceeded) {
+        // by definition has the Nexus outcome marked succeeded — but
+        // log defensively in case skipNexusDeploy was set.
+        if (nexusOutcome.succeeded()) {
             getLog().info("  Deployed to Nexus (cycle "
-                    + nexusDeployAttempts + "/"
+                    + nexusOutcome.attempts() + "/"
                     + nexusDeployMaxAttempts + ")");
         } else if (skipNexusDeploy) {
             getLog().warn("  Nexus deploy skipped "
                     + "(ike.skipNexusDeploy=true)");
         }
         if (publishToCentral) {
-            if (centralDeployAsyncSpawned) {
+            if (centralOutcome.asyncSpawned()) {
                 getLog().info("  Maven Central: running async — "
                         + "track with `mvn "
                         + IkeGoal.CENTRAL_STATUS.qualified()
-                        + "`, tail " + centralDeployLogPath);
-            } else if (centralDeploySucceeded) {
+                        + "`, tail " + centralOutcome.logPath());
+            } else if (centralOutcome.succeeded()) {
                 getLog().info("  Published to Maven Central "
-                        + "(cycle " + centralDeployAttempts
+                        + "(cycle " + centralOutcome.attempts()
                         + "/" + centralDeployMaxAttempts + ")");
-            } else if (centralDeploySkipReason != null) {
+            } else if (centralOutcome.skipReason() != null) {
                 getLog().warn("  Maven Central skipped: "
-                        + centralDeploySkipReason);
-            } else if (centralDeployAttempts > 0) {
+                        + centralOutcome.skipReason());
+            } else if (centralOutcome.attempts() > 0) {
                 getLog().warn("  Maven Central deploy FAILED after "
-                        + centralDeployAttempts + "/"
+                        + centralOutcome.attempts() + "/"
                         + centralDeployMaxAttempts + " cycles — "
                         + "Nexus has v" + releaseVersion + "; "
                         + "retry: checkout v" + releaseVersion
@@ -984,14 +976,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             return;
         }
         if (skipCentralDeploy) {
-            centralDeploySkipReason = "explicit ike.skipCentralDeploy=true";
+            centralOutcome = centralOutcome.withSkipReason("explicit ike.skipCentralDeploy=true");
             getLog().warn("Skipping Maven Central deploy "
                     + "(ike.skipCentralDeploy=true).");
             return;
         }
         String missingCreds = missingCentralCredentials();
         if (missingCreds != null) {
-            centralDeploySkipReason = missingCreds;
+            centralOutcome = centralOutcome.withSkipReason(missingCreds);
             getLog().warn("Skipping Maven Central deploy: "
                     + missingCreds);
             getLog().warn("  Nexus already has v" + releaseVersion
@@ -1033,10 +1025,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         ? CentralDeploySentinel.DEFAULT_DIR
                         : Paths.get(centralSentinelDir);
         String artifactId = gitRoot.getName();
-        centralDeploySentinelPath = CentralDeploySentinel
-                .resolvePath(sentinelDir, artifactId, releaseVersion);
-        centralDeployLogPath = sentinelDir.resolve(
-                artifactId + "-" + releaseVersion + ".log");
+        centralOutcome = centralOutcome
+                .withSentinelPath(CentralDeploySentinel
+                        .resolvePath(sentinelDir, artifactId, releaseVersion))
+                .withLogPath(sentinelDir.resolve(
+                        artifactId + "-" + releaseVersion + ".log"));
 
         try {
             Files.createDirectories(sentinelDir);
@@ -1058,8 +1051,8 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 .started(now)
                 .attempts(0)
                 .maxAttempts(centralDeployMaxAttempts)
-                .logFile(centralDeployLogPath)
-                .path(centralDeploySentinelPath)
+                .logFile(centralOutcome.logPath())
+                .path(centralOutcome.sentinelPath())
                 .build();
         pending.write();
 
@@ -1070,7 +1063,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 artifactId + "-" + releaseVersion + ".sh");
         String script = renderRetryScript(
                 gitRoot.toPath(), mvnw.toPath(),
-                centralDeploySentinelPath, centralDeployLogPath,
+                centralOutcome.sentinelPath(), centralOutcome.logPath(),
                 artifactId, releaseVersion,
                 centralDeployMaxAttempts, backoff, now);
         try {
@@ -1112,11 +1105,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     + "Central deploy: " + e.getMessage(), e);
         }
 
-        centralDeployAsyncSpawned = true;
+        centralOutcome = centralOutcome.withAsyncSpawned(true);
         getLog().info("Spawned async Maven Central deploy "
                 + "(IKE-Network/ike-issues#484).");
-        getLog().info("  Sentinel: " + centralDeploySentinelPath);
-        getLog().info("  Log:      " + centralDeployLogPath);
+        getLog().info("  Sentinel: " + centralOutcome.sentinelPath());
+        getLog().info("  Log:      " + centralOutcome.logPath());
         getLog().info("  Track:    mvn " + IkeGoal.CENTRAL_STATUS.qualified());
     }
 
@@ -1379,7 +1372,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 nexusDeployBackoffSeconds);
         Throwable last = null;
         for (int attempt = 1; attempt <= nexusDeployMaxAttempts; attempt++) {
-            nexusDeployAttempts = attempt;
+            nexusOutcome = nexusOutcome.withAttempts(attempt);
             if (attempt > 1) {
                 int wait = backoff[Math.min(attempt - 2,
                         backoff.length - 1)];
@@ -1392,7 +1385,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 ReleaseSupport.exec(gitRoot, getLog(),
                         mvnw.getAbsolutePath(), "clean", "deploy",
                         "-B", "-T", "1", "-P", "release,signArtifacts");
-                nexusDeploySucceeded = true;
+                nexusOutcome = nexusOutcome.withSucceeded(true);
                 return;
             } catch (MojoException e) {
                 last = e;
@@ -1425,7 +1418,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 centralDeployBackoffSeconds);
         Throwable last = null;
         for (int attempt = 1; attempt <= centralDeployMaxAttempts; attempt++) {
-            centralDeployAttempts = attempt;
+            centralOutcome = centralOutcome.withAttempts(attempt);
             if (attempt > 1) {
                 int wait = backoff[Math.min(attempt - 2,
                         backoff.length - 1)];
@@ -1436,7 +1429,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     + attempt + "/" + centralDeployMaxAttempts + ")...");
             try {
                 deployToMavenCentralCore(gitRoot, mvnw);
-                centralDeploySucceeded = true;
+                centralOutcome = centralOutcome.withSucceeded(true);
                 return;
             } catch (MojoException e) {
                 last = e;
@@ -1445,9 +1438,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         + " failed: " + e.getMessage());
             }
         }
-        centralDeployFailureSummary = last == null
+        centralOutcome = centralOutcome.withFailureSummary(last == null
                 ? "unknown failure"
-                : last.getMessage();
+                : last.getMessage());
         getLog().warn("Maven Central deploy did not succeed after "
                 + centralDeployMaxAttempts + " cycles. "
                 + "Nexus already has v" + releaseVersion
@@ -1713,7 +1706,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 .append(" deploy to Nexus from tag `v")
                 .append(releaseVersion).append("`")
                 .append(deployAttemptSuffix(
-                        nexusDeployAttempts, nexusDeployMaxAttempts))
+                        nexusOutcome.attempts(), nexusDeployMaxAttempts))
                 .append('\n');
         if (publishToCentral) {
             external.append(step++).append(". ").append(verb)
@@ -1743,9 +1736,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             report.section("Deploy details");
             StringBuilder deploy = new StringBuilder();
             deploy.append("- **Nexus:** ")
-                    .append(nexusDeploySucceeded
+                    .append(nexusOutcome.succeeded()
                             ? "✅ succeeded on cycle "
-                                    + nexusDeployAttempts + "/"
+                                    + nexusOutcome.attempts() + "/"
                                     + nexusDeployMaxAttempts
                             : skipNexusDeploy
                                     ? "⚠ skipped (ike.skipNexusDeploy=true)"
@@ -1753,7 +1746,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     .append('\n');
             if (publishToCentral) {
                 deploy.append("- **Maven Central:** ");
-                if (centralDeployAsyncSpawned) {
+                if (centralOutcome.asyncSpawned()) {
                     // Async path (#484) — outcome unknown at this
                     // point. Point the operator at the discovery
                     // surface (sentinel + log + status goal) rather
@@ -1763,25 +1756,25 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                             .append(IkeGoal.CENTRAL_STATUS.qualified())
                             .append("`")
                             .append("\n  - Sentinel: `")
-                            .append(centralDeploySentinelPath)
+                            .append(centralOutcome.sentinelPath())
                             .append("`\n  - Log: `")
-                            .append(centralDeployLogPath)
+                            .append(centralOutcome.logPath())
                             .append('`');
-                } else if (centralDeploySucceeded) {
+                } else if (centralOutcome.succeeded()) {
                     deploy.append("✅ succeeded on cycle ")
-                            .append(centralDeployAttempts).append("/")
+                            .append(centralOutcome.attempts()).append("/")
                             .append(centralDeployMaxAttempts);
-                } else if (centralDeploySkipReason != null) {
+                } else if (centralOutcome.skipReason() != null) {
                     deploy.append("⚠ skipped — ")
-                            .append(centralDeploySkipReason);
-                } else if (centralDeployAttempts > 0) {
+                            .append(centralOutcome.skipReason());
+                } else if (centralOutcome.attempts() > 0) {
                     deploy.append("❌ failed after ")
-                            .append(centralDeployAttempts).append("/")
+                            .append(centralOutcome.attempts()).append("/")
                             .append(centralDeployMaxAttempts)
                             .append(" cycles");
-                    if (centralDeployFailureSummary != null) {
+                    if (centralOutcome.failureSummary() != null) {
                         deploy.append(" — ")
-                                .append(centralDeployFailureSummary);
+                                .append(centralOutcome.failureSummary());
                     }
                     deploy.append("\n  Retry: `git checkout v")
                             .append(releaseVersion)
@@ -1820,18 +1813,18 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * @return the outcome suffix
      */
     private String centralOutcomeSuffix() {
-        if (centralDeployAsyncSpawned) {
+        if (centralOutcome.asyncSpawned()) {
             return " (async — see Deploy details)";
         }
-        if (centralDeploySucceeded) {
-            return " (cycle " + centralDeployAttempts + "/"
+        if (centralOutcome.succeeded()) {
+            return " (cycle " + centralOutcome.attempts() + "/"
                     + centralDeployMaxAttempts + ")";
         }
-        if (centralDeploySkipReason != null) {
-            return " — skipped (" + centralDeploySkipReason + ")";
+        if (centralOutcome.skipReason() != null) {
+            return " — skipped (" + centralOutcome.skipReason() + ")";
         }
-        if (centralDeployAttempts > 0) {
-            return " — FAILED after " + centralDeployAttempts + "/"
+        if (centralOutcome.attempts() > 0) {
+            return " — FAILED after " + centralOutcome.attempts() + "/"
                     + centralDeployMaxAttempts + " cycles";
         }
         return "";
