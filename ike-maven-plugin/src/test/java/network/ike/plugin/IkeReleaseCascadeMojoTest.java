@@ -2,6 +2,7 @@ package network.ike.plugin;
 
 import network.ike.workspace.cascade.CascadeEdge;
 import network.ike.workspace.cascade.CascadeRepo;
+import network.ike.workspace.cascade.EdgeKind;
 import network.ike.workspace.cascade.ProjectCascade;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -271,6 +272,82 @@ class IkeReleaseCascadeMojoTest {
                 docs, docsDir.toFile(), siblings.toFile());
 
         assertThat(stale).isEmpty();
+    }
+
+    // ── stalePinsFor: PARENT-kind edge with stale <parent><version> ──
+
+    @Test
+    void stalePinsFor_parentEdgeStale_returnsParentDescription(
+            @TempDir Path tmp) throws Exception {
+        // ike-base-parent at v7, ike-tooling still pins parent at 6.
+        // The PARENT-kind edge should be detected via the <parent> block,
+        // not via a missing property — and reported with the parent
+        // display site (IKE-Network/ike-issues#496 part E).
+        Path siblings = tmp.resolve("siblings");
+        createGitRepoWithTag(siblings, "ike-base-parent", "v7");
+
+        Path toolingDir = siblings.resolve("ike-tooling");
+        Files.createDirectories(toolingDir);
+        writePom(toolingDir, """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <parent>
+                        <groupId>network.ike</groupId>
+                        <artifactId>ike-base-parent</artifactId>
+                        <version>6</version>
+                    </parent>
+                    <artifactId>ike-tooling</artifactId>
+                    <version>199-SNAPSHOT</version>
+                </project>
+                """);
+
+        CascadeEdge parentEdge = new CascadeEdge("network.ike",
+                "ike-base-parent", "ike-base-parent",
+                "https://github.com/IKE-Network/ike-base-parent.git",
+                EdgeKind.PARENT);
+        CascadeRepo tooling = node(TOOLING,
+                new ProjectCascade(1, false, List.of(parentEdge),
+                        true, List.of()));
+
+        List<String> stale = IkeReleaseCascadeMojo.stalePinsFor(
+                tooling, toolingDir.toFile(), siblings.toFile());
+
+        assertThat(stale).containsExactly(
+                "<parent>network.ike:ike-base-parent</parent>  (6 → 7)");
+    }
+
+    @Test
+    void stalePinsFor_parentEdgeUpToDate_returnsEmpty(@TempDir Path tmp)
+            throws Exception {
+        Path siblings = tmp.resolve("siblings");
+        createGitRepoWithTag(siblings, "ike-base-parent", "v7");
+
+        Path toolingDir = siblings.resolve("ike-tooling");
+        Files.createDirectories(toolingDir);
+        writePom(toolingDir, """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <parent>
+                        <groupId>network.ike</groupId>
+                        <artifactId>ike-base-parent</artifactId>
+                        <version>7</version>
+                    </parent>
+                    <artifactId>ike-tooling</artifactId>
+                    <version>199-SNAPSHOT</version>
+                </project>
+                """);
+
+        CascadeEdge parentEdge = new CascadeEdge("network.ike",
+                "ike-base-parent", "ike-base-parent",
+                "https://github.com/IKE-Network/ike-base-parent.git",
+                EdgeKind.PARENT);
+        CascadeRepo tooling = node(TOOLING,
+                new ProjectCascade(1, false, List.of(parentEdge),
+                        true, List.of()));
+
+        assertThat(IkeReleaseCascadeMojo.stalePinsFor(
+                tooling, toolingDir.toFile(), siblings.toFile()))
+                .isEmpty();
     }
 
     // ── latestReleaseTag: picks the newest v-prefixed tag ───────────

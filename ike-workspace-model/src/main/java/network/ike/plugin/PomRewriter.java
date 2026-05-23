@@ -5,6 +5,8 @@ import org.openrewrite.xml.XmlParser;
 import org.openrewrite.xml.XmlVisitor;
 import org.openrewrite.xml.tree.Xml;
 
+import java.util.Optional;
+
 /**
  * AST-aware POM manipulation using OpenRewrite's XML LST.
  *
@@ -66,6 +68,50 @@ public final class PomRewriter {
         }.visitNonNull(doc, 0);
 
         return print(updated);
+    }
+
+    /**
+     * Read the version of the POM's {@code <parent>} block when its
+     * coordinates match {@code parentGroupId:parentArtifactId}.
+     *
+     * <p>Companion read to {@link #updateParentVersion}: the cascade
+     * alignment path uses this to inspect the current parent version
+     * before deciding whether (and to what) to bump it. Returns the
+     * version text exactly as it appears in the POM — a literal, an
+     * unresolved {@code ${...}} reference, whatever is declared.
+     *
+     * @param pomContent       the raw POM text
+     * @param parentGroupId    the parent groupId to match (required)
+     * @param parentArtifactId the parent artifactId to match (required)
+     * @return the parent's declared version, or empty when the POM
+     *         has no {@code <parent>} block matching those
+     *         coordinates
+     */
+    public static Optional<String> readParentVersion(String pomContent,
+                                                      String parentGroupId,
+                                                      String parentArtifactId) {
+        Xml.Document doc = parse(pomContent);
+        if (doc == null) {
+            return Optional.empty();
+        }
+        String[] found = {null};
+        new XmlVisitor<Integer>() {
+            @Override
+            public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
+                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);
+                if (!"parent".equals(t.getName())) {
+                    return t;
+                }
+                String gid = t.getChildValue("groupId").orElse(null);
+                String aid = t.getChildValue("artifactId").orElse(null);
+                if (parentGroupId.equals(gid)
+                        && parentArtifactId.equals(aid)) {
+                    found[0] = t.getChildValue("version").orElse(null);
+                }
+                return t;
+            }
+        }.visitNonNull(doc, 0);
+        return Optional.ofNullable(found[0]);
     }
 
     /**

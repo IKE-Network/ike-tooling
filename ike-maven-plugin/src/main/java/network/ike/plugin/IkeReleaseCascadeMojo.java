@@ -6,6 +6,7 @@ import network.ike.plugin.support.GoalReportSpec;
 import network.ike.workspace.cascade.CascadeAssembler;
 import network.ike.workspace.cascade.CascadeEdge;
 import network.ike.workspace.cascade.CascadeRepo;
+import network.ike.workspace.cascade.EdgeKind;
 import network.ike.workspace.cascade.ProjectCascade;
 import network.ike.workspace.cascade.ProjectCascadeIo;
 import network.ike.workspace.cascade.ReleaseCascade;
@@ -321,14 +322,8 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
         if (!pom.isFile()) {
             return stale;
         }
+        String pomContent = null;
         for (CascadeEdge up : node.upstream()) {
-            String property = up.versionProperty();
-            if (property == null || property.isBlank()) {
-                // Upstream edge with no version-property — nothing to
-                // pin-check. Shouldn't normally happen for non-head
-                // nodes, but treat as not-stale rather than failing.
-                continue;
-            }
             File upstreamDir = new File(siblings, up.repo());
             if (!upstreamDir.isDirectory()) {
                 continue;
@@ -340,17 +335,56 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
             String upstreamLatest = upstreamTag.startsWith("v")
                     ? upstreamTag.substring(1)
                     : upstreamTag;
-            String pinned = ReleaseSupport.readPomProperty(pom, property);
+            // PARENT-kind edges pin via the <parent><version> block;
+            // every other kind pins via the ${G·A} property
+            // (IKE-Network/ike-issues#496 part E).
+            boolean parentEdge = up.kind() == EdgeKind.PARENT;
+            String pinned;
+            String displaySite;
+            if (parentEdge) {
+                if (pomContent == null) {
+                    pomContent = readPomContent(pom);
+                    if (pomContent == null) {
+                        return stale;
+                    }
+                }
+                pinned = PomRewriter.readParentVersion(pomContent,
+                        up.groupId(), up.artifactId()).orElse(null);
+                displaySite = "<parent>" + up.ga() + "</parent>";
+            } else {
+                String property = up.versionProperty();
+                if (property == null || property.isBlank()) {
+                    continue;
+                }
+                pinned = ReleaseSupport.readPomProperty(pom, property);
+                displaySite = property;
+            }
             if (pinned == null || pinned.isBlank()
                     || pinned.contains("${")) {
                 continue;
             }
             if (!pinned.equals(upstreamLatest)) {
-                stale.add(property + "  (" + pinned + " → "
+                stale.add(displaySite + "  (" + pinned + " → "
                         + upstreamLatest + ")");
             }
         }
         return stale;
+    }
+
+    /**
+     * Reads {@code pom.xml} content into a string, returning
+     * {@code null} on I/O failure. Used by parent-edge inspection
+     * in {@link #stalePinsFor}, which needs the raw text for
+     * {@link PomRewriter#readParentVersion}.
+     */
+    private static String readPomContent(File pom) {
+        try {
+            return java.nio.file.Files.readString(
+                    pom.toPath(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            return null;
+        }
     }
 
     /** The newest {@code v*} release tag in a repo, or null. */

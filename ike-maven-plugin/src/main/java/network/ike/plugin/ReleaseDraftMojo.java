@@ -11,6 +11,7 @@ import network.ike.plugin.support.version.MavenVersionComparator;
 import network.ike.plugin.support.version.SessionCandidateVersionResolver;
 import network.ike.workspace.cascade.CascadeEdge;
 import network.ike.workspace.cascade.CascadeReporter;
+import network.ike.workspace.cascade.EdgeKind;
 import network.ike.workspace.cascade.ProjectCascade;
 import network.ike.workspace.cascade.ProjectCascadeIo;
 import org.apache.maven.api.plugin.MojoException;
@@ -2048,12 +2049,23 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         String updated = content;
 
         for (CascadeEdge up : loaded.get().upstream()) {
+            // PARENT-kind edges rewrite the <parent><version> block
+            // directly; property-kind edges rewrite the ${G·A} property
+            // that pins the upstream. The site of the value (the read
+            // and the write) differs by kind; the candidate-resolution
+            // and "is the pin stale" logic is the same for both.
+            boolean parentEdge = up.kind() == EdgeKind.PARENT;
             String property = up.versionProperty();
-            String current = ReleaseSupport.readPomProperty(
-                    pomFile, property);
+            String displaySite = parentEdge
+                    ? "<parent>" + up.ga() + "</parent>"
+                    : "<" + property + ">";
+            String current = parentEdge
+                    ? PomRewriter.readParentVersion(content,
+                            up.groupId(), up.artifactId()).orElse(null)
+                    : ReleaseSupport.readPomProperty(pomFile, property);
             if (current == null) {
-                problems.add(up.ga() + ": POM has no <" + property
-                        + "> property.");
+                problems.add(up.ga() + ": POM has no " + displaySite
+                        + ".");
                 continue;
             }
             if (current.contains("${")) {
@@ -2079,12 +2091,15 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     .compare(latest, current) <= 0) {
                 continue;
             }
-            String after = PomRewriter.updateProperty(
-                    updated, property, latest);
+            String after = parentEdge
+                    ? PomRewriter.updateParentVersion(updated,
+                            up.groupId(), up.artifactId(), latest)
+                    : PomRewriter.updateProperty(updated, property,
+                            latest);
             if (!after.equals(updated)) {
                 updated = after;
-                bumps.add("<" + property + ">: " + current
-                        + " -> " + latest);
+                bumps.add(displaySite + ": " + current + " -> "
+                        + latest);
             }
         }
 
