@@ -8,6 +8,8 @@ import network.ike.plugin.release.central.CentralOutcome;
 import network.ike.plugin.release.central.CentralPhase;
 import network.ike.plugin.release.finalize.FinalizeInput;
 import network.ike.plugin.release.finalize.FinalizePhase;
+import network.ike.plugin.release.local.LocalInput;
+import network.ike.plugin.release.local.LocalPhase;
 import network.ike.plugin.release.nexus.NexusOutcome;
 import network.ike.plugin.release.nexus.NexusPhase;
 import network.ike.plugin.scaffold.FoundationBaker;
@@ -487,179 +489,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // Build environment audit (needs mvnw for --version)
         logAudit(ctx, currentBranch, releaseBranch, oldVersion, projectId);
 
-        List<File> resolvedPoms;
-        if (resuming) {
-            // Skip branch creation and version setting — already done
-            getLog().info("Skipping version set (already " + releaseVersion + ")");
-            resolvedPoms = List.of(); // backups handle restore later
-        } else {
-            // Create release branch
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    "git", "checkout", "-b", releaseBranch);
-
-            // Set version
-            getLog().info("Setting version: " + oldVersion + " -> " + releaseVersion);
-            ReleaseSupport.setPomVersion(rootPom, oldVersion, releaseVersion);
-
-            // Stamp reproducible build timestamp
-            getLog().info("Stamping project.build.outputTimestamp: " + releaseTimestamp);
-            ReleaseSupport.stampOutputTimestamp(rootPom, releaseTimestamp, getLog());
-
-            // WORKAROUND: Maven 4 consumer POM doesn't resolve ${project.version}
-            // in <build><plugins>, <pluginManagement>, or <dependencyManagement>.
-            getLog().info("Resolving ${project.version} references:");
-            resolvedPoms =
-                    ReleaseSupport.replaceProjectVersionRefs(gitRoot, releaseVersion, getLog());
-
-            // Defense in depth (#175, #177): after ${project.version}
-            // substitution the only legitimate <version> values are
-            // released literals. Scan all POMs for any surviving
-            // <version>...-SNAPSHOT</version> before we commit the
-            // release tag — this is Layer 2 of the SNAPSHOT preflight.
-            List<File> allPoms = ReleaseSupport.findPomFiles(gitRoot);
-            List<SnapshotScanner.Violation> versionViolations =
-                    SnapshotScanner.scanForSnapshotVersions(allPoms);
-            if (!versionViolations.isEmpty()) {
-                throw new MojoException(SnapshotScanner.formatViolations(
-                        versionViolations, gitRoot,
-                        versionViolations.size() + " literal SNAPSHOT <version>"
-                                + " element(s) remain after property resolution:",
-                        "  These would be baked into the released artifact.\n"
-                        + "  Replace each with a released version or resolve via\n"
-                        + "  ${project.version} before re-running the release."));
-            }
-        }
-
-        // Build and install (not just verify) — reactor siblings with
-        // BOM imports need installed artifacts to resolve classified
-        // dependencies (e.g., ike-build-standards:zip:claude). The
-        // release version has never been installed, so 'verify' alone
-        // fails on inter-module resolution. Using 'install' puts
-        // artifacts in the local repo for sibling resolution.
-        if (!skipVerify) {
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    mvnw.getAbsolutePath(), "clean", "install", "-B", "-T", "1");
-        } else {
-            getLog().info("Skipping verify (-DskipVerify=true)");
-        }
-
-        // Build site (catches javadoc errors before any commits/tags).
-        // -T 1 overrides .mvn/maven.config parallelism: maven-site-plugin
-        // is not @ThreadSafe and emits a warning in parallel sessions.
-        // -N (non-recursive) when releasing an aggregator whose
-        // subproject sites would otherwise collide at the staging
-        // root (ike-issues#356).
-        //
-        // ── X-SNAPSHOT bootstrap (2 of 2) ─────────────────────────────
-        // ike-issues#370.
-        //
-        // Every `mvn site` / `mvn site:stage` invocation in this mojo
-        // passes -Drelease.bootstrap.version=<oldVersion>. oldVersion
-        // is the pre-release pom version (i.e., X-SNAPSHOT, where X is
-        // the version about to be released — captured at line ~139,
-        // before setPomVersion runs).
-        //
-        // The property activates the releaseSelfSite profile in any
-        // reactor-root pom that declares it (currently just ike-tooling
-        // itself, which has the cycle problem). Inside that profile,
-        // ike-maven-plugin is bound at <version>${release.bootstrap.
-        // version}</version> — i.e., at X-SNAPSHOT, which is a
-        // DIFFERENT GAV than the reactor submodules (set to X by this
-        // mojo's setPomVersion). Different GAV → no graph edge to a
-        // submodule → no reactor cycle. Maven flags the cycle at
-        // reactor evaluation time, so the indirection has to live in
-        // the pom; we just supply the property value.
-        //
-        // Why X-SNAPSHOT is guaranteed in ~/.m2: this mojo's pre-
-        // release step (above) runs `mvn clean install` BEFORE any
-        // version bump, installing X-SNAPSHOT locally. Subsequent
-        // site invocations resolve the plugin descriptor from there.
-        //
-        // No-op for projects that do not declare the releaseSelfSite
-        // profile — setting a property Maven does not see has no
-        // effect, so this is safe to pass unconditionally.
-        //
-        // THE OTHER HALF OF THIS PATTERN — see
-        //   ike-tooling/pom.xml
-        // (search "X-SNAPSHOT bootstrap (1 of 2)") for the profile
-        // declaration that consumes ${release.bootstrap.version}.
-        //
-        // Note: only `mvn site` / `mvn site:stage` invocations pass
-        // the property. Other release-flow `mvn` calls (verify, deploy,
-        // site-publish, etc.) stay outside the profile and resolve
-        // plugin coords via pluginManagement — the standard self-host
-        // pattern, which works because pluginManagement does not
-        // create reactor edges the way live <plugins> does.
-        if (publishSite) {
-            getLog().info("Building site (pre-flight check)...");
-            List<String> siteArgs = new ArrayList<>();
-            siteArgs.add(mvnw.getAbsolutePath());
-            siteArgs.add("site");
-            siteArgs.add("site:stage");
-            siteArgs.add("-B");
-            siteArgs.add("-T");
-            siteArgs.add("1");
-            siteArgs.add("-Drelease.bootstrap.version=" + oldVersion);
-            if (nonRecursiveSite) siteArgs.add("-N");
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    siteArgs.toArray(new String[0]));
-        }
-
-        // Commit
-        ReleaseSupport.exec(gitRoot, getLog(), "git", "add", "pom.xml");
-        ReleaseSupport.gitAddFiles(gitRoot, getLog(), resolvedPoms);
-        ReleaseSupport.exec(gitRoot, getLog(),
-                "git", "commit", "-m",
-                "release: set version to " + releaseVersion);
-
-        // Tag
-        ReleaseSupport.exec(gitRoot, getLog(),
-                "git", "tag", "-a", "v" + releaseVersion,
-                "-m", "Release " + releaseVersion);
-
-        // Restore ${project.version} references
-        getLog().info("Restoring ${project.version} references:");
-        List<File> restoredPoms = ReleaseSupport.restoreBackups(gitRoot, getLog());
-        if (!restoredPoms.isEmpty()) {
-            ReleaseSupport.gitAddFiles(gitRoot, getLog(), restoredPoms);
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    "git", "commit", "-m",
-                    "release: restore ${project.version} references");
-        }
-
-        // Merge back to main
-        ReleaseSupport.exec(gitRoot, getLog(), "git", "checkout", "main");
-        ReleaseSupport.exec(gitRoot, getLog(),
-                "git", "merge", "--no-ff", releaseBranch,
-                "-m", "merge: release " + releaseVersion);
-
-        // ── Post-release bump ─────────────────────────────────────────
-
-        getLog().info("");
-        getLog().info("Bumping to next version: " + nextVersion);
-
-        // Re-read version after merge (it's the release version on main now)
-        String currentVersion = ReleaseSupport.readPomVersion(rootPom);
-        ReleaseSupport.setPomVersion(rootPom, currentVersion, nextVersion);
-
-        // Verify AND install the new SNAPSHOT (IKE-Network/ike-issues#486).
-        // `install` (not just `verify`) puts the post-bump -SNAPSHOT in
-        // the local repo so a self-hosting repo — whose POM pins
-        // ike-maven-plugin to ${project.version} — can run the next
-        // ike:* goal (or an ike:release-cascade walk to the next
-        // member) without a manual `mvn install` first.
-        ReleaseSupport.exec(gitRoot, getLog(),
-                mvnw.getAbsolutePath(), "clean", "install", "-B", "-T", "1");
-
-        // Commit
-        ReleaseSupport.exec(gitRoot, getLog(), "git", "add", "pom.xml");
-        ReleaseSupport.exec(gitRoot, getLog(),
-                "git", "commit", "-m",
-                "post-release: bump to " + nextVersion);
-
-        // Clean up release branch
-        ReleaseSupport.exec(gitRoot, getLog(),
-                "git", "branch", "-d", releaseBranch);
+        // ── Local phase: B13–B19 (cut branch, set version, install,
+        //    pre-flight site, commit, tag, restore, merge, post-bump) ──
+        new LocalPhase(ctx).execute(new LocalInput(
+                oldVersion, releaseTimestamp, resuming));
 
         // ── External actions (all local work is done) ─────────────────
         // Everything above this point is local and idempotent. If any
