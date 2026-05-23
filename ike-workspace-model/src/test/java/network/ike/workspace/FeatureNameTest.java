@@ -83,8 +83,8 @@ class FeatureNameTest {
     @Test
     void siblingDirectoryName_concatenates_with_dash() {
         FeatureName fn = FeatureName.of("reasoner");
-        assertThat(fn.siblingDirectoryName("ike-komet-ws"))
-                .isEqualTo("ike-komet-ws-reasoner");
+        assertThat(fn.siblingDirectoryName("ike-komet-wsr"))
+                .isEqualTo("ike-komet-wsr-reasoner");
     }
 
     @Test

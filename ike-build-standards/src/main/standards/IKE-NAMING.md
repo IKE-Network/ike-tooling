@@ -109,11 +109,19 @@ follow the example-template rule: drop the `ike-` prefix, use
 `workspace-example`.
 
 The older `<name>-ws` suffix convention (e.g., `ike-example-ws`,
-`ike-komet-ws`) is **deprecated** for new workspaces. Existing
-workspaces retain their names until renamed under a follow-up
-migration issue. There is no plan to rename `ike-komet-ws` at this
-time — its name encodes that it is the Komet project's workspace,
-not a template, so it does not pattern-match `<role>-example`.
+`ike-komet-ws`) is **deprecated** in two directions:
+
+* Template workspaces follow the `<role>-example` rule —
+  `ike-example-ws` was renamed to `workspace-example` (and is
+  itself renamed to `workspace-reactor-example` under the
+  workspace-reactor naming policy).
+* Project-specific aggregators that are themselves activated
+  reactors take the `-wsr` suffix: `ike-komet-ws` was renamed to
+  `ike-komet-wsr`. The `-wsr` name encodes both the Komet
+  project (the name root) and the workspace-reactor concept —
+  an aggregator activated as a Maven reactor. See the
+  `arch-workspace-and-workspace-reactor` topic in
+  `ike-lab-documents` for the vocabulary.
 
 ### Maven plugins follow `{purpose}-maven-plugin`
 

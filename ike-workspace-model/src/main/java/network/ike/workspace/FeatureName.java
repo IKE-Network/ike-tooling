@@ -82,8 +82,8 @@ public final class FeatureName {
      * Compose the sibling-clone directory name for this feature inside
      * the given primary workspace.
      *
-     * <p>For {@code primaryWorkspaceName="ike-komet-ws"} and feature
-     * {@code "reasoner"}, returns {@code "ike-komet-ws-reasoner"}.
+     * <p>For {@code primaryWorkspaceName="ike-komet-wsr"} and feature
+     * {@code "reasoner"}, returns {@code "ike-komet-wsr-reasoner"}.
      *
      * <p>This is the single approved place to construct sibling
      * directory names — call sites must not concatenate strings

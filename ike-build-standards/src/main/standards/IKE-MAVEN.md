@@ -38,7 +38,7 @@ patterns that compose with that rule.
 
 ### Aggregator workspaces vs. multi-module reactors
 
-An **aggregator workspace** (`workspace-example`, `ike-komet-ws`) is
+An **aggregator workspace** (`workspace-example`, `ike-komet-wsr`) is
 a developer-local project that ties multiple independent git
 repositories together via `workspace.yaml`. It is not published to
 Maven Central.
@@ -53,9 +53,11 @@ multiple reactors as checked-out subprojects.
 
 The `<role>-example` workspace naming convention (`workspace-example`)
 is canonical for new workspaces; the older `<name>-ws` suffix
-(`ike-example-ws` &rarr; renamed; `ike-komet-ws` retained) is
-deprecated. See `IKE-NAMING.md` for the policy decision and the
-example-template prefix rule.
+(`ike-example-ws` &rarr; renamed; `ike-komet-ws` &rarr; renamed to
+`ike-komet-wsr`) is deprecated. The `-wsr` suffix names an aggregator
+that is itself an activated reactor (a *workspace reactor* in the
+sense of the arch-workspace-and-workspace-reactor topic in
+`ike-lab-documents`). See `IKE-NAMING.md` for the policy.
 
 ## Parent POM Inheritance
 
