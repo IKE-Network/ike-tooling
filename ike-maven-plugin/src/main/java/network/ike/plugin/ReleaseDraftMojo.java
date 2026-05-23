@@ -1,5 +1,7 @@
 package network.ike.plugin;
 
+import network.ike.plugin.release.ReleaseContext;
+import network.ike.plugin.release.ReleaseRequest;
 import network.ike.plugin.release.central.CentralOutcome;
 import network.ike.plugin.release.nexus.NexusOutcome;
 import network.ike.plugin.scaffold.FoundationBaker;
@@ -464,8 +466,20 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // Resolve Maven wrapper (requires mvnw or mvn on PATH — skip for draft)
         File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
 
+        // Build the per-invocation context bundle from this point onward.
+        // Pre-mvnw helpers (preflight, bake, align) still take positional
+        // params; they migrate to ctx when ReleasePrep is extracted
+        // (IKE-Network/ike-issues#489 Commit 5).
+        ReleaseRequest request = new ReleaseRequest(
+                releaseVersion, nextVersion, publish, skipVerify, allowBranch,
+                publishSite, nonRecursiveSite, skipOrgSite, publishToCentral,
+                nexusDeployMaxAttempts, nexusDeployBackoffSeconds, skipNexusDeploy,
+                centralDeployMaxAttempts, centralDeployBackoffSeconds, skipCentralDeploy,
+                centralDeployAsync, centralSentinelDir, issueRepo, ignoreWarnings);
+        ReleaseContext ctx = new ReleaseContext(gitRoot, mvnw, getLog(), request);
+
         // Build environment audit (needs mvnw for --version)
-        logAudit(gitRoot, mvnw, currentBranch, releaseBranch, oldVersion, projectId);
+        logAudit(ctx, currentBranch, releaseBranch, oldVersion, projectId);
 
         List<File> resolvedPoms;
         if (resuming) {
@@ -748,8 +762,8 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 // dependency) is the canonical site distribution
                 // channel.
                 try {
-                    SiteDeployResult result = deploySiteAndPublish(gitRoot,
-                            mvnw, projectId, releaseVersion);
+                    SiteDeployResult result = deploySiteAndPublish(ctx,
+                            projectId, releaseVersion);
                     ghPagesPublished = result.ghPagesPublished();
                 } catch (Exception e) {
                     logSiteDeployRetryInstructions(projectId, releaseVersion,
@@ -814,7 +828,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             //      records the gap but lets tag/main/GH Release
             //      still publish since Nexus already has the artifact).
             // Site was already deployed above (before clean wipes staging).
-            deployArtifacts(gitRoot, mvnw);
+            deployArtifacts(ctx);
         } finally {
             // Always return to main, even if deploy fails.
             //
@@ -837,7 +851,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             // version → tag → restore-project.version → merge → bump-
             // to-next-SNAPSHOT). So anything captured by the stash is
             // strictly foreign — by construction.
-            stashForeignWorktreeChanges(gitRoot, releaseVersion);
+            stashForeignWorktreeChanges(ctx, releaseVersion);
             ReleaseSupport.exec(gitRoot, getLog(), "git", "checkout", "main");
         }
 
@@ -853,7 +867,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
 
         // Create GitHub Release with milestone-based release notes
         if (hasOrigin) {
-            createGitHubRelease(gitRoot, projectId, releaseVersion);
+            createGitHubRelease(ctx, projectId, releaseVersion);
         } else {
             getLog().info("No 'origin' remote — skipping GitHub Release");
         }
@@ -957,18 +971,19 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * already has the artifact, so the team is unblocked and
      * tag/main/GH Release still publish.
      *
-     * @param gitRoot the release working tree, checked out at the
-     *                {@code v<version>} release tag
-     * @param mvnw    the resolved Maven wrapper executable
+     * @param ctx the per-invocation release context (release working
+     *            tree checked out at the {@code v<version>} release tag)
      */
-    private void deployArtifacts(File gitRoot, File mvnw) {
+    private void deployArtifacts(ReleaseContext ctx) {
+        File gitRoot = ctx.gitRoot();
+        File mvnw = ctx.mvnw();
         // ── Phase 1: Nexus ────────────────────────────────────────
         if (skipNexusDeploy) {
             getLog().warn("Skipping Nexus deploy "
                     + "(ike.skipNexusDeploy=true). "
                     + "Release is incomplete for internal consumers.");
         } else {
-            deployToNexusWithRetry(gitRoot, mvnw);
+            deployToNexusWithRetry(ctx);
         }
 
         // ── Phase 2: Maven Central (opt-in, best-effort) ─────────
@@ -995,9 +1010,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             return;
         }
         if (centralDeployAsync) {
-            spawnCentralDeployAsync(gitRoot, mvnw);
+            spawnCentralDeployAsync(ctx);
         } else {
-            deployToMavenCentralWithRetry(gitRoot, mvnw);
+            deployToMavenCentralWithRetry(ctx);
         }
     }
 
@@ -1019,7 +1034,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * @param gitRoot the release working tree at v&lt;version&gt;
      * @param mvnw    the Maven wrapper executable
      */
-    private void spawnCentralDeployAsync(File gitRoot, File mvnw) {
+    private void spawnCentralDeployAsync(ReleaseContext ctx) {
+        File gitRoot = ctx.gitRoot();
+        File mvnw = ctx.mvnw();
         Path sentinelDir = centralSentinelDir == null
                 || centralSentinelDir.isBlank()
                         ? CentralDeploySentinel.DEFAULT_DIR
@@ -1366,7 +1383,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * @param mvnw    the Maven wrapper executable
      * @throws MojoException after the final attempt fails
      */
-    private void deployToNexusWithRetry(File gitRoot, File mvnw) {
+    private void deployToNexusWithRetry(ReleaseContext ctx) {
+        File gitRoot = ctx.gitRoot();
+        File mvnw = ctx.mvnw();
         int[] backoff = parseBackoffSeconds(
                 "ike.deploy.nexus.backoffSeconds",
                 nexusDeployBackoffSeconds);
@@ -1412,7 +1431,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * @param gitRoot the release working tree
      * @param mvnw    the Maven wrapper executable
      */
-    private void deployToMavenCentralWithRetry(File gitRoot, File mvnw) {
+    private void deployToMavenCentralWithRetry(ReleaseContext ctx) {
+        File gitRoot = ctx.gitRoot();
+        File mvnw = ctx.mvnw();
         int[] backoff = parseBackoffSeconds(
                 "ike.deploy.central.backoffSeconds",
                 centralDeployBackoffSeconds);
@@ -1428,7 +1449,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             getLog().info("Publishing to Maven Central (cycle "
                     + attempt + "/" + centralDeployMaxAttempts + ")...");
             try {
-                deployToMavenCentralCore(gitRoot, mvnw);
+                deployToMavenCentralCore(ctx);
                 centralOutcome = centralOutcome.withSucceeded(true);
                 return;
             } catch (MojoException e) {
@@ -1465,7 +1486,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      *                {@code v<version>} release tag
      * @param mvnw    the resolved Maven wrapper executable
      */
-    private void deployToMavenCentralCore(File gitRoot, File mvnw) {
+    private void deployToMavenCentralCore(ReleaseContext ctx) {
+        File gitRoot = ctx.gitRoot();
+        File mvnw = ctx.mvnw();
         Path stagingDir = gitRoot.toPath()
                 .resolve("target").resolve("staging-deploy");
         getLog().info("Staging signed artifacts for Maven Central...");
@@ -2541,9 +2564,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         return warnings;
     }
 
-    private void logAudit(File gitRoot, File mvnw, String branch,
+    private void logAudit(ReleaseContext ctx, String branch,
                           String releaseBranch, String oldVersion,
                           String projectId) throws MojoException {
+        File gitRoot = ctx.gitRoot();
+        File mvnw = ctx.mvnw();
         String gitCommit = ReleaseSupport.execCapture(gitRoot,
                 "git", "rev-parse", "--short", "HEAD");
         String mavenVersion = ReleaseSupport.execCapture(gitRoot,
@@ -2598,9 +2623,11 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      *         the result also tracked scpexe site-deploy independently
      *         (ike-issues#339); that path is retired.
      */
-    private SiteDeployResult deploySiteAndPublish(File gitRoot, File mvnw,
+    private SiteDeployResult deploySiteAndPublish(ReleaseContext ctx,
                                           String projectId, String version)
             throws MojoException {
+        File gitRoot = ctx.gitRoot();
+        File mvnw = ctx.mvnw();
         boolean ghPagesPublished = !publishSite;  // skipped == "no failure to report"
 
         // Publish to GitHub Pages. Pre-#304 this came before the
@@ -2706,8 +2733,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      *                       message so the operator can identify
      *                       which release's stash it is
      */
-    private void stashForeignWorktreeChanges(File gitRoot,
+    private void stashForeignWorktreeChanges(ReleaseContext ctx,
                                               String releaseVersion) {
+        File gitRoot = ctx.gitRoot();
         String status;
         try {
             status = ReleaseSupport.execCapture(gitRoot,
@@ -2773,9 +2801,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * release notes from its closed issues. Falls back to GitHub's
      * auto-generated commit-based notes if no milestone exists.
      */
-    private void createGitHubRelease(File gitRoot, String projectId,
+    private void createGitHubRelease(ReleaseContext ctx, String projectId,
                                       String version)
             throws MojoException {
+        File gitRoot = ctx.gitRoot();
         String milestoneName = projectId + " v" + version;
 
         // Try milestone-based notes first
