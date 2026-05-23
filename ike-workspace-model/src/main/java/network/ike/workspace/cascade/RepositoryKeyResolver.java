@@ -3,8 +3,9 @@ package network.ike.workspace.cascade;
 import java.util.Optional;
 
 /**
- * Maps a Maven coordinate to the {@link RepositoryKey} of the
- * repository that produces it (IKE-Network/ike-issues#496 part C).
+ * Maps a Maven {@link MavenCoordinate} to the {@link RepositoryKey}
+ * of the repository that produces it
+ * (IKE-Network/ike-issues#496 part C).
  *
  * <p>A coordinate alone cannot key the cascade graph: a single
  * reactor (one repository, one {@code <scm>}) publishes many
@@ -28,9 +29,24 @@ public interface RepositoryKeyResolver {
      * produces a coordinate, or empty if the coordinate cannot be
      * located.
      *
-     * @param groupId    the upstream's {@code groupId}
-     * @param artifactId the upstream's {@code artifactId}
+     * @param coordinate the upstream's coordinate
      * @return the producing repository's key, or empty if unknown
      */
-    Optional<RepositoryKey> resolve(String groupId, String artifactId);
+    Optional<RepositoryKey> resolve(MavenCoordinate coordinate);
+
+    /**
+     * Convenience overload — wraps the two-String pair into a
+     * {@link MavenCoordinate} and delegates. Returns empty when
+     * either component is missing.
+     *
+     * @param groupId    the upstream's {@code groupId}
+     * @param artifactId the upstream's {@code artifactId}
+     * @return the producing repository's key, or empty if unknown or
+     *         if either coordinate component is null/blank
+     */
+    default Optional<RepositoryKey> resolve(String groupId,
+                                             String artifactId) {
+        return MavenCoordinate.tryOf(groupId, artifactId)
+                .flatMap(this::resolve);
+    }
 }

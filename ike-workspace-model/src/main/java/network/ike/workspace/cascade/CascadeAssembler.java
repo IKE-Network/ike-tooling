@@ -100,7 +100,7 @@ public final class CascadeAssembler {
                                           ProjectCascade startCascade,
                                           CascadeResolver resolver,
                                           RepositoryKeyResolver repositoryResolver) {
-        // Identity is groupId+artifactId (CascadeRepo.ga()), NOT
+        // Identity is the MavenCoordinate (groupId + artifactId), NOT
         // groupId alone — two foundation members can share a groupId.
         // For example, `network.ike.tooling:ike-tooling` and
         // `network.ike.tooling:ike-workspace-extension` both live
@@ -111,21 +111,23 @@ public final class CascadeAssembler {
         // false-positive cycle (IKE-Network/ike-issues#466).
         //
         // Once #496 part D lands, identity collapses further onto the
-        // RepositoryKey populated by repositoryResolver — multiple GA
-        // pairs that resolve to one repository become one node — but
-        // until then GA remains the assembler's working key.
-        Map<String, CascadeRepo> byGa = new LinkedHashMap<>();
+        // RepositoryKey populated by repositoryResolver — multiple
+        // coordinates that resolve to one repository become one node
+        // — but until then MavenCoordinate remains the assembler's
+        // working key.
+        Map<MavenCoordinate, CascadeRepo> byCoordinate =
+                new LinkedHashMap<>();
         Deque<CascadeRepo> frontier = new ArrayDeque<>();
 
         CascadeRepo startNode = node(start, startCascade,
                 repositoryResolver);
-        byGa.put(startNode.ga(), startNode);
+        byCoordinate.put(startNode.coordinate(), startNode);
         frontier.add(startNode);
 
         while (!frontier.isEmpty()) {
             CascadeRepo current = frontier.poll();
             for (CascadeEdge edge : neighbourEdges(current)) {
-                if (byGa.containsKey(edge.ga())) {
+                if (byCoordinate.containsKey(edge.coordinate())) {
                     continue;
                 }
                 ProjectCascade resolved;
@@ -144,25 +146,24 @@ public final class CascadeAssembler {
                 }
                 CascadeRepo neighbour = node(edge, resolved,
                         repositoryResolver);
-                byGa.put(neighbour.ga(), neighbour);
+                byCoordinate.put(neighbour.coordinate(), neighbour);
                 frontier.add(neighbour);
             }
         }
 
-        verifyReciprocity(byGa);
-        return new ReleaseCascade(topologicalOrder(byGa));
+        verifyReciprocity(byCoordinate);
+        return new ReleaseCascade(topologicalOrder(byCoordinate));
     }
 
     private static CascadeRepo node(CascadeEdge identity,
                                     ProjectCascade cascade,
                                     RepositoryKeyResolver repositoryResolver) {
-        RepositoryKey key = null;
-        if (repositoryResolver != null) {
-            key = repositoryResolver.resolve(identity.groupId(),
-                    identity.artifactId()).orElse(null);
-        }
-        return new CascadeRepo(identity.groupId(), identity.artifactId(),
-                identity.repo(), identity.url(), key, cascade);
+        RepositoryKey key = repositoryResolver == null
+                ? null
+                : repositoryResolver.resolve(identity.coordinate())
+                        .orElse(null);
+        return new CascadeRepo(identity.coordinate(), identity.repo(),
+                identity.url(), key, cascade);
     }
 
     private static List<CascadeEdge> neighbourEdges(CascadeRepo node) {
@@ -176,28 +177,31 @@ public final class CascadeAssembler {
      * neighbour: A→B {@code downstream} ⇔ B→A {@code upstream}.
      */
     private static void verifyReciprocity(
-            Map<String, CascadeRepo> byGa) {
-        for (CascadeRepo node : byGa.values()) {
+            Map<MavenCoordinate, CascadeRepo> byCoordinate) {
+        for (CascadeRepo node : byCoordinate.values()) {
+            MavenCoordinate self = node.coordinate();
             for (CascadeEdge down : node.downstream()) {
-                CascadeRepo target = byGa.get(down.ga());
+                CascadeRepo target = byCoordinate.get(down.coordinate());
                 if (target == null || target.upstream().stream()
-                        .noneMatch(u -> u.ga().equals(node.ga()))) {
+                        .map(CascadeEdge::coordinate)
+                        .noneMatch(self::equals)) {
                     throw new IllegalArgumentException(
-                            "one-sided cascade edge: " + node.ga()
+                            "one-sided cascade edge: " + self
                             + " lists " + down.ga() + " as downstream,"
                             + " but " + down.ga() + " does not list "
-                            + node.ga() + " as upstream");
+                            + self + " as upstream");
                 }
             }
             for (CascadeEdge up : node.upstream()) {
-                CascadeRepo source = byGa.get(up.ga());
+                CascadeRepo source = byCoordinate.get(up.coordinate());
                 if (source == null || source.downstream().stream()
-                        .noneMatch(d -> d.ga().equals(node.ga()))) {
+                        .map(CascadeEdge::coordinate)
+                        .noneMatch(self::equals)) {
                     throw new IllegalArgumentException(
-                            "one-sided cascade edge: " + node.ga()
+                            "one-sided cascade edge: " + self
                             + " lists " + up.ga() + " as upstream,"
                             + " but " + up.ga() + " does not list "
-                            + node.ga() + " as downstream");
+                            + self + " as downstream");
                 }
             }
         }
@@ -205,35 +209,36 @@ public final class CascadeAssembler {
 
     /**
      * Kahn topological sort — a node follows every node it consumes.
-     * Ties break on ga so the order is deterministic.
+     * Ties break on the natural ordering of {@link MavenCoordinate}
+     * so the order is deterministic.
      */
     private static List<CascadeRepo> topologicalOrder(
-            Map<String, CascadeRepo> byGa) {
-        Map<String, Integer> inDegree = new HashMap<>();
-        for (CascadeRepo node : byGa.values()) {
-            inDegree.put(node.ga(), node.upstream().size());
+            Map<MavenCoordinate, CascadeRepo> byCoordinate) {
+        Map<MavenCoordinate, Integer> inDegree = new HashMap<>();
+        for (CascadeRepo node : byCoordinate.values()) {
+            inDegree.put(node.coordinate(), node.upstream().size());
         }
-        TreeSet<String> ready = new TreeSet<>();
-        inDegree.forEach((ga, degree) -> {
+        TreeSet<MavenCoordinate> ready = new TreeSet<>();
+        inDegree.forEach((coordinate, degree) -> {
             if (degree == 0) {
-                ready.add(ga);
+                ready.add(coordinate);
             }
         });
 
         List<CascadeRepo> order = new ArrayList<>();
         while (!ready.isEmpty()) {
-            String ga = ready.pollFirst();
-            CascadeRepo node = byGa.get(ga);
+            MavenCoordinate coord = ready.pollFirst();
+            CascadeRepo node = byCoordinate.get(coord);
             order.add(node);
             for (CascadeEdge down : node.downstream()) {
                 int remaining = inDegree.merge(
-                        down.ga(), -1, Integer::sum);
+                        down.coordinate(), -1, Integer::sum);
                 if (remaining == 0) {
-                    ready.add(down.ga());
+                    ready.add(down.coordinate());
                 }
             }
         }
-        if (order.size() != byGa.size()) {
+        if (order.size() != byCoordinate.size()) {
             throw new IllegalArgumentException(
                     "release cascade contains a cycle — no release"
                     + " order exists");

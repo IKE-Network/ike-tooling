@@ -354,7 +354,7 @@ class PomEdgeDeriverTest {
                 .build();
 
         PomEdgeDeriver.CoordinateFilter acceptAll =
-                (groupId, artifactId) -> true;
+                coordinate -> true;
         List<CascadeEdge> edges = PomEdgeDeriver.deriveEdges(
                 model, null, acceptAll);
 
@@ -391,16 +391,17 @@ class PomEdgeDeriverTest {
         RepositoryKey baseParent = RepositoryKey.of(
                 "https://github.com/IKE-Network/ike-base-parent");
 
-        RepositoryKeyResolver resolver = (groupId, artifactId) -> {
-            // ike-tooling AND ike-maven-plugin both live in the
-            // ike-tooling repo. ike-base-parent is its own repo.
-            String ga = groupId + ":" + artifactId;
-            return Optional.ofNullable(Map.of(
-                    "network.ike.tooling:ike-tooling", tooling,
-                    "network.ike.tooling:ike-maven-plugin", tooling,
-                    "network.ike:ike-base-parent", baseParent
-            ).get(ga));
-        };
+        // ike-tooling AND ike-maven-plugin both live in the
+        // ike-tooling repo. ike-base-parent is its own repo.
+        Map<MavenCoordinate, RepositoryKey> repoByCoordinate = Map.of(
+                MavenCoordinate.of("network.ike.tooling", "ike-tooling"),
+                tooling,
+                MavenCoordinate.of("network.ike.tooling", "ike-maven-plugin"),
+                tooling,
+                MavenCoordinate.of("network.ike", "ike-base-parent"),
+                baseParent);
+        RepositoryKeyResolver resolver = coordinate ->
+                Optional.ofNullable(repoByCoordinate.get(coordinate));
 
         List<CascadeEdge> edges = PomEdgeDeriver.deriveEdges(
                 model, null, PomEdgeDeriver.CoordinateFilter.IKE_GROUP,
@@ -419,7 +420,7 @@ class PomEdgeDeriverTest {
         Model model = selfAndExternalModel();
         RepositoryKey tooling = RepositoryKey.of(
                 "https://github.com/IKE-Network/ike-tooling");
-        RepositoryKeyResolver resolver = (groupId, artifactId) ->
+        RepositoryKeyResolver resolver = coordinate ->
                 Optional.of(tooling);
 
         // sourceRepo = null disables filtering: both edges keep.
@@ -462,7 +463,7 @@ class PomEdgeDeriverTest {
 
         RepositoryKey tooling = RepositoryKey.of(
                 "https://github.com/IKE-Network/ike-tooling");
-        RepositoryKeyResolver resolver = (g, a) -> Optional.empty();
+        RepositoryKeyResolver resolver = coordinate -> Optional.empty();
 
         List<CascadeEdge> edges = PomEdgeDeriver.deriveEdges(
                 model, null, PomEdgeDeriver.CoordinateFilter.IKE_GROUP,
@@ -501,7 +502,7 @@ class PomEdgeDeriverTest {
 
         RepositoryKey tooling = RepositoryKey.of(
                 "https://github.com/IKE-Network/ike-tooling");
-        RepositoryKeyResolver resolver = (g, a) -> Optional.of(tooling);
+        RepositoryKeyResolver resolver = coordinate -> Optional.of(tooling);
 
         assertThat(PomEdgeDeriver.deriveEdges(
                 model, null, PomEdgeDeriver.CoordinateFilter.IKE_GROUP,

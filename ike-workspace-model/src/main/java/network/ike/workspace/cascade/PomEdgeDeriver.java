@@ -61,32 +61,28 @@ import java.util.List;
 public final class PomEdgeDeriver {
 
     /**
-     * A predicate over a Maven coordinate that selects which edges
-     * the deriver should emit. {@link #IKE_GROUP} is the IKE
+     * A predicate over a {@link MavenCoordinate} that selects which
+     * edges the deriver should emit. {@link #IKE_GROUP} is the IKE
      * default.
      */
     @FunctionalInterface
     public interface CoordinateFilter {
 
         /**
-         * Tests whether a {@code groupId} / {@code artifactId} pair
-         * should produce an edge.
+         * Tests whether a coordinate should produce an edge.
          *
-         * @param groupId    the coordinate's {@code groupId}; may be
-         *                   {@code null}
-         * @param artifactId the coordinate's {@code artifactId}; may
-         *                   be {@code null}
+         * @param coordinate the coordinate; never {@code null}
          * @return {@code true} iff an edge should be emitted
          */
-        boolean accepts(String groupId, String artifactId);
+        boolean accepts(MavenCoordinate coordinate);
 
         /**
          * Keeps coordinates whose {@code groupId} starts with
          * {@code "network.ike"}. The conventional filter for IKE
          * Network projects.
          */
-        CoordinateFilter IKE_GROUP = (groupId, artifactId) ->
-                groupId != null && groupId.startsWith("network.ike");
+        CoordinateFilter IKE_GROUP = coordinate ->
+                coordinate.groupId().startsWith("network.ike");
     }
 
     /** Conventional path of a Maven 4 build-extensions descriptor. */
@@ -196,7 +192,7 @@ public final class PomEdgeDeriver {
         List<CascadeEdge> kept = new ArrayList<>();
         for (CascadeEdge edge : edges) {
             RepositoryKey target = repositoryResolver
-                    .resolve(edge.groupId(), edge.artifactId())
+                    .resolve(edge.coordinate())
                     .orElse(null);
             if (target == null || !target.equals(sourceRepo)) {
                 kept.add(edge);
@@ -212,13 +208,12 @@ public final class PomEdgeDeriver {
         if (parent == null) {
             return;
         }
-        // Maven enforces a version on <parent>; a null/blank here would
-        // be a malformed POM and the model layer would have rejected it.
-        if (!filter.accepts(parent.getGroupId(), parent.getArtifactId())) {
-            return;
-        }
-        out.add(edge(parent.getGroupId(), parent.getArtifactId(),
-                EdgeKind.PARENT));
+        // Maven enforces a version on <parent>; a null/blank groupId
+        // or artifactId here would be a malformed POM and the model
+        // layer would have rejected it.
+        MavenCoordinate.tryOf(parent.getGroupId(), parent.getArtifactId())
+                .filter(filter::accepts)
+                .ifPresent(coord -> out.add(edge(coord, EdgeKind.PARENT)));
     }
 
     private static void appendDependencyEdges(Model model,
@@ -235,11 +230,10 @@ public final class PomEdgeDeriver {
                 // here.
                 continue;
             }
-            if (!filter.accepts(dep.getGroupId(), dep.getArtifactId())) {
-                continue;
-            }
-            out.add(edge(dep.getGroupId(), dep.getArtifactId(),
-                    EdgeKind.DEPENDENCY));
+            MavenCoordinate.tryOf(dep.getGroupId(), dep.getArtifactId())
+                    .filter(filter::accepts)
+                    .ifPresent(coord -> out.add(
+                            edge(coord, EdgeKind.DEPENDENCY)));
         }
     }
 
@@ -254,13 +248,12 @@ public final class PomEdgeDeriver {
             if (!hasVersion(dep.getVersion())) {
                 continue;
             }
-            if (!filter.accepts(dep.getGroupId(), dep.getArtifactId())) {
-                continue;
-            }
             EdgeKind kind = "import".equalsIgnoreCase(dep.getScope())
                     ? EdgeKind.BOM
                     : EdgeKind.DEPENDENCY;
-            out.add(edge(dep.getGroupId(), dep.getArtifactId(), kind));
+            MavenCoordinate.tryOf(dep.getGroupId(), dep.getArtifactId())
+                    .filter(filter::accepts)
+                    .ifPresent(coord -> out.add(edge(coord, kind)));
         }
     }
 
@@ -289,15 +282,15 @@ public final class PomEdgeDeriver {
                 continue;
             }
             // A plugin's groupId can default to
-            // org.apache.maven.plugins when absent; for our purposes
-            // an unspecified groupId is third-party so we treat it
-            // as not-IKE and skip.
-            if (!filter.accepts(plugin.getGroupId(),
-                    plugin.getArtifactId())) {
-                continue;
-            }
-            out.add(edge(plugin.getGroupId(), plugin.getArtifactId(),
-                    EdgeKind.PLUGIN));
+            // org.apache.maven.plugins when absent; tryOf returns
+            // empty for null/blank so the deriver skips those
+            // implicit-group entries (third-party, not on the IKE
+            // cascade).
+            MavenCoordinate.tryOf(plugin.getGroupId(),
+                            plugin.getArtifactId())
+                    .filter(filter::accepts)
+                    .ifPresent(coord -> out.add(
+                            edge(coord, EdgeKind.PLUGIN)));
         }
     }
 
@@ -376,10 +369,14 @@ public final class PomEdgeDeriver {
                         currentLeaf = null;
                     } else if (EXTENSION_QNAME.getLocalPart().equals(name)
                             && insideExtension) {
-                        if (hasVersion(version)
-                                && filter.accepts(groupId, artifactId)) {
-                            out.add(edge(groupId, artifactId,
-                                    EdgeKind.EXTENSION));
+                        if (hasVersion(version)) {
+                            final String g = groupId;
+                            final String a = artifactId;
+                            MavenCoordinate.tryOf(g, a)
+                                    .filter(filter::accepts)
+                                    .ifPresent(coord -> out.add(
+                                            edge(coord,
+                                                    EdgeKind.EXTENSION)));
                         }
                         insideExtension = false;
                     }
@@ -396,9 +393,9 @@ public final class PomEdgeDeriver {
      * (those come from the {@code <scm>}-keyed node resolution in
      * IKE-Network/ike-issues#496 part C).
      */
-    private static CascadeEdge edge(String groupId, String artifactId,
+    private static CascadeEdge edge(MavenCoordinate coordinate,
                                     EdgeKind kind) {
-        return new CascadeEdge(groupId, artifactId, null, null, kind);
+        return new CascadeEdge(coordinate, null, null, kind);
     }
 
     /**

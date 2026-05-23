@@ -67,20 +67,31 @@ public record ReleaseCascade(List<CascadeRepo> repos) {
     }
 
     /**
-     * Looks up a cascade node by exact {@code groupId} +
-     * {@code artifactId} coordinates.
+     * Looks up a cascade node by exact {@link MavenCoordinate}.
+     *
+     * @param coordinate the project's coordinate
+     * @return the matching node, or empty if the coordinate is not a
+     *         cascade member
+     */
+    public Optional<CascadeRepo> findByCoordinates(
+            MavenCoordinate coordinate) {
+        return repos.stream()
+                .filter(r -> r.coordinate().equals(coordinate))
+                .findFirst();
+    }
+
+    /**
+     * Convenience overload — wraps the two-String pair into a
+     * {@link MavenCoordinate} and delegates.
      *
      * @param groupId    the project's groupId
      * @param artifactId the project's artifactId
-     * @return the matching node, or empty if the coordinates are not a
-     *         cascade member
+     * @return the matching node, or empty if the coordinates are not
+     *         a cascade member
      */
     public Optional<CascadeRepo> findByCoordinates(String groupId,
                                                    String artifactId) {
-        return repos.stream()
-                .filter(r -> r.groupId().equals(groupId)
-                        && r.artifactId().equals(artifactId))
-                .findFirst();
+        return findByCoordinates(new MavenCoordinate(groupId, artifactId));
     }
 
     /**

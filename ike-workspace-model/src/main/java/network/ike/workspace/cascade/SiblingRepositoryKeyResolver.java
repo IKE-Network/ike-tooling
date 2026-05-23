@@ -66,7 +66,7 @@ public final class SiblingRepositoryKeyResolver
             ".gradle", "build", "dist");
 
     private final Path baseDir;
-    private final Map<String, RepositoryKey> byCoordinate;
+    private final Map<MavenCoordinate, RepositoryKey> byCoordinate;
     private boolean indexed;
 
     /**
@@ -100,16 +100,14 @@ public final class SiblingRepositoryKeyResolver
     }
 
     @Override
-    public Optional<RepositoryKey> resolve(String groupId,
-                                            String artifactId) {
-        if (groupId == null || artifactId == null) {
+    public Optional<RepositoryKey> resolve(MavenCoordinate coordinate) {
+        if (coordinate == null) {
             return Optional.empty();
         }
         if (!indexed) {
             index();
         }
-        return Optional.ofNullable(
-                byCoordinate.get(coordinateKey(groupId, artifactId)));
+        return Optional.ofNullable(byCoordinate.get(coordinate));
     }
 
     private void walkPoms(Path root) {
@@ -153,10 +151,8 @@ public final class SiblingRepositoryKeyResolver
             return;
         }
         PomCoordinates coords = readCoordinates(pom);
-        if (coords.groupId != null && coords.artifactId != null) {
-            byCoordinate.put(
-                    coordinateKey(coords.groupId, coords.artifactId), key);
-        }
+        MavenCoordinate.tryOf(coords.groupId, coords.artifactId)
+                .ifPresent(coord -> byCoordinate.put(coord, key));
     }
 
     /**
@@ -197,11 +193,6 @@ public final class SiblingRepositoryKeyResolver
         RepositoryKey key = RepositoryKey.of(url);
         repoKeyCache.put(repoRoot, key);
         return key;
-    }
-
-    private static String coordinateKey(String groupId,
-                                        String artifactId) {
-        return groupId + ":" + artifactId;
     }
 
     // ── POM XML reading ────────────────────────────────────────────
