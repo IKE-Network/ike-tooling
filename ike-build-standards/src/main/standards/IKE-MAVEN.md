@@ -21,7 +21,7 @@ patterns that compose with that rule.
 | Maven plugin | `{purpose}-maven-plugin` (required) | `ike-maven-plugin`, `ike-workspace-maven-plugin`, `ike-doc-maven-plugin` |
 | Build extension | `ike-{purpose}-extension` | `ike-workspace-extension` |
 | Build standards | `ike-build-standards` | `ike-build-standards` |
-| Example template | `{role}-example` (no `ike-` prefix) | `doc-example`, `project-example`, `integration-tests-example`, `workspace-example` |
+| Example template | `{role}-example` (no `ike-` prefix) | `doc-example`, `project-example`, `integration-tests-example`, `workspace-reactor-example` |
 | Library inside foundation reactor | `ike-{purpose}` | `ike-workspace-model` |
 
 ### Maven-side requirements
@@ -38,7 +38,7 @@ patterns that compose with that rule.
 
 ### Aggregator workspaces vs. multi-module reactors
 
-An **aggregator workspace** (`workspace-example`, `ike-komet-wsr`) is
+An **aggregator workspace** (`workspace-reactor-example`, `ike-komet-wsr`) is
 a developer-local project that ties multiple independent git
 repositories together via `workspace.yaml`. It is not published to
 Maven Central.
@@ -51,7 +51,7 @@ The two serve different purposes: workspaces coordinate *across*
 repos, reactors coordinate *within* a repo. A workspace may contain
 multiple reactors as checked-out subprojects.
 
-The `<role>-example` workspace naming convention (`workspace-example`)
+The `<role>-example` workspace naming convention (`workspace-reactor-example`)
 is canonical for new workspaces; the older `<name>-ws` suffix
 (`ike-example-ws` &rarr; renamed; `ike-komet-ws` &rarr; renamed to
 `ike-komet-wsr`) is deprecated. The `-wsr` suffix names an aggregator

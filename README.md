@@ -26,7 +26,7 @@ mvn clean install
 ## Release Cascade
 
 ```
-[ike-tooling] → ike-docs → ike-platform → { doc-example, project-example, integration-tests-example, workspace-example }
+[ike-tooling] → ike-docs → ike-platform → { doc-example, project-example, integration-tests-example, workspace-reactor-example }
 ```
 
 `ike-tooling` releases first because both `ike-docs` and `ike-platform`

@@ -97,19 +97,19 @@ class SiblingRepositoryKeyResolverTest {
     @Test
     void nested_git_repo_uses_its_own_scm_not_outer(@TempDir Path tmp)
             throws IOException {
-        // siblings/workspace-example/.git
-        // siblings/workspace-example/pom.xml — <scm> for workspace-example
-        // siblings/workspace-example/doc-example/.git ← inner repo
-        // siblings/workspace-example/doc-example/pom.xml — <scm> for doc-example
+        // siblings/workspace-reactor-example/.git
+        // siblings/workspace-reactor-example/pom.xml — <scm> for workspace-reactor-example
+        // siblings/workspace-reactor-example/doc-example/.git ← inner repo
+        // siblings/workspace-reactor-example/doc-example/pom.xml — <scm> for doc-example
         //
-        // doc-example must resolve to its own <scm>, not workspace-example's,
+        // doc-example must resolve to its own <scm>, not workspace-reactor-example's,
         // because the nearer .git boundary is the inner one.
         Path siblings = tmp.resolve("siblings");
 
-        Path outer = siblings.resolve("workspace-example");
+        Path outer = siblings.resolve("workspace-reactor-example");
         Files.createDirectories(outer.resolve(".git"));
-        writePom(outer, "network.ike.examples", "workspace-example",
-                "https://github.com/IKE-Network/workspace-example");
+        writePom(outer, "network.ike.examples", "workspace-reactor-example",
+                "https://github.com/IKE-Network/workspace-reactor-example");
 
         Path inner = outer.resolve("doc-example");
         Files.createDirectories(inner.resolve(".git"));
@@ -120,9 +120,9 @@ class SiblingRepositoryKeyResolverTest {
                 new SiblingRepositoryKeyResolver(siblings);
 
         assertThat(resolver.resolve(
-                "network.ike.examples", "workspace-example"))
+                "network.ike.examples", "workspace-reactor-example"))
                 .get().extracting(RepositoryKey::url)
-                .isEqualTo("https://github.com/IKE-Network/workspace-example");
+                .isEqualTo("https://github.com/IKE-Network/workspace-reactor-example");
         assertThat(resolver.resolve(
                 "network.ike.examples", "doc-example"))
                 .get().extracting(RepositoryKey::url)

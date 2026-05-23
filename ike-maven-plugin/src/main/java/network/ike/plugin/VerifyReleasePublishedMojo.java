@@ -342,7 +342,7 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
             // whether it publishes UNDER the reactor's gh-pages
             // (aggregator-pom case: ike-platform/ike-parent) or as
             // its OWN top-level gh-pages branch (workspace case:
-            // workspace-example/doc-example, where doc-example has
+            // workspace-reactor-example/doc-example, where doc-example has
             // its own repo and gh-pages branch under
             // https://ike.network/doc-example/).
             String subSiteUrl = null;
@@ -359,7 +359,7 @@ public class VerifyReleasePublishedMojo implements org.apache.maven.api.plugin.M
             //  (2) Submodule declares its OWN <site> NOT under
             //      reactor's prefix → independent (doc-example,
             //      project-example, integration-tests-example in
-            //      workspace-example).
+            //      workspace-reactor-example).
             //  (3) Submodule declares NO <site>, inherits from parent
             //      with default append-path=true → effectively
             //      under reactor's prefix (ike-bom in ike-platform).

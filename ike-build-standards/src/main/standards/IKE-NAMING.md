@@ -58,7 +58,7 @@ Renamed under #467 to one name each, everywhere:
 - `doc-example` (kept — the prototype)
 - `project-example`
 - `integration-tests-example`
-- `workspace-example`
+- `workspace-reactor-example`
 
 ## Sub-rules
 
@@ -92,7 +92,7 @@ signal. Use the pattern `<role>-example`:
 | `doc-example` | The prototype — single-repo doc-only template. |
 | `project-example` | Single-repo Java + docs template. |
 | `integration-tests-example` | Integration-test harness against the foundation cascade. |
-| `workspace-example` | Workspace-aggregator template. |
+| `workspace-reactor-example` | Workspace-aggregator template. |
 
 Reading top-to-bottom: "doc example", "project example",
 "integration tests example", "workspace example." The role is the
@@ -106,15 +106,16 @@ Workspaces are reference shapes (a copy-and-modify template for
 how to organize a multi-repo project), not infrastructure. They
 follow the example-template rule: drop the `ike-` prefix, use
 `<role>-example`. The single canonical workspace template is
-`workspace-example`.
+`workspace-reactor-example`.
 
 The older `<name>-ws` suffix convention (e.g., `ike-example-ws`,
 `ike-komet-ws`) is **deprecated** in two directions:
 
 * Template workspaces follow the `<role>-example` rule —
-  `ike-example-ws` was renamed to `workspace-example` (and is
-  itself renamed to `workspace-reactor-example` under the
-  workspace-reactor naming policy).
+  `ike-example-ws` was renamed to `workspace-example` and then
+  further renamed to `workspace-reactor-example` under the `-wsr`
+  aggregator-reactor suffix policy (the template demonstrates a
+  workspace activated as a Maven reactor, so the suffix applies).
 * Project-specific aggregators that are themselves activated
   reactors take the `-wsr` suffix: `ike-komet-ws` was renamed to
   `ike-komet-wsr`. The `-wsr` name encodes both the Komet
@@ -160,7 +161,7 @@ subprojects:
     repo: https://github.com/IKE-Network/project-example.git # <-- repo name == key
     version: 32-SNAPSHOT
     groupId: network.ike.examples
-    # On disk: workspace-example/project-example/
+    # On disk: workspace-reactor-example/project-example/
     # pom.xml: <artifactId>project-example</artifactId>
 ```
 

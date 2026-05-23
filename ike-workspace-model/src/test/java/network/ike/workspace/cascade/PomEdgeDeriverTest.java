@@ -34,7 +34,7 @@ class PomEdgeDeriverTest {
     void parent_emits_a_parent_edge_when_ike_managed() {
         Model model = Model.newBuilder()
                 .groupId("network.ike.examples")
-                .artifactId("workspace-example")
+                .artifactId("workspace-reactor-example")
                 .version("1-SNAPSHOT")
                 .parent(Parent.newBuilder()
                         .groupId("network.ike.platform")
@@ -120,7 +120,7 @@ class PomEdgeDeriverTest {
     void dependency_management_entries_emit_dependency_or_bom_edges() {
         Model model = Model.newBuilder()
                 .groupId("network.ike.examples")
-                .artifactId("workspace-example")
+                .artifactId("workspace-reactor-example")
                 .version("1-SNAPSHOT")
                 .dependencyManagement(DependencyManagement.newBuilder()
                         .dependencies(List.of(
@@ -156,7 +156,7 @@ class PomEdgeDeriverTest {
     void plugin_and_pluginManagement_emit_plugin_edges() {
         Model model = Model.newBuilder()
                 .groupId("network.ike.examples")
-                .artifactId("workspace-example")
+                .artifactId("workspace-reactor-example")
                 .version("1-SNAPSHOT")
                 .build(Build.newBuilder()
                         .plugins(List.of(
@@ -191,7 +191,7 @@ class PomEdgeDeriverTest {
     void unversioned_plugin_is_skipped() {
         Model model = Model.newBuilder()
                 .groupId("network.ike.examples")
-                .artifactId("workspace-example")
+                .artifactId("workspace-reactor-example")
                 .version("1-SNAPSHOT")
                 .build(Build.newBuilder()
                         .plugins(List.of(
@@ -211,7 +211,7 @@ class PomEdgeDeriverTest {
     @Test
     void mvn_extensions_xml_emits_extension_edges(@TempDir Path tmp)
             throws IOException {
-        Path projectDir = tmp.resolve("workspace-example");
+        Path projectDir = tmp.resolve("workspace-reactor-example");
         Path extensionsXml = projectDir.resolve(
                 PomEdgeDeriver.EXTENSIONS_RELATIVE_PATH);
         Files.createDirectories(extensionsXml.getParent());
@@ -239,7 +239,7 @@ class PomEdgeDeriverTest {
 
         Model model = Model.newBuilder()
                 .groupId("network.ike.examples")
-                .artifactId("workspace-example")
+                .artifactId("workspace-reactor-example")
                 .version("1-SNAPSHOT")
                 .build();
 
@@ -259,7 +259,7 @@ class PomEdgeDeriverTest {
     void missing_extensions_xml_is_a_no_op(@TempDir Path tmp) {
         Model model = Model.newBuilder()
                 .groupId("network.ike.examples")
-                .artifactId("workspace-example")
+                .artifactId("workspace-reactor-example")
                 .version("1-SNAPSHOT")
                 .build();
 

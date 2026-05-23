@@ -376,7 +376,7 @@ class VerifyReleasePublishedMojoTest {
     @Test
     void readPomSubprojects_inProfile_picksThemUp(@TempDir Path tmp)
             throws IOException {
-        // workspace-example pattern: subprojects inside file-activated
+        // workspace-reactor-example pattern: subprojects inside file-activated
         // profiles. The cross-reference should still see them so the
         // workspace verify covers all declared subprojects.
         Path pom = tmp.resolve("pom.xml");
