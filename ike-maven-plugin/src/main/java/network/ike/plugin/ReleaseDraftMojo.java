@@ -12,39 +12,28 @@ import network.ike.plugin.release.local.LocalInput;
 import network.ike.plugin.release.local.LocalPhase;
 import network.ike.plugin.release.nexus.NexusOutcome;
 import network.ike.plugin.release.nexus.NexusPhase;
-import network.ike.plugin.scaffold.FoundationBaker;
-import network.ike.plugin.scaffold.ScaffoldManifest;
-import network.ike.plugin.scaffold.ScaffoldManifestIo;
+import network.ike.plugin.release.prep.PrepOutcome;
+import network.ike.plugin.release.prep.ReleasePrep;
 import network.ike.plugin.support.AbstractGoalMojo;
 import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
-import network.ike.plugin.support.version.CandidateVersionResolver;
-import network.ike.plugin.support.version.MavenVersionComparator;
-import network.ike.plugin.support.version.SessionCandidateVersionResolver;
-import network.ike.workspace.cascade.CascadeEdge;
 import network.ike.workspace.cascade.CascadeReporter;
-import network.ike.workspace.cascade.EdgeKind;
 import network.ike.workspace.cascade.ProjectCascade;
 import network.ike.workspace.cascade.ProjectCascadeIo;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
  * Full release: build, deploy, tag, merge, and bump to next SNAPSHOT.
@@ -373,67 +362,26 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             }
         }
 
-        String projectId = ReleaseSupport.readPomArtifactId(rootPom);
-        boolean draft = !publish;
+        // ── Build request + early (mvnw-less) context for ReleasePrep ──
+        ReleaseRequest request = new ReleaseRequest(
+                releaseVersion, nextVersion, publish, skipVerify, allowBranch,
+                publishSite, nonRecursiveSite, skipOrgSite, publishToCentral,
+                nexusDeployMaxAttempts, nexusDeployBackoffSeconds, skipNexusDeploy,
+                centralDeployMaxAttempts, centralDeployBackoffSeconds, skipCentralDeploy,
+                centralDeployAsync, centralSentinelDir, issueRepo, ignoreWarnings);
+        ReleaseContext earlyCtx = new ReleaseContext(gitRoot, null, getLog(), request);
 
-        // Validate clean worktree (cheap check — before wrapper resolution)
-        ReleaseSupport.requireCleanWorktree(gitRoot);
+        // ── Prep phase: B3–B12 (clean worktree, preflight, javadoc,
+        //    SNAPSHOT scan, foundation bake, upstream alignment,
+        //    commit-timestamp resolution) ──
+        PrepOutcome prep = new ReleasePrep(earlyCtx, getSession()).execute();
+        String projectId = prep.projectId();
+        String releaseTimestamp = prep.releaseTimestamp();
 
-        // ── Preflight: verify external connectivity before any work ──
-        // Every external action is checked upfront so failures happen
-        // in seconds, not after a 10-minute build. Each check is
-        // non-destructive and idempotent.
-        boolean hasOrigin = ReleaseSupport.hasRemote(gitRoot, "origin");
-        if (publish) {
-            preflightChecks(gitRoot, hasOrigin, projectId, releaseVersion);
-        }
-        // Javadoc preflight (#168) — runs in both modes. Publish fails
-        // on warnings; draft logs them so the user sees what would block
-        // the real release.
-        preflightJavadoc(gitRoot, publish);
-
-        // SNAPSHOT-in-properties preflight (#175, #177): Maven 4's
-        // consumer POM flattener resolves properties and promotes
-        // pluginManagement into plugins when writing the released
-        // artifact. If a <properties> value ends in -SNAPSHOT it leaks
-        // into the released POM as a literal, breaking downstream
-        // builds (e.g. ike-parent-105.pom shipped with
-        // <ike-tooling.version>112-SNAPSHOT</ike-tooling.version>).
-        // Catch it before any mutation — publish hard-fails, draft warns.
-        List<SnapshotScanner.Violation> propViolations =
-                SnapshotScanner.scanSourceProperties(rootPom);
-        if (!propViolations.isEmpty()) {
-            String msg = SnapshotScanner.formatViolations(propViolations, gitRoot,
-                    propViolations.size() + " SNAPSHOT property value(s) would"
-                            + " leak into released POMs:",
-                    "  These values are resolved by Maven 4's consumer POM\n"
-                    + "  flattener and baked into released artifacts. Bump\n"
-                    + "  each property to a released (non-SNAPSHOT) version\n"
-                    + "  before re-running the release.");
-            if (publish) {
-                throw new MojoException(msg);
-            }
-            getLog().warn(msg);
-        }
-
-        // Release-prep foundation bake (#414): when this release owns
-        // the scaffold manifest (the ike-tooling release), refresh its
-        // foundation: block to the latest released versions so the
-        // scaffold zip ships a current compatibility snapshot.
-        bakeFoundationSnapshot(gitRoot, draft);
-
-        // Release-prep upstream cascade alignment (#419): bump this
-        // repo's ${X.version} pins to the latest released upstreams so
-        // a single-repo release never ships on a stale foundation.
-        alignUpstreamProperties(gitRoot, draft);
-
-        // Derive timestamp from the current HEAD commit, not wall-clock time.
-        // This ensures two independent builds from the same tag produce the
-        // same project.build.outputTimestamp value — which is the reproducibility
-        // guarantee. Wall-clock time would defeat the purpose.
-        String releaseTimestamp = resolveCommitTimestamp(gitRoot);
-
-        if (draft) {
+        // ── B10: Draft-mode short-circuit ────────────────────────────
+        // The [DRAFT] log block + report rendering move to DraftRenderer
+        // in Commit 6 (IKE-Network/ike-issues#489).
+        if (prep.draftMode()) {
             getLog().info("[DRAFT] Would create branch: " + releaseBranch);
             getLog().info("[DRAFT] Would set version: " + oldVersion +
                     " -> " + releaseVersion);
@@ -471,20 +419,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
 
         // ── Release ───────────────────────────────────────────────────
 
-        // Resolve Maven wrapper (requires mvnw or mvn on PATH — skip for draft)
+        // Resolve Maven wrapper (publish path only — draft returned above).
         File mvnw = ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
-
-        // Build the per-invocation context bundle from this point onward.
-        // Pre-mvnw helpers (preflight, bake, align) still take positional
-        // params; they migrate to ctx when ReleasePrep is extracted
-        // (IKE-Network/ike-issues#489 Commit 5).
-        ReleaseRequest request = new ReleaseRequest(
-                releaseVersion, nextVersion, publish, skipVerify, allowBranch,
-                publishSite, nonRecursiveSite, skipOrgSite, publishToCentral,
-                nexusDeployMaxAttempts, nexusDeployBackoffSeconds, skipNexusDeploy,
-                centralDeployMaxAttempts, centralDeployBackoffSeconds, skipCentralDeploy,
-                centralDeployAsync, centralSentinelDir, issueRepo, ignoreWarnings);
-        ReleaseContext ctx = new ReleaseContext(gitRoot, mvnw, getLog(), request);
+        ReleaseContext ctx = earlyCtx.withMvnw(mvnw);
 
         // Build environment audit (needs mvnw for --version)
         logAudit(ctx, currentBranch, releaseBranch, oldVersion, projectId);
@@ -632,7 +569,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 // Best-effort: site-publish failure warns but does not
                 // abort the release. Nexus deploy still runs.
                 if (publishSite && ghPagesPublished
-                        && !skipOrgSite && hasOrigin) {
+                        && !skipOrgSite && prep.hasOrigin()) {
                     getLog().info("");
                     getLog().info("Registering release on IKE Network "
                             + "landing page (#367; via "
@@ -676,7 +613,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
 
         // ── Finalize: push tag + main, create GitHub Release ─────
         new FinalizePhase(ctx).execute(new FinalizeInput(
-                hasOrigin, projectId, releaseVersion));
+                prep.hasOrigin(), projectId, releaseVersion));
 
         // Pre-#304: this block called cleanRemoteSiteDir to ssh-delete
         // the main-branch snapshot mirror on scpexe://proxy. With the
@@ -1438,716 +1375,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         return "";
     }
 
-    /**
-     * Return the ISO-8601 UTC timestamp of the current HEAD commit.
-     *
-     * <p>Using the commit timestamp (not wall-clock time) for
-     * {@code project.build.outputTimestamp} ensures that two independent
-     * builds from the same tag produce identical byte-for-byte output.
-     * Wall-clock time would differ between the developer build and the
-     * TeamCity verification build, defeating reproducibility.
-     *
-     * <p>Falls back to the current wall-clock time if git is unavailable.
-     */
-    private String resolveCommitTimestamp(File gitRoot) {
-        try {
-            // %cI = commit timestamp in strict ISO 8601 format
-            String raw = ReleaseSupport.execCapture(gitRoot,
-                    "git", "log", "-1", "--format=%cI", "HEAD");
-            // Normalise to the yyyy-MM-dd'T'HH:mm:ss'Z' form Maven expects
-            return DateTimeFormatter
-                    .ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    .withZone(ZoneOffset.UTC)
-                    .format(java.time.OffsetDateTime.parse(raw).toInstant());
-        } catch (Exception e) {
-            getLog().warn("Could not read HEAD commit timestamp; falling back to wall-clock: "
-                    + e.getMessage());
-            return DateTimeFormatter
-                    .ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    .withZone(ZoneOffset.UTC)
-                    .format(Instant.now());
-        }
-    }
-
-    /**
-     * Release-prep foundation bake (IKE-Network/ike-issues#414).
-     *
-     * <p>When the release being cut owns the scaffold manifest — i.e.
-     * this is the {@code ike-tooling} release — refresh the manifest's
-     * {@code foundation:} block to the latest released {@code ike-parent},
-     * {@code ike-docs}, and {@code ike-platform} versions, so the
-     * scaffold zip {@code ike-tooling} ships always carries a current
-     * compatibility snapshot with no manual edit. A no-op for every
-     * other project's release (no scaffold manifest present).
-     *
-     * <p>A pin newer than any resolvable GA, or one that cannot be
-     * resolved at all, fails a publish (warns a draft): staleness or a
-     * misconfigured remote must never be silently baked into the zip.
-     *
-     * @param gitRoot the release repository root
-     * @param draft   {@code true} to report only; {@code false} to
-     *                rewrite the manifest and commit it
-     * @throws MojoException on a backward or unresolvable pin in
-     *                       publish mode, or on an I/O failure
-     */
-    private void bakeFoundationSnapshot(File gitRoot, boolean draft)
-            throws MojoException {
-        File manifestFile = new File(gitRoot,
-                "ike-build-standards/src/main/scaffold/scaffold-manifest.yaml");
-        if (!manifestFile.isFile()) {
-            // Not the ike-tooling release — nothing to bake.
-            return;
-        }
-
-        String content;
-        ScaffoldManifest manifest;
-        try {
-            content = Files.readString(manifestFile.toPath(),
-                    StandardCharsets.UTF_8);
-            manifest = ScaffoldManifestIo.read(manifestFile.toPath());
-        } catch (IOException e) {
-            throw new MojoException("Could not read scaffold manifest "
-                    + manifestFile + ": " + e.getMessage(), e);
-        }
-        if (manifest.foundation() == null) {
-            getLog().warn("Foundation bake: scaffold manifest has no "
-                    + "foundation: block — skipping.");
-            return;
-        }
-
-        List<FoundationBaker.Finding> findings;
-        try {
-            findings = FoundationBaker.assess(manifest.foundation(),
-                    new SessionCandidateVersionResolver(getSession()));
-        } catch (RuntimeException e) {
-            String msg = "Foundation bake: could not resolve latest "
-                    + "released versions — " + e.getMessage();
-            if (publish) {
-                throw new MojoException(msg, e);
-            }
-            getLog().warn(msg);
-            return;
-        }
-
-        List<FoundationBaker.Finding> problems = new ArrayList<>();
-        List<FoundationBaker.Finding> bumps = new ArrayList<>();
-        for (FoundationBaker.Finding f : findings) {
-            switch (f.status()) {
-                case AHEAD -> bumps.add(f);
-                case BEHIND, UNRESOLVED -> problems.add(f);
-                case CURRENT -> { }
-            }
-        }
-
-        if (!problems.isEmpty()) {
-            StringBuilder msg = new StringBuilder(
-                    "Foundation bake found pin(s) that cannot be baked:\n");
-            for (FoundationBaker.Finding f : problems) {
-                msg.append("  ").append(f.coordinate().label()).append(": ");
-                if (f.status() == FoundationBaker.Status.UNRESOLVED) {
-                    msg.append("no released version resolved (current pin ")
-                            .append(f.current()).append(").");
-                } else {
-                    msg.append("pin ").append(f.current())
-                            .append(" is newer than the latest released ")
-                            .append(f.latest()).append(" — a backward bake.");
-                }
-                msg.append('\n');
-            }
-            msg.append("Verify the remote repository and the manifest "
-                    + "foundation: block before releasing.");
-            if (publish) {
-                throw new MojoException(msg.toString());
-            }
-            getLog().warn(msg.toString());
-        }
-
-        if (bumps.isEmpty()) {
-            getLog().info("Foundation bake: scaffold foundation: block "
-                    + "already at the latest released versions.");
-            return;
-        }
-
-        getLog().info("Foundation bake:");
-        for (FoundationBaker.Finding f : bumps) {
-            getLog().info("  " + (draft ? "→ " : "✓ ")
-                    + f.coordinate().label() + ": "
-                    + f.current() + " -> " + f.latest());
-        }
-        if (draft) {
-            getLog().info("  [DRAFT] manifest not modified — publish would "
-                    + "rewrite and commit scaffold-manifest.yaml.");
-            return;
-        }
-
-        String updated = FoundationBaker.rewrite(content, findings);
-        try {
-            Files.writeString(manifestFile.toPath(), updated,
-                    StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new MojoException("Could not write baked scaffold "
-                    + "manifest " + manifestFile + ": " + e.getMessage(), e);
-        }
-        ReleaseSupport.exec(gitRoot, getLog(), "git", "add",
-                "ike-build-standards/src/main/scaffold/scaffold-manifest.yaml");
-        ReleaseSupport.exec(gitRoot, getLog(), "git", "commit", "-m",
-                "release: bake foundation snapshot to latest GA");
-    }
-
-    /**
-     * Aligns this repository's upstream-cascade {@code ${X.version}}
-     * properties to the latest released version of each upstream
-     * (IKE-Network/ike-issues#419, #420).
-     *
-     * <p>Before a foundation repo is released it must carry current
-     * upstream pins, or it ships a stale foundation. This reads the
-     * repo's own {@code src/main/cascade/release-cascade.yaml} and, for
-     * every {@code upstream} edge, resolves the latest released (GA)
-     * version of that upstream and bumps the edge's
-     * {@code version-property} when the POM is behind. A property is
-     * only advanced, never lowered.
-     *
-     * <p>The cascade head (no upstream edges) and ordinary consumers
-     * (no {@code release-cascade.yaml}) are no-ops. In draft mode the
-     * alignment is reported but not applied; in publish mode the bumps
-     * are written and committed before the release branch is cut, so a
-     * plain single-repo {@code ike:release-publish} is correct on its
-     * own.
-     *
-     * @param gitRoot the release repository root
-     * @param draft   {@code true} to report only; {@code false} to
-     *                rewrite the POM and commit
-     * @throws MojoException on an unresolvable upstream or a missing
-     *                       {@code version-property} in publish mode,
-     *                       or on an I/O failure
-     */
-    private void alignUpstreamProperties(File gitRoot, boolean draft)
-            throws MojoException {
-        Optional<ProjectCascade> loaded = ProjectCascadeIo.load(
-                gitRoot.toPath().resolve(
-                        ProjectCascadeIo.MANIFEST_RELATIVE_PATH));
-        if (loaded.isEmpty() || loaded.get().upstream().isEmpty()) {
-            // Not a cascade member, or the cascade head — nothing
-            // upstream to align.
-            return;
-        }
-
-        File pomFile = new File(gitRoot, "pom.xml");
-        String content;
-        try {
-            content = Files.readString(pomFile.toPath(),
-                    StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new MojoException("Could not read " + pomFile
-                    + " for upstream cascade alignment: "
-                    + e.getMessage(), e);
-        }
-
-        CandidateVersionResolver resolver =
-                new SessionCandidateVersionResolver(getSession());
-        List<String> bumps = new ArrayList<>();
-        List<String> problems = new ArrayList<>();
-        String updated = content;
-
-        for (CascadeEdge up : loaded.get().upstream()) {
-            // PARENT-kind edges rewrite the <parent><version> block
-            // directly; property-kind edges rewrite the ${G·A} property
-            // that pins the upstream. The site of the value (the read
-            // and the write) differs by kind; the candidate-resolution
-            // and "is the pin stale" logic is the same for both.
-            boolean parentEdge = up.kind() == EdgeKind.PARENT;
-            String property = up.versionProperty();
-            String displaySite = parentEdge
-                    ? "<parent>" + up.ga() + "</parent>"
-                    : "<" + property + ">";
-            String current = parentEdge
-                    ? PomRewriter.readParentVersion(content,
-                            up.groupId(), up.artifactId()).orElse(null)
-                    : ReleaseSupport.readPomProperty(pomFile, property);
-            if (current == null) {
-                problems.add(up.ga() + ": POM has no " + displaySite
-                        + ".");
-                continue;
-            }
-            if (current.contains("${")) {
-                continue;
-            }
-            String latest;
-            try {
-                List<String> candidates = resolver.resolveCandidates(
-                        up.groupId(), up.artifactId(), null);
-                latest = candidates.isEmpty() ? null
-                        : candidates.get(candidates.size() - 1);
-            } catch (RuntimeException e) {
-                problems.add(up.ga() + ": could not resolve latest"
-                        + " release — " + e.getMessage());
-                continue;
-            }
-            if (latest == null) {
-                problems.add(up.ga()
-                        + ": no released version resolved.");
-                continue;
-            }
-            if (MavenVersionComparator.INSTANCE
-                    .compare(latest, current) <= 0) {
-                continue;
-            }
-            String after = parentEdge
-                    ? PomRewriter.updateParentVersion(updated,
-                            up.groupId(), up.artifactId(), latest)
-                    : PomRewriter.updateProperty(updated, property,
-                            latest);
-            if (!after.equals(updated)) {
-                updated = after;
-                bumps.add(displaySite + ": " + current + " -> "
-                        + latest);
-            }
-        }
-
-        if (!problems.isEmpty()) {
-            StringBuilder msg = new StringBuilder("Upstream cascade"
-                    + " alignment found unresolvable upstream pin(s):\n");
-            for (String p : problems) {
-                msg.append("  ").append(p).append('\n');
-            }
-            msg.append("Verify the remote repository and the upstream"
-                    + " edges in release-cascade.yaml before releasing.");
-            if (!draft) {
-                throw new MojoException(msg.toString());
-            }
-            getLog().warn(msg.toString());
-        }
-
-        if (bumps.isEmpty()) {
-            getLog().info("Upstream cascade alignment: ${X.version}"
-                    + " pins already at the latest released versions.");
-            return;
-        }
-
-        getLog().info("Upstream cascade alignment:");
-        for (String b : bumps) {
-            getLog().info("  " + (draft ? "→ " : "✓ ") + b);
-        }
-        if (draft) {
-            getLog().info("  [DRAFT] pom.xml not modified — publish"
-                    + " would rewrite and commit it.");
-            return;
-        }
-
-        try {
-            Files.writeString(pomFile.toPath(), updated,
-                    StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new MojoException("Could not write aligned " + pomFile
-                    + ": " + e.getMessage(), e);
-        }
-        ReleaseSupport.exec(gitRoot, getLog(), "git", "add", "pom.xml");
-        ReleaseSupport.exec(gitRoot, getLog(), "git", "commit", "-m",
-                "release: align upstream cascade versions");
-    }
-
-    /**
-     * Verify all external dependencies before starting the release.
-     *
-     * <p>Each check is non-destructive and fast — failures here happen
-     * in seconds instead of after a 10-minute build cycle. Every check
-     * runs to completion and records into one of two buckets rather
-     * than failing fast, so a single run logs the complete picture of
-     * everything wrong (IKE-Network/ike-issues#428):
-     * <ul>
-     *   <li><b>errors</b> — git-push authentication, {@code gh} push
-     *       permission on {@code issueRepo}, a missing Maven wrapper.
-     *       Always abort the release; never ignorable.</li>
-     *   <li><b>warnings</b> — {@code gh} CLI unavailable, a missing
-     *       {@code pending-release} label or release milestone,
-     *       commits with no issue trailer. Abort the release too,
-     *       unless {@code -Dike.release.ignoreWarnings=true}.</li>
-     * </ul>
-     *
-     * <p>Checks: git-push auth, {@code gh} CLI availability, {@code gh}
-     * write permission on {@code issueRepo} (#392), {@code pending-release}
-     * label existence (#392), commit trailer compliance (#392),
-     * release-milestone existence (#392), and Maven wrapper presence.
-     * Only invoked for a publish.
-     *
-     * @param gitRoot        the release repository root
-     * @param hasOrigin      whether an {@code origin} remote is configured
-     * @param projectId      the project artifactId, for the milestone name
-     * @param releaseVersion the version being released
-     * @throws MojoException if any preflight error is found, or any
-     *                       warning is found and {@code ignoreWarnings}
-     *                       is not set
-     */
-    private void preflightChecks(File gitRoot, boolean hasOrigin,
-                                  String projectId, String releaseVersion)
-            throws MojoException {
-        getLog().info("");
-        getLog().info("PREFLIGHT CHECKS");
-        List<String> errors = new java.util.ArrayList<>();
-        List<String> warnings = new java.util.ArrayList<>();
-
-        // 1. Git push auth — draft push (sends nothing, tests auth)
-        if (hasOrigin) {
-            try {
-                ReleaseSupport.execCapture(gitRoot,
-                        "git", "push", "--dry-run", "origin", "main");
-                getLog().info("  Git push:    authenticated  ✓");
-            } catch (Exception e) {
-                errors.add("Cannot push to origin — fix authentication"
-                        + " before releasing. Error: " + e.getMessage());
-                getLog().error("  Git push:    authentication failed  ✗");
-            }
-        } else {
-            getLog().info("  Git push:    no origin remote (local-only release)");
-        }
-
-        // 2. gh CLI — installed and authenticated?
-        boolean ghAvailable = false;
-        if (hasOrigin) {
-            try {
-                ReleaseSupport.execCapture(gitRoot, "gh", "auth", "status");
-                getLog().info("  gh CLI:      authenticated  ✓");
-                ghAvailable = true;
-            } catch (Exception e) {
-                warnings.add("gh CLI not available or not authenticated — "
-                        + "GitHub Release will be skipped. "
-                        + "Run: gh auth login");
-                getLog().warn("  gh CLI:      not available (GitHub Release "
-                        + "will be skipped)");
-            }
-        }
-
-        // 3. gh write permission on issueRepo (#392) — an error.
-        // Required for closeMilestone and removePendingReleaseLabels.
-        if (ghAvailable && issueRepo != null && !issueRepo.isBlank()) {
-            try {
-                String pushPerm = ReleaseSupport.execCapture(gitRoot,
-                        "gh", "api", "/repos/" + issueRepo,
-                        "--jq", ".permissions.push");
-                if ("true".equals(pushPerm.trim())) {
-                    getLog().info("  gh perms:    push on "
-                            + issueRepo + "  ✓");
-                } else {
-                    errors.add("gh token lacks push permission on "
-                            + issueRepo + " — required for milestone"
-                            + " close and pending-release label removal."
-                            + " Re-authenticate with repo scope:"
-                            + " gh auth refresh -s repo");
-                    getLog().error("  gh perms:    no push on "
-                            + issueRepo + "  ✗");
-                }
-            } catch (Exception e) {
-                warnings.add("Could not verify gh permissions on "
-                        + issueRepo + ": " + e.getMessage());
-            }
-        }
-
-        // 4. pending-release label exists on issueRepo (#392) — warn.
-        if (ghAvailable && issueRepo != null && !issueRepo.isBlank()) {
-            try {
-                ReleaseSupport.execCapture(gitRoot, "gh", "api",
-                        "/repos/" + issueRepo + "/labels/pending-release");
-                getLog().info("  pending-rel label on " + issueRepo + "  ✓");
-            } catch (Exception e) {
-                warnings.add("Label 'pending-release' missing on "
-                        + issueRepo + " — label removal will be a no-op. "
-                        + "Create it: gh label create pending-release "
-                        + "--repo " + issueRepo
-                        + " --description \"Code complete; awaiting next release\"");
-                getLog().warn("  pending-rel label: missing on " + issueRepo);
-            }
-        }
-
-        // 5. Trailer compliance for commits in release range (#392) — warn.
-        if (hasOrigin) {
-            List<String> nonCompliant =
-                    findCommitsWithoutIssueTrailer(gitRoot);
-            if (nonCompliant.isEmpty()) {
-                getLog().info("  Trailer compliance: all commits ✓");
-            } else {
-                StringBuilder msg = new StringBuilder(nonCompliant.size()
-                        + " commit(s) in release range have no issue trailer "
-                        + "(IKE-COMMITS.md):");
-                for (String line : nonCompliant) {
-                    msg.append("\n      ").append(line);
-                }
-                msg.append("\n  Add Fixes/Refs <owner>/<repo>#N to comply.");
-                warnings.add(msg.toString());
-                getLog().warn("  Trailer compliance: " + nonCompliant.size()
-                        + " commit(s) without issue trailer");
-            }
-        }
-
-        // 6. Milestone for releaseVersion exists on issueRepo (#392) — warn.
-        if (ghAvailable && issueRepo != null && !issueRepo.isBlank()
-                && releaseVersion != null && !releaseVersion.isBlank()) {
-            String milestoneName = projectId + " v" + releaseVersion;
-            try {
-                String titles = ReleaseSupport.execCapture(gitRoot, "gh", "api",
-                        "/repos/" + issueRepo + "/milestones?state=open&per_page=100",
-                        "--jq", ".[].title");
-                boolean found = false;
-                for (String title : titles.split("\n")) {
-                    if (milestoneName.equals(title.trim())) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (found) {
-                    getLog().info("  Milestone:   " + milestoneName + "  ✓");
-                } else {
-                    warnings.add("Milestone \"" + milestoneName
-                            + "\" not found on " + issueRepo
-                            + " — release will use auto-generated notes. "
-                            + "Create it: gh api /repos/" + issueRepo
-                            + "/milestones -f title='" + milestoneName + "'");
-                    getLog().warn("  Milestone:   " + milestoneName
-                            + " missing (auto-notes fallback)");
-                }
-            } catch (Exception e) {
-                warnings.add("Could not check milestone existence: "
-                        + e.getMessage());
-            }
-        }
-
-        // 7. Maven wrapper
-        try {
-            ReleaseSupport.resolveMavenWrapper(gitRoot, getLog());
-            getLog().info("  Maven:       wrapper found  ✓");
-        } catch (Exception e) {
-            errors.add("Maven wrapper (mvnw) not found."
-                    + " Run: mvn wrapper:wrapper");
-            getLog().error("  Maven:       wrapper not found  ✗");
-        }
-
-        // Report the complete preflight picture, then decide (#428).
-        // Every check above ran to completion and recorded into
-        // `errors` or `warnings` rather than failing fast, so this one
-        // pass logs everything wrong. Errors always abort the release;
-        // warnings abort too unless -Dike.release.ignoreWarnings=true.
-        if (!errors.isEmpty() || !warnings.isEmpty()) {
-            getLog().info("");
-            for (String err : errors) {
-                getLog().error("  ✗ " + err);
-            }
-            for (String w : warnings) {
-                getLog().warn("  ⚠ " + w);
-            }
-            getLog().info("");
-        }
-
-        if (!errors.isEmpty()) {
-            throw new MojoException("Release preflight found "
-                    + errors.size() + " error(s)"
-                    + (warnings.isEmpty() ? ""
-                            : " and " + warnings.size() + " warning(s)")
-                    + " — see above. Errors must be resolved before"
-                    + " releasing; they are never ignorable.");
-        }
-        if (!warnings.isEmpty()) {
-            if (ignoreWarnings) {
-                getLog().warn("  Proceeding past " + warnings.size()
-                        + " warning(s) (ike.release.ignoreWarnings=true).");
-            } else {
-                throw new MojoException("Release preflight found "
-                        + warnings.size() + " warning(s) — see above."
-                        + " Resolve them, or pass"
-                        + " -Dike.release.ignoreWarnings=true to release"
-                        + " anyway.");
-            }
-        }
-        getLog().info("");
-    }
-
-    /**
-     * Release-cadence commit subjects — the tool-generated bookkeeping
-     * commits the release flow itself produces ({@code release: …},
-     * {@code post-release: …}, the {@code merge: release …} commit,
-     * {@code site: publish …}). They legitimately carry no issue
-     * trailer and must be exempt from the trailer-compliance check,
-     * or every release would fail its own preflight on the previous
-     * cycle's bookkeeping (IKE-Network/ike-issues#428).
-     */
-    private static final Pattern RELEASE_CADENCE = Pattern.compile(
-            "^(release: .+"
-                    + "|post-release: .+"
-                    + "|merge: release .+"
-                    + "|site: publish .+)$");
-
-    /**
-     * Find commits in {@code <previous-tag>..HEAD} whose body contains
-     * no IKE-COMMITS.md issue trailer ({@code Fixes}, {@code Closes},
-     * {@code Resolves}, {@code Refs} and grammatical variants).
-     *
-     * <p>Uses NUL-delimited git-log output to handle commit messages
-     * containing arbitrary characters. Returns short SHA + subject for
-     * each non-compliant commit. Release-cadence commits ({@link
-     * #RELEASE_CADENCE}) are exempt — they are tool-generated and
-     * carry no issue trailer by design.
-     *
-     * <p>Returns an empty list (not an error) if the previous tag
-     * cannot be resolved — typical for first-release scenarios.
-     *
-     * @param gitRoot the git working tree
-     * @return list of "short-sha subject" strings, empty if all comply
-     */
-    private List<String> findCommitsWithoutIssueTrailer(File gitRoot) {
-        try {
-            String previousTag;
-            try {
-                previousTag = ReleaseSupport.execCapture(gitRoot,
-                        "git", "describe", "--tags", "--abbrev=0", "HEAD");
-            } catch (Exception e) {
-                getLog().debug("  No previous tag — skipping trailer compliance");
-                return List.of();
-            }
-            // Per-commit body separated by NUL byte (-z) so embedded
-            // newlines don't confuse the parser.
-            String log = ReleaseSupport.execCapture(gitRoot, "git", "log",
-                    "-z", "--format=%h%x00%B", previousTag + "..HEAD");
-            if (log.isBlank()) {
-                return List.of();
-            }
-            List<String> nonCompliant = new java.util.ArrayList<>();
-            // Stream is "<sha>\0<body>\0<sha>\0<body>\0..." after -z.
-            // Splitting on NUL gives alternating sha/body pairs.
-            String[] records = log.split("\u0000");
-            for (int i = 0; i + 1 < records.length; i += 2) {
-                String sha = records[i].trim();
-                String body = records[i + 1];
-                if (!ReleaseNotesSupport.hasAnyIssueTrailer(body)) {
-                    String firstLine = body.contains("\n")
-                            ? body.substring(0, body.indexOf('\n'))
-                            : body;
-                    String subject = firstLine.trim();
-                    if (RELEASE_CADENCE.matcher(subject).matches()) {
-                        // Tool-generated bookkeeping — no trailer by design.
-                        continue;
-                    }
-                    nonCompliant.add(sha + " " + subject);
-                }
-            }
-            return nonCompliant;
-        } catch (Exception e) {
-            getLog().debug("  Trailer compliance check failed: "
-                    + e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
-     * Check that javadoc generation — as the release profile runs it —
-     * produces no warnings across every reactor module. On
-     * {@code publish} mode any warning aborts the release; on draft
-     * mode warnings are logged so the user sees what would block the
-     * real release.
-     *
-     * <p>Skipped when no {@code src/main/java} tree exists anywhere in
-     * the reactor (doc-only / POM-only repos have nothing to check).
-     *
-     * <p>Matches the release path by invoking {@code mvn compile
-     * javadoc:jar} across the reactor — the same goal the {@code
-     * release} profile uses. {@code -DfailOnError=false
-     * -DfailOnWarnings=false} prevent the child build from exiting
-     * early so every module's warnings are collected in a single pass.
-     *
-     * @param gitRoot reactor root whose javadoc is inspected
-     * @param publish {@code true} for publish mode (hard fail),
-     *                {@code false} for draft mode (warn only)
-     * @throws MojoException if publish mode and warnings are present
-     */
-    private void preflightJavadoc(File gitRoot, boolean publish)
-            throws MojoException {
-        if (!hasAnyJavaSource(gitRoot)) return;
-
-        List<String> warnings = collectJavadocWarnings(gitRoot);
-        getLog().info("");
-        if (warnings.isEmpty()) {
-            getLog().info("  Javadoc:     warning-free  ✓");
-            return;
-        }
-
-        getLog().info("  Javadoc:     " + warnings.size()
-                + " warning(s)  ✗");
-        for (String w : warnings) {
-            getLog().warn("    " + w);
-        }
-
-        if (publish) {
-            throw new MojoException(
-                    "Javadoc preflight failed: " + warnings.size()
-                            + " warning(s) must be resolved before publish.\n"
-                            + "  Convention: every public method needs"
-                            + " complete @param / @return / @throws tags.");
-        }
-        getLog().warn("  (Draft mode — would block publish.)");
-        getLog().info("");
-    }
-
-    /**
-     * Return {@code true} if {@code gitRoot} or any direct subdirectory
-     * contains a {@code src/main/java} tree. Covers both single-module
-     * and flat multi-module reactor layouts.
-     *
-     * @param gitRoot the repository root to search
-     * @return {@code true} if at least one Java source tree is present
-     */
-    private boolean hasAnyJavaSource(File gitRoot) {
-        if (new File(gitRoot, "src/main/java").isDirectory()) return true;
-        File[] entries = gitRoot.listFiles();
-        if (entries == null) return false;
-        for (File entry : entries) {
-            if (!entry.isDirectory()) continue;
-            if (new File(entry, "src/main/java").isDirectory()) return true;
-        }
-        return false;
-    }
-
-    /**
-     * Run {@code mvn compile javadoc:jar} at {@code gitRoot} to mirror
-     * the release's javadoc path across every reactor module, and
-     * return every line matching {@code warning:} stripped of the
-     * leading {@code [WARNING] } prefix. Tolerates subprocess failure
-     * so the release does not abort on an infrastructure issue (a real
-     * javadoc failure will resurface during the subsequent build
-     * phase).
-     *
-     * @param gitRoot the reactor root in which to run javadoc
-     * @return the captured warning lines in encounter order; empty if
-     *         javadoc produced no warnings or the subprocess failed
-     */
-    private List<String> collectJavadocWarnings(File gitRoot) {
-        List<String> warnings = new ArrayList<>();
-        try {
-            // -q stripped the [WARNING] prefix the grep below keys on,
-            // letting javadoc "reference not found" warnings slip through
-            // preflight (see ike-issues #178). -B keeps output non-interactive.
-            Process proc = new ProcessBuilder(
-                    "mvn", "-B",
-                    "compile", "javadoc:jar",
-                    "-DskipTests",
-                    "-DfailOnError=false",
-                    "-DfailOnWarnings=false")
-                    .directory(gitRoot)
-                    .redirectErrorStream(true)
-                    .start();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(proc.getInputStream(),
-                            StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (!line.contains("warning:")) continue;
-                    warnings.add(line.replaceFirst(
-                            "^\\[WARNING\\] ", "").strip());
-                }
-            }
-            proc.waitFor();
-        } catch (IOException | InterruptedException e) {
-            getLog().debug("Javadoc preflight subprocess failed: "
-                    + e.getMessage());
-        }
-        return warnings;
-    }
 
     private void logAudit(ReleaseContext ctx, String branch,
                           String releaseBranch, String oldVersion,
