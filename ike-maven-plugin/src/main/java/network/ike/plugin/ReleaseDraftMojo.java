@@ -2,11 +2,13 @@ package network.ike.plugin;
 
 import network.ike.plugin.release.ReleaseContext;
 import network.ike.plugin.release.ReleaseRequest;
+import network.ike.plugin.release.RetrySchedule;
 import network.ike.plugin.release.WorktreeGuard;
 import network.ike.plugin.release.central.CentralOutcome;
 import network.ike.plugin.release.finalize.FinalizeInput;
 import network.ike.plugin.release.finalize.FinalizePhase;
 import network.ike.plugin.release.nexus.NexusOutcome;
+import network.ike.plugin.release.nexus.NexusPhase;
 import network.ike.plugin.scaffold.FoundationBaker;
 import network.ike.plugin.scaffold.ScaffoldManifest;
 import network.ike.plugin.scaffold.ScaffoldManifestIo;
@@ -953,7 +955,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     + "(ike.skipNexusDeploy=true). "
                     + "Release is incomplete for internal consumers.");
         } else {
-            deployToNexusWithRetry(ctx);
+            nexusOutcome = new NexusPhase(ctx).execute();
         }
 
         // ── Phase 2: Maven Central (opt-in, best-effort) ─────────
@@ -1043,7 +1045,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 .build();
         pending.write();
 
-        int[] backoff = parseBackoffSeconds(
+        int[] backoff = RetrySchedule.parseSeconds(
                 "ike.deploy.central.backoffSeconds",
                 centralDeployBackoffSeconds);
         Path scriptPath = sentinelDir.resolve(
@@ -1345,54 +1347,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     }
 
     /**
-     * Nexus deploy with bounded retry. Throws on exhaustion: a
-     * release with no Nexus artifact has no internal consumers
-     * unblocked, so abort before tag/main push is appropriate.
-     *
-     * @param gitRoot the release working tree
-     * @param mvnw    the Maven wrapper executable
-     * @throws MojoException after the final attempt fails
-     */
-    private void deployToNexusWithRetry(ReleaseContext ctx) {
-        File gitRoot = ctx.gitRoot();
-        File mvnw = ctx.mvnw();
-        int[] backoff = parseBackoffSeconds(
-                "ike.deploy.nexus.backoffSeconds",
-                nexusDeployBackoffSeconds);
-        Throwable last = null;
-        for (int attempt = 1; attempt <= nexusDeployMaxAttempts; attempt++) {
-            nexusOutcome = nexusOutcome.withAttempts(attempt);
-            if (attempt > 1) {
-                int wait = backoff[Math.min(attempt - 2,
-                        backoff.length - 1)];
-                sleepBeforeRetry(wait, "Nexus deploy",
-                        attempt, nexusDeployMaxAttempts);
-            }
-            getLog().info("Deploying to Nexus (cycle "
-                    + attempt + "/" + nexusDeployMaxAttempts + ")...");
-            try {
-                ReleaseSupport.exec(gitRoot, getLog(),
-                        mvnw.getAbsolutePath(), "clean", "deploy",
-                        "-B", "-T", "1", "-P", "release,signArtifacts");
-                nexusOutcome = nexusOutcome.withSucceeded(true);
-                return;
-            } catch (MojoException e) {
-                last = e;
-                getLog().warn("Nexus deploy cycle " + attempt
-                        + "/" + nexusDeployMaxAttempts
-                        + " failed: " + e.getMessage());
-            }
-        }
-        throw new MojoException(
-                "Nexus deploy failed after " + nexusDeployMaxAttempts
-                        + " cycles. The release is aborted before "
-                        + "any tag or main push. Last error: "
-                        + (last == null ? "(none captured)"
-                                : last.getMessage()),
-                last);
-    }
-
-    /**
      * Maven Central deploy with bounded retry. Does not throw on
      * exhaustion — phase-1 Nexus already has the artifact, so the
      * release continues to tag/main push and a follow-up Central
@@ -1404,7 +1358,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     private void deployToMavenCentralWithRetry(ReleaseContext ctx) {
         File gitRoot = ctx.gitRoot();
         File mvnw = ctx.mvnw();
-        int[] backoff = parseBackoffSeconds(
+        int[] backoff = RetrySchedule.parseSeconds(
                 "ike.deploy.central.backoffSeconds",
                 centralDeployBackoffSeconds);
         Throwable last = null;
@@ -1413,7 +1367,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             if (attempt > 1) {
                 int wait = backoff[Math.min(attempt - 2,
                         backoff.length - 1)];
-                sleepBeforeRetry(wait, "Maven Central deploy",
+                RetrySchedule.sleepBefore(getLog(), wait, "Maven Central deploy",
                         attempt, centralDeployMaxAttempts);
             }
             getLog().info("Publishing to Maven Central (cycle "
@@ -1508,70 +1462,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         return "missing env var(s) " + String.join(", ", missing);
     }
 
-    /**
-     * Parse a comma-separated list of non-negative integer
-     * seconds. Used for both Nexus and Central backoff configs.
-     *
-     * @param property property name (for error messages)
-     * @param csv      raw comma-separated value
-     * @return parsed seconds array (length &gt;= 1)
-     * @throws MojoException if any entry is missing, non-integer,
-     *                       or negative
-     */
-    static int[] parseBackoffSeconds(String property, String csv) {
-        if (csv == null || csv.isBlank()) {
-            throw new MojoException(property
-                    + " must be a non-empty comma-separated list "
-                    + "of non-negative integer seconds");
-        }
-        String[] parts = csv.split(",");
-        int[] arr = new int[parts.length];
-        for (int i = 0; i < parts.length; i++) {
-            String trimmed = parts[i].trim();
-            int value;
-            try {
-                value = Integer.parseInt(trimmed);
-            } catch (NumberFormatException e) {
-                throw new MojoException("Invalid " + property
-                        + " entry '" + trimmed + "' — expected "
-                        + "comma-separated non-negative integers "
-                        + "(seconds)", e);
-            }
-            if (value < 0) {
-                throw new MojoException(property
-                        + " entries must be >= 0: " + trimmed);
-            }
-            arr[i] = value;
-        }
-        return arr;
-    }
-
-    /**
-     * Sleep before the next retry cycle, with a clear log line so
-     * the operator knows the build isn't hung.
-     *
-     * @param seconds      seconds to wait (0 = no sleep)
-     * @param label        phase label ("Nexus deploy" /
-     *                     "Maven Central deploy")
-     * @param nextAttempt  the upcoming cycle number
-     * @param maxAttempts  configured max cycles
-     */
-    private void sleepBeforeRetry(int seconds, String label,
-                                   int nextAttempt, int maxAttempts) {
-        if (seconds <= 0) {
-            return;
-        }
-        getLog().info("Waiting " + seconds + "s before " + label
-                + " cycle " + nextAttempt + "/" + maxAttempts
-                + "...");
-        try {
-            Thread.sleep(seconds * 1000L);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new MojoException("Interrupted while waiting to "
-                    + "retry " + label, e);
-        }
-    }
 
     /**
      * Deletes the Maven 4 {@code -build.pom} artifacts — and their
