@@ -14,12 +14,10 @@ import network.ike.plugin.release.nexus.NexusOutcome;
 import network.ike.plugin.release.nexus.NexusPhase;
 import network.ike.plugin.release.prep.PrepOutcome;
 import network.ike.plugin.release.prep.ReleasePrep;
+import network.ike.plugin.release.report.DraftRenderer;
+import network.ike.plugin.release.report.ReleaseReport;
 import network.ike.plugin.support.AbstractGoalMojo;
-import network.ike.plugin.support.GoalReportBuilder;
 import network.ike.plugin.support.GoalReportSpec;
-import network.ike.workspace.cascade.CascadeReporter;
-import network.ike.workspace.cascade.ProjectCascade;
-import network.ike.workspace.cascade.ProjectCascadeIo;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -33,7 +31,6 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Full release: build, deploy, tag, merge, and bump to next SNAPSHOT.
@@ -379,42 +376,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         String releaseTimestamp = prep.releaseTimestamp();
 
         // ── B10: Draft-mode short-circuit ────────────────────────────
-        // The [DRAFT] log block + report rendering move to DraftRenderer
-        // in Commit 6 (IKE-Network/ike-issues#489).
         if (prep.draftMode()) {
-            getLog().info("[DRAFT] Would create branch: " + releaseBranch);
-            getLog().info("[DRAFT] Would set version: " + oldVersion +
-                    " -> " + releaseVersion);
-            getLog().info("[DRAFT] Would stamp project.build.outputTimestamp: "
-                    + releaseTimestamp);
-            getLog().info("[DRAFT] Would resolve ${project.version} -> " +
-                    releaseVersion + " in all POMs");
-            getLog().info("[DRAFT] Would run: mvnw clean verify -B");
-            getLog().info("[DRAFT] Would commit, tag v" + releaseVersion);
-            getLog().info("[DRAFT] Would restore ${project.version} references");
-            getLog().info("[DRAFT] Would merge " + releaseBranch + " to main");
-            getLog().info("[DRAFT] Would bump to next version: " + nextVersion);
-            getLog().info("[DRAFT] --- all local work above, external below ---");
-            if (publishSite) {
-                getLog().info("[DRAFT] Would generate site (must succeed)");
-            }
-            getLog().info("[DRAFT] Would " + (publishToCentral
-                    ? "publish to Maven Central via JReleaser"
-                    : "deploy to Nexus") + " from tag v"
-                    + releaseVersion + " (critical)");
-            if (publishSite) {
-                getLog().info("[DRAFT] Would force-push staged site "
-                        + "to gh-pages on origin (best-effort)");
-                getLog().info("[DRAFT] Would publish at "
-                        + "https://ike.network/" + projectId + "/");
-            }
-            getLog().info("[DRAFT] Would push tag and main to origin");
-            getLog().info("[DRAFT] Would create GitHub Release");
-            reportCascade(gitRoot, true);
-            return new GoalReportSpec(IkeGoal.RELEASE_DRAFT,
-                    startDir.toPath(),
-                    buildReleaseReport(true, oldVersion, releaseBranch,
-                            projectId, releaseTimestamp));
+            return new DraftRenderer(earlyCtx).render(
+                    prep, startDir.toPath(), oldVersion, releaseBranch);
         }
 
         // ── Release ───────────────────────────────────────────────────
@@ -689,12 +653,14 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().info("  Merged to main");
         getLog().info("  Next version: " + nextVersion);
 
-        reportCascade(gitRoot, false);
+        ReleaseReport report = new ReleaseReport(ctx);
+        report.reportCascade(false);
 
         return new GoalReportSpec(IkeGoal.RELEASE_PUBLISH,
                 startDir.toPath(),
-                buildReleaseReport(false, oldVersion, releaseBranch,
-                        projectId, releaseTimestamp));
+                report.build(false, oldVersion, releaseBranch,
+                        projectId, releaseTimestamp,
+                        nexusOutcome, centralOutcome));
     }
 
     /**
@@ -1153,227 +1119,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     }
 
 
-    /**
-     * Prints the foundation release cascade section
-     * (IKE-Network/ike-issues#402, #420).
-     *
-     * <p>When the releasing repository version-controls its own
-     * {@code src/main/cascade/release-cascade.yaml} it is a cascade
-     * member: this surfaces the downstream repos the release affects
-     * — a preview in draft mode, a "what's next" footer in publish
-     * mode. A repository with no such file (an ordinary consumer) or
-     * an unreadable manifest is silently skipped — cascade reporting
-     * is purely advisory and never fails or blocks a release.
-     *
-     * @param gitRoot the releasing repository's git root
-     * @param draft   {@code true} for the draft preview, {@code false}
-     *                for the post-publish footer
-     */
-    private void reportCascade(File gitRoot, boolean draft) {
-        try {
-            Optional<ProjectCascade> loaded = ProjectCascadeIo.load(
-                    gitRoot.toPath().resolve(
-                            ProjectCascadeIo.MANIFEST_RELATIVE_PATH));
-            if (loaded.isEmpty()) {
-                // No release-cascade.yaml — an ordinary consumer, not
-                // a foundation cascade member. Nothing to report.
-                return;
-            }
-            String repo = gitRoot.getName();
-            List<String> lines = draft
-                    ? CascadeReporter.draftPreview(loaded.get(), repo)
-                    : CascadeReporter.publishFooter(loaded.get(), repo);
-            getLog().info("");
-            lines.forEach(getLog()::info);
-        } catch (RuntimeException e) {
-            getLog().warn("Release cascade report skipped: "
-                    + e.getMessage());
-        }
-    }
-
-
-    /**
-     * Build the markdown body for an {@code ike:release-*} session report.
-     *
-     * @param draft            {@code true} for draft preview, {@code false}
-     *                         for a completed publish run
-     * @param oldVersion       the pre-release POM version
-     * @param releaseBranch    the release branch that was (or would be) created
-     * @param projectId        the artifactId of the project being released
-     * @param releaseTimestamp the reproducible build timestamp stamped
-     *                         into {@code project.build.outputTimestamp}
-     * @return the markdown body
-     */
-    private String buildReleaseReport(boolean draft, String oldVersion,
-                                       String releaseBranch,
-                                       String projectId,
-                                       String releaseTimestamp) {
-        GoalReportBuilder report = new GoalReportBuilder();
-        report.raw("**Project:** " + projectId + "\n"
-                + "**Mode:** " + (draft ? "draft (preview)" : "publish") + "\n"
-                + "**Version:** " + oldVersion + " → " + releaseVersion + "\n"
-                + "**Next version:** " + nextVersion + "\n"
-                + "**Release branch:** " + releaseBranch + "\n"
-                + "**Tag:** v" + releaseVersion + "\n"
-                + "**Timestamp:** " + releaseTimestamp + "\n\n");
-
-        String verb = draft ? "Would" : "Did";
-        report.section("Local actions");
-        StringBuilder local = new StringBuilder();
-        local.append("1. ").append(verb)
-                .append(" create branch `").append(releaseBranch).append("`\n");
-        local.append("2. ").append(verb)
-                .append(" set version ").append(oldVersion).append(" → ")
-                .append(releaseVersion).append("\n");
-        local.append("3. ").append(verb)
-                .append(" stamp `project.build.outputTimestamp`\n");
-        local.append("4. ").append(verb)
-                .append(" resolve `${project.version}` in all POMs\n");
-        local.append("5. ").append(verb).append(" run `mvnw clean verify -B`\n");
-        local.append("6. ").append(verb)
-                .append(" commit and tag `v").append(releaseVersion)
-                .append("`\n");
-        local.append("7. ").append(verb)
-                .append(" merge `").append(releaseBranch).append("` to main\n");
-        local.append("8. ").append(verb)
-                .append(" bump to next version ").append(nextVersion)
-                .append("\n\n");
-        report.raw(local.toString());
-
-        report.section("External actions");
-        StringBuilder external = new StringBuilder();
-        int step = 1;
-        if (publishSite) {
-            external.append(step++).append(". ").append(verb)
-                    .append(" generate site\n");
-        }
-        external.append(step++).append(". ").append(verb)
-                .append(" deploy to Nexus from tag `v")
-                .append(releaseVersion).append("`")
-                .append(deployAttemptSuffix(
-                        nexusOutcome.attempts(), nexusDeployMaxAttempts))
-                .append('\n');
-        if (publishToCentral) {
-            external.append(step++).append(". ").append(verb)
-                    .append(" publish to Maven Central from tag `v")
-                    .append(releaseVersion).append("`")
-                    .append(centralOutcomeSuffix())
-                    .append('\n');
-        }
-        if (publishSite) {
-            external.append(step++).append(". ").append(verb)
-                    .append(" force-push site to gh-pages on origin "
-                            + "(serves at `https://ike.network/")
-                    .append(projectId).append("/`)\n");
-        }
-        external.append(step++).append(". ").append(verb)
-                .append(" push tag and main to origin\n");
-        external.append(step).append(". ").append(verb)
-                .append(" create GitHub Release\n");
-        report.raw(external.toString());
-
-        // Deploy details section (publish mode only — draft has no
-        // cycle data to report). Always renders the Nexus line.
-        // The Maven Central line renders only when publishToCentral
-        // is set, with three possible outcomes (success / skip /
-        // failure). IKE-Network/ike-issues#482.
-        if (!draft) {
-            report.section("Deploy details");
-            StringBuilder deploy = new StringBuilder();
-            deploy.append("- **Nexus:** ")
-                    .append(nexusOutcome.succeeded()
-                            ? "✅ succeeded on cycle "
-                                    + nexusOutcome.attempts() + "/"
-                                    + nexusDeployMaxAttempts
-                            : skipNexusDeploy
-                                    ? "⚠ skipped (ike.skipNexusDeploy=true)"
-                                    : "❌ did not run")
-                    .append('\n');
-            if (publishToCentral) {
-                deploy.append("- **Maven Central:** ");
-                if (centralOutcome.asyncSpawned()) {
-                    // Async path (#484) — outcome unknown at this
-                    // point. Point the operator at the discovery
-                    // surface (sentinel + log + status goal) rather
-                    // than the (unknown) cycle count.
-                    deploy.append("⏳ running async (#484) — track "
-                                    + "with `mvn ")
-                            .append(IkeGoal.CENTRAL_STATUS.qualified())
-                            .append("`")
-                            .append("\n  - Sentinel: `")
-                            .append(centralOutcome.sentinelPath())
-                            .append("`\n  - Log: `")
-                            .append(centralOutcome.logPath())
-                            .append('`');
-                } else if (centralOutcome.succeeded()) {
-                    deploy.append("✅ succeeded on cycle ")
-                            .append(centralOutcome.attempts()).append("/")
-                            .append(centralDeployMaxAttempts);
-                } else if (centralOutcome.skipReason() != null) {
-                    deploy.append("⚠ skipped — ")
-                            .append(centralOutcome.skipReason());
-                } else if (centralOutcome.attempts() > 0) {
-                    deploy.append("❌ failed after ")
-                            .append(centralOutcome.attempts()).append("/")
-                            .append(centralDeployMaxAttempts)
-                            .append(" cycles");
-                    if (centralOutcome.failureSummary() != null) {
-                        deploy.append(" — ")
-                                .append(centralOutcome.failureSummary());
-                    }
-                    deploy.append("\n  Retry: `git checkout v")
-                            .append(releaseVersion)
-                            .append(" && mvn jreleaser:deploy`");
-                } else {
-                    deploy.append("⚠ did not run");
-                }
-                deploy.append('\n');
-            }
-            report.raw(deploy.toString());
-        }
-
-        return report.build();
-    }
-
-    /**
-     * Render a {@code " (cycle N/M)"} suffix for the post-release
-     * report, or empty when no cycles were tracked (draft mode).
-     *
-     * @param attempts retry cycles taken (0 = none)
-     * @param max      configured max cycles
-     * @return the suffix, possibly empty
-     */
-    private static String deployAttemptSuffix(int attempts, int max) {
-        if (attempts <= 0) {
-            return "";
-        }
-        return " (cycle " + attempts + "/" + max + ")";
-    }
-
-    /**
-     * Render an outcome suffix for the Maven Central row in the
-     * External-actions list. Distinguishes succeeded / skipped /
-     * failed / pending-draft.
-     *
-     * @return the outcome suffix
-     */
-    private String centralOutcomeSuffix() {
-        if (centralOutcome.asyncSpawned()) {
-            return " (async — see Deploy details)";
-        }
-        if (centralOutcome.succeeded()) {
-            return " (cycle " + centralOutcome.attempts() + "/"
-                    + centralDeployMaxAttempts + ")";
-        }
-        if (centralOutcome.skipReason() != null) {
-            return " — skipped (" + centralOutcome.skipReason() + ")";
-        }
-        if (centralOutcome.attempts() > 0) {
-            return " — FAILED after " + centralOutcome.attempts() + "/"
-                    + centralDeployMaxAttempts + " cycles";
-        }
-        return "";
-    }
 
 
     private void logAudit(ReleaseContext ctx, String branch,
