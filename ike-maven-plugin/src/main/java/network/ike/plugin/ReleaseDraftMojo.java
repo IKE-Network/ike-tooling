@@ -5,6 +5,7 @@ import network.ike.plugin.release.ReleaseRequest;
 import network.ike.plugin.release.RetrySchedule;
 import network.ike.plugin.release.WorktreeGuard;
 import network.ike.plugin.release.central.CentralOutcome;
+import network.ike.plugin.release.central.CentralPhase;
 import network.ike.plugin.release.finalize.FinalizeInput;
 import network.ike.plugin.release.finalize.FinalizePhase;
 import network.ike.plugin.release.nexus.NexusOutcome;
@@ -984,7 +985,10 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         if (centralDeployAsync) {
             spawnCentralDeployAsync(ctx);
         } else {
-            deployToMavenCentralWithRetry(ctx);
+            // Phase 4 §1.1 — execute() returns a completed future; the
+            // mojo joins immediately. Phase 5 forks this under a
+            // StructuredTaskScope alongside FinalizePhase.
+            centralOutcome = new CentralPhase(ctx).execute().join();
         }
     }
 
@@ -1346,90 +1350,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     maxAttempts, backoffArr);
     }
 
-    /**
-     * Maven Central deploy with bounded retry. Does not throw on
-     * exhaustion — phase-1 Nexus already has the artifact, so the
-     * release continues to tag/main push and a follow-up Central
-     * retry from the tagged commit is mechanical.
-     *
-     * @param gitRoot the release working tree
-     * @param mvnw    the Maven wrapper executable
-     */
-    private void deployToMavenCentralWithRetry(ReleaseContext ctx) {
-        File gitRoot = ctx.gitRoot();
-        File mvnw = ctx.mvnw();
-        int[] backoff = RetrySchedule.parseSeconds(
-                "ike.deploy.central.backoffSeconds",
-                centralDeployBackoffSeconds);
-        Throwable last = null;
-        for (int attempt = 1; attempt <= centralDeployMaxAttempts; attempt++) {
-            centralOutcome = centralOutcome.withAttempts(attempt);
-            if (attempt > 1) {
-                int wait = backoff[Math.min(attempt - 2,
-                        backoff.length - 1)];
-                RetrySchedule.sleepBefore(getLog(), wait, "Maven Central deploy",
-                        attempt, centralDeployMaxAttempts);
-            }
-            getLog().info("Publishing to Maven Central (cycle "
-                    + attempt + "/" + centralDeployMaxAttempts + ")...");
-            try {
-                deployToMavenCentralCore(ctx);
-                centralOutcome = centralOutcome.withSucceeded(true);
-                return;
-            } catch (MojoException e) {
-                last = e;
-                getLog().warn("Maven Central cycle " + attempt
-                        + "/" + centralDeployMaxAttempts
-                        + " failed: " + e.getMessage());
-            }
-        }
-        centralOutcome = centralOutcome.withFailureSummary(last == null
-                ? "unknown failure"
-                : last.getMessage());
-        getLog().warn("Maven Central deploy did not succeed after "
-                + centralDeployMaxAttempts + " cycles. "
-                + "Nexus already has v" + releaseVersion
-                + "; tag and main will still publish. "
-                + "To retry Central later: check out v"
-                + releaseVersion + " and run "
-                + "`mvn jreleaser:deploy`.");
-    }
-
-    /**
-     * Single-shot Central staging + JReleaser upload. The retry
-     * wrapper ({@link #deployToMavenCentralWithRetry}) calls this
-     * per attempt.
-     *
-     * <p>Three steps: a signed {@code clean deploy} to a local
-     * staging directory ({@code target/staging-deploy}); a prune of
-     * the Maven 4 {@code -build.pom} artifacts (build-time only, not
-     * published to Central); then {@code jreleaser:deploy}, which
-     * uploads the staged bundle to the Sonatype Central Portal.
-     *
-     * @param gitRoot the release working tree, checked out at the
-     *                {@code v<version>} release tag
-     * @param mvnw    the resolved Maven wrapper executable
-     */
-    private void deployToMavenCentralCore(ReleaseContext ctx) {
-        File gitRoot = ctx.gitRoot();
-        File mvnw = ctx.mvnw();
-        Path stagingDir = gitRoot.toPath()
-                .resolve("target").resolve("staging-deploy");
-        getLog().info("Staging signed artifacts for Maven Central...");
-        ReleaseSupport.exec(gitRoot, getLog(),
-                mvnw.getAbsolutePath(), "clean", "deploy", "-B", "-T", "1",
-                "-P", "release,signArtifacts",
-                "-DaltDeploymentRepository=local::file://"
-                        + stagingDir.toAbsolutePath());
-        pruneBuildPoms(stagingDir);
-        getLog().info("Uploading bundle via JReleaser...");
-        // -N (non-recursive): jreleaser:deploy runs once, at the reactor
-        // root, uploading the whole staging directory as a single bundle.
-        // Without it the goal runs per module — the first invocation
-        // publishes everything, the rest fail "artifacts already deployed".
-        ReleaseSupport.exec(gitRoot, getLog(),
-                mvnw.getAbsolutePath(), "jreleaser:deploy", "-N", "-B");
-    }
 
     /**
      * Returns {@code null} when Maven Central credentials are
@@ -1462,34 +1382,6 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         return "missing env var(s) " + String.join(", ", missing);
     }
 
-
-    /**
-     * Deletes the Maven 4 {@code -build.pom} artifacts — and their
-     * signatures and checksums — from the staging directory. The
-     * build POM carries the 4.1.0 model and is build-time only;
-     * Maven Central publishes the consumer POM (the main
-     * {@code .pom}). One build POM is produced per reactor module,
-     * so the directory is walked recursively.
-     *
-     * @param stagingDir the local {@code staging-deploy} directory
-     */
-    private void pruneBuildPoms(Path stagingDir) {
-        try (var paths = Files.walk(stagingDir)) {
-            List<Path> buildPoms = paths
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString()
-                            .contains("-build.pom"))
-                    .toList();
-            for (Path p : buildPoms) {
-                Files.delete(p);
-                getLog().info("  pruned " + stagingDir.relativize(p));
-            }
-        } catch (IOException e) {
-            throw new MojoException(
-                    "Failed to prune -build.pom artifacts from "
-                            + stagingDir, e);
-        }
-    }
 
     /**
      * Prints the foundation release cascade section
