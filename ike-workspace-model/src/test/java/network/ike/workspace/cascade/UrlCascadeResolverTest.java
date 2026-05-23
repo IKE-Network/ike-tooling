@@ -41,7 +41,7 @@ class UrlCascadeResolverTest {
         UrlCascadeResolver resolver =
                 new UrlCascadeResolver(tmp.resolve("clones"));
         CascadeEdge edge = new CascadeEdge("network.ike.docs", "ike-docs",
-                "ike-docs", remote.toString(), null);
+                "ike-docs", remote.toString());
 
         ProjectCascade resolved = resolver.resolve(edge);
 
@@ -70,7 +70,7 @@ class UrlCascadeResolverTest {
         UrlCascadeResolver resolver =
                 new UrlCascadeResolver(tmp.resolve("clones"));
         CascadeEdge edge = new CascadeEdge("network.ike.docs", "ike-docs",
-                "ike-docs", remote.toString(), null);
+                "ike-docs", remote.toString());
 
         // First call clones, second call hits the refresh path.
         resolver.resolve(edge);
@@ -81,7 +81,7 @@ class UrlCascadeResolverTest {
     void edge_without_a_url_is_rejected(@TempDir Path tmp) {
         UrlCascadeResolver resolver = new UrlCascadeResolver(tmp);
         CascadeEdge noUrl = new CascadeEdge("network.ike.docs",
-                "ike-docs", "ike-docs", null, null);
+                "ike-docs", "ike-docs", null);
 
         assertThatThrownBy(() -> resolver.resolve(noUrl))
                 .isInstanceOf(IllegalStateException.class)

@@ -14,10 +14,10 @@ class CascadeExporterTest {
 
     private static final CascadeEdge TOOLING = new CascadeEdge(
             "network.ike.tooling", "ike-tooling", "ike-tooling",
-            "https://github.com/IKE-Network/ike-tooling.git", null);
+            "https://github.com/IKE-Network/ike-tooling.git");
     private static final CascadeEdge DOCS = new CascadeEdge(
             "network.ike.docs", "ike-docs", "ike-docs",
-            "https://github.com/IKE-Network/ike-docs.git", null);
+            "https://github.com/IKE-Network/ike-docs.git");
 
     private static final CascadeRepo TOOLING_NODE = new CascadeRepo(
             "network.ike.tooling", "ike-tooling", "ike-tooling",
@@ -26,11 +26,7 @@ class CascadeExporterTest {
     private static final CascadeRepo DOCS_NODE = new CascadeRepo(
             "network.ike.docs", "ike-docs", "ike-docs",
             "https://github.com/IKE-Network/ike-docs.git",
-            new ProjectCascade(1, false,
-                    List.of(new CascadeEdge("network.ike.tooling",
-                            "ike-tooling", "ike-tooling",
-                            "https://github.com/IKE-Network/ike-tooling.git",
-                            "ike-tooling.version")),
+            new ProjectCascade(1, false, List.of(TOOLING),
                     true, List.of()));
 
     private static final ReleaseCascade CASCADE = new ReleaseCascade(

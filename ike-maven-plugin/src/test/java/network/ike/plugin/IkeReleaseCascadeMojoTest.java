@@ -32,19 +32,16 @@ class IkeReleaseCascadeMojoTest {
 
     private static final CascadeEdge TOOLING = new CascadeEdge(
             "network.ike.tooling", "ike-tooling", "ike-tooling",
-            "https://github.com/IKE-Network/ike-tooling.git",
-            "ike-tooling.version");
+            "https://github.com/IKE-Network/ike-tooling.git");
 
     private static final CascadeEdge DOCS = new CascadeEdge(
             "network.ike.docs", "ike-docs", "ike-docs",
-            "https://github.com/IKE-Network/ike-docs.git",
-            "ike-docs.version");
+            "https://github.com/IKE-Network/ike-docs.git");
 
     private static final CascadeEdge EXTENSION = new CascadeEdge(
             "network.ike.tooling", "ike-workspace-extension",
             "ike-workspace-extension",
-            "https://github.com/IKE-Network/ike-workspace-extension.git",
-            "ike-workspace-extension.version");
+            "https://github.com/IKE-Network/ike-workspace-extension.git");
 
     // ── stalePinsFor: head member with no upstream edges ────────────
 
@@ -80,7 +77,8 @@ class IkeReleaseCascadeMojoTest {
         writePom(docsDir,
                 "<project><artifactId>ike-docs</artifactId>"
                 + "<version>49-SNAPSHOT</version>"
-                + "<properties><ike-tooling.version>192</ike-tooling.version>"
+                + "<properties>"
+                + "<network.ike.tooling·ike-tooling>192</network.ike.tooling·ike-tooling>"
                 + "</properties></project>");
         // Suppress unused warnings.
         assertThat(toolingDir).exists();
@@ -107,7 +105,8 @@ class IkeReleaseCascadeMojoTest {
         writePom(docsDir,
                 "<project><artifactId>ike-docs</artifactId>"
                 + "<version>49-SNAPSHOT</version>"
-                + "<properties><ike-tooling.version>191</ike-tooling.version>"
+                + "<properties>"
+                + "<network.ike.tooling·ike-tooling>191</network.ike.tooling·ike-tooling>"
                 + "</properties></project>");
 
         CascadeRepo docs = node(DOCS,
@@ -118,7 +117,7 @@ class IkeReleaseCascadeMojoTest {
                 docs, docsDir.toFile(), siblings.toFile());
 
         assertThat(stale).containsExactly(
-                "ike-tooling.version  (191 → 192)");
+                "network.ike.tooling·ike-tooling  (191 → 192)");
     }
 
     // ── stalePinsFor: multiple upstreams, mixed states ──────────────
@@ -142,14 +141,14 @@ class IkeReleaseCascadeMojoTest {
                 "<project><artifactId>ike-platform</artifactId>"
                 + "<version>79-SNAPSHOT</version>"
                 + "<properties>"
-                + "<ike-tooling.version>192</ike-tooling.version>"
-                + "<ike-docs.version>49</ike-docs.version>"
-                + "<ike-workspace-extension.version>2</ike-workspace-extension.version>"
+                + "<network.ike.tooling·ike-tooling>192</network.ike.tooling·ike-tooling>"
+                + "<network.ike.docs·ike-docs>49</network.ike.docs·ike-docs>"
+                + "<network.ike.tooling·ike-workspace-extension>2</network.ike.tooling·ike-workspace-extension>"
                 + "</properties></project>");
 
         CascadeRepo platform = node(
                 new CascadeEdge("network.ike.platform", "ike-platform",
-                        "ike-platform", null, null),
+                        "ike-platform", null),
                 new ProjectCascade(1, false,
                         List.of(TOOLING, DOCS, EXTENSION),
                         true, List.of()));
@@ -158,7 +157,7 @@ class IkeReleaseCascadeMojoTest {
                 platform, platformDir.toFile(), siblings.toFile());
 
         assertThat(stale).containsExactly(
-                "ike-workspace-extension.version  (2 → 3)");
+                "network.ike.tooling·ike-workspace-extension  (2 → 3)");
     }
 
     // ── stalePinsFor: upstream has no tags (never released) ─────────
@@ -176,7 +175,8 @@ class IkeReleaseCascadeMojoTest {
         writePom(docsDir,
                 "<project><artifactId>ike-docs</artifactId>"
                 + "<version>49-SNAPSHOT</version>"
-                + "<properties><ike-tooling.version>191</ike-tooling.version>"
+                + "<properties>"
+                + "<network.ike.tooling·ike-tooling>191</network.ike.tooling·ike-tooling>"
                 + "</properties></project>");
         assertThat(toolingDir).exists();
 
@@ -207,7 +207,8 @@ class IkeReleaseCascadeMojoTest {
         writePom(docsDir,
                 "<project><artifactId>ike-docs</artifactId>"
                 + "<version>49-SNAPSHOT</version>"
-                + "<properties><ike-tooling.version>${parent.tooling.version}</ike-tooling.version>"
+                + "<properties>"
+                + "<network.ike.tooling·ike-tooling>${parent.tooling.version}</network.ike.tooling·ike-tooling>"
                 + "</properties></project>");
 
         CascadeRepo docs = node(DOCS,
@@ -237,7 +238,8 @@ class IkeReleaseCascadeMojoTest {
         writePom(docsDir,
                 "<project><artifactId>ike-docs</artifactId>"
                 + "<version>49-SNAPSHOT</version>"
-                + "<properties><ike-tooling.version>191</ike-tooling.version>"
+                + "<properties>"
+                + "<network.ike.tooling·ike-tooling>191</network.ike.tooling·ike-tooling>"
                 + "</properties></project>");
 
         CascadeRepo docs = node(DOCS,

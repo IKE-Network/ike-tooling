@@ -108,17 +108,47 @@ public final class ProjectCascadeIo {
                 throw new IllegalArgumentException(
                         "each cascade edge must be a mapping");
             }
+            // The legacy 'version-property' YAML field is no longer
+            // consulted — CascadeEdge.versionProperty() derives the
+            // canonical G·A property name from the coordinates.
+            // Manifests that still carry it parse cleanly; the value
+            // is ignored. See IKE-Network/ike-issues#496.
             edges.add(new CascadeEdge(
                     stringOrNull(e.get("groupId")),
                     stringOrNull(e.get("artifactId")),
                     stringOrNull(e.get("repo")),
                     stringOrNull(e.get("url")),
-                    stringOrNull(e.get("version-property"))));
+                    edgeKind(e.get("kind"))));
         }
         return edges;
     }
 
     private static String stringOrNull(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    /**
+     * Parses an optional {@code kind:} YAML value into an
+     * {@link EdgeKind}, case-insensitively. Returns {@code null}
+     * when the value is absent — {@link CascadeEdge}'s canonical
+     * constructor then defaults the field to
+     * {@link EdgeKind#DEPENDENCY}.
+     */
+    private static EdgeKind edgeKind(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String name = String.valueOf(value).trim();
+        if (name.isEmpty()) {
+            return null;
+        }
+        try {
+            return EdgeKind.valueOf(name.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException(
+                    "unknown cascade edge kind '" + name
+                    + "' — valid values are "
+                    + java.util.Arrays.toString(EdgeKind.values()), ex);
+        }
     }
 }

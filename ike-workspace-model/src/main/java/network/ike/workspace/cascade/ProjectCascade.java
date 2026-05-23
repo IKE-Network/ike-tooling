@@ -24,8 +24,10 @@ import java.util.List;
  * @param schema     the manifest schema version (currently {@code 1})
  * @param head       {@code true} iff this project declares no
  *                   {@code upstream} edge — the cascade head
- * @param upstream   edges to the projects this one consumes; each
- *                   carries a {@code versionProperty}; never
+ * @param upstream   edges to the projects this one consumes;
+ *                   the version property each edge pins is derived
+ *                   from {@code G·A} via
+ *                   {@link CascadeEdge#versionProperty()}; never
  *                   {@code null}
  * @param terminal   {@code true} iff this project declares no
  *                   {@code downstream} edge — the cascade terminus
@@ -39,10 +41,12 @@ public record ProjectCascade(int schema, boolean head,
 
     /**
      * Canonical constructor — defensively copies the edge lists,
-     * substitutes empty lists for {@code null}, verifies the
+     * substitutes empty lists for {@code null}, and verifies the
      * {@code head}/{@code terminal} markers agree with the edge
-     * lists, and requires a {@code versionProperty} on every
-     * {@code upstream} edge.
+     * lists. The per-edge {@code version-property} check that the
+     * legacy YAML schema needed is gone: every edge derives its
+     * canonical {@code G·A} version-property from its coordinates,
+     * so it is always non-blank (IKE-Network/ike-issues#496).
      */
     public ProjectCascade {
         upstream = upstream == null ? List.of() : List.copyOf(upstream);
@@ -63,14 +67,6 @@ public record ProjectCascade(int schema, boolean head,
                     : "release-cascade.yaml has no downstream edges and"
                       + " must declare 'terminal: true' — a missing"
                       + " downstream edge must not be silently omitted");
-        }
-        for (CascadeEdge edge : upstream) {
-            if (edge.versionProperty() == null
-                    || edge.versionProperty().isBlank()) {
-                throw new IllegalArgumentException(
-                        "upstream edge " + edge.ga() + " must declare a"
-                        + " version-property");
-            }
         }
     }
 }

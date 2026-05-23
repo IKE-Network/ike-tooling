@@ -176,7 +176,7 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
         CascadeEdge start = new CascadeEdge(
                 ReleaseSupport.readPomGroupId(rootPom),
                 ReleaseSupport.readPomArtifactId(rootPom),
-                gitRoot.getName(), null, null);
+                gitRoot.getName(), null);
 
         File siblings = cascadeBaseDir != null && !cascadeBaseDir.isBlank()
                 ? new File(cascadeBaseDir)

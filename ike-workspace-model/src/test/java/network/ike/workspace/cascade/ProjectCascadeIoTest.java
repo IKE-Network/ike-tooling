@@ -81,8 +81,12 @@ class ProjectCascadeIoTest {
                 .satisfies(e -> {
                     assertThat(e.ga())
                             .isEqualTo("network.ike.tooling:ike-tooling");
+                    // versionProperty() is now derived from G·A, not
+                    // read from the YAML — see IKE-Network/ike-issues#496.
+                    // The legacy "ike-tooling.version" field in the
+                    // YAML manifest is read and discarded.
                     assertThat(e.versionProperty())
-                            .isEqualTo("ike-tooling.version");
+                            .isEqualTo("network.ike.tooling·ike-tooling");
                 });
         // repo overrides the artifactId default.
         assertThat(cascade.downstream().get(0).repo())
@@ -147,18 +151,6 @@ class ProjectCascadeIoTest {
                 """)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("terminal");
-    }
-
-    @Test
-    void upstream_edge_without_a_version_property_is_rejected() {
-        assertThatThrownBy(() -> ProjectCascadeIo.read(new StringReader("""
-                terminal: true
-                upstream:
-                  - groupId: network.ike.tooling
-                    artifactId: ike-tooling
-                """)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("version-property");
     }
 
     @Test

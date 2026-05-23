@@ -16,42 +16,33 @@ class ReleaseCascadeTest {
 
     private static final CascadeEdge TOOLING = new CascadeEdge(
             "network.ike.tooling", "ike-tooling", "ike-tooling",
-            "https://github.com/IKE-Network/ike-tooling.git", null);
+            "https://github.com/IKE-Network/ike-tooling.git");
     private static final CascadeEdge DOCS = new CascadeEdge(
             "network.ike.docs", "ike-docs", "ike-docs",
-            "https://github.com/IKE-Network/ike-docs.git", null);
+            "https://github.com/IKE-Network/ike-docs.git");
     private static final CascadeEdge PLATFORM = new CascadeEdge(
             "network.ike.platform", "ike-platform", "ike-platform",
-            "https://github.com/IKE-Network/ike-platform.git", null);
+            "https://github.com/IKE-Network/ike-platform.git");
 
     /**
      * ike-tooling: head — downstream ike-docs and ike-platform (both
-     * carry {@code ${ike-tooling.version}}, so both are reciprocal
-     * downstream edges).
+     * carry {@code ${network.ike.tooling·ike-tooling}}, so both are
+     * reciprocal downstream edges).
      */
     private static final ProjectCascade TOOLING_CASCADE = new ProjectCascade(
             1, true, List.of(), false, List.of(DOCS, PLATFORM));
     /** ike-docs: middle — upstream ike-tooling, downstream ike-platform. */
     private static final ProjectCascade DOCS_CASCADE = new ProjectCascade(
-            1, false, List.of(upstream(TOOLING, "ike-tooling.version")),
+            1, false, List.of(TOOLING),
             false, List.of(PLATFORM));
     /** ike-platform: terminal — upstream ike-tooling + ike-docs. */
     private static final ProjectCascade PLATFORM_CASCADE = new ProjectCascade(
-            1, false,
-            List.of(upstream(TOOLING, "ike-tooling.version"),
-                    upstream(DOCS, "ike-docs.version")),
-            true, List.of());
+            1, false, List.of(TOOLING, DOCS), true, List.of());
 
     private static final Map<String, ProjectCascade> FOUNDATION = Map.of(
             "network.ike.tooling:ike-tooling", TOOLING_CASCADE,
             "network.ike.docs:ike-docs", DOCS_CASCADE,
             "network.ike.platform:ike-platform", PLATFORM_CASCADE);
-
-    private static CascadeEdge upstream(CascadeEdge identity,
-                                        String versionProperty) {
-        return new CascadeEdge(identity.groupId(), identity.artifactId(),
-                identity.repo(), identity.url(), versionProperty);
-    }
 
     private static ReleaseCascade assembleFrom(CascadeEdge start,
                                                ProjectCascade startCascade,
@@ -152,8 +143,7 @@ class ReleaseCascadeTest {
     private static final CascadeEdge EXTENSION = new CascadeEdge(
             "network.ike.tooling", "ike-workspace-extension",
             "ike-workspace-extension",
-            "https://github.com/IKE-Network/ike-workspace-extension.git",
-            null);
+            "https://github.com/IKE-Network/ike-workspace-extension.git");
 
     /** ike-workspace-extension: second head — downstream ike-platform only. */
     private static final ProjectCascade EXTENSION_CASCADE = new ProjectCascade(
@@ -165,10 +155,7 @@ class ReleaseCascadeTest {
      */
     private static final ProjectCascade PLATFORM_CASCADE_WITH_EXTENSION =
             new ProjectCascade(1, false,
-                    List.of(upstream(TOOLING, "ike-tooling.version"),
-                            upstream(DOCS, "ike-docs.version"),
-                            upstream(EXTENSION,
-                                    "ike-workspace-extension.version")),
+                    List.of(TOOLING, DOCS, EXTENSION),
                     true, List.of());
 
     @Test

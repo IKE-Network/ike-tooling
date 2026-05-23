@@ -142,7 +142,7 @@ public class IkeCascadeExportMojo extends AbstractGoalMojo {
         CascadeEdge start = new CascadeEdge(
                 ReleaseSupport.readPomGroupId(rootPom),
                 ReleaseSupport.readPomArtifactId(rootPom),
-                gitRoot.getName(), null, null);
+                gitRoot.getName(), null);
 
         File siblings = gitRoot.getParentFile();
         UrlCascadeResolver urlResolver = new UrlCascadeResolver(
