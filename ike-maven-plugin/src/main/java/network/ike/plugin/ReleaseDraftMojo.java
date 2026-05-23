@@ -2,6 +2,7 @@ package network.ike.plugin;
 
 import network.ike.plugin.release.ReleaseContext;
 import network.ike.plugin.release.ReleaseRequest;
+import network.ike.plugin.release.WorktreeGuard;
 import network.ike.plugin.release.central.CentralOutcome;
 import network.ike.plugin.release.nexus.NexusOutcome;
 import network.ike.plugin.scaffold.FoundationBaker;
@@ -671,16 +672,18 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().info("Local work complete. Starting external deploys...");
         getLog().info("");
 
-        // Deploy from the tagged release commit
-        ReleaseSupport.exec(gitRoot, getLog(),
-                "git", "checkout", "v" + releaseVersion);
-
         // Track gh-pages publish outcome separately from Nexus deploy.
         // Used to gate the "GitHub Pages: ..." line in the release-
         // complete summary so the log does not falsely claim success
         // when the publish actually failed. ike-issues#329.
         boolean ghPagesPublished = !publishSite;  // skipped == "no failure"
-        try {
+        // Detach the worktree to the release tag for the externally-
+        // visible deploy steps. The WorktreeGuard restores the worktree
+        // to main on any exit path; foreign mid-flight changes are
+        // stashed first (ike-issues#373).
+        try (WorktreeGuard worktreeGuard = WorktreeGuard.detach(ctx,
+                "v" + releaseVersion,
+                () -> stashForeignWorktreeChanges(ctx, releaseVersion))) {
             // ── Site generation (must succeed before Nexus deploy) ────
             // A release without a valid site is incomplete. The tag
             // checkout wiped target/, so everything is rebuilt here.
@@ -829,31 +832,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
             //      still publish since Nexus already has the artifact).
             // Site was already deployed above (before clean wipes staging).
             deployArtifacts(ctx);
-        } finally {
-            // Always return to main, even if deploy fails.
-            //
-            // Stash any mid-flight worktree changes first (#373). By
-            // this point the release has shipped: Nexus deploy +
-            // gh-pages + org-site register are all done. The only
-            // remaining work is `git checkout main`, push tag + main,
-            // and the GitHub Release. If something has written to the
-            // worktree mid-flight (an operator edit, a stray tool
-            // output), `git checkout main` fails with
-            //
-            //   "Your local changes ... would be overwritten by checkout"
-            //
-            // — and the housekeeping never runs. Recovery is mechanical
-            // but manual. Pre-empt by stashing foreign worktree
-            // changes; the operator gets them back with `git stash
-            // pop` after the release reports complete.
-            //
-            // Release-flow's own commits ran before this block (set-
-            // version → tag → restore-project.version → merge → bump-
-            // to-next-SNAPSHOT). So anything captured by the stash is
-            // strictly foreign — by construction.
-            stashForeignWorktreeChanges(ctx, releaseVersion);
-            ReleaseSupport.exec(gitRoot, getLog(), "git", "checkout", "main");
         }
+        // WorktreeGuard.close() has restored the worktree to main —
+        // rationale for the stash step is on stashForeignWorktreeChanges.
 
         // Push tag and main
         if (hasOrigin) {
