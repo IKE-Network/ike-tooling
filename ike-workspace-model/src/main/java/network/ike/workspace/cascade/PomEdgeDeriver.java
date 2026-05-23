@@ -152,6 +152,59 @@ public final class PomEdgeDeriver {
         return List.copyOf(edges);
     }
 
+    /**
+     * Derives upstream edges and drops self-edges — edges whose
+     * target repository, as resolved by {@code repositoryResolver},
+     * equals {@code sourceRepo} (IKE-Network/ike-issues#496 part D).
+     *
+     * <p>Self-edges are reactor-internal: a project using its own
+     * sibling artifact ({@code ike-tooling} consuming
+     * {@code ike-maven-plugin}, {@code ike-platform} consuming
+     * {@code ike-workspace-maven-plugin}) is a relationship Maven
+     * resolves inside the one reactor build, not a cascade edge.
+     * Dropping them keeps the topological sort a DAG.
+     *
+     * <p>An edge whose target the resolver cannot locate is kept
+     * conservatively — without information, the deriver does not
+     * silently filter it out. Callers can chase the unresolved
+     * coordinate themselves.
+     *
+     * @param model              the project's Maven model
+     * @param projectDir         the project's on-disk root directory;
+     *                           may be {@code null}
+     * @param filter             coordinate filter; required
+     * @param sourceRepo         the source POM's
+     *                           {@link RepositoryKey}; when
+     *                           {@code null}, no self-edge filtering
+     *                           is performed
+     * @param repositoryResolver maps an edge's target coordinate to
+     *                           its {@link RepositoryKey}; when
+     *                           {@code null}, no self-edge filtering
+     *                           is performed
+     * @return external upstream edges in source-order; never
+     *         {@code null}
+     */
+    public static List<CascadeEdge> deriveEdges(Model model,
+                                                Path projectDir,
+                                                CoordinateFilter filter,
+                                                RepositoryKey sourceRepo,
+                                                RepositoryKeyResolver repositoryResolver) {
+        List<CascadeEdge> edges = deriveEdges(model, projectDir, filter);
+        if (sourceRepo == null || repositoryResolver == null) {
+            return edges;
+        }
+        List<CascadeEdge> kept = new ArrayList<>();
+        for (CascadeEdge edge : edges) {
+            RepositoryKey target = repositoryResolver
+                    .resolve(edge.groupId(), edge.artifactId())
+                    .orElse(null);
+            if (target == null || !target.equals(sourceRepo)) {
+                kept.add(edge);
+            }
+        }
+        return List.copyOf(kept);
+    }
+
     private static void appendParentEdge(Model model,
                                           CoordinateFilter filter,
                                           List<CascadeEdge> out) {

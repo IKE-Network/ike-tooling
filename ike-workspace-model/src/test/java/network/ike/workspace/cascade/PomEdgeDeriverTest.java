@@ -15,6 +15,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -358,6 +360,177 @@ class PomEdgeDeriverTest {
 
         assertThat(edges).extracting(CascadeEdge::ga)
                 .containsExactly("org.example:example-lib");
+    }
+
+    @Test
+    void self_edges_are_dropped_when_source_repo_and_resolver_supplied() {
+        // ike-tooling's POM consumes its own ike-maven-plugin as a
+        // <plugin>; with the resolver mapping both coordinates to the
+        // same RepositoryKey, the plugin edge drops as reactor-internal.
+        Model model = Model.newBuilder()
+                .groupId("network.ike.tooling")
+                .artifactId("ike-tooling")
+                .version("199-SNAPSHOT")
+                .parent(Parent.newBuilder()
+                        .groupId("network.ike")
+                        .artifactId("ike-base-parent")
+                        .version("7")
+                        .build())
+                .build(Build.newBuilder()
+                        .plugins(List.of(
+                                Plugin.newBuilder()
+                                        .groupId("network.ike.tooling")
+                                        .artifactId("ike-maven-plugin")
+                                        .version("199")
+                                        .build()))
+                        .build())
+                .build();
+
+        RepositoryKey tooling = RepositoryKey.of(
+                "https://github.com/IKE-Network/ike-tooling");
+        RepositoryKey baseParent = RepositoryKey.of(
+                "https://github.com/IKE-Network/ike-base-parent");
+
+        RepositoryKeyResolver resolver = (groupId, artifactId) -> {
+            // ike-tooling AND ike-maven-plugin both live in the
+            // ike-tooling repo. ike-base-parent is its own repo.
+            String ga = groupId + ":" + artifactId;
+            return Optional.ofNullable(Map.of(
+                    "network.ike.tooling:ike-tooling", tooling,
+                    "network.ike.tooling:ike-maven-plugin", tooling,
+                    "network.ike:ike-base-parent", baseParent
+            ).get(ga));
+        };
+
+        List<CascadeEdge> edges = PomEdgeDeriver.deriveEdges(
+                model, null, PomEdgeDeriver.CoordinateFilter.IKE_GROUP,
+                tooling, resolver);
+
+        // Parent edge to ike-base-parent stays — different repo.
+        // Plugin edge to ike-maven-plugin drops — same repo.
+        assertThat(edges)
+                .extracting(CascadeEdge::ga, CascadeEdge::kind)
+                .containsExactly(tuple("network.ike:ike-base-parent",
+                        EdgeKind.PARENT));
+    }
+
+    @Test
+    void self_edge_filtering_is_skipped_when_source_repo_is_null() {
+        Model model = selfAndExternalModel();
+        RepositoryKey tooling = RepositoryKey.of(
+                "https://github.com/IKE-Network/ike-tooling");
+        RepositoryKeyResolver resolver = (groupId, artifactId) ->
+                Optional.of(tooling);
+
+        // sourceRepo = null disables filtering: both edges keep.
+        List<CascadeEdge> edges = PomEdgeDeriver.deriveEdges(
+                model, null, PomEdgeDeriver.CoordinateFilter.IKE_GROUP,
+                null, resolver);
+
+        assertThat(edges).hasSize(2);
+    }
+
+    @Test
+    void self_edge_filtering_is_skipped_when_resolver_is_null() {
+        Model model = selfAndExternalModel();
+        RepositoryKey tooling = RepositoryKey.of(
+                "https://github.com/IKE-Network/ike-tooling");
+
+        // resolver = null disables filtering: both edges keep.
+        List<CascadeEdge> edges = PomEdgeDeriver.deriveEdges(
+                model, null, PomEdgeDeriver.CoordinateFilter.IKE_GROUP,
+                tooling, null);
+
+        assertThat(edges).hasSize(2);
+    }
+
+    @Test
+    void unresolvable_target_is_kept_conservatively() {
+        // An edge to an unknown coordinate is kept — the deriver
+        // does not silently drop edges it cannot place.
+        Model model = Model.newBuilder()
+                .groupId("network.ike.tooling")
+                .artifactId("ike-tooling")
+                .version("199-SNAPSHOT")
+                .dependencies(List.of(
+                        Dependency.newBuilder()
+                                .groupId("network.ike.examples")
+                                .artifactId("unknown-artifact")
+                                .version("1")
+                                .build()))
+                .build();
+
+        RepositoryKey tooling = RepositoryKey.of(
+                "https://github.com/IKE-Network/ike-tooling");
+        RepositoryKeyResolver resolver = (g, a) -> Optional.empty();
+
+        List<CascadeEdge> edges = PomEdgeDeriver.deriveEdges(
+                model, null, PomEdgeDeriver.CoordinateFilter.IKE_GROUP,
+                tooling, resolver);
+
+        assertThat(edges).singleElement().extracting(CascadeEdge::ga)
+                .isEqualTo("network.ike.examples:unknown-artifact");
+    }
+
+    @Test
+    void model_consuming_only_self_edges_emits_empty() {
+        // ike-tooling has plugin + plugin-management edges to its own
+        // sibling artifacts; nothing external. With self-edge filtering
+        // the result is empty.
+        Model model = Model.newBuilder()
+                .groupId("network.ike.tooling")
+                .artifactId("ike-tooling")
+                .version("199-SNAPSHOT")
+                .build(Build.newBuilder()
+                        .plugins(List.of(
+                                Plugin.newBuilder()
+                                        .groupId("network.ike.tooling")
+                                        .artifactId("ike-maven-plugin")
+                                        .version("199")
+                                        .build()))
+                        .pluginManagement(PluginManagement.newBuilder()
+                                .plugins(List.of(
+                                        Plugin.newBuilder()
+                                                .groupId("network.ike.tooling")
+                                                .artifactId("ike-maven-plugin-support")
+                                                .version("199")
+                                                .build()))
+                                .build())
+                        .build())
+                .build();
+
+        RepositoryKey tooling = RepositoryKey.of(
+                "https://github.com/IKE-Network/ike-tooling");
+        RepositoryKeyResolver resolver = (g, a) -> Optional.of(tooling);
+
+        assertThat(PomEdgeDeriver.deriveEdges(
+                model, null, PomEdgeDeriver.CoordinateFilter.IKE_GROUP,
+                tooling, resolver)).isEmpty();
+    }
+
+    /**
+     * Builds a Model with one edge to itself ({@code ike-maven-plugin})
+     * and one edge external ({@code ike-base-parent}).
+     */
+    private static Model selfAndExternalModel() {
+        return Model.newBuilder()
+                .groupId("network.ike.tooling")
+                .artifactId("ike-tooling")
+                .version("199-SNAPSHOT")
+                .parent(Parent.newBuilder()
+                        .groupId("network.ike")
+                        .artifactId("ike-base-parent")
+                        .version("7")
+                        .build())
+                .build(Build.newBuilder()
+                        .plugins(List.of(
+                                Plugin.newBuilder()
+                                        .groupId("network.ike.tooling")
+                                        .artifactId("ike-maven-plugin")
+                                        .version("199")
+                                        .build()))
+                        .build())
+                .build();
     }
 
     @Test
