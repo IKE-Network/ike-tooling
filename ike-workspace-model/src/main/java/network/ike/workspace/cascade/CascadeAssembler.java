@@ -58,13 +58,13 @@ public final class CascadeAssembler {
     private CascadeAssembler() {}
 
     /**
-     * Assembles the cascade graph rooted at one known project.
+     * Assembles the cascade graph rooted at one known project,
+     * without populating {@link RepositoryKey} on the nodes.
      *
      * @param start        an edge identifying the starting project —
      *                     its coordinates and locators ({@code groupId},
      *                     {@code artifactId}, {@code repo},
-     *                     {@code url}); {@code versionProperty} is
-     *                     unused and may be {@code null}
+     *                     {@code url}); {@code kind} is unused
      * @param startCascade the starting project's already-parsed
      *                     manifest
      * @param resolver     resolves every other project's manifest
@@ -75,6 +75,31 @@ public final class CascadeAssembler {
     public static ReleaseCascade assemble(CascadeEdge start,
                                           ProjectCascade startCascade,
                                           CascadeResolver resolver) {
+        return assemble(start, startCascade, resolver, null);
+    }
+
+    /**
+     * Assembles the cascade graph rooted at one known project,
+     * populating each node's {@link RepositoryKey} via
+     * {@code repositoryResolver} when supplied
+     * (IKE-Network/ike-issues#496 part C).
+     *
+     * @param start              an identifying edge for the starting
+     *                           project
+     * @param startCascade       the starting project's parsed manifest
+     * @param resolver           resolves every other project's manifest
+     * @param repositoryResolver maps a coordinate to its
+     *                           {@link RepositoryKey}; may be
+     *                           {@code null} to leave keys unset on
+     *                           the assembled nodes
+     * @return the assembled, topologically ordered cascade
+     * @throws IllegalArgumentException if an edge is one-sided or the
+     *                                  graph contains a cycle
+     */
+    public static ReleaseCascade assemble(CascadeEdge start,
+                                          ProjectCascade startCascade,
+                                          CascadeResolver resolver,
+                                          RepositoryKeyResolver repositoryResolver) {
         // Identity is groupId+artifactId (CascadeRepo.ga()), NOT
         // groupId alone — two foundation members can share a groupId.
         // For example, `network.ike.tooling:ike-tooling` and
@@ -84,10 +109,16 @@ public final class CascadeAssembler {
         // Keying any of these maps by groupId would collide the two
         // nodes and silently drop edges, which used to surface as a
         // false-positive cycle (IKE-Network/ike-issues#466).
+        //
+        // Once #496 part D lands, identity collapses further onto the
+        // RepositoryKey populated by repositoryResolver — multiple GA
+        // pairs that resolve to one repository become one node — but
+        // until then GA remains the assembler's working key.
         Map<String, CascadeRepo> byGa = new LinkedHashMap<>();
         Deque<CascadeRepo> frontier = new ArrayDeque<>();
 
-        CascadeRepo startNode = node(start, startCascade);
+        CascadeRepo startNode = node(start, startCascade,
+                repositoryResolver);
         byGa.put(startNode.ga(), startNode);
         frontier.add(startNode);
 
@@ -111,7 +142,8 @@ public final class CascadeAssembler {
                             "cannot resolve release-cascade.yaml for"
                             + " cascade member " + edge.ga());
                 }
-                CascadeRepo neighbour = node(edge, resolved);
+                CascadeRepo neighbour = node(edge, resolved,
+                        repositoryResolver);
                 byGa.put(neighbour.ga(), neighbour);
                 frontier.add(neighbour);
             }
@@ -122,9 +154,15 @@ public final class CascadeAssembler {
     }
 
     private static CascadeRepo node(CascadeEdge identity,
-                                    ProjectCascade cascade) {
+                                    ProjectCascade cascade,
+                                    RepositoryKeyResolver repositoryResolver) {
+        RepositoryKey key = null;
+        if (repositoryResolver != null) {
+            key = repositoryResolver.resolve(identity.groupId(),
+                    identity.artifactId()).orElse(null);
+        }
         return new CascadeRepo(identity.groupId(), identity.artifactId(),
-                identity.repo(), identity.url(), cascade);
+                identity.repo(), identity.url(), key, cascade);
     }
 
     private static List<CascadeEdge> neighbourEdges(CascadeRepo node) {
