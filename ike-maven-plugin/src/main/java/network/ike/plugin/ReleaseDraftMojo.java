@@ -4,6 +4,8 @@ import network.ike.plugin.release.ReleaseContext;
 import network.ike.plugin.release.ReleaseRequest;
 import network.ike.plugin.release.WorktreeGuard;
 import network.ike.plugin.release.central.CentralOutcome;
+import network.ike.plugin.release.finalize.FinalizeInput;
+import network.ike.plugin.release.finalize.FinalizePhase;
 import network.ike.plugin.release.nexus.NexusOutcome;
 import network.ike.plugin.scaffold.FoundationBaker;
 import network.ike.plugin.scaffold.ScaffoldManifest;
@@ -836,22 +838,9 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // WorktreeGuard.close() has restored the worktree to main —
         // rationale for the stash step is on stashForeignWorktreeChanges.
 
-        // Push tag and main
-        if (hasOrigin) {
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    "git", "push", "origin", "v" + releaseVersion);
-            ReleaseSupport.exec(gitRoot, getLog(),
-                    "git", "push", "origin", "main");
-        } else {
-            getLog().info("No 'origin' remote — skipping push");
-        }
-
-        // Create GitHub Release with milestone-based release notes
-        if (hasOrigin) {
-            createGitHubRelease(ctx, projectId, releaseVersion);
-        } else {
-            getLog().info("No 'origin' remote — skipping GitHub Release");
-        }
+        // ── Finalize: push tag + main, create GitHub Release ─────
+        new FinalizePhase(ctx).execute(new FinalizeInput(
+                hasOrigin, projectId, releaseVersion));
 
         // Pre-#304: this block called cleanRemoteSiteDir to ssh-delete
         // the main-branch snapshot mirror on scpexe://proxy. With the
@@ -2774,71 +2763,4 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         getLog().warn("");
     }
 
-    /**
-     * Create a GitHub Release with milestone-based release notes.
-     *
-     * <p>Looks for a milestone named {@code <projectId> v<version>}
-     * in the configured issue repository. If found, generates formatted
-     * release notes from its closed issues. Falls back to GitHub's
-     * auto-generated commit-based notes if no milestone exists.
-     */
-    private void createGitHubRelease(ReleaseContext ctx, String projectId,
-                                      String version)
-            throws MojoException {
-        File gitRoot = ctx.gitRoot();
-        String milestoneName = projectId + " v" + version;
-
-        // Try milestone-based notes first
-        Path notesFile = ReleaseNotesSupport.generateToFile(
-                issueRepo, milestoneName, getLog());
-
-        try {
-            if (notesFile != null) {
-                getLog().info("Release notes generated from milestone: "
-                        + milestoneName);
-                ReleaseSupport.exec(gitRoot, getLog(),
-                        "gh", "release", "create", "v" + version,
-                        "--title", version,
-                        "--notes-file", notesFile.toString(),
-                        "--verify-tag");
-            } else {
-                getLog().info("No milestone \"" + milestoneName
-                        + "\" found — using auto-generated notes");
-                ReleaseSupport.exec(gitRoot, getLog(),
-                        "gh", "release", "create", "v" + version,
-                        "--title", version,
-                        "--generate-notes", "--verify-tag");
-            }
-        } catch (Exception e) {
-            getLog().warn("GitHub Release creation failed "
-                    + "(gh CLI may not be installed): " + e.getMessage());
-            getLog().warn("Run manually: gh release create v" + version
-                    + " --title " + version + " --generate-notes");
-        }
-
-        // Close the milestone now that the release has shipped.
-        // Non-fatal — the release is already done at this point.
-        if (notesFile != null) {
-            try {
-                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, getLog());
-            } catch (Exception e) {
-                getLog().warn("Could not close milestone (release succeeded): "
-                        + e.getMessage());
-                getLog().warn("Close manually: gh api repos/" + issueRepo
-                        + "/milestones/1 -X PATCH -f state=closed");
-            }
-        }
-
-        // Remove pending-release label from issues resolved in this
-        // release range. Runs regardless of milestone presence: cross-
-        // org Fixes/Closes/Resolves trailers reach issues that won't
-        // be in our milestone. Non-fatal.
-        try {
-            ReleaseNotesSupport.removePendingReleaseLabels(
-                    gitRoot, null, "v" + version, issueRepo, getLog());
-        } catch (Exception e) {
-            getLog().warn("Could not remove pending-release labels "
-                    + "(release succeeded): " + e.getMessage());
-        }
-    }
 }
