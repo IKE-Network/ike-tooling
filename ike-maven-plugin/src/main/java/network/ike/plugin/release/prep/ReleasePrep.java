@@ -394,17 +394,18 @@ public final class ReleasePrep {
         String updated = content;
 
         for (CascadeEdge up : loaded.get().upstream()) {
-            // Release-policy dispatch (IKE-Network/ike-issues#498).
+            // ── Resolve policy (IKE-Network/ike-issues#498) ──────────
             // ${G·A·policy} declares how this project responds when
-            // the upstream releases. The default (no property declared)
+            // the upstream releases. Default (no property declared)
             // is INTEGRATE — bump the pin in place, no human gate.
-            // Only INTEGRATE and RELEASE auto-align; the manual-review
-            // policies (NOTIFY / VERIFY / PROPOSE) report the gap and
-            // leave the pin where it is for the operator to resolve.
-            // The ${G·A·policy} property is validated at consumer build
-            // time by ike-version-management-extension; ReleasePrep
-            // re-validates here so a release run gives a clear error
-            // even on consumers that don't register that extension.
+            // Policy is read and validated BEFORE the upstream-version
+            // resolution so the dispatch below sees the full gap
+            // context (current pin + latest released) when reporting
+            // to the operator. The ${G·A·policy} property is also
+            // validated at consumer build time by
+            // ike-version-management-extension; ReleasePrep re-validates
+            // here so a release run gives a clear error even on
+            // consumers that don't register that extension.
             String policyKey = up.groupId() + "·" + up.artifactId() + POLICY_SUFFIX;
             String policyValue = ReleaseSupport.readPomProperty(pomFile, policyKey);
             if (policyValue != null) {
@@ -420,27 +421,8 @@ public final class ReleasePrep {
                         + " — must be one of " + RELEASE_POLICY_INDEX.keySet() + ".");
                 continue;
             }
-            boolean autoAlign = switch (policy) {
-                case INTEGRATE -> true;
-                case RELEASE -> {
-                    ctx.log().info("  " + up.ga()
-                            + " policy=release — aligning pin;"
-                            + " downstream release follows via cascade.");
-                    yield true;
-                }
-                case NOTIFY, VERIFY, PROPOSE -> {
-                    ctx.log().info("  " + up.ga() + " policy="
-                            + policyValue + " — alignment skipped"
-                            + " (auto-align reserved for INTEGRATE / RELEASE;"
-                            + " " + policyValue + " implementation TBD)."
-                            + " Manual integration required.");
-                    yield false;
-                }
-            };
-            if (!autoAlign) {
-                continue;
-            }
 
+            // ── Read current pin value ───────────────────────────────
             // PARENT-kind edges rewrite the <parent><version> block
             // directly; property-kind edges rewrite the ${G·A} property
             // that pins the upstream. The site of the value (the read
@@ -461,8 +443,13 @@ public final class ReleasePrep {
                 continue;
             }
             if (current.contains("${")) {
+                // Value is itself a property reference — the canonical
+                // pin lives elsewhere (typically ike-base-parent). No
+                // local action regardless of policy.
                 continue;
             }
+
+            // ── Resolve latest released upstream version ─────────────
             String latest;
             try {
                 List<String> candidates = resolver.resolveCandidates(
@@ -481,8 +468,59 @@ public final class ReleasePrep {
             }
             if (MavenVersionComparator.INSTANCE
                     .compare(latest, current) <= 0) {
+                // Pin already at or ahead of latest released — no gap.
+                // No policy dispatch needed; nothing to act on.
                 continue;
             }
+
+            // ── Policy dispatch with full gap context ────────────────
+            boolean autoAlign = switch (policy) {
+                case INTEGRATE -> true;
+                case RELEASE -> {
+                    ctx.log().info("  " + up.ga() + " " + current + " → "
+                            + latest + " (policy=release; aligning + downstream"
+                            + " release follows via cascade).");
+                    yield true;
+                }
+                case NOTIFY -> {
+                    ctx.log().warn("  " + up.ga() + " has a new release: "
+                            + current + " → " + latest
+                            + " (policy=notify; pin not auto-updated).");
+                    ctx.log().warn("    Update manually: mvn versions:set-property"
+                            + " -Dproperty=" + property + " -DnewVersion=" + latest);
+                    ctx.log().warn("    Or change " + policyKey
+                            + " to `integrate` for automatic alignment.");
+                    yield false;
+                }
+                case VERIFY -> {
+                    ctx.log().warn("  " + up.ga() + " has a new release: "
+                            + current + " → " + latest
+                            + " (policy=verify; pin not auto-updated).");
+                    ctx.log().warn("    Concrete verify semantics — running"
+                            + " `mvn verify` with the hypothetical bump in a"
+                            + " sandbox — are pending. Treating as notify"
+                            + " for now (#498 follow-up).");
+                    ctx.log().warn("    Manual integration: mvn versions:set-property"
+                            + " -Dproperty=" + property + " -DnewVersion=" + latest);
+                    yield false;
+                }
+                case PROPOSE -> {
+                    ctx.log().warn("  " + up.ga() + " has a new release: "
+                            + current + " → " + latest
+                            + " (policy=propose; pin not auto-updated).");
+                    ctx.log().warn("    Concrete propose semantics — opening a"
+                            + " release-gate branch with the bump — are pending."
+                            + " Treating as notify for now (#498 follow-up).");
+                    ctx.log().warn("    Manual integration: mvn versions:set-property"
+                            + " -Dproperty=" + property + " -DnewVersion=" + latest);
+                    yield false;
+                }
+            };
+            if (!autoAlign) {
+                continue;
+            }
+
+            // ── Apply the bump ───────────────────────────────────────
             String after = parentEdge
                     ? PomRewriter.updateParentVersion(updated,
                             up.groupId(), up.artifactId(), latest)
