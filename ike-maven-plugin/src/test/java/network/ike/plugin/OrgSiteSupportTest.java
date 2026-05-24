@@ -112,16 +112,42 @@ class OrgSiteSupportTest {
         String index = Files.readString(orgRoot.toPath()
                 .resolve("src/site/asciidoc/index.adoc"));
 
+        // The diagram is emitted as an image:: macro pointing at a
+        // Kroki-rendered SVG; the artifact IDs live inside the
+        // base64-encoded GraphViz source, not in the index text.
         assertThat(index)
                 .contains(".Build/release dependency order")
-                .contains("[source]")
-                .contains("ike-base-parent")
-                .contains("ike-tooling")
-                .contains("ike-workspace-extension")
-                .contains("ike-docs")
-                .contains("ike-platform")
-                // The diagram explains the parallel level for tooling/extension.
+                .contains("image::" + OrgSiteSupport.KROKI_BASE
+                        + "/graphviz/svg/")
+                .contains("[Build/release dependency order]")
+                // The prose that frames the diagram is unchanged.
                 .contains("can release in either order or in parallel");
+    }
+
+    @Test
+    void foundation_diagram_source_names_every_member() {
+        // The diagram's GraphViz source must mention every foundation
+        // member by artifactId — otherwise the rendered SVG silently
+        // drops a node and the published landing page disagrees with
+        // the FOUNDATION map (the source of truth).
+        for (String id : OrgSiteSupport.FOUNDATION.keySet()) {
+            assertThat(OrgSiteSupport.FOUNDATION_DIAGRAM)
+                    .as("diagram source references " + id)
+                    .contains(id);
+        }
+    }
+
+    @Test
+    void krokiUrl_produces_a_kroki_https_path() {
+        // The URL must start with the configured base, name the diagram
+        // type, declare svg output, and end with a non-empty base64url
+        // segment. We don't pin the exact encoded value because zlib
+        // output differs across JDK builds at the byte level.
+        String url = OrgSiteSupport.krokiUrl("graphviz", "digraph G { a -> b }");
+
+        assertThat(url)
+                .startsWith(OrgSiteSupport.KROKI_BASE + "/graphviz/svg/")
+                .matches(".*/svg/[A-Za-z0-9_=-]+$");
     }
 
     @Test

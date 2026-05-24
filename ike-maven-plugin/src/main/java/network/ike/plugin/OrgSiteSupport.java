@@ -8,6 +8,7 @@ import org.asciidoctor.Attributes;
 import org.asciidoctor.Options;
 import org.asciidoctor.SafeMode;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -17,11 +18,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import java.util.zip.Deflater;
 
 /**
  * Shared utilities for org-site registration and deregistration.
@@ -134,6 +137,101 @@ public final class OrgSiteSupport {
         return "image:https://img.shields.io/maven-central/v/" + path
                 + "[Maven Central,link="
                 + "https://central.sonatype.com/artifact/" + path + "]";
+    }
+
+    /**
+     * Kroki rendering service used to turn diagram source into SVG at
+     * page-render time. The encoded source is appended to
+     * {@code <KROKI_BASE>/<diagram-type>/svg/<encoded>}.
+     */
+    static final String KROKI_BASE = "https://kroki.komet.sh";
+
+    /**
+     * GraphViz source for the foundation build/release dependency
+     * diagram rendered into the org-site landing page preamble.
+     *
+     * <p>Edges:
+     * <ul>
+     *   <li>Dashed {@code ike-base-parent → ike-java-support} — parent
+     *       inheritance only; downstream Tier-1 members inherit it too
+     *       (the dashed edge is the apex of that inheritance chain).</li>
+     *   <li>Solid arrows trace the build/release dependency direction
+     *       (upstream → downstream): jsup → tooling, jsup → wsext,
+     *       tooling → docs, docs → platform, wsext → platform.</li>
+     *   <li>{@code ike-version-management-extension} sits in a dotted
+     *       cluster on its own — registered at every consumer build,
+     *       not resolved in the dependency direction (#470/#472).</li>
+     * </ul>
+     */
+    static final String FOUNDATION_DIAGRAM =
+            "digraph foundation {\n"
+            + "  rankdir=TB;\n"
+            + "  bgcolor=transparent;\n"
+            + "  compound=true;\n"
+            + "  node [shape=box, style=\"rounded,filled\","
+                    + " fontname=\"Helvetica\", fontsize=11,"
+                    + " fillcolor=\"#e8f5e9\", color=\"#2e7d32\"];\n"
+            + "  edge [fontname=\"Helvetica\", fontsize=9,"
+                    + " color=\"#555555\"];\n"
+            + "\n"
+            + "  base  [label=\"ike-base-parent\\n(parent only)\","
+                    + " fillcolor=\"#fff3e0\", color=\"#e65100\"];\n"
+            + "  jsup  [label=\"ike-java-support\\n(value types)\"];\n"
+            + "  tool  [label=\"ike-tooling\"];\n"
+            + "  wsext [label=\"ike-workspace-extension\"];\n"
+            + "  docs  [label=\"ike-docs\"];\n"
+            + "  plat  [label=\"ike-platform\"];\n"
+            + "\n"
+            + "  base -> jsup [style=dashed, label=\" parent\"];\n"
+            + "  jsup -> tool;\n"
+            + "  jsup -> wsext;\n"
+            + "  tool -> docs;\n"
+            + "  docs -> plat;\n"
+            + "  wsext -> plat;\n"
+            + "\n"
+            + "  subgraph cluster_vme {\n"
+            + "    style=dotted;\n"
+            + "    color=\"#6a1b9a\";\n"
+            + "    label=\"registered at every consumer build\\n"
+                    + "validates ${G·A} pins and ${G·A·policy}\";\n"
+            + "    fontsize=10;\n"
+            + "    vme [label=\"ike-version-management-extension\","
+                    + " fillcolor=\"#f3e5f5\", color=\"#6a1b9a\"];\n"
+            + "  }\n"
+            + "}\n";
+
+    /**
+     * Build a Kroki SVG URL for the given diagram source. Kroki encodes
+     * the source as URL-safe base64 of its zlib-compressed bytes; the
+     * client emits an {@code image::URL[]} reference and the browser
+     * fetches the rendered SVG at page-load time.
+     *
+     * <p>Used by {@link #regenerateIndex} to embed the foundation
+     * dependency diagram into the landing-page preamble without
+     * requiring a Kroki extension in the asciidoctor-parser-doxia
+     * pipeline that renders the org site.
+     *
+     * @param diagramType Kroki diagram type (e.g. {@code "graphviz"},
+     *                    {@code "plantuml"})
+     * @param source      raw diagram source
+     * @return a fully-qualified {@code https://...} URL that serves the
+     *         rendered SVG
+     */
+    static String krokiUrl(String diagramType, String source) {
+        byte[] raw = source.getBytes(StandardCharsets.UTF_8);
+        Deflater deflater = new Deflater(Deflater.BEST_COMPRESSION);
+        deflater.setInput(raw);
+        deflater.finish();
+        var baos = new ByteArrayOutputStream();
+        byte[] buf = new byte[1024];
+        while (!deflater.finished()) {
+            int n = deflater.deflate(buf);
+            baos.write(buf, 0, n);
+        }
+        deflater.end();
+        String encoded = Base64.getUrlEncoder()
+                .encodeToString(baos.toByteArray());
+        return KROKI_BASE + "/" + diagramType + "/svg/" + encoded;
     }
 
     private OrgSiteSupport() {}
@@ -318,30 +416,9 @@ public final class OrgSiteSupport {
             sb.append("propagate through it last.\n");
             sb.append('\n');
             sb.append(".Build/release dependency order\n");
-            sb.append("[source]\n");
-            sb.append("----\n");
-            sb.append("                  ike-base-parent\n");
-            sb.append("                  (parent inheritance only)\n");
-            sb.append("                         |\n");
-            sb.append("                ike-java-support\n");
-            sb.append("                  (Tier-0 value types)\n");
-            sb.append("                         |\n");
-            sb.append("        +----------------+----------------+\n");
-            sb.append("        v                                 v\n");
-            sb.append("   ike-tooling                  ike-workspace-extension\n");
-            sb.append("        |                                 |\n");
-            sb.append("        v                                 |\n");
-            sb.append("    ike-docs                              |\n");
-            sb.append("        |                                 |\n");
-            sb.append("        +----------------+----------------+\n");
-            sb.append("                         v\n");
-            sb.append("                    ike-platform\n");
-            sb.append("              (consumes all three above)\n");
-            sb.append("\n");
-            sb.append("  ike-version-management-extension\n");
-            sb.append("  (registered at every consumer build;\n");
-            sb.append("   validates ${G·A} pins and ${G·A·policy})\n");
-            sb.append("----\n");
+            sb.append("image::")
+                    .append(krokiUrl("graphviz", FOUNDATION_DIAGRAM))
+                    .append("[Build/release dependency order]\n");
             sb.append('\n');
             sb.append("Members at the same level have no dependency on each\n");
             sb.append("other — `ike-tooling` and `ike-workspace-extension`\n");
