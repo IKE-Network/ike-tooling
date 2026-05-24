@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldApplier.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">ScaffoldApplier.java</span></div><h1>ScaffoldApplier.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Execute a {@link ScaffoldPlan}: write out Write-actions to disk and
+ * compose the updated {@link ScaffoldLockfile}.
+ *
+ * &lt;p&gt;Write actions are executed in order; the applier carefully
+ * creates parent directories and uses
+ * {@link StandardCopyOption#REPLACE_EXISTING} so existing files are
+ * atomically replaced.
+ *
+ * &lt;p&gt;{@link TierAction.Skip} actions are recorded in the returned
+ * lockfile as-is (the existing entry stays put). {@link TierAction.UpToDate}
+ * and {@link TierAction.UserManaged} actions refresh the
+ * {@code standards-version} on model-managed elements but are
+ * otherwise no-ops.
+ */
+public final class ScaffoldApplier {
+
+    private final Clock clock;
+
+    /** Construct with {@link Clock#systemUTC()}. */
+    public ScaffoldApplier() {
+<span class="fc" id="L34">        this(Clock.systemUTC());</span>
+<span class="fc" id="L35">    }</span>
+
+    /**
+     * Construct with an explicit clock. Tests supply a fixed clock so
+     * the {@code generated-at} timestamp recorded in the updated
+     * lockfile is deterministic.
+     *
+     * @param clock clock used for timestamps written into the lockfile
+     */
+<span class="fc" id="L44">    public ScaffoldApplier(Clock clock) {</span>
+<span class="fc" id="L45">        this.clock = clock;</span>
+<span class="fc" id="L46">    }</span>
+
+    /**
+     * Carry out a plan.
+     *
+     * @param plan            the plan to execute
+     * @param currentLockfile the current lockfile (so entries outside
+     *                        the plan's scope are preserved verbatim)
+     * @return the updated lockfile
+     * @throws ScaffoldException if any Write fails
+     */
+    public ScaffoldLockfile apply(
+            ScaffoldPlan plan,
+            ScaffoldLockfile currentLockfile) {
+<span class="fc" id="L60">        Map&lt;String, LockfileEntry&gt; files =</span>
+<span class="fc" id="L61">                new LinkedHashMap&lt;&gt;(currentLockfile.files());</span>
+<span class="fc bfc" id="L62" title="All 2 branches covered.">        for (PlannedEntry pe : plan.entries()) {</span>
+<span class="fc" id="L63">            LockfileEntry updated = applyOne(pe);</span>
+<span class="fc bfc" id="L64" title="All 2 branches covered.">            if (updated != null) {</span>
+<span class="fc" id="L65">                files.put(pe.manifest().dest(), updated);</span>
+            }
+            // Skip actions retain whatever the lockfile already had.
+<span class="fc" id="L68">        }</span>
+<span class="fc" id="L69">        return new ScaffoldLockfile(</span>
+                ScaffoldLockfile.CURRENT_SCHEMA,
+<span class="fc" id="L71">                plan.manifestStandardsVersion(),</span>
+<span class="fc" id="L72">                Instant.now(clock),</span>
+                files);
+    }
+
+    /**
+     * Remove orphaned scaffold files and drop their lockfile entries.
+     *
+     * &lt;p&gt;Run after {@link #apply} on the lockfile that {@code apply}
+     * returned. For each {@link OrphanEntry.Disposition#REMOVE} orphan
+     * the on-disk file is deleted; for {@code REMOVE} and
+     * {@link OrphanEntry.Disposition#ALREADY_ABSENT} orphans the stale
+     * lockfile entry is dropped. {@link OrphanEntry.Disposition#SKIP_USER_EDITED}
+     * orphans are left entirely alone — file and lockfile entry both
+     * stay, so the orphan keeps surfacing until the operator resolves
+     * it.
+     *
+     * @param orphans  orphans found by {@link OrphanScanner}
+     * @param lockfile the lockfile to prune (typically the result of
+     *                 {@link #apply})
+     * @return the lockfile with removed/absent orphan entries dropped
+     * @throws ScaffoldException if a file deletion fails
+     */
+    public ScaffoldLockfile removeOrphans(
+            List&lt;OrphanEntry&gt; orphans,
+            ScaffoldLockfile lockfile) {
+<span class="fc" id="L97">        ScaffoldLockfile result = lockfile;</span>
+<span class="fc bfc" id="L98" title="All 2 branches covered.">        for (OrphanEntry orphan : orphans) {</span>
+<span class="fc bfc" id="L99" title="All 3 branches covered.">            switch (orphan.disposition()) {</span>
+                case REMOVE -&gt; {
+<span class="fc" id="L101">                    deleteFile(orphan.resolvedDest());</span>
+<span class="fc" id="L102">                    result = result.withoutEntry(orphan.dest());</span>
+<span class="fc" id="L103">                }</span>
+                case ALREADY_ABSENT -&gt;
+<span class="fc" id="L105">                        result = result.withoutEntry(orphan.dest());</span>
+                case SKIP_USER_EDITED -&gt; {
+                    // Leave the file and the lockfile entry in place.
+                }
+            }
+<span class="fc" id="L110">        }</span>
+<span class="fc" id="L111">        return result;</span>
+    }
+
+    private static void deleteFile(Path dest) {
+        try {
+<span class="fc" id="L116">            Files.delete(dest);</span>
+<span class="nc" id="L117">        } catch (IOException e) {</span>
+<span class="nc" id="L118">            throw new ScaffoldException(</span>
+                    &quot;cannot delete orphaned scaffold file &quot; + dest, e);
+<span class="fc" id="L120">        }</span>
+<span class="fc" id="L121">    }</span>
+
+    private LockfileEntry applyOne(PlannedEntry pe) {
+<span class="fc" id="L124">        TierAction action = pe.action();</span>
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        if (action instanceof TierAction.Write w) {</span>
+<span class="fc" id="L126">            writeBytes(w.resolvedDest(), w.newContent());</span>
+<span class="fc" id="L127">            return lockfileEntryFor(pe, w.templateSha(), w.appliedSha());</span>
+        }
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        if (action instanceof TierAction.UpToDate u) {</span>
+            // Refresh standards-version in the lockfile entry.
+<span class="fc" id="L131">            return lockfileEntryFor(pe, u.templateSha(), u.appliedSha());</span>
+        }
+<span class="fc bfc" id="L133" title="All 2 branches covered.">        if (action instanceof TierAction.UserManaged m) {</span>
+            // No write; refresh lockfile provenance like UpToDate.
+<span class="fc" id="L135">            return lockfileEntryFor(pe, m.templateSha(), m.appliedSha());</span>
+        }
+        // Skip: leave lockfile unchanged.
+<span class="fc" id="L138">        return null;</span>
+    }
+
+    private static LockfileEntry lockfileEntryFor(
+            PlannedEntry pe,
+            String templateSha,
+            String appliedSha) {
+<span class="fc" id="L145">        ScaffoldTier tier = pe.manifest().tier();</span>
+<span class="fc bfc" id="L146" title="All 3 branches covered.">        return switch (tier) {</span>
+            case TOOL_OWNED -&gt;
+<span class="fc" id="L148">                    LockfileEntry.toolOwned(templateSha);</span>
+            case TRACKED, TRACKED_BLOCK -&gt;
+<span class="fc" id="L150">                    LockfileEntry.tracked(</span>
+                            tier, templateSha, appliedSha);
+            case MODEL_MANAGED -&gt;
+<span class="fc" id="L153">                    LockfileEntry.modelManaged(pe.managedElements());</span>
+        };
+    }
+
+    private static void writeBytes(Path dest, byte[] content) {
+        try {
+<span class="fc" id="L159">            Path parent = dest.getParent();</span>
+<span class="pc bpc" id="L160" title="1 of 2 branches missed.">            if (parent != null) {</span>
+<span class="fc" id="L161">                Files.createDirectories(parent);</span>
+            }
+<span class="fc" id="L163">            Path tmp = Files.createTempFile(</span>
+<span class="pc bpc" id="L164" title="1 of 2 branches missed.">                    parent == null ? dest.toAbsolutePath().getParent()</span>
+<span class="fc" id="L165">                            : parent,</span>
+<span class="fc" id="L166">                    dest.getFileName().toString(), &quot;.tmp&quot;);</span>
+            try {
+<span class="fc" id="L168">                Files.write(tmp, content);</span>
+<span class="fc" id="L169">                Files.move(tmp, dest,</span>
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+<span class="nc" id="L172">            } catch (IOException e) {</span>
+                try {
+<span class="nc" id="L174">                    Files.deleteIfExists(tmp);</span>
+<span class="nc" id="L175">                } catch (IOException ignored) {</span>
+                    // ignore — best-effort cleanup
+<span class="nc" id="L177">                }</span>
+<span class="nc" id="L178">                throw e;</span>
+<span class="fc" id="L179">            }</span>
+<span class="nc" id="L180">        } catch (IOException e) {</span>
+<span class="nc" id="L181">            throw new ScaffoldException(</span>
+                    &quot;cannot write &quot; + dest, e);
+<span class="fc" id="L183">        }</span>
+<span class="fc" id="L184">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -20,7 +20,7 @@ For workspace-spanning goals (`ws:*` prefix), see the [ws plugin](https://ike.ne
 
 ## [#plugin-shape](#plugin-shape)Plugin shape
 
-This is a **regular Maven plugin** — no `<extensions>true</extensions>`, no custom `<packaging>` type registered via `META-INF/plexus/components.xml`, no participation in the build extension realm. Goals look up at execution time, the plugin’s `<version>` interpolates from `199` like any other managed plugin, and consumers inherit the version through ordinary `<pluginManagement>` indirection.
+This is a **regular Maven plugin** — no `<extensions>true</extensions>`, no custom `<packaging>` type registered via `META-INF/plexus/components.xml`, no participation in the build extension realm. Goals look up at execution time, the plugin’s `<version>` interpolates from `200` like any other managed plugin, and consumers inherit the version through ordinary `<pluginManagement>` indirection.
 
 This was not always the case. Earlier revisions registered the `<packaging>ike-doc</packaging>` custom type here (the stale `components.xml` removed per `IKE-Network/ike-issues#320`), which forced this plugin to be loaded as a build extension and consequently forced its `<version>` to be a literal string everywhere it was declared. That constraint was retired alongside the migration to a classifier-canonical doc shape — see the [ike-tooling reactor home](#https-ike-network-ike-tooling) for the full design rationale, or `IKE-Network/ike-issues#321` for the umbrella tracking issue.
 
