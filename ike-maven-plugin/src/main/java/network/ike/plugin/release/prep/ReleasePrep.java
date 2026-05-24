@@ -494,14 +494,40 @@ public final class ReleasePrep {
                 }
                 case VERIFY -> {
                     ctx.log().warn("  " + up.ga() + " has a new release: "
-                            + current + " → " + latest
-                            + " (policy=verify; pin not auto-updated).");
-                    ctx.log().warn("    Concrete verify semantics — running"
-                            + " `mvn verify` with the hypothetical bump in a"
-                            + " sandbox — are pending. Treating as notify"
-                            + " for now (#498 follow-up).");
-                    ctx.log().warn("    Manual integration: mvn versions:set-property"
-                            + " -Dproperty=" + property + " -DnewVersion=" + latest);
+                            + current + " → " + latest + " (policy=verify).");
+                    if (draft) {
+                        ctx.log().warn("    [DRAFT] Would create a git-worktree"
+                                + " sandbox and run `mvn verify` with the bump;"
+                                + " no action in draft mode.");
+                    } else {
+                        String bumpedContent = parentEdge
+                                ? PomRewriter.updateParentVersion(content,
+                                        up.groupId(), up.artifactId(), latest)
+                                : PomRewriter.updateProperty(content,
+                                        property, latest);
+                        File sandbox = new File(
+                                System.getProperty("java.io.tmpdir"),
+                                "ike-verify-" + gitRoot.getName()
+                                        + "-" + up.artifactId()
+                                        + "-v" + latest);
+                        boolean verified = verifyUpstreamBump(gitRoot,
+                                sandbox, bumpedContent);
+                        if (verified) {
+                            ctx.log().info("    ✓ " + up.ga()
+                                    + " bump verified — consumer still builds"
+                                    + " with " + latest + ".");
+                            ctx.log().info("    Pin not auto-updated (policy=verify"
+                                    + " is hand-gated). To integrate: change "
+                                    + policyKey + " to `integrate`, or apply"
+                                    + " manually with mvn versions:set-property"
+                                    + " -Dproperty=" + property + " -DnewVersion="
+                                    + latest);
+                        } else {
+                            ctx.log().warn("    ✗ " + up.ga()
+                                    + " bump FAILED verify — see sandbox log."
+                                    + " Investigation required before integration.");
+                        }
+                    }
                     yield false;
                 }
                 case PROPOSE -> {
@@ -599,6 +625,86 @@ public final class ReleasePrep {
         ReleaseSupport.exec(gitRoot, ctx.log(), "git", "add", "pom.xml");
         ReleaseSupport.exec(gitRoot, ctx.log(), "git", "commit", "-m",
                 "release: align upstream cascade versions");
+    }
+
+    /**
+     * Runs {@code mvn verify} against the consumer with a hypothetical
+     * upstream-pin bump applied, in a {@code git worktree} sandbox
+     * that doesn't disturb the release worktree.
+     *
+     * <p>The sandbox lives under {@code java.io.tmpdir} for the
+     * duration of the verify, then is removed via
+     * {@code git worktree remove --force}. The shared {@code .git/}
+     * directory means the sandbox carries no history-copy cost; it
+     * is just a parallel working tree at the same HEAD with the
+     * proposed POM applied.
+     *
+     * <p>The mvnw inherited into the sandbox is the same script the
+     * release-flow itself uses, so the verify exercises the consumer's
+     * exact Maven toolchain. Output streams through the shared logger
+     * so the operator sees verify progress in real time.
+     *
+     * <p>Best-effort cleanup: a stale sandbox from an interrupted
+     * prior run is removed before the new worktree is added; if the
+     * final remove fails, the operator can clean up with
+     * {@code git worktree remove --force <path>}.
+     *
+     * @param gitRoot       project working tree (used for the
+     *                      {@code git worktree} subcommands)
+     * @param sandbox       desired sandbox directory (absolute; must
+     *                      not already be a worktree of this repo)
+     * @param bumpedContent the POM content with the upstream pin advanced
+     * @return {@code true} when {@code mvn verify} exits zero,
+     *         {@code false} otherwise
+     */
+    private boolean verifyUpstreamBump(File gitRoot, File sandbox,
+                                       String bumpedContent) {
+        // Remove any stale sandbox from a prior interrupted run.
+        if (sandbox.exists()) {
+            try {
+                ReleaseSupport.exec(gitRoot, ctx.log(),
+                        "git", "worktree", "remove", "--force",
+                        sandbox.getAbsolutePath());
+            } catch (RuntimeException ignored) {
+                // Not a registered worktree — try a plain remove.
+            }
+        }
+        try {
+            ReleaseSupport.exec(gitRoot, ctx.log(),
+                    "git", "worktree", "add", sandbox.getAbsolutePath(), "HEAD");
+        } catch (RuntimeException e) {
+            ctx.log().warn("    Could not create verify sandbox at "
+                    + sandbox + ": " + e.getMessage());
+            return false;
+        }
+        try {
+            Files.writeString(
+                    new File(sandbox, "pom.xml").toPath(),
+                    bumpedContent, StandardCharsets.UTF_8);
+            File sandboxMvnw = new File(sandbox, "mvnw");
+            ctx.log().info("    Running `mvnw verify` in sandbox: " + sandbox);
+            ReleaseSupport.exec(sandbox, ctx.log(),
+                    sandboxMvnw.getAbsolutePath(), "verify", "-B");
+            return true;
+        } catch (IOException e) {
+            ctx.log().warn("    Could not write bumped POM to sandbox: "
+                    + e.getMessage());
+            return false;
+        } catch (RuntimeException e) {
+            // mvn verify subprocess failed — message already streamed.
+            return false;
+        } finally {
+            try {
+                ReleaseSupport.exec(gitRoot, ctx.log(),
+                        "git", "worktree", "remove", "--force",
+                        sandbox.getAbsolutePath());
+            } catch (RuntimeException e) {
+                ctx.log().warn("    Could not remove verify sandbox at "
+                        + sandbox + ": " + e.getMessage()
+                        + " — clean up manually with"
+                        + " `git worktree remove --force " + sandbox + "`.");
+            }
+        }
     }
 
     /**
