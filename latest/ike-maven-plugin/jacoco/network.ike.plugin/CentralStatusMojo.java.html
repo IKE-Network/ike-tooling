@@ -19,7 +19,7 @@ import java.util.List;
  *
  * &lt;p&gt;Walks the sentinel directory ({@code ~/.cache/ike-release/}
  * by default) and prints one line per recorded deploy with state,
- * attempts, elapsed time, and the log-file path. Exits non-zero
+ * retry cycles, elapsed time, and the log-file path. Exits non-zero
  * when any sentinel is in {@link CentralDeploySentinel.State#FAILURE}
  * — so a shell pipeline can branch on it — but treats
  * {@link CentralDeploySentinel.State#PENDING} as informational
@@ -96,28 +96,31 @@ public class CentralStatusMojo implements Mojo {
 <span class="nc bnc" id="L96" title="All 2 branches missed.">                    &amp;&amp; s.lastError() != null) {</span>
 <span class="nc" id="L97">                getLog().info(&quot;      error: &quot; + s.lastError());</span>
             }
-<span class="nc bnc" id="L99" title="All 2 branches missed.">            if (s.logFile() != null) {</span>
-<span class="nc" id="L100">                getLog().info(&quot;      log:   &quot; + s.logFile());</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">            if (s.note() != null) {</span>
+<span class="nc" id="L100">                getLog().info(&quot;      note:  &quot; + s.note());</span>
             }
-<span class="nc" id="L102">        }</span>
-<span class="nc" id="L103">        getLog().info(&quot;Total: &quot; + sentinels.size()</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">            if (s.logFile() != null) {</span>
+<span class="nc" id="L103">                getLog().info(&quot;      log:   &quot; + s.logFile());</span>
+            }
+<span class="nc" id="L105">        }</span>
+<span class="nc" id="L106">        getLog().info(&quot;Total: &quot; + sentinels.size()</span>
                 + &quot; (&quot; + pending + &quot; pending, &quot;
                 + succeeded + &quot; succeeded, &quot;
                 + failed + &quot; failed)&quot;);
 
-<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (failed &gt; 0) {</span>
-<span class="nc" id="L109">            throw new MojoException(failed</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        if (failed &gt; 0) {</span>
+<span class="nc" id="L112">            throw new MojoException(failed</span>
                     + &quot; Central deploy(s) in FAILURE state — &quot;
                     + &quot;see error/log entries above. To retry one: &quot;
                     + &quot;check out the v&lt;version&gt; tag and run &quot;
                     + &quot;`mvn jreleaser:deploy`.&quot;);
         }
-<span class="nc bnc" id="L115" title="All 4 branches missed.">        if (failOnPending &amp;&amp; pending &gt; 0) {</span>
-<span class="nc" id="L116">            throw new MojoException(pending</span>
+<span class="nc bnc" id="L118" title="All 4 branches missed.">        if (failOnPending &amp;&amp; pending &gt; 0) {</span>
+<span class="nc" id="L119">            throw new MojoException(pending</span>
                     + &quot; Central deploy(s) still PENDING and &quot;
                     + &quot;ike.central.failOnPending=true.&quot;);
         }
-<span class="nc" id="L120">    }</span>
+<span class="nc" id="L123">    }</span>
 
     /**
      * Format a one-line status row for the report.
@@ -127,26 +130,26 @@ public class CentralStatusMojo implements Mojo {
      * @return the formatted row
      */
     static String formatRow(CentralDeploySentinel s, Instant now) {
-<span class="fc bfc" id="L130" title="All 3 branches covered.">        String icon = switch (s.state()) {</span>
-<span class="fc" id="L131">            case PENDING -&gt; &quot;⏳&quot;;</span>
-<span class="fc" id="L132">            case SUCCESS -&gt; &quot;✅&quot;;</span>
-<span class="fc" id="L133">            case FAILURE -&gt; &quot;❌&quot;;</span>
+<span class="fc bfc" id="L133" title="All 3 branches covered.">        String icon = switch (s.state()) {</span>
+<span class="fc" id="L134">            case PENDING -&gt; &quot;⏳&quot;;</span>
+<span class="fc" id="L135">            case SUCCESS -&gt; &quot;✅&quot;;</span>
+<span class="fc" id="L136">            case FAILURE -&gt; &quot;❌&quot;;</span>
         };
-<span class="fc" id="L135">        String coord = s.artifactId() + &quot;-&quot; + s.version();</span>
-<span class="fc" id="L136">        String attempts = s.attempts() + &quot;/&quot; + s.maxAttempts();</span>
+<span class="fc" id="L138">        String coord = s.artifactId() + &quot;-&quot; + s.version();</span>
+<span class="fc" id="L139">        String cycles = s.attempts() + &quot;/&quot; + s.maxAttempts();</span>
         String elapsed;
-<span class="fc bfc" id="L138" title="All 2 branches covered.">        if (s.state() == CentralDeploySentinel.State.PENDING) {</span>
-<span class="fc" id="L139">            elapsed = &quot;running for &quot;</span>
-<span class="fc" id="L140">                    + formatDuration(Duration.between(s.started(), now));</span>
-<span class="pc bpc" id="L141" title="1 of 2 branches missed.">        } else if (s.finished() != null) {</span>
-<span class="fc" id="L142">            elapsed = &quot;took &quot;</span>
-<span class="fc" id="L143">                    + formatDuration(Duration.between(</span>
-<span class="fc" id="L144">                            s.started(), s.finished()));</span>
+<span class="fc bfc" id="L141" title="All 2 branches covered.">        if (s.state() == CentralDeploySentinel.State.PENDING) {</span>
+<span class="fc" id="L142">            elapsed = &quot;running for &quot;</span>
+<span class="fc" id="L143">                    + formatDuration(Duration.between(s.started(), now));</span>
+<span class="pc bpc" id="L144" title="1 of 2 branches missed.">        } else if (s.finished() != null) {</span>
+<span class="fc" id="L145">            elapsed = &quot;took &quot;</span>
+<span class="fc" id="L146">                    + formatDuration(Duration.between(</span>
+<span class="fc" id="L147">                            s.started(), s.finished()));</span>
         } else {
-<span class="nc" id="L146">            elapsed = &quot;(no finish time)&quot;;</span>
+<span class="nc" id="L149">            elapsed = &quot;(no finish time)&quot;;</span>
         }
-<span class="fc" id="L148">        return String.format(&quot;%s %-40s %-8s attempt %s, %s&quot;,</span>
-<span class="fc" id="L149">                icon, coord, s.state(), attempts, elapsed);</span>
+<span class="fc" id="L151">        return String.format(&quot;%s %-40s %-8s cycle %s, %s&quot;,</span>
+<span class="fc" id="L152">                icon, coord, s.state(), cycles, elapsed);</span>
     }
 
     /**
@@ -158,10 +161,10 @@ public class CentralStatusMojo implements Mojo {
      * @return compact string
      */
     static String formatDuration(Duration d) {
-<span class="fc" id="L161">        long s = d.toSeconds();</span>
-<span class="fc bfc" id="L162" title="All 2 branches covered.">        if (s &lt; 60) return s + &quot;s&quot;;</span>
-<span class="fc bfc" id="L163" title="All 2 branches covered.">        if (s &lt; 3600) return (s / 60) + &quot;m&quot; + String.format(&quot;%02ds&quot;, s % 60);</span>
-<span class="fc" id="L164">        return (s / 3600) + &quot;h&quot; + String.format(&quot;%02dm&quot;, (s % 3600) / 60);</span>
+<span class="fc" id="L164">        long s = d.toSeconds();</span>
+<span class="fc bfc" id="L165" title="All 2 branches covered.">        if (s &lt; 60) return s + &quot;s&quot;;</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">        if (s &lt; 3600) return (s / 60) + &quot;m&quot; + String.format(&quot;%02ds&quot;, s % 60);</span>
+<span class="fc" id="L167">        return (s / 3600) + &quot;h&quot; + String.format(&quot;%02dm&quot;, (s % 3600) / 60);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

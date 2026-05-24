@@ -5,6 +5,8 @@ import org.openrewrite.xml.XmlParser;
 import org.openrewrite.xml.XmlVisitor;
 import org.openrewrite.xml.tree.Xml;
 
+import java.util.Optional;
+
 /**
  * AST-aware POM manipulation using OpenRewrite's XML LST.
  *
@@ -30,7 +32,7 @@ public final class PomRewriter {
 
     private PomRewriter() {}
 
-<span class="nc" id="L33">    private static final XmlParser PARSER = new XmlParser();</span>
+<span class="fc" id="L35">    private static final XmlParser PARSER = new XmlParser();</span>
 
     /**
      * Update the version of a specific dependency identified by
@@ -47,25 +49,69 @@ public final class PomRewriter {
                                                   String groupId,
                                                   String artifactId,
                                                   String newVersion) {
-<span class="nc" id="L50">        Xml.Document doc = parse(pomContent);</span>
-<span class="nc bnc" id="L51" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
+<span class="nc" id="L52">        Xml.Document doc = parse(pomContent);</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
 
-<span class="nc" id="L53">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
+<span class="nc" id="L55">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
             @Override
             public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
-<span class="nc" id="L56">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
-<span class="nc bnc" id="L57" title="All 2 branches missed.">                if (!&quot;dependency&quot;.equals(t.getName())) return t;</span>
+<span class="nc" id="L58">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">                if (!&quot;dependency&quot;.equals(t.getName())) return t;</span>
 
-<span class="nc" id="L59">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
-<span class="nc" id="L60">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
-<span class="nc bnc" id="L61" title="All 4 branches missed.">                if (groupId.equals(gid) &amp;&amp; artifactId.equals(aid)) {</span>
-<span class="nc" id="L62">                    return t.withChildValue(&quot;version&quot;, newVersion);</span>
+<span class="nc" id="L61">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
+<span class="nc" id="L62">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
+<span class="nc bnc" id="L63" title="All 4 branches missed.">                if (groupId.equals(gid) &amp;&amp; artifactId.equals(aid)) {</span>
+<span class="nc" id="L64">                    return t.withChildValue(&quot;version&quot;, newVersion);</span>
                 }
-<span class="nc" id="L64">                return t;</span>
+<span class="nc" id="L66">                return t;</span>
             }
-<span class="nc" id="L66">        }.visitNonNull(doc, 0);</span>
+<span class="nc" id="L68">        }.visitNonNull(doc, 0);</span>
 
-<span class="nc" id="L68">        return print(updated);</span>
+<span class="nc" id="L70">        return print(updated);</span>
+    }
+
+    /**
+     * Read the version of the POM's {@code &lt;parent&gt;} block when its
+     * coordinates match {@code parentGroupId:parentArtifactId}.
+     *
+     * &lt;p&gt;Companion read to {@link #updateParentVersion}: the cascade
+     * alignment path uses this to inspect the current parent version
+     * before deciding whether (and to what) to bump it. Returns the
+     * version text exactly as it appears in the POM — a literal, an
+     * unresolved {@code ${...}} reference, whatever is declared.
+     *
+     * @param pomContent       the raw POM text
+     * @param parentGroupId    the parent groupId to match (required)
+     * @param parentArtifactId the parent artifactId to match (required)
+     * @return the parent's declared version, or empty when the POM
+     *         has no {@code &lt;parent&gt;} block matching those
+     *         coordinates
+     */
+    public static Optional&lt;String&gt; readParentVersion(String pomContent,
+                                                      String parentGroupId,
+                                                      String parentArtifactId) {
+<span class="fc" id="L93">        Xml.Document doc = parse(pomContent);</span>
+<span class="pc bpc" id="L94" title="1 of 2 branches missed.">        if (doc == null) {</span>
+<span class="nc" id="L95">            return Optional.empty();</span>
+        }
+<span class="fc" id="L97">        String[] found = {null};</span>
+<span class="fc" id="L98">        new XmlVisitor&lt;Integer&gt;() {</span>
+            @Override
+            public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
+<span class="fc" id="L101">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="fc bfc" id="L102" title="All 2 branches covered.">                if (!&quot;parent&quot;.equals(t.getName())) {</span>
+<span class="fc" id="L103">                    return t;</span>
+                }
+<span class="fc" id="L105">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
+<span class="fc" id="L106">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">                if (parentGroupId.equals(gid)</span>
+<span class="fc bfc" id="L108" title="All 2 branches covered.">                        &amp;&amp; parentArtifactId.equals(aid)) {</span>
+<span class="fc" id="L109">                    found[0] = t.getChildValue(&quot;version&quot;).orElse(null);</span>
+                }
+<span class="fc" id="L111">                return t;</span>
+            }
+<span class="fc" id="L113">        }.visitNonNull(doc, 0);</span>
+<span class="fc" id="L114">        return Optional.ofNullable(found[0]);</span>
     }
 
     /**
@@ -88,26 +134,26 @@ public final class PomRewriter {
                                               String parentGroupId,
                                               String parentArtifactId,
                                               String newVersion) {
-<span class="nc" id="L91">        Xml.Document doc = parse(pomContent);</span>
-<span class="nc bnc" id="L92" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
+<span class="fc" id="L137">        Xml.Document doc = parse(pomContent);</span>
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">        if (doc == null) return pomContent;</span>
 
-<span class="nc" id="L94">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
+<span class="fc" id="L140">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
             @Override
             public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
-<span class="nc" id="L97">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
-<span class="nc bnc" id="L98" title="All 2 branches missed.">                if (!&quot;parent&quot;.equals(t.getName())) return t;</span>
+<span class="fc" id="L143">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="fc bfc" id="L144" title="All 2 branches covered.">                if (!&quot;parent&quot;.equals(t.getName())) return t;</span>
 
-<span class="nc" id="L100">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
-<span class="nc" id="L101">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
-<span class="nc bnc" id="L102" title="All 2 branches missed.">                if (parentGroupId.equals(gid)</span>
-<span class="nc bnc" id="L103" title="All 2 branches missed.">                        &amp;&amp; parentArtifactId.equals(aid)) {</span>
-<span class="nc" id="L104">                    return t.withChildValue(&quot;version&quot;, newVersion);</span>
+<span class="fc" id="L146">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
+<span class="fc" id="L147">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
+<span class="pc bpc" id="L148" title="1 of 2 branches missed.">                if (parentGroupId.equals(gid)</span>
+<span class="pc bpc" id="L149" title="1 of 2 branches missed.">                        &amp;&amp; parentArtifactId.equals(aid)) {</span>
+<span class="fc" id="L150">                    return t.withChildValue(&quot;version&quot;, newVersion);</span>
                 }
-<span class="nc" id="L106">                return t;</span>
+<span class="nc" id="L152">                return t;</span>
             }
-<span class="nc" id="L108">        }.visitNonNull(doc, 0);</span>
+<span class="fc" id="L154">        }.visitNonNull(doc, 0);</span>
 
-<span class="nc" id="L110">        return print(updated);</span>
+<span class="fc" id="L156">        return print(updated);</span>
     }
 
     /**
@@ -122,23 +168,23 @@ public final class PomRewriter {
     public static String updateProperty(String pomContent,
                                          String propertyName,
                                          String newValue) {
-<span class="nc" id="L125">        Xml.Document doc = parse(pomContent);</span>
-<span class="nc bnc" id="L126" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
+<span class="nc" id="L171">        Xml.Document doc = parse(pomContent);</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
 
-<span class="nc" id="L128">        XPathMatcher propertiesMatcher = new XPathMatcher(</span>
+<span class="nc" id="L174">        XPathMatcher propertiesMatcher = new XPathMatcher(</span>
                 &quot;/project/properties/&quot; + propertyName);
-<span class="nc" id="L130">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
+<span class="nc" id="L176">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
             @Override
             public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
-<span class="nc" id="L133">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
-<span class="nc bnc" id="L134" title="All 2 branches missed.">                if (propertiesMatcher.matches(getCursor())) {</span>
-<span class="nc" id="L135">                    return t.withValue(newValue);</span>
+<span class="nc" id="L179">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">                if (propertiesMatcher.matches(getCursor())) {</span>
+<span class="nc" id="L181">                    return t.withValue(newValue);</span>
                 }
-<span class="nc" id="L137">                return t;</span>
+<span class="nc" id="L183">                return t;</span>
             }
-<span class="nc" id="L139">        }.visitNonNull(doc, 0);</span>
+<span class="nc" id="L185">        }.visitNonNull(doc, 0);</span>
 
-<span class="nc" id="L141">        return print(updated);</span>
+<span class="nc" id="L187">        return print(updated);</span>
     }
 
     /**
@@ -156,25 +202,25 @@ public final class PomRewriter {
                                               String groupId,
                                               String artifactId,
                                               String newVersion) {
-<span class="nc" id="L159">        Xml.Document doc = parse(pomContent);</span>
-<span class="nc bnc" id="L160" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
+<span class="nc" id="L205">        Xml.Document doc = parse(pomContent);</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
 
-<span class="nc" id="L162">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
+<span class="nc" id="L208">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
             @Override
             public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
-<span class="nc" id="L165">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
-<span class="nc bnc" id="L166" title="All 2 branches missed.">                if (!&quot;plugin&quot;.equals(t.getName())) return t;</span>
+<span class="nc" id="L211">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">                if (!&quot;plugin&quot;.equals(t.getName())) return t;</span>
 
-<span class="nc" id="L168">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
-<span class="nc" id="L169">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
-<span class="nc bnc" id="L170" title="All 4 branches missed.">                if (groupId.equals(gid) &amp;&amp; artifactId.equals(aid)) {</span>
-<span class="nc" id="L171">                    return t.withChildValue(&quot;version&quot;, newVersion);</span>
+<span class="nc" id="L214">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
+<span class="nc" id="L215">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
+<span class="nc bnc" id="L216" title="All 4 branches missed.">                if (groupId.equals(gid) &amp;&amp; artifactId.equals(aid)) {</span>
+<span class="nc" id="L217">                    return t.withChildValue(&quot;version&quot;, newVersion);</span>
                 }
-<span class="nc" id="L173">                return t;</span>
+<span class="nc" id="L219">                return t;</span>
             }
-<span class="nc" id="L175">        }.visitNonNull(doc, 0);</span>
+<span class="nc" id="L221">        }.visitNonNull(doc, 0);</span>
 
-<span class="nc" id="L177">        return print(updated);</span>
+<span class="nc" id="L223">        return print(updated);</span>
     }
 
     /**
@@ -190,31 +236,31 @@ public final class PomRewriter {
     public static String removeDependencyVersion(String pomContent,
                                                   String groupId,
                                                   String artifactId) {
-<span class="nc" id="L193">        Xml.Document doc = parse(pomContent);</span>
-<span class="nc bnc" id="L194" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
+<span class="nc" id="L239">        Xml.Document doc = parse(pomContent);</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
 
-<span class="nc" id="L196">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
+<span class="nc" id="L242">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
             @Override
             public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
-<span class="nc" id="L199">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
-<span class="nc bnc" id="L200" title="All 2 branches missed.">                if (!&quot;dependency&quot;.equals(t.getName())) return t;</span>
+<span class="nc" id="L245">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                if (!&quot;dependency&quot;.equals(t.getName())) return t;</span>
 
-<span class="nc" id="L202">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
-<span class="nc" id="L203">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
-<span class="nc bnc" id="L204" title="All 4 branches missed.">                if (groupId.equals(gid) &amp;&amp; artifactId.equals(aid)</span>
-<span class="nc bnc" id="L205" title="All 2 branches missed.">                        &amp;&amp; t.getChild(&quot;version&quot;).isPresent()) {</span>
+<span class="nc" id="L248">                String gid = t.getChildValue(&quot;groupId&quot;).orElse(null);</span>
+<span class="nc" id="L249">                String aid = t.getChildValue(&quot;artifactId&quot;).orElse(null);</span>
+<span class="nc bnc" id="L250" title="All 4 branches missed.">                if (groupId.equals(gid) &amp;&amp; artifactId.equals(aid)</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">                        &amp;&amp; t.getChild(&quot;version&quot;).isPresent()) {</span>
                     // Filter out the &lt;version&gt; element from content
-<span class="nc" id="L207">                    var filtered = t.getContent().stream()</span>
-<span class="nc" id="L208">                            .filter(c -&gt; !(c instanceof Xml.Tag child</span>
-<span class="nc bnc" id="L209" title="All 6 branches missed.">                                    &amp;&amp; &quot;version&quot;.equals(child.getName())))</span>
-<span class="nc" id="L210">                            .toList();</span>
-<span class="nc" id="L211">                    return t.withContent(filtered);</span>
+<span class="nc" id="L253">                    var filtered = t.getContent().stream()</span>
+<span class="nc" id="L254">                            .filter(c -&gt; !(c instanceof Xml.Tag child</span>
+<span class="nc bnc" id="L255" title="All 6 branches missed.">                                    &amp;&amp; &quot;version&quot;.equals(child.getName())))</span>
+<span class="nc" id="L256">                            .toList();</span>
+<span class="nc" id="L257">                    return t.withContent(filtered);</span>
                 }
-<span class="nc" id="L213">                return t;</span>
+<span class="nc" id="L259">                return t;</span>
             }
-<span class="nc" id="L215">        }.visitNonNull(doc, 0);</span>
+<span class="nc" id="L261">        }.visitNonNull(doc, 0);</span>
 
-<span class="nc" id="L217">        return print(updated);</span>
+<span class="nc" id="L263">        return print(updated);</span>
     }
 
     /**
@@ -224,10 +270,10 @@ public final class PomRewriter {
      * @return parsed document, or {@code null} if parsing failed
      */
     private static Xml.Document parse(String pomContent) {
-<span class="nc" id="L227">        return PARSER.parse(pomContent)</span>
-<span class="nc" id="L228">                .findFirst()</span>
-<span class="nc" id="L229">                .map(t -&gt; (Xml.Document) t)</span>
-<span class="nc" id="L230">                .orElse(null);</span>
+<span class="fc" id="L273">        return PARSER.parse(pomContent)</span>
+<span class="fc" id="L274">                .findFirst()</span>
+<span class="fc" id="L275">                .map(t -&gt; (Xml.Document) t)</span>
+<span class="fc" id="L276">                .orElse(null);</span>
     }
 
     /**
@@ -237,7 +283,7 @@ public final class PomRewriter {
      * @return the document's textual form
      */
     private static String print(Xml.Document doc) {
-<span class="nc" id="L240">        return doc.printAll();</span>
+<span class="fc" id="L286">        return doc.printAll();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

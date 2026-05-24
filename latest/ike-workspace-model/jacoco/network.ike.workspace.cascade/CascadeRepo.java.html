@@ -4,79 +4,168 @@ import java.util.List;
 
 /**
  * One node in the assembled IKE release cascade graph
- * (IKE-Network/ike-issues#402, #420).
+ * (IKE-Network/ike-issues#402, #420, #496).
  *
  * &lt;p&gt;A node pairs a project's identity — its reactor-root Maven
- * coordinates and repository locators — with the {@link ProjectCascade}
- * parsed from that project's own {@code src/main/cascade/release-cascade.yaml}.
- * Nodes are produced only by {@link CascadeAssembler}, which traverses
- * the per-project manifests and stitches them into a single ordered
+ * {@link MavenCoordinate} and repository locators — with the
+ * {@link ProjectCascade} parsed from that project's own
+ * {@code src/main/cascade/release-cascade.yaml}. Nodes are produced
+ * only by {@link CascadeAssembler}, which traverses the per-project
+ * manifests and stitches them into a single ordered
  * {@link ReleaseCascade}.
  *
- * &lt;p&gt;Identity is keyed off the Maven {@code groupId} +
- * {@code artifactId}. The {@code repo} and {@code url} fields are pure
- * locators — the on-disk directory and the canonical git URL the
+ * &lt;p&gt;Two identities live on the node. The {@link #coordinate} names
+ * &lt;em&gt;the coordinate the assembler started from&lt;/em&gt; for this node —
+ * the entry-point used to find the node's {@link ProjectCascade}.
+ * The {@link #repositoryKey} names &lt;em&gt;the repository&lt;/em&gt; the
+ * coordinate belongs to (the {@code &lt;scm&gt;}-derived join key), and is
+ * the durable node identity once #496 part D collapses self-edges
+ * and coordinate aliases onto the repository. {@code repositoryKey}
+ * may be {@code null} on nodes assembled without a
+ * {@link RepositoryKeyResolver} — older assemblies and tests are
+ * unaffected.
+ *
+ * &lt;p&gt;The {@code repo} and {@code url} fields are pure locators —
+ * the on-disk directory name and the canonical upstream git URL the
  * cascade executor uses to reach the project.
  *
- * @param groupId    the project's reactor-root Maven {@code groupId};
- *                   the primary identity key
- * @param artifactId the project's reactor-root Maven {@code artifactId}
- * @param repo       the on-disk directory / GitHub repo name
- * @param url        the canonical upstream git URL, or {@code null}
- *                   when unknown
- * @param cascade    the project's own parsed {@code release-cascade.yaml}
+ * @param coordinate    the project's reactor-root coordinate
+ * @param repo          the on-disk directory / GitHub repo name
+ * @param url           the canonical upstream git URL, or
+ *                      {@code null} when unknown
+ * @param repositoryKey the {@code &lt;scm&gt;}-derived repository
+ *                      identity; {@code null} when the assembler had
+ *                      no {@link RepositoryKeyResolver}
+ * @param cascade       the project's own parsed
+ *                      {@code release-cascade.yaml}
  */
-public record CascadeRepo(String groupId, String artifactId,
+public record CascadeRepo(MavenCoordinate coordinate,
                            String repo, String url,
+                           RepositoryKey repositoryKey,
                            ProjectCascade cascade) {
 
     /**
-     * Canonical constructor — validates the identity coordinates and
-     * the embedded {@link ProjectCascade}.
+     * Canonical constructor — validates the coordinate and the
+     * embedded {@link ProjectCascade}, and defaults {@code repo}
+     * to the artifactId when blank.
      */
-<span class="fc" id="L37">    public CascadeRepo {</span>
-<span class="pc bpc" id="L38" title="2 of 4 branches missed.">        if (groupId == null || groupId.isBlank()) {</span>
-<span class="nc" id="L39">            throw new IllegalArgumentException(</span>
-                    &quot;cascade node requires a groupId&quot;);
+<span class="fc" id="L52">    public CascadeRepo {</span>
+<span class="pc bpc" id="L53" title="1 of 2 branches missed.">        if (coordinate == null) {</span>
+<span class="nc" id="L54">            throw new IllegalArgumentException(</span>
+                    &quot;cascade node requires a MavenCoordinate&quot;);
         }
-<span class="pc bpc" id="L42" title="2 of 4 branches missed.">        if (artifactId == null || artifactId.isBlank()) {</span>
-<span class="nc" id="L43">            throw new IllegalArgumentException(</span>
-                    &quot;cascade node requires an artifactId&quot;);
+<span class="pc bpc" id="L57" title="2 of 4 branches missed.">        if (repo == null || repo.isBlank()) {</span>
+<span class="nc" id="L58">            repo = coordinate.artifactId();</span>
         }
-<span class="pc bpc" id="L46" title="2 of 4 branches missed.">        if (repo == null || repo.isBlank()) {</span>
-<span class="nc" id="L47">            repo = artifactId;</span>
-        }
-<span class="pc bpc" id="L49" title="1 of 2 branches missed.">        if (cascade == null) {</span>
-<span class="nc" id="L50">            throw new IllegalArgumentException(</span>
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">        if (cascade == null) {</span>
+<span class="nc" id="L61">            throw new IllegalArgumentException(</span>
                     &quot;cascade node requires a ProjectCascade&quot;);
         }
-<span class="fc" id="L53">    }</span>
+<span class="fc" id="L64">    }</span>
 
     /**
-     * Returns the {@code groupId:artifactId} coordinate string.
+     * Convenience constructor for callers that have no
+     * {@link RepositoryKey} yet — older assemblies and tests. The
+     * {@code repositoryKey} field is set to {@code null}.
      *
-     * @return the GA coordinate, e.g. {@code network.ike.tooling:ike-tooling}
+     * @param coordinate the project's coordinate
+     * @param repo       the on-disk directory / GitHub repo name
+     * @param url        the canonical upstream git URL, or
+     *                   {@code null}
+     * @param cascade    the project's parsed manifest
+     */
+    public CascadeRepo(MavenCoordinate coordinate,
+                       String repo, String url,
+                       ProjectCascade cascade) {
+<span class="nc" id="L80">        this(coordinate, repo, url, null, cascade);</span>
+<span class="nc" id="L81">    }</span>
+
+    /**
+     * Convenience constructor accepting raw {@code groupId} /
+     * {@code artifactId} strings. Wraps them into a
+     * {@link MavenCoordinate}.
+     *
+     * @param groupId    the Maven {@code groupId}
+     * @param artifactId the Maven {@code artifactId}
+     * @param repo       the on-disk directory / GitHub repo name
+     * @param url        the canonical upstream git URL
+     * @param cascade    the project's parsed manifest
+     */
+    public CascadeRepo(String groupId, String artifactId,
+                       String repo, String url,
+                       ProjectCascade cascade) {
+<span class="fc" id="L97">        this(new MavenCoordinate(groupId, artifactId),</span>
+                repo, url, null, cascade);
+<span class="fc" id="L99">    }</span>
+
+    /**
+     * Convenience constructor accepting raw {@code groupId} /
+     * {@code artifactId} strings plus a {@link RepositoryKey}.
+     *
+     * @param groupId       the Maven {@code groupId}
+     * @param artifactId    the Maven {@code artifactId}
+     * @param repo          the on-disk directory / GitHub repo name
+     * @param url           the canonical upstream git URL
+     * @param repositoryKey the repository identity, or {@code null}
+     * @param cascade       the project's parsed manifest
+     */
+    public CascadeRepo(String groupId, String artifactId,
+                       String repo, String url,
+                       RepositoryKey repositoryKey,
+                       ProjectCascade cascade) {
+<span class="nc" id="L116">        this(new MavenCoordinate(groupId, artifactId),</span>
+                repo, url, repositoryKey, cascade);
+<span class="nc" id="L118">    }</span>
+
+    /**
+     * Returns the coordinate's {@code groupId}. Delegates to
+     * {@link MavenCoordinate#groupId()} for compatibility with the
+     * pre-record API.
+     *
+     * @return the {@code groupId}
+     */
+    public String groupId() {
+<span class="fc" id="L128">        return coordinate.groupId();</span>
+    }
+
+    /**
+     * Returns the coordinate's {@code artifactId}. Delegates to
+     * {@link MavenCoordinate#artifactId()} for compatibility with
+     * the pre-record API.
+     *
+     * @return the {@code artifactId}
+     */
+    public String artifactId() {
+<span class="fc" id="L139">        return coordinate.artifactId();</span>
+    }
+
+    /**
+     * Returns the {@code &quot;groupId:artifactId&quot;} display form.
+     *
+     * @return the {@code G:A} string
      */
     public String ga() {
-<span class="fc" id="L61">        return groupId + &quot;:&quot; + artifactId;</span>
+<span class="fc" id="L148">        return coordinate.ga();</span>
     }
 
     /**
      * The upstream edges — the projects this one consumes.
      *
-     * @return this project's {@code upstream} edges; never {@code null}
+     * @return this project's {@code upstream} edges; never
+     *         {@code null}
      */
     public List&lt;CascadeEdge&gt; upstream() {
-<span class="fc" id="L70">        return cascade.upstream();</span>
+<span class="fc" id="L158">        return cascade.upstream();</span>
     }
 
     /**
      * The downstream edges — the projects that consume this one.
      *
-     * @return this project's {@code downstream} edges; never {@code null}
+     * @return this project's {@code downstream} edges; never
+     *         {@code null}
      */
     public List&lt;CascadeEdge&gt; downstream() {
-<span class="fc" id="L79">        return cascade.downstream();</span>
+<span class="fc" id="L168">        return cascade.downstream();</span>
     }
 
     /**
@@ -86,8 +175,8 @@ public record CascadeRepo(String groupId, String artifactId,
      * @return the upstream groupIds; never {@code null}
      */
     public List&lt;String&gt; consumes() {
-<span class="fc" id="L89">        return cascade.upstream().stream()</span>
-<span class="fc" id="L90">                .map(CascadeEdge::groupId).toList();</span>
+<span class="fc" id="L178">        return cascade.upstream().stream()</span>
+<span class="fc" id="L179">                .map(CascadeEdge::groupId).toList();</span>
     }
 
     /**
@@ -96,7 +185,7 @@ public record CascadeRepo(String groupId, String artifactId,
      * @return {@code true} if it declares no upstream edge
      */
     public boolean head() {
-<span class="fc" id="L99">        return cascade.head();</span>
+<span class="fc" id="L188">        return cascade.head();</span>
     }
 
     /**
@@ -105,7 +194,7 @@ public record CascadeRepo(String groupId, String artifactId,
      * @return {@code true} if it declares no downstream edge
      */
     public boolean terminal() {
-<span class="fc" id="L108">        return cascade.terminal();</span>
+<span class="fc" id="L197">        return cascade.terminal();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
