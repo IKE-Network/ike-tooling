@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MavenCoordinate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">MavenCoordinate.java</span></div><h1>MavenCoordinate.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import java.util.Optional;
+
+/**
+ * A Maven {@code groupId:artifactId} coordinate — the canonical
+ * value type for &quot;which artifact&quot; across the cascade model.
+ *
+ * &lt;p&gt;Replaces the long-standing {@code (String groupId, String artifactId)}
+ * idiom that the cascade code carried since the YAML-manifest era.
+ * Treating the pair as a record gives the compiler what convention
+ * could not: argument-order checking
+ * ({@code resolve(artifactId, groupId)} no longer silently compiles),
+ * single-parameter signatures wherever a coordinate was passed, and
+ * a free {@link Object#equals(Object)} / {@link Object#hashCode()}
+ * so {@code Map&lt;MavenCoordinate, ...&gt;} replaces the ad-hoc
+ * {@code &quot;groupId:artifactId&quot;} string keys the assembler used to
+ * build by hand.
+ *
+ * &lt;p&gt;Coordinates produce three derived strings that recur in the
+ * cascade model:
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@link #ga()} — the {@code &quot;groupId:artifactId&quot;} display form,
+ *       used in log lines and as a parse/format target for human
+ *       input.&lt;/li&gt;
+ *   &lt;li&gt;{@link #versionProperty()} — the canonical IKE version-property
+ *       name {@code groupId·artifactId} (U+00B7 MIDDLE DOT). Used by
+ *       the alignment path to locate the {@code ${G·A}} property that
+ *       pins this coordinate. See IKE-Network/ike-issues#470.&lt;/li&gt;
+ *   &lt;li&gt;{@link #toString()} — equal to {@link #ga()}, for direct use
+ *       in error messages and string concatenation.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * @param groupId    the Maven {@code groupId}; non-null and non-blank
+ * @param artifactId the Maven {@code artifactId}; non-null and non-blank
+ */
+public record MavenCoordinate(String groupId, String artifactId)
+        implements Comparable&lt;MavenCoordinate&gt; {
+
+    /**
+     * Canonical constructor — validates that both components are
+     * non-null and non-blank.
+     */
+<span class="fc" id="L44">    public MavenCoordinate {</span>
+<span class="fc bfc" id="L45" title="All 4 branches covered.">        if (groupId == null || groupId.isBlank()) {</span>
+<span class="fc" id="L46">            throw new IllegalArgumentException(</span>
+                    &quot;MavenCoordinate requires a groupId&quot;);
+        }
+<span class="fc bfc" id="L49" title="All 4 branches covered.">        if (artifactId == null || artifactId.isBlank()) {</span>
+<span class="fc" id="L50">            throw new IllegalArgumentException(</span>
+                    &quot;MavenCoordinate requires an artifactId&quot;);
+        }
+<span class="fc" id="L53">    }</span>
+
+    /**
+     * Builds a coordinate or throws. Sugar for
+     * {@link #MavenCoordinate(String, String)}.
+     *
+     * @param groupId    the Maven {@code groupId}
+     * @param artifactId the Maven {@code artifactId}
+     * @return the coordinate
+     */
+    public static MavenCoordinate of(String groupId, String artifactId) {
+<span class="fc" id="L64">        return new MavenCoordinate(groupId, artifactId);</span>
+    }
+
+    /**
+     * Builds a coordinate, or returns empty when either component is
+     * null or blank. The lenient companion to {@link #of}, useful
+     * when scanning Maven models whose {@code &lt;plugin&gt;} or
+     * {@code &lt;dependency&gt;} entries may legitimately omit
+     * {@code &lt;groupId&gt;} (the Maven default plugin group, for
+     * instance) — the deriver does not want to throw on these, it
+     * wants to skip them.
+     *
+     * @param groupId    the Maven {@code groupId}; may be {@code null}
+     *                   or blank
+     * @param artifactId the Maven {@code artifactId}; may be
+     *                   {@code null} or blank
+     * @return the coordinate, or empty when either component is
+     *         missing
+     */
+    public static Optional&lt;MavenCoordinate&gt; tryOf(String groupId,
+                                                   String artifactId) {
+<span class="fc bfc" id="L85" title="All 6 branches covered.">        if (groupId == null || groupId.isBlank()</span>
+<span class="fc bfc" id="L86" title="All 2 branches covered.">                || artifactId == null || artifactId.isBlank()) {</span>
+<span class="fc" id="L87">            return Optional.empty();</span>
+        }
+<span class="fc" id="L89">        return Optional.of(new MavenCoordinate(groupId, artifactId));</span>
+    }
+
+    /**
+     * Parses a {@code &quot;groupId:artifactId&quot;} string into a coordinate.
+     * Splits on the first colon, matching the Maven display
+     * convention.
+     *
+     * @param ga the {@code G:A} string
+     * @return the coordinate
+     * @throws IllegalArgumentException if {@code ga} contains no
+     *                                  colon or has an empty
+     *                                  component
+     */
+    public static MavenCoordinate parse(String ga) {
+<span class="fc bfc" id="L104" title="All 2 branches covered.">        if (ga == null) {</span>
+<span class="fc" id="L105">            throw new IllegalArgumentException(&quot;ga string is required&quot;);</span>
+        }
+<span class="fc" id="L107">        int colon = ga.indexOf(':');</span>
+<span class="fc bfc" id="L108" title="All 2 branches covered.">        if (colon &lt; 0) {</span>
+<span class="fc" id="L109">            throw new IllegalArgumentException(</span>
+                    &quot;not a 'groupId:artifactId' coordinate: &quot; + ga);
+        }
+<span class="fc" id="L112">        return new MavenCoordinate(</span>
+<span class="fc" id="L113">                ga.substring(0, colon), ga.substring(colon + 1));</span>
+    }
+
+    /**
+     * Returns the {@code &quot;groupId:artifactId&quot;} display form.
+     *
+     * @return the {@code G:A} string
+     */
+    public String ga() {
+<span class="fc" id="L122">        return groupId + &quot;:&quot; + artifactId;</span>
+    }
+
+    /**
+     * Returns the canonical IKE version-property name —
+     * {@code groupId·artifactId} (U+00B7 MIDDLE DOT). The
+     * alignment path uses this to locate the {@code ${G·A}}
+     * property that pins this coordinate.
+     *
+     * @return the canonical property name
+     */
+    public String versionProperty() {
+<span class="fc" id="L134">        return groupId + &quot;·&quot; + artifactId;</span>
+    }
+
+    /**
+     * Returns {@link #ga()}.
+     *
+     * @return the {@code G:A} string
+     */
+    @Override
+    public String toString() {
+<span class="fc" id="L144">        return ga();</span>
+    }
+
+    /**
+     * Natural ordering: by {@code groupId} first, then by
+     * {@code artifactId}. Lets {@code TreeMap} / {@code TreeSet}
+     * use coordinates directly and produces deterministic cascade
+     * orderings.
+     *
+     * @param other the coordinate to compare against
+     * @return negative / zero / positive per the standard contract
+     */
+    @Override
+    public int compareTo(MavenCoordinate other) {
+<span class="fc" id="L158">        int byGroup = groupId.compareTo(other.groupId);</span>
+<span class="fc bfc" id="L159" title="All 2 branches covered.">        return byGroup != 0</span>
+<span class="fc" id="L160">                ? byGroup</span>
+<span class="fc" id="L161">                : artifactId.compareTo(other.artifactId);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

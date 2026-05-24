@@ -494,112 +494,218 @@ public final class ReleasePrep {
                 }
                 case VERIFY -&gt; {
 <span class="nc" id="L496">                    ctx.log().warn(&quot;  &quot; + up.ga() + &quot; has a new release: &quot;</span>
-                            + current + &quot; → &quot; + latest
-                            + &quot; (policy=verify; pin not auto-updated).&quot;);
-<span class="nc" id="L499">                    ctx.log().warn(&quot;    Concrete verify semantics — running&quot;</span>
-                            + &quot; `mvn verify` with the hypothetical bump in a&quot;
-                            + &quot; sandbox — are pending. Treating as notify&quot;
-                            + &quot; for now (#498 follow-up).&quot;);
-<span class="nc" id="L503">                    ctx.log().warn(&quot;    Manual integration: mvn versions:set-property&quot;</span>
-                            + &quot; -Dproperty=&quot; + property + &quot; -DnewVersion=&quot; + latest);
-<span class="nc" id="L505">                    yield false;</span>
+                            + current + &quot; → &quot; + latest + &quot; (policy=verify).&quot;);
+<span class="nc bnc" id="L498" title="All 2 branches missed.">                    if (draft) {</span>
+<span class="nc" id="L499">                        ctx.log().warn(&quot;    [DRAFT] Would create a git-worktree&quot;</span>
+                                + &quot; sandbox and run `mvn verify` with the bump;&quot;
+                                + &quot; no action in draft mode.&quot;);
+                    } else {
+<span class="nc bnc" id="L503" title="All 2 branches missed.">                        String bumpedContent = parentEdge</span>
+<span class="nc" id="L504">                                ? PomRewriter.updateParentVersion(content,</span>
+<span class="nc" id="L505">                                        up.groupId(), up.artifactId(), latest)</span>
+<span class="nc" id="L506">                                : PomRewriter.updateProperty(content,</span>
+                                        property, latest);
+<span class="nc" id="L508">                        File sandbox = new File(</span>
+<span class="nc" id="L509">                                System.getProperty(&quot;java.io.tmpdir&quot;),</span>
+<span class="nc" id="L510">                                &quot;ike-verify-&quot; + gitRoot.getName()</span>
+<span class="nc" id="L511">                                        + &quot;-&quot; + up.artifactId()</span>
+                                        + &quot;-v&quot; + latest);
+<span class="nc" id="L513">                        boolean verified = verifyUpstreamBump(gitRoot,</span>
+                                sandbox, bumpedContent);
+<span class="nc bnc" id="L515" title="All 2 branches missed.">                        if (verified) {</span>
+<span class="nc" id="L516">                            ctx.log().info(&quot;    ✓ &quot; + up.ga()</span>
+                                    + &quot; bump verified — consumer still builds&quot;
+                                    + &quot; with &quot; + latest + &quot;.&quot;);
+<span class="nc" id="L519">                            ctx.log().info(&quot;    Pin not auto-updated (policy=verify&quot;</span>
+                                    + &quot; is hand-gated). To integrate: change &quot;
+                                    + policyKey + &quot; to `integrate`, or apply&quot;
+                                    + &quot; manually with mvn versions:set-property&quot;
+                                    + &quot; -Dproperty=&quot; + property + &quot; -DnewVersion=&quot;
+                                    + latest);
+                        } else {
+<span class="nc" id="L526">                            ctx.log().warn(&quot;    ✗ &quot; + up.ga()</span>
+                                    + &quot; bump FAILED verify — see sandbox log.&quot;
+                                    + &quot; Investigation required before integration.&quot;);
+                        }
+                    }
+<span class="nc" id="L531">                    yield false;</span>
                 }
                 case PROPOSE -&gt; {
-<span class="nc" id="L508">                    String proposeBranch = &quot;propose/&quot; + up.artifactId()</span>
+<span class="nc" id="L534">                    String proposeBranch = &quot;propose/&quot; + up.artifactId()</span>
                             + &quot;-v&quot; + latest;
-<span class="nc" id="L510">                    ctx.log().warn(&quot;  &quot; + up.ga() + &quot; has a new release: &quot;</span>
+<span class="nc" id="L536">                    ctx.log().warn(&quot;  &quot; + up.ga() + &quot; has a new release: &quot;</span>
                             + current + &quot; → &quot; + latest
                             + &quot; (policy=propose).&quot;);
-<span class="nc bnc" id="L513" title="All 2 branches missed.">                    if (draft) {</span>
-<span class="nc" id="L514">                        ctx.log().warn(&quot;    [DRAFT] Would create branch &quot;</span>
+<span class="nc bnc" id="L539" title="All 2 branches missed.">                    if (draft) {</span>
+<span class="nc" id="L540">                        ctx.log().warn(&quot;    [DRAFT] Would create branch &quot;</span>
                                 + proposeBranch + &quot; with the bump applied;&quot;
                                 + &quot; not modifying anything in draft mode.&quot;);
-<span class="nc bnc" id="L517" title="All 2 branches missed.">                    } else if (branchExistsLocally(gitRoot, proposeBranch)) {</span>
-<span class="nc" id="L518">                        ctx.log().warn(&quot;    Branch &quot; + proposeBranch</span>
+<span class="nc bnc" id="L543" title="All 2 branches missed.">                    } else if (branchExistsLocally(gitRoot, proposeBranch)) {</span>
+<span class="nc" id="L544">                        ctx.log().warn(&quot;    Branch &quot; + proposeBranch</span>
                                 + &quot; already exists — leaving it for the&quot;
                                 + &quot; operator to integrate.&quot;);
                     } else {
-<span class="nc bnc" id="L522" title="All 2 branches missed.">                        String bumpedContent = parentEdge</span>
-<span class="nc" id="L523">                                ? PomRewriter.updateParentVersion(content,</span>
-<span class="nc" id="L524">                                        up.groupId(), up.artifactId(), latest)</span>
-<span class="nc" id="L525">                                : PomRewriter.updateProperty(content,</span>
+<span class="nc bnc" id="L548" title="All 2 branches missed.">                        String bumpedContent = parentEdge</span>
+<span class="nc" id="L549">                                ? PomRewriter.updateParentVersion(content,</span>
+<span class="nc" id="L550">                                        up.groupId(), up.artifactId(), latest)</span>
+<span class="nc" id="L551">                                : PomRewriter.updateProperty(content,</span>
                                         property, latest);
-<span class="nc" id="L527">                        boolean hasOrigin = ReleaseSupport.hasRemote(gitRoot, &quot;origin&quot;);</span>
-<span class="nc" id="L528">                        createProposeBranch(gitRoot, proposeBranch, pomFile,</span>
+<span class="nc" id="L553">                        boolean hasOrigin = ReleaseSupport.hasRemote(gitRoot, &quot;origin&quot;);</span>
+<span class="nc" id="L554">                        createProposeBranch(gitRoot, proposeBranch, pomFile,</span>
                                 bumpedContent,
-<span class="nc" id="L530">                                &quot;propose: bump &quot; + up.ga() + &quot; &quot;</span>
+<span class="nc" id="L556">                                &quot;propose: bump &quot; + up.ga() + &quot; &quot;</span>
                                         + current + &quot; → &quot; + latest,
                                 hasOrigin);
-<span class="nc" id="L533">                        ctx.log().warn(&quot;    Created branch &quot; + proposeBranch</span>
-<span class="nc bnc" id="L534" title="All 2 branches missed.">                                + (hasOrigin</span>
-<span class="nc" id="L535">                                        ? &quot; and pushed to origin.&quot;</span>
-<span class="nc" id="L536">                                        : &quot; (local only — no origin remote).&quot;));</span>
-<span class="nc bnc" id="L537" title="All 2 branches missed.">                        if (hasOrigin) {</span>
-<span class="nc" id="L538">                            ctx.log().warn(&quot;    Open a PR: gh pr create&quot;</span>
+<span class="nc" id="L559">                        ctx.log().warn(&quot;    Created branch &quot; + proposeBranch</span>
+<span class="nc bnc" id="L560" title="All 2 branches missed.">                                + (hasOrigin</span>
+<span class="nc" id="L561">                                        ? &quot; and pushed to origin.&quot;</span>
+<span class="nc" id="L562">                                        : &quot; (local only — no origin remote).&quot;));</span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                        if (hasOrigin) {</span>
+<span class="nc" id="L564">                            ctx.log().warn(&quot;    Open a PR: gh pr create&quot;</span>
                                     + &quot; --head &quot; + proposeBranch);
                         }
                     }
-<span class="nc" id="L542">                    yield false;</span>
+<span class="nc" id="L568">                    yield false;</span>
                 }
             };
-<span class="nc bnc" id="L545" title="All 2 branches missed.">            if (!autoAlign) {</span>
-<span class="nc" id="L546">                continue;</span>
+<span class="nc bnc" id="L571" title="All 2 branches missed.">            if (!autoAlign) {</span>
+<span class="nc" id="L572">                continue;</span>
             }
 
             // ── Apply the bump ───────────────────────────────────────
-<span class="nc bnc" id="L550" title="All 2 branches missed.">            String after = parentEdge</span>
-<span class="nc" id="L551">                    ? PomRewriter.updateParentVersion(updated,</span>
-<span class="nc" id="L552">                            up.groupId(), up.artifactId(), latest)</span>
-<span class="nc" id="L553">                    : PomRewriter.updateProperty(updated, property,</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">            String after = parentEdge</span>
+<span class="nc" id="L577">                    ? PomRewriter.updateParentVersion(updated,</span>
+<span class="nc" id="L578">                            up.groupId(), up.artifactId(), latest)</span>
+<span class="nc" id="L579">                    : PomRewriter.updateProperty(updated, property,</span>
                             latest);
-<span class="nc bnc" id="L555" title="All 2 branches missed.">            if (!after.equals(updated)) {</span>
-<span class="nc" id="L556">                updated = after;</span>
-<span class="nc" id="L557">                bumps.add(displaySite + &quot;: &quot; + current + &quot; -&gt; &quot;</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">            if (!after.equals(updated)) {</span>
+<span class="nc" id="L582">                updated = after;</span>
+<span class="nc" id="L583">                bumps.add(displaySite + &quot;: &quot; + current + &quot; -&gt; &quot;</span>
                         + latest);
             }
-<span class="nc" id="L560">        }</span>
+<span class="nc" id="L586">        }</span>
 
-<span class="nc bnc" id="L562" title="All 2 branches missed.">        if (!problems.isEmpty()) {</span>
-<span class="nc" id="L563">            StringBuilder msg = new StringBuilder(&quot;Upstream cascade&quot;</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">        if (!problems.isEmpty()) {</span>
+<span class="nc" id="L589">            StringBuilder msg = new StringBuilder(&quot;Upstream cascade&quot;</span>
                     + &quot; alignment found unresolvable upstream pin(s):\n&quot;);
-<span class="nc bnc" id="L565" title="All 2 branches missed.">            for (String p : problems) {</span>
-<span class="nc" id="L566">                msg.append(&quot;  &quot;).append(p).append('\n');</span>
-<span class="nc" id="L567">            }</span>
-<span class="nc" id="L568">            msg.append(&quot;Verify the remote repository and the upstream&quot;</span>
+<span class="nc bnc" id="L591" title="All 2 branches missed.">            for (String p : problems) {</span>
+<span class="nc" id="L592">                msg.append(&quot;  &quot;).append(p).append('\n');</span>
+<span class="nc" id="L593">            }</span>
+<span class="nc" id="L594">            msg.append(&quot;Verify the remote repository and the upstream&quot;</span>
                     + &quot; edges in release-cascade.yaml before releasing.&quot;);
-<span class="nc bnc" id="L570" title="All 2 branches missed.">            if (!draft) {</span>
-<span class="nc" id="L571">                throw new MojoException(msg.toString());</span>
+<span class="nc bnc" id="L596" title="All 2 branches missed.">            if (!draft) {</span>
+<span class="nc" id="L597">                throw new MojoException(msg.toString());</span>
             }
-<span class="nc" id="L573">            ctx.log().warn(msg.toString());</span>
+<span class="nc" id="L599">            ctx.log().warn(msg.toString());</span>
         }
 
-<span class="nc bnc" id="L576" title="All 2 branches missed.">        if (bumps.isEmpty()) {</span>
-<span class="nc" id="L577">            ctx.log().info(&quot;Upstream cascade alignment: ${X.version}&quot;</span>
+<span class="nc bnc" id="L602" title="All 2 branches missed.">        if (bumps.isEmpty()) {</span>
+<span class="nc" id="L603">            ctx.log().info(&quot;Upstream cascade alignment: ${X.version}&quot;</span>
                     + &quot; pins already at the latest released versions.&quot;);
-<span class="nc" id="L579">            return;</span>
+<span class="nc" id="L605">            return;</span>
         }
 
-<span class="nc" id="L582">        ctx.log().info(&quot;Upstream cascade alignment:&quot;);</span>
-<span class="nc bnc" id="L583" title="All 2 branches missed.">        for (String b : bumps) {</span>
-<span class="nc bnc" id="L584" title="All 2 branches missed.">            ctx.log().info(&quot;  &quot; + (draft ? &quot;→ &quot; : &quot;✓ &quot;) + b);</span>
-<span class="nc" id="L585">        }</span>
-<span class="nc bnc" id="L586" title="All 2 branches missed.">        if (draft) {</span>
-<span class="nc" id="L587">            ctx.log().info(&quot;  [DRAFT] pom.xml not modified — publish&quot;</span>
+<span class="nc" id="L608">        ctx.log().info(&quot;Upstream cascade alignment:&quot;);</span>
+<span class="nc bnc" id="L609" title="All 2 branches missed.">        for (String b : bumps) {</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">            ctx.log().info(&quot;  &quot; + (draft ? &quot;→ &quot; : &quot;✓ &quot;) + b);</span>
+<span class="nc" id="L611">        }</span>
+<span class="nc bnc" id="L612" title="All 2 branches missed.">        if (draft) {</span>
+<span class="nc" id="L613">            ctx.log().info(&quot;  [DRAFT] pom.xml not modified — publish&quot;</span>
                     + &quot; would rewrite and commit it.&quot;);
-<span class="nc" id="L589">            return;</span>
+<span class="nc" id="L615">            return;</span>
         }
 
         try {
-<span class="nc" id="L593">            Files.writeString(pomFile.toPath(), updated,</span>
+<span class="nc" id="L619">            Files.writeString(pomFile.toPath(), updated,</span>
                     StandardCharsets.UTF_8);
-<span class="nc" id="L595">        } catch (IOException e) {</span>
-<span class="nc" id="L596">            throw new MojoException(&quot;Could not write aligned &quot; + pomFile</span>
-<span class="nc" id="L597">                    + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L598">        }</span>
-<span class="nc" id="L599">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;add&quot;, &quot;pom.xml&quot;);</span>
-<span class="nc" id="L600">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,</span>
+<span class="nc" id="L621">        } catch (IOException e) {</span>
+<span class="nc" id="L622">            throw new MojoException(&quot;Could not write aligned &quot; + pomFile</span>
+<span class="nc" id="L623">                    + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L624">        }</span>
+<span class="nc" id="L625">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;add&quot;, &quot;pom.xml&quot;);</span>
+<span class="nc" id="L626">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,</span>
                 &quot;release: align upstream cascade versions&quot;);
-<span class="nc" id="L602">    }</span>
+<span class="nc" id="L628">    }</span>
+
+    /**
+     * Runs {@code mvn verify} against the consumer with a hypothetical
+     * upstream-pin bump applied, in a {@code git worktree} sandbox
+     * that doesn't disturb the release worktree.
+     *
+     * &lt;p&gt;The sandbox lives under {@code java.io.tmpdir} for the
+     * duration of the verify, then is removed via
+     * {@code git worktree remove --force}. The shared {@code .git/}
+     * directory means the sandbox carries no history-copy cost; it
+     * is just a parallel working tree at the same HEAD with the
+     * proposed POM applied.
+     *
+     * &lt;p&gt;The mvnw inherited into the sandbox is the same script the
+     * release-flow itself uses, so the verify exercises the consumer's
+     * exact Maven toolchain. Output streams through the shared logger
+     * so the operator sees verify progress in real time.
+     *
+     * &lt;p&gt;Best-effort cleanup: a stale sandbox from an interrupted
+     * prior run is removed before the new worktree is added; if the
+     * final remove fails, the operator can clean up with
+     * {@code git worktree remove --force &lt;path&gt;}.
+     *
+     * @param gitRoot       project working tree (used for the
+     *                      {@code git worktree} subcommands)
+     * @param sandbox       desired sandbox directory (absolute; must
+     *                      not already be a worktree of this repo)
+     * @param bumpedContent the POM content with the upstream pin advanced
+     * @return {@code true} when {@code mvn verify} exits zero,
+     *         {@code false} otherwise
+     */
+    private boolean verifyUpstreamBump(File gitRoot, File sandbox,
+                                       String bumpedContent) {
+        // Remove any stale sandbox from a prior interrupted run.
+<span class="nc bnc" id="L663" title="All 2 branches missed.">        if (sandbox.exists()) {</span>
+            try {
+<span class="nc" id="L665">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+                        &quot;git&quot;, &quot;worktree&quot;, &quot;remove&quot;, &quot;--force&quot;,
+<span class="nc" id="L667">                        sandbox.getAbsolutePath());</span>
+<span class="nc" id="L668">            } catch (RuntimeException ignored) {</span>
+                // Not a registered worktree — try a plain remove.
+<span class="nc" id="L670">            }</span>
+        }
+        try {
+<span class="nc" id="L673">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L674">                    &quot;git&quot;, &quot;worktree&quot;, &quot;add&quot;, sandbox.getAbsolutePath(), &quot;HEAD&quot;);</span>
+<span class="nc" id="L675">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L676">            ctx.log().warn(&quot;    Could not create verify sandbox at &quot;</span>
+<span class="nc" id="L677">                    + sandbox + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L678">            return false;</span>
+<span class="nc" id="L679">        }</span>
+        try {
+<span class="nc" id="L681">            Files.writeString(</span>
+<span class="nc" id="L682">                    new File(sandbox, &quot;pom.xml&quot;).toPath(),</span>
+                    bumpedContent, StandardCharsets.UTF_8);
+<span class="nc" id="L684">            File sandboxMvnw = new File(sandbox, &quot;mvnw&quot;);</span>
+<span class="nc" id="L685">            ctx.log().info(&quot;    Running `mvnw verify` in sandbox: &quot; + sandbox);</span>
+<span class="nc" id="L686">            ReleaseSupport.exec(sandbox, ctx.log(),</span>
+<span class="nc" id="L687">                    sandboxMvnw.getAbsolutePath(), &quot;verify&quot;, &quot;-B&quot;);</span>
+<span class="nc" id="L688">            return true;</span>
+<span class="nc" id="L689">        } catch (IOException e) {</span>
+<span class="nc" id="L690">            ctx.log().warn(&quot;    Could not write bumped POM to sandbox: &quot;</span>
+<span class="nc" id="L691">                    + e.getMessage());</span>
+<span class="nc" id="L692">            return false;</span>
+<span class="nc" id="L693">        } catch (RuntimeException e) {</span>
+            // mvn verify subprocess failed — message already streamed.
+<span class="nc" id="L695">            return false;</span>
+        } finally {
+            try {
+<span class="nc" id="L698">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+                        &quot;git&quot;, &quot;worktree&quot;, &quot;remove&quot;, &quot;--force&quot;,
+<span class="nc" id="L700">                        sandbox.getAbsolutePath());</span>
+<span class="nc" id="L701">            } catch (RuntimeException e) {</span>
+<span class="nc" id="L702">                ctx.log().warn(&quot;    Could not remove verify sandbox at &quot;</span>
+<span class="nc" id="L703">                        + sandbox + &quot;: &quot; + e.getMessage()</span>
+                        + &quot; — clean up manually with&quot;
+                        + &quot; `git worktree remove --force &quot; + sandbox + &quot;`.&quot;);
+<span class="nc" id="L706">            }</span>
+        }
+    }
 
     /**
      * Returns {@code true} when {@code branchName} resolves to a local
@@ -608,11 +714,11 @@ public final class ReleasePrep {
      */
     private static boolean branchExistsLocally(File gitRoot, String branchName) {
         try {
-<span class="nc" id="L611">            ReleaseSupport.execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;,</span>
+<span class="nc" id="L717">            ReleaseSupport.execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;,</span>
                     &quot;--verify&quot;, &quot;refs/heads/&quot; + branchName);
-<span class="nc" id="L613">            return true;</span>
-<span class="nc" id="L614">        } catch (Exception e) {</span>
-<span class="nc" id="L615">            return false;</span>
+<span class="nc" id="L719">            return true;</span>
+<span class="nc" id="L720">        } catch (Exception e) {</span>
+<span class="nc" id="L721">            return false;</span>
         }
     }
 
@@ -637,34 +743,34 @@ public final class ReleasePrep {
     private void createProposeBranch(File gitRoot, String branchName,
                                       File pomFile, String bumpedContent,
                                       String commitMessage, boolean push) {
-<span class="nc" id="L640">        String currentBranch = ReleaseSupport.currentBranch(gitRoot);</span>
+<span class="nc" id="L746">        String currentBranch = ReleaseSupport.currentBranch(gitRoot);</span>
         try {
-<span class="nc" id="L642">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L748">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                     &quot;git&quot;, &quot;checkout&quot;, &quot;-b&quot;, branchName);
             try {
-<span class="nc" id="L645">                Files.writeString(pomFile.toPath(), bumpedContent,</span>
+<span class="nc" id="L751">                Files.writeString(pomFile.toPath(), bumpedContent,</span>
                         StandardCharsets.UTF_8);
-<span class="nc" id="L647">            } catch (IOException e) {</span>
-<span class="nc" id="L648">                throw new MojoException(&quot;Could not write &quot;</span>
+<span class="nc" id="L753">            } catch (IOException e) {</span>
+<span class="nc" id="L754">                throw new MojoException(&quot;Could not write &quot;</span>
                         + pomFile + &quot; on propose branch &quot;
-<span class="nc" id="L650">                        + branchName + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L651">            }</span>
-<span class="nc" id="L652">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L756">                        + branchName + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L757">            }</span>
+<span class="nc" id="L758">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                     &quot;git&quot;, &quot;add&quot;, &quot;pom.xml&quot;);
-<span class="nc" id="L654">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L760">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                     &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;, commitMessage);
-<span class="nc bnc" id="L656" title="All 2 branches missed.">            if (push) {</span>
-<span class="nc" id="L657">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc bnc" id="L762" title="All 2 branches missed.">            if (push) {</span>
+<span class="nc" id="L763">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                         &quot;git&quot;, &quot;push&quot;, &quot;-u&quot;, &quot;origin&quot;, branchName);
             }
         } finally {
             // Always return to the original branch; force checkout
             // overwrites any stray uncommitted worktree state from a
             // failure mid-sequence.
-<span class="nc" id="L664">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L770">            ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                     &quot;git&quot;, &quot;checkout&quot;, &quot;-f&quot;, currentBranch);
         }
-<span class="nc" id="L667">    }</span>
+<span class="nc" id="L773">    }</span>
 
     /**
      * Verifies all external dependencies before starting the release.
@@ -695,181 +801,181 @@ public final class ReleasePrep {
      */
     private void preflightChecks(boolean hasOrigin, String projectId, String releaseVersion)
             throws MojoException {
-<span class="fc" id="L698">        File gitRoot = ctx.gitRoot();</span>
-<span class="fc" id="L699">        String issueRepo = ctx.request().issueRepo();</span>
-<span class="fc" id="L700">        boolean ignoreWarnings = ctx.request().ignoreWarnings();</span>
+<span class="fc" id="L804">        File gitRoot = ctx.gitRoot();</span>
+<span class="fc" id="L805">        String issueRepo = ctx.request().issueRepo();</span>
+<span class="fc" id="L806">        boolean ignoreWarnings = ctx.request().ignoreWarnings();</span>
 
-<span class="fc" id="L702">        ctx.log().info(&quot;&quot;);</span>
-<span class="fc" id="L703">        ctx.log().info(&quot;PREFLIGHT CHECKS&quot;);</span>
-<span class="fc" id="L704">        List&lt;String&gt; errors = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L705">        List&lt;String&gt; warnings = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L808">        ctx.log().info(&quot;&quot;);</span>
+<span class="fc" id="L809">        ctx.log().info(&quot;PREFLIGHT CHECKS&quot;);</span>
+<span class="fc" id="L810">        List&lt;String&gt; errors = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L811">        List&lt;String&gt; warnings = new ArrayList&lt;&gt;();</span>
 
         // 1. Git push auth — draft push (sends nothing, tests auth)
-<span class="pc bpc" id="L708" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
+<span class="pc bpc" id="L814" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
             try {
-<span class="nc" id="L710">                ReleaseSupport.execCapture(gitRoot,</span>
+<span class="nc" id="L816">                ReleaseSupport.execCapture(gitRoot,</span>
                         &quot;git&quot;, &quot;push&quot;, &quot;--dry-run&quot;, &quot;origin&quot;, &quot;main&quot;);
-<span class="nc" id="L712">                ctx.log().info(&quot;  Git push:    authenticated  ✓&quot;);</span>
-<span class="nc" id="L713">            } catch (Exception e) {</span>
-<span class="nc" id="L714">                errors.add(&quot;Cannot push to origin — fix authentication&quot;</span>
-<span class="nc" id="L715">                        + &quot; before releasing. Error: &quot; + e.getMessage());</span>
-<span class="nc" id="L716">                ctx.log().error(&quot;  Git push:    authentication failed  ✗&quot;);</span>
-<span class="nc" id="L717">            }</span>
+<span class="nc" id="L818">                ctx.log().info(&quot;  Git push:    authenticated  ✓&quot;);</span>
+<span class="nc" id="L819">            } catch (Exception e) {</span>
+<span class="nc" id="L820">                errors.add(&quot;Cannot push to origin — fix authentication&quot;</span>
+<span class="nc" id="L821">                        + &quot; before releasing. Error: &quot; + e.getMessage());</span>
+<span class="nc" id="L822">                ctx.log().error(&quot;  Git push:    authentication failed  ✗&quot;);</span>
+<span class="nc" id="L823">            }</span>
         } else {
-<span class="fc" id="L719">            ctx.log().info(&quot;  Git push:    no origin remote (local-only release)&quot;);</span>
+<span class="fc" id="L825">            ctx.log().info(&quot;  Git push:    no origin remote (local-only release)&quot;);</span>
         }
 
         // 2. gh CLI — installed and authenticated?
-<span class="fc" id="L723">        boolean ghAvailable = false;</span>
-<span class="pc bpc" id="L724" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
+<span class="fc" id="L829">        boolean ghAvailable = false;</span>
+<span class="pc bpc" id="L830" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
             try {
-<span class="nc" id="L726">                ReleaseSupport.execCapture(gitRoot, &quot;gh&quot;, &quot;auth&quot;, &quot;status&quot;);</span>
-<span class="nc" id="L727">                ctx.log().info(&quot;  gh CLI:      authenticated  ✓&quot;);</span>
-<span class="nc" id="L728">                ghAvailable = true;</span>
-<span class="nc" id="L729">            } catch (Exception e) {</span>
-<span class="nc" id="L730">                warnings.add(&quot;gh CLI not available or not authenticated — &quot;</span>
+<span class="nc" id="L832">                ReleaseSupport.execCapture(gitRoot, &quot;gh&quot;, &quot;auth&quot;, &quot;status&quot;);</span>
+<span class="nc" id="L833">                ctx.log().info(&quot;  gh CLI:      authenticated  ✓&quot;);</span>
+<span class="nc" id="L834">                ghAvailable = true;</span>
+<span class="nc" id="L835">            } catch (Exception e) {</span>
+<span class="nc" id="L836">                warnings.add(&quot;gh CLI not available or not authenticated — &quot;</span>
                         + &quot;GitHub Release will be skipped. &quot;
                         + &quot;Run: gh auth login&quot;);
-<span class="nc" id="L733">                ctx.log().warn(&quot;  gh CLI:      not available (GitHub Release &quot;</span>
+<span class="nc" id="L839">                ctx.log().warn(&quot;  gh CLI:      not available (GitHub Release &quot;</span>
                         + &quot;will be skipped)&quot;);
-<span class="nc" id="L735">            }</span>
+<span class="nc" id="L841">            }</span>
         }
 
         // 3. gh write permission on issueRepo (#392) — an error.
-<span class="pc bpc" id="L739" title="5 of 6 branches missed.">        if (ghAvailable &amp;&amp; issueRepo != null &amp;&amp; !issueRepo.isBlank()) {</span>
+<span class="pc bpc" id="L845" title="5 of 6 branches missed.">        if (ghAvailable &amp;&amp; issueRepo != null &amp;&amp; !issueRepo.isBlank()) {</span>
             try {
-<span class="nc" id="L741">                String pushPerm = ReleaseSupport.execCapture(gitRoot,</span>
+<span class="nc" id="L847">                String pushPerm = ReleaseSupport.execCapture(gitRoot,</span>
                         &quot;gh&quot;, &quot;api&quot;, &quot;/repos/&quot; + issueRepo,
                         &quot;--jq&quot;, &quot;.permissions.push&quot;);
-<span class="nc bnc" id="L744" title="All 2 branches missed.">                if (&quot;true&quot;.equals(pushPerm.trim())) {</span>
-<span class="nc" id="L745">                    ctx.log().info(&quot;  gh perms:    push on &quot;</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">                if (&quot;true&quot;.equals(pushPerm.trim())) {</span>
+<span class="nc" id="L851">                    ctx.log().info(&quot;  gh perms:    push on &quot;</span>
                             + issueRepo + &quot;  ✓&quot;);
                 } else {
-<span class="nc" id="L748">                    errors.add(&quot;gh token lacks push permission on &quot;</span>
+<span class="nc" id="L854">                    errors.add(&quot;gh token lacks push permission on &quot;</span>
                             + issueRepo + &quot; — required for milestone&quot;
                             + &quot; close and pending-release label removal.&quot;
                             + &quot; Re-authenticate with repo scope:&quot;
                             + &quot; gh auth refresh -s repo&quot;);
-<span class="nc" id="L753">                    ctx.log().error(&quot;  gh perms:    no push on &quot;</span>
+<span class="nc" id="L859">                    ctx.log().error(&quot;  gh perms:    no push on &quot;</span>
                             + issueRepo + &quot;  ✗&quot;);
                 }
-<span class="nc" id="L756">            } catch (Exception e) {</span>
-<span class="nc" id="L757">                warnings.add(&quot;Could not verify gh permissions on &quot;</span>
-<span class="nc" id="L758">                        + issueRepo + &quot;: &quot; + e.getMessage());</span>
-<span class="nc" id="L759">            }</span>
+<span class="nc" id="L862">            } catch (Exception e) {</span>
+<span class="nc" id="L863">                warnings.add(&quot;Could not verify gh permissions on &quot;</span>
+<span class="nc" id="L864">                        + issueRepo + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L865">            }</span>
         }
 
         // 4. pending-release label exists on issueRepo (#392) — warn.
-<span class="pc bpc" id="L763" title="5 of 6 branches missed.">        if (ghAvailable &amp;&amp; issueRepo != null &amp;&amp; !issueRepo.isBlank()) {</span>
+<span class="pc bpc" id="L869" title="5 of 6 branches missed.">        if (ghAvailable &amp;&amp; issueRepo != null &amp;&amp; !issueRepo.isBlank()) {</span>
             try {
-<span class="nc" id="L765">                ReleaseSupport.execCapture(gitRoot, &quot;gh&quot;, &quot;api&quot;,</span>
+<span class="nc" id="L871">                ReleaseSupport.execCapture(gitRoot, &quot;gh&quot;, &quot;api&quot;,</span>
                         &quot;/repos/&quot; + issueRepo + &quot;/labels/pending-release&quot;);
-<span class="nc" id="L767">                ctx.log().info(&quot;  pending-rel label on &quot; + issueRepo + &quot;  ✓&quot;);</span>
-<span class="nc" id="L768">            } catch (Exception e) {</span>
-<span class="nc" id="L769">                warnings.add(&quot;Label 'pending-release' missing on &quot;</span>
+<span class="nc" id="L873">                ctx.log().info(&quot;  pending-rel label on &quot; + issueRepo + &quot;  ✓&quot;);</span>
+<span class="nc" id="L874">            } catch (Exception e) {</span>
+<span class="nc" id="L875">                warnings.add(&quot;Label 'pending-release' missing on &quot;</span>
                         + issueRepo + &quot; — label removal will be a no-op. &quot;
                         + &quot;Create it: gh label create pending-release &quot;
                         + &quot;--repo &quot; + issueRepo
                         + &quot; --description \&quot;Code complete; awaiting next release\&quot;&quot;);
-<span class="nc" id="L774">                ctx.log().warn(&quot;  pending-rel label: missing on &quot; + issueRepo);</span>
-<span class="nc" id="L775">            }</span>
+<span class="nc" id="L880">                ctx.log().warn(&quot;  pending-rel label: missing on &quot; + issueRepo);</span>
+<span class="nc" id="L881">            }</span>
         }
 
         // 5. Trailer compliance for commits in release range (#392) — warn.
-<span class="pc bpc" id="L779" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
-<span class="nc" id="L780">            List&lt;String&gt; nonCompliant = findCommitsWithoutIssueTrailer();</span>
-<span class="nc bnc" id="L781" title="All 2 branches missed.">            if (nonCompliant.isEmpty()) {</span>
-<span class="nc" id="L782">                ctx.log().info(&quot;  Trailer compliance: all commits ✓&quot;);</span>
+<span class="pc bpc" id="L885" title="1 of 2 branches missed.">        if (hasOrigin) {</span>
+<span class="nc" id="L886">            List&lt;String&gt; nonCompliant = findCommitsWithoutIssueTrailer();</span>
+<span class="nc bnc" id="L887" title="All 2 branches missed.">            if (nonCompliant.isEmpty()) {</span>
+<span class="nc" id="L888">                ctx.log().info(&quot;  Trailer compliance: all commits ✓&quot;);</span>
             } else {
-<span class="nc" id="L784">                StringBuilder msg = new StringBuilder(nonCompliant.size()</span>
+<span class="nc" id="L890">                StringBuilder msg = new StringBuilder(nonCompliant.size()</span>
                         + &quot; commit(s) in release range have no issue trailer &quot;
                         + &quot;(IKE-COMMITS.md):&quot;);
-<span class="nc bnc" id="L787" title="All 2 branches missed.">                for (String line : nonCompliant) {</span>
-<span class="nc" id="L788">                    msg.append(&quot;\n      &quot;).append(line);</span>
-<span class="nc" id="L789">                }</span>
-<span class="nc" id="L790">                msg.append(&quot;\n  Add Fixes/Refs &lt;owner&gt;/&lt;repo&gt;#N to comply.&quot;);</span>
-<span class="nc" id="L791">                warnings.add(msg.toString());</span>
-<span class="nc" id="L792">                ctx.log().warn(&quot;  Trailer compliance: &quot; + nonCompliant.size()</span>
+<span class="nc bnc" id="L893" title="All 2 branches missed.">                for (String line : nonCompliant) {</span>
+<span class="nc" id="L894">                    msg.append(&quot;\n      &quot;).append(line);</span>
+<span class="nc" id="L895">                }</span>
+<span class="nc" id="L896">                msg.append(&quot;\n  Add Fixes/Refs &lt;owner&gt;/&lt;repo&gt;#N to comply.&quot;);</span>
+<span class="nc" id="L897">                warnings.add(msg.toString());</span>
+<span class="nc" id="L898">                ctx.log().warn(&quot;  Trailer compliance: &quot; + nonCompliant.size()</span>
                         + &quot; commit(s) without issue trailer&quot;);
             }
         }
 
         // 6. Milestone for releaseVersion exists on issueRepo (#392) — warn.
-<span class="pc bpc" id="L798" title="7 of 8 branches missed.">        if (ghAvailable &amp;&amp; issueRepo != null &amp;&amp; !issueRepo.isBlank()</span>
-<span class="nc bnc" id="L799" title="All 2 branches missed.">                &amp;&amp; releaseVersion != null &amp;&amp; !releaseVersion.isBlank()) {</span>
-<span class="nc" id="L800">            String milestoneName = projectId + &quot; v&quot; + releaseVersion;</span>
+<span class="pc bpc" id="L904" title="7 of 8 branches missed.">        if (ghAvailable &amp;&amp; issueRepo != null &amp;&amp; !issueRepo.isBlank()</span>
+<span class="nc bnc" id="L905" title="All 2 branches missed.">                &amp;&amp; releaseVersion != null &amp;&amp; !releaseVersion.isBlank()) {</span>
+<span class="nc" id="L906">            String milestoneName = projectId + &quot; v&quot; + releaseVersion;</span>
             try {
-<span class="nc" id="L802">                String titles = ReleaseSupport.execCapture(gitRoot, &quot;gh&quot;, &quot;api&quot;,</span>
+<span class="nc" id="L908">                String titles = ReleaseSupport.execCapture(gitRoot, &quot;gh&quot;, &quot;api&quot;,</span>
                         &quot;/repos/&quot; + issueRepo + &quot;/milestones?state=open&amp;per_page=100&quot;,
                         &quot;--jq&quot;, &quot;.[].title&quot;);
-<span class="nc" id="L805">                boolean found = false;</span>
-<span class="nc bnc" id="L806" title="All 2 branches missed.">                for (String title : titles.split(&quot;\n&quot;)) {</span>
-<span class="nc bnc" id="L807" title="All 2 branches missed.">                    if (milestoneName.equals(title.trim())) {</span>
-<span class="nc" id="L808">                        found = true;</span>
-<span class="nc" id="L809">                        break;</span>
+<span class="nc" id="L911">                boolean found = false;</span>
+<span class="nc bnc" id="L912" title="All 2 branches missed.">                for (String title : titles.split(&quot;\n&quot;)) {</span>
+<span class="nc bnc" id="L913" title="All 2 branches missed.">                    if (milestoneName.equals(title.trim())) {</span>
+<span class="nc" id="L914">                        found = true;</span>
+<span class="nc" id="L915">                        break;</span>
                     }
                 }
-<span class="nc bnc" id="L812" title="All 2 branches missed.">                if (found) {</span>
-<span class="nc" id="L813">                    ctx.log().info(&quot;  Milestone:   &quot; + milestoneName + &quot;  ✓&quot;);</span>
+<span class="nc bnc" id="L918" title="All 2 branches missed.">                if (found) {</span>
+<span class="nc" id="L919">                    ctx.log().info(&quot;  Milestone:   &quot; + milestoneName + &quot;  ✓&quot;);</span>
                 } else {
-<span class="nc" id="L815">                    warnings.add(&quot;Milestone \&quot;&quot; + milestoneName</span>
+<span class="nc" id="L921">                    warnings.add(&quot;Milestone \&quot;&quot; + milestoneName</span>
                             + &quot;\&quot; not found on &quot; + issueRepo
                             + &quot; — release will use auto-generated notes. &quot;
                             + &quot;Create it: gh api /repos/&quot; + issueRepo
                             + &quot;/milestones -f title='&quot; + milestoneName + &quot;'&quot;);
-<span class="nc" id="L820">                    ctx.log().warn(&quot;  Milestone:   &quot; + milestoneName</span>
+<span class="nc" id="L926">                    ctx.log().warn(&quot;  Milestone:   &quot; + milestoneName</span>
                             + &quot; missing (auto-notes fallback)&quot;);
                 }
-<span class="nc" id="L823">            } catch (Exception e) {</span>
-<span class="nc" id="L824">                warnings.add(&quot;Could not check milestone existence: &quot;</span>
-<span class="nc" id="L825">                        + e.getMessage());</span>
-<span class="nc" id="L826">            }</span>
+<span class="nc" id="L929">            } catch (Exception e) {</span>
+<span class="nc" id="L930">                warnings.add(&quot;Could not check milestone existence: &quot;</span>
+<span class="nc" id="L931">                        + e.getMessage());</span>
+<span class="nc" id="L932">            }</span>
         }
 
         // 7. Maven wrapper
         try {
-<span class="fc" id="L831">            ReleaseSupport.resolveMavenWrapper(gitRoot, ctx.log());</span>
-<span class="fc" id="L832">            ctx.log().info(&quot;  Maven:       wrapper found  ✓&quot;);</span>
-<span class="nc" id="L833">        } catch (Exception e) {</span>
-<span class="nc" id="L834">            errors.add(&quot;Maven wrapper (mvnw) not found.&quot;</span>
+<span class="fc" id="L937">            ReleaseSupport.resolveMavenWrapper(gitRoot, ctx.log());</span>
+<span class="fc" id="L938">            ctx.log().info(&quot;  Maven:       wrapper found  ✓&quot;);</span>
+<span class="nc" id="L939">        } catch (Exception e) {</span>
+<span class="nc" id="L940">            errors.add(&quot;Maven wrapper (mvnw) not found.&quot;</span>
                     + &quot; Run: mvn wrapper:wrapper&quot;);
-<span class="nc" id="L836">            ctx.log().error(&quot;  Maven:       wrapper not found  ✗&quot;);</span>
-<span class="fc" id="L837">        }</span>
+<span class="nc" id="L942">            ctx.log().error(&quot;  Maven:       wrapper not found  ✗&quot;);</span>
+<span class="fc" id="L943">        }</span>
 
         // Report the complete preflight picture, then decide (#428).
-<span class="pc bpc" id="L840" title="2 of 4 branches missed.">        if (!errors.isEmpty() || !warnings.isEmpty()) {</span>
-<span class="nc" id="L841">            ctx.log().info(&quot;&quot;);</span>
-<span class="nc bnc" id="L842" title="All 2 branches missed.">            for (String err : errors) {</span>
-<span class="nc" id="L843">                ctx.log().error(&quot;  ✗ &quot; + err);</span>
-<span class="nc" id="L844">            }</span>
-<span class="nc bnc" id="L845" title="All 2 branches missed.">            for (String w : warnings) {</span>
-<span class="nc" id="L846">                ctx.log().warn(&quot;  ⚠ &quot; + w);</span>
-<span class="nc" id="L847">            }</span>
-<span class="nc" id="L848">            ctx.log().info(&quot;&quot;);</span>
+<span class="pc bpc" id="L946" title="2 of 4 branches missed.">        if (!errors.isEmpty() || !warnings.isEmpty()) {</span>
+<span class="nc" id="L947">            ctx.log().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L948" title="All 2 branches missed.">            for (String err : errors) {</span>
+<span class="nc" id="L949">                ctx.log().error(&quot;  ✗ &quot; + err);</span>
+<span class="nc" id="L950">            }</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">            for (String w : warnings) {</span>
+<span class="nc" id="L952">                ctx.log().warn(&quot;  ⚠ &quot; + w);</span>
+<span class="nc" id="L953">            }</span>
+<span class="nc" id="L954">            ctx.log().info(&quot;&quot;);</span>
         }
 
-<span class="pc bpc" id="L851" title="1 of 2 branches missed.">        if (!errors.isEmpty()) {</span>
-<span class="nc" id="L852">            throw new MojoException(&quot;Release preflight found &quot;</span>
-<span class="nc" id="L853">                    + errors.size() + &quot; error(s)&quot;</span>
-<span class="nc bnc" id="L854" title="All 2 branches missed.">                    + (warnings.isEmpty() ? &quot;&quot;</span>
-<span class="nc" id="L855">                            : &quot; and &quot; + warnings.size() + &quot; warning(s)&quot;)</span>
+<span class="pc bpc" id="L957" title="1 of 2 branches missed.">        if (!errors.isEmpty()) {</span>
+<span class="nc" id="L958">            throw new MojoException(&quot;Release preflight found &quot;</span>
+<span class="nc" id="L959">                    + errors.size() + &quot; error(s)&quot;</span>
+<span class="nc bnc" id="L960" title="All 2 branches missed.">                    + (warnings.isEmpty() ? &quot;&quot;</span>
+<span class="nc" id="L961">                            : &quot; and &quot; + warnings.size() + &quot; warning(s)&quot;)</span>
                     + &quot; — see above. Errors must be resolved before&quot;
                     + &quot; releasing; they are never ignorable.&quot;);
         }
-<span class="pc bpc" id="L859" title="1 of 2 branches missed.">        if (!warnings.isEmpty()) {</span>
-<span class="nc bnc" id="L860" title="All 2 branches missed.">            if (ignoreWarnings) {</span>
-<span class="nc" id="L861">                ctx.log().warn(&quot;  Proceeding past &quot; + warnings.size()</span>
+<span class="pc bpc" id="L965" title="1 of 2 branches missed.">        if (!warnings.isEmpty()) {</span>
+<span class="nc bnc" id="L966" title="All 2 branches missed.">            if (ignoreWarnings) {</span>
+<span class="nc" id="L967">                ctx.log().warn(&quot;  Proceeding past &quot; + warnings.size()</span>
                         + &quot; warning(s) (ike.release.ignoreWarnings=true).&quot;);
             } else {
-<span class="nc" id="L864">                throw new MojoException(&quot;Release preflight found &quot;</span>
-<span class="nc" id="L865">                        + warnings.size() + &quot; warning(s) — see above.&quot;</span>
+<span class="nc" id="L970">                throw new MojoException(&quot;Release preflight found &quot;</span>
+<span class="nc" id="L971">                        + warnings.size() + &quot; warning(s) — see above.&quot;</span>
                         + &quot; Resolve them, or pass&quot;
                         + &quot; -Dike.release.ignoreWarnings=true to release&quot;
                         + &quot; anyway.&quot;);
             }
         }
-<span class="fc" id="L871">        ctx.log().info(&quot;&quot;);</span>
-<span class="fc" id="L872">    }</span>
+<span class="fc" id="L977">        ctx.log().info(&quot;&quot;);</span>
+<span class="fc" id="L978">    }</span>
 
     /**
      * Finds commits in {@code &lt;previous-tag&gt;..HEAD} whose body contains
@@ -886,47 +992,47 @@ public final class ReleasePrep {
      * cannot be resolved — typical for first-release scenarios.
      */
     private List&lt;String&gt; findCommitsWithoutIssueTrailer() {
-<span class="nc" id="L889">        File gitRoot = ctx.gitRoot();</span>
+<span class="nc" id="L995">        File gitRoot = ctx.gitRoot();</span>
         try {
             String previousTag;
             try {
-<span class="nc" id="L893">                previousTag = ReleaseSupport.execCapture(gitRoot,</span>
+<span class="nc" id="L999">                previousTag = ReleaseSupport.execCapture(gitRoot,</span>
                         &quot;git&quot;, &quot;describe&quot;, &quot;--tags&quot;, &quot;--abbrev=0&quot;, &quot;HEAD&quot;);
-<span class="nc" id="L895">            } catch (Exception e) {</span>
-<span class="nc" id="L896">                ctx.log().debug(&quot;  No previous tag — skipping trailer compliance&quot;);</span>
-<span class="nc" id="L897">                return List.of();</span>
-<span class="nc" id="L898">            }</span>
+<span class="nc" id="L1001">            } catch (Exception e) {</span>
+<span class="nc" id="L1002">                ctx.log().debug(&quot;  No previous tag — skipping trailer compliance&quot;);</span>
+<span class="nc" id="L1003">                return List.of();</span>
+<span class="nc" id="L1004">            }</span>
             // Per-commit body separated by NUL byte (-z) so embedded
             // newlines don't confuse the parser.
-<span class="nc" id="L901">            String log = ReleaseSupport.execCapture(gitRoot, &quot;git&quot;, &quot;log&quot;,</span>
+<span class="nc" id="L1007">            String log = ReleaseSupport.execCapture(gitRoot, &quot;git&quot;, &quot;log&quot;,</span>
                     &quot;-z&quot;, &quot;--format=%h%x00%B&quot;, previousTag + &quot;..HEAD&quot;);
-<span class="nc bnc" id="L903" title="All 2 branches missed.">            if (log.isBlank()) {</span>
-<span class="nc" id="L904">                return List.of();</span>
+<span class="nc bnc" id="L1009" title="All 2 branches missed.">            if (log.isBlank()) {</span>
+<span class="nc" id="L1010">                return List.of();</span>
             }
-<span class="nc" id="L906">            List&lt;String&gt; nonCompliant = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1012">            List&lt;String&gt; nonCompliant = new ArrayList&lt;&gt;();</span>
             // Stream is &quot;&lt;sha&gt;\0&lt;body&gt;\0&lt;sha&gt;\0&lt;body&gt;\0...&quot; after -z.
             // Splitting on NUL gives alternating sha/body pairs.
-<span class="nc" id="L909">            String[] records = log.split(&quot;\u0000&quot;);</span>
-<span class="nc bnc" id="L910" title="All 2 branches missed.">            for (int i = 0; i + 1 &lt; records.length; i += 2) {</span>
-<span class="nc" id="L911">                String sha = records[i].trim();</span>
-<span class="nc" id="L912">                String body = records[i + 1];</span>
-<span class="nc bnc" id="L913" title="All 2 branches missed.">                if (!ReleaseNotesSupport.hasAnyIssueTrailer(body)) {</span>
-<span class="nc bnc" id="L914" title="All 2 branches missed.">                    String firstLine = body.contains(&quot;\n&quot;)</span>
-<span class="nc" id="L915">                            ? body.substring(0, body.indexOf('\n'))</span>
-<span class="nc" id="L916">                            : body;</span>
-<span class="nc" id="L917">                    String subject = firstLine.trim();</span>
-<span class="nc bnc" id="L918" title="All 2 branches missed.">                    if (RELEASE_CADENCE.matcher(subject).matches()) {</span>
+<span class="nc" id="L1015">            String[] records = log.split(&quot;\u0000&quot;);</span>
+<span class="nc bnc" id="L1016" title="All 2 branches missed.">            for (int i = 0; i + 1 &lt; records.length; i += 2) {</span>
+<span class="nc" id="L1017">                String sha = records[i].trim();</span>
+<span class="nc" id="L1018">                String body = records[i + 1];</span>
+<span class="nc bnc" id="L1019" title="All 2 branches missed.">                if (!ReleaseNotesSupport.hasAnyIssueTrailer(body)) {</span>
+<span class="nc bnc" id="L1020" title="All 2 branches missed.">                    String firstLine = body.contains(&quot;\n&quot;)</span>
+<span class="nc" id="L1021">                            ? body.substring(0, body.indexOf('\n'))</span>
+<span class="nc" id="L1022">                            : body;</span>
+<span class="nc" id="L1023">                    String subject = firstLine.trim();</span>
+<span class="nc bnc" id="L1024" title="All 2 branches missed.">                    if (RELEASE_CADENCE.matcher(subject).matches()) {</span>
                         // Tool-generated bookkeeping — no trailer by design.
-<span class="nc" id="L920">                        continue;</span>
+<span class="nc" id="L1026">                        continue;</span>
                     }
-<span class="nc" id="L922">                    nonCompliant.add(sha + &quot; &quot; + subject);</span>
+<span class="nc" id="L1028">                    nonCompliant.add(sha + &quot; &quot; + subject);</span>
                 }
             }
-<span class="nc" id="L925">            return nonCompliant;</span>
-<span class="nc" id="L926">        } catch (Exception e) {</span>
-<span class="nc" id="L927">            ctx.log().debug(&quot;  Trailer compliance check failed: &quot;</span>
-<span class="nc" id="L928">                    + e.getMessage());</span>
-<span class="nc" id="L929">            return List.of();</span>
+<span class="nc" id="L1031">            return nonCompliant;</span>
+<span class="nc" id="L1032">        } catch (Exception e) {</span>
+<span class="nc" id="L1033">            ctx.log().debug(&quot;  Trailer compliance check failed: &quot;</span>
+<span class="nc" id="L1034">                    + e.getMessage());</span>
+<span class="nc" id="L1035">            return List.of();</span>
         }
     }
 
@@ -951,34 +1057,34 @@ public final class ReleasePrep {
      * @throws MojoException if publish mode and warnings are present
      */
     private void preflightJavadoc(boolean publish) throws MojoException {
-<span class="fc" id="L954">        File gitRoot = ctx.gitRoot();</span>
-<span class="pc bpc" id="L955" title="1 of 2 branches missed.">        if (!hasAnyJavaSource(gitRoot)) {</span>
-<span class="fc" id="L956">            return;</span>
+<span class="fc" id="L1060">        File gitRoot = ctx.gitRoot();</span>
+<span class="pc bpc" id="L1061" title="1 of 2 branches missed.">        if (!hasAnyJavaSource(gitRoot)) {</span>
+<span class="fc" id="L1062">            return;</span>
         }
 
-<span class="nc" id="L959">        List&lt;String&gt; warnings = collectJavadocWarnings(gitRoot);</span>
-<span class="nc" id="L960">        ctx.log().info(&quot;&quot;);</span>
-<span class="nc bnc" id="L961" title="All 2 branches missed.">        if (warnings.isEmpty()) {</span>
-<span class="nc" id="L962">            ctx.log().info(&quot;  Javadoc:     warning-free  ✓&quot;);</span>
-<span class="nc" id="L963">            return;</span>
+<span class="nc" id="L1065">        List&lt;String&gt; warnings = collectJavadocWarnings(gitRoot);</span>
+<span class="nc" id="L1066">        ctx.log().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L1067" title="All 2 branches missed.">        if (warnings.isEmpty()) {</span>
+<span class="nc" id="L1068">            ctx.log().info(&quot;  Javadoc:     warning-free  ✓&quot;);</span>
+<span class="nc" id="L1069">            return;</span>
         }
 
-<span class="nc" id="L966">        ctx.log().info(&quot;  Javadoc:     &quot; + warnings.size()</span>
+<span class="nc" id="L1072">        ctx.log().info(&quot;  Javadoc:     &quot; + warnings.size()</span>
                 + &quot; warning(s)  ✗&quot;);
-<span class="nc bnc" id="L968" title="All 2 branches missed.">        for (String w : warnings) {</span>
-<span class="nc" id="L969">            ctx.log().warn(&quot;    &quot; + w);</span>
-<span class="nc" id="L970">        }</span>
+<span class="nc bnc" id="L1074" title="All 2 branches missed.">        for (String w : warnings) {</span>
+<span class="nc" id="L1075">            ctx.log().warn(&quot;    &quot; + w);</span>
+<span class="nc" id="L1076">        }</span>
 
-<span class="nc bnc" id="L972" title="All 2 branches missed.">        if (publish) {</span>
-<span class="nc" id="L973">            throw new MojoException(</span>
-<span class="nc" id="L974">                    &quot;Javadoc preflight failed: &quot; + warnings.size()</span>
+<span class="nc bnc" id="L1078" title="All 2 branches missed.">        if (publish) {</span>
+<span class="nc" id="L1079">            throw new MojoException(</span>
+<span class="nc" id="L1080">                    &quot;Javadoc preflight failed: &quot; + warnings.size()</span>
                             + &quot; warning(s) must be resolved before publish.\n&quot;
                             + &quot;  Convention: every public method needs&quot;
                             + &quot; complete @param / @return / @throws tags.&quot;);
         }
-<span class="nc" id="L979">        ctx.log().warn(&quot;  (Draft mode — would block publish.)&quot;);</span>
-<span class="nc" id="L980">        ctx.log().info(&quot;&quot;);</span>
-<span class="nc" id="L981">    }</span>
+<span class="nc" id="L1085">        ctx.log().warn(&quot;  (Draft mode — would block publish.)&quot;);</span>
+<span class="nc" id="L1086">        ctx.log().info(&quot;&quot;);</span>
+<span class="nc" id="L1087">    }</span>
 
     /**
      * Returns {@code true} if {@code gitRoot} or any direct subdirectory
@@ -986,22 +1092,22 @@ public final class ReleasePrep {
      * and flat multi-module reactor layouts.
      */
     private static boolean hasAnyJavaSource(File gitRoot) {
-<span class="pc bpc" id="L989" title="1 of 2 branches missed.">        if (new File(gitRoot, &quot;src/main/java&quot;).isDirectory()) {</span>
-<span class="nc" id="L990">            return true;</span>
+<span class="pc bpc" id="L1095" title="1 of 2 branches missed.">        if (new File(gitRoot, &quot;src/main/java&quot;).isDirectory()) {</span>
+<span class="nc" id="L1096">            return true;</span>
         }
-<span class="fc" id="L992">        File[] entries = gitRoot.listFiles();</span>
-<span class="pc bpc" id="L993" title="1 of 2 branches missed.">        if (entries == null) {</span>
-<span class="nc" id="L994">            return false;</span>
+<span class="fc" id="L1098">        File[] entries = gitRoot.listFiles();</span>
+<span class="pc bpc" id="L1099" title="1 of 2 branches missed.">        if (entries == null) {</span>
+<span class="nc" id="L1100">            return false;</span>
         }
-<span class="fc bfc" id="L996" title="All 2 branches covered.">        for (File entry : entries) {</span>
-<span class="fc bfc" id="L997" title="All 2 branches covered.">            if (!entry.isDirectory()) {</span>
-<span class="fc" id="L998">                continue;</span>
+<span class="fc bfc" id="L1102" title="All 2 branches covered.">        for (File entry : entries) {</span>
+<span class="fc bfc" id="L1103" title="All 2 branches covered.">            if (!entry.isDirectory()) {</span>
+<span class="fc" id="L1104">                continue;</span>
             }
-<span class="pc bpc" id="L1000" title="1 of 2 branches missed.">            if (new File(entry, &quot;src/main/java&quot;).isDirectory()) {</span>
-<span class="nc" id="L1001">                return true;</span>
+<span class="pc bpc" id="L1106" title="1 of 2 branches missed.">            if (new File(entry, &quot;src/main/java&quot;).isDirectory()) {</span>
+<span class="nc" id="L1107">                return true;</span>
             }
         }
-<span class="fc" id="L1004">        return false;</span>
+<span class="fc" id="L1110">        return false;</span>
     }
 
     /**
@@ -1015,38 +1121,38 @@ public final class ReleasePrep {
      * during the subsequent build phase).
      */
     private List&lt;String&gt; collectJavadocWarnings(File gitRoot) {
-<span class="nc" id="L1018">        List&lt;String&gt; warnings = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1124">        List&lt;String&gt; warnings = new ArrayList&lt;&gt;();</span>
         try {
             // -q stripped the [WARNING] prefix the grep below keys on,
             // letting javadoc &quot;reference not found&quot; warnings slip through
             // preflight (see ike-issues #178). -B keeps output non-interactive.
-<span class="nc" id="L1023">            Process proc = new ProcessBuilder(</span>
+<span class="nc" id="L1129">            Process proc = new ProcessBuilder(</span>
                     &quot;mvn&quot;, &quot;-B&quot;,
                     &quot;compile&quot;, &quot;javadoc:jar&quot;,
                     &quot;-DskipTests&quot;,
                     &quot;-DfailOnError=false&quot;,
                     &quot;-DfailOnWarnings=false&quot;)
-<span class="nc" id="L1029">                    .directory(gitRoot)</span>
-<span class="nc" id="L1030">                    .redirectErrorStream(true)</span>
-<span class="nc" id="L1031">                    .start();</span>
-<span class="nc" id="L1032">            try (BufferedReader reader = new BufferedReader(</span>
-<span class="nc" id="L1033">                    new InputStreamReader(proc.getInputStream(),</span>
+<span class="nc" id="L1135">                    .directory(gitRoot)</span>
+<span class="nc" id="L1136">                    .redirectErrorStream(true)</span>
+<span class="nc" id="L1137">                    .start();</span>
+<span class="nc" id="L1138">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="nc" id="L1139">                    new InputStreamReader(proc.getInputStream(),</span>
                             StandardCharsets.UTF_8))) {
                 String line;
-<span class="nc bnc" id="L1036" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
-<span class="nc bnc" id="L1037" title="All 2 branches missed.">                    if (!line.contains(&quot;warning:&quot;)) {</span>
-<span class="nc" id="L1038">                        continue;</span>
+<span class="nc bnc" id="L1142" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
+<span class="nc bnc" id="L1143" title="All 2 branches missed.">                    if (!line.contains(&quot;warning:&quot;)) {</span>
+<span class="nc" id="L1144">                        continue;</span>
                     }
-<span class="nc" id="L1040">                    warnings.add(line.replaceFirst(</span>
-<span class="nc" id="L1041">                            &quot;^\\[WARNING\\] &quot;, &quot;&quot;).strip());</span>
+<span class="nc" id="L1146">                    warnings.add(line.replaceFirst(</span>
+<span class="nc" id="L1147">                            &quot;^\\[WARNING\\] &quot;, &quot;&quot;).strip());</span>
                 }
             }
-<span class="nc" id="L1044">            proc.waitFor();</span>
-<span class="nc" id="L1045">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc" id="L1046">            ctx.log().debug(&quot;Javadoc preflight subprocess failed: &quot;</span>
-<span class="nc" id="L1047">                    + e.getMessage());</span>
-<span class="nc" id="L1048">        }</span>
-<span class="nc" id="L1049">        return warnings;</span>
+<span class="nc" id="L1150">            proc.waitFor();</span>
+<span class="nc" id="L1151">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L1152">            ctx.log().debug(&quot;Javadoc preflight subprocess failed: &quot;</span>
+<span class="nc" id="L1153">                    + e.getMessage());</span>
+<span class="nc" id="L1154">        }</span>
+<span class="nc" id="L1155">        return warnings;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

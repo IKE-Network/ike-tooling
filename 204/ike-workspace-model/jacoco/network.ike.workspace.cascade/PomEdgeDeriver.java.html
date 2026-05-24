@@ -1,0 +1,411 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PomEdgeDeriver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">PomEdgeDeriver.java</span></div><h1>PomEdgeDeriver.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import org.apache.maven.api.model.Build;
+import org.apache.maven.api.model.Dependency;
+import org.apache.maven.api.model.DependencyManagement;
+import org.apache.maven.api.model.Model;
+import org.apache.maven.api.model.Parent;
+import org.apache.maven.api.model.Plugin;
+import org.apache.maven.api.model.PluginManagement;
+
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Derives the {@link CascadeEdge}s a project radiates upstream from
+ * its Maven model and on-disk layout (IKE-Network/ike-issues#496
+ * part B).
+ *
+ * &lt;p&gt;Replaces the hand-authored {@code release-cascade.yaml} as the
+ * source of an IKE project's upstream edges. The cascade specifies
+ * every version-bearing site in an IKE POM as a potential edge, not
+ * just {@code &lt;dependencies&gt;}: parent inheritance, plain
+ * dependencies, dependency-management entries (including imported
+ * BOMs), plugins, plugin management, and {@code .mvn/extensions.xml}.
+ * Under the {@code ${G·A}} property convention the property name an
+ * alignment step rewrites is mechanical
+ * ({@link CascadeEdge#versionProperty()}), so no manifest field
+ * declares it — the coordinate is enough.
+ *
+ * &lt;p&gt;The deriver emits an edge only for coordinates a
+ * {@link CoordinateFilter} accepts; the default filter
+ * ({@link CoordinateFilter#IKE_GROUP}) keeps edges whose
+ * {@code groupId} starts with {@code network.ike}. Third-party
+ * dependencies stay out of the graph: IKE does not release them, so
+ * they have no place in a release ordering.
+ *
+ * &lt;p&gt;A coordinate must bear a {@code &lt;version&gt;} at its site to count.
+ * A {@code &lt;dependency&gt;} that inherits its version from
+ * {@code &lt;dependencyManagement&gt;} contributes no edge from the
+ * dependency site itself; the contributing edge sits at the
+ * {@code &lt;dependencyManagement&gt;} entry instead.
+ *
+ * &lt;p&gt;Self-edges — where a coordinate's reactor-root repository is the
+ * same repository as the POM the deriver is scanning — are &lt;em&gt;not&lt;/em&gt;
+ * filtered here. The deriver knows the POM's coordinates but not its
+ * {@code &lt;scm&gt;}, and the same repository can publish many coordinates.
+ * Self-edge filtering happens after the {@code &lt;scm&gt;}-keyed node
+ * resolution in IKE-Network/ike-issues#496 part D.
+ */
+public final class PomEdgeDeriver {
+
+    /**
+     * A predicate over a {@link MavenCoordinate} that selects which
+     * edges the deriver should emit. {@link #IKE_GROUP} is the IKE
+     * default.
+     */
+    @FunctionalInterface
+    public interface CoordinateFilter {
+
+        /**
+         * Tests whether a coordinate should produce an edge.
+         *
+         * @param coordinate the coordinate; never {@code null}
+         * @return {@code true} iff an edge should be emitted
+         */
+        boolean accepts(MavenCoordinate coordinate);
+
+        /**
+         * Keeps coordinates whose {@code groupId} starts with
+         * {@code &quot;network.ike&quot;}. The conventional filter for IKE
+         * Network projects.
+         */
+<span class="fc" id="L84">        CoordinateFilter IKE_GROUP = coordinate -&gt;</span>
+<span class="fc" id="L85">                coordinate.groupId().startsWith(&quot;network.ike&quot;);</span>
+    }
+
+    /** Conventional path of a Maven 4 build-extensions descriptor. */
+    public static final String EXTENSIONS_RELATIVE_PATH =
+            &quot;.mvn/extensions.xml&quot;;
+
+<span class="fc" id="L92">    private static final QName EXTENSION_QNAME =</span>
+            new QName(&quot;extension&quot;);
+<span class="fc" id="L94">    private static final QName GROUP_ID_QNAME = new QName(&quot;groupId&quot;);</span>
+<span class="fc" id="L95">    private static final QName ARTIFACT_ID_QNAME =</span>
+            new QName(&quot;artifactId&quot;);
+<span class="fc" id="L97">    private static final QName VERSION_QNAME = new QName(&quot;version&quot;);</span>
+
+    private PomEdgeDeriver() {}
+
+    /**
+     * Derives the upstream edges of a project from its model and
+     * project directory.
+     *
+     * @param model      the project's Maven model (typically the file
+     *                   model, but any stage works — the deriver only
+     *                   reads structural fields)
+     * @param projectDir the project's on-disk root directory, used to
+     *                   locate {@code .mvn/extensions.xml}; may be
+     *                   {@code null} if the caller knows the project
+     *                   has no extensions descriptor
+     * @return the derived upstream edges, in the order the sites
+     *         appear in the POM (parent, dependencies, depMgmt,
+     *         plugins, pluginMgmt, extensions); never {@code null}
+     */
+    public static List&lt;CascadeEdge&gt; deriveEdges(Model model,
+                                                Path projectDir) {
+<span class="fc" id="L118">        return deriveEdges(model, projectDir, CoordinateFilter.IKE_GROUP);</span>
+    }
+
+    /**
+     * Derives upstream edges with a caller-supplied coordinate
+     * filter.
+     *
+     * @param model      the project's Maven model
+     * @param projectDir the project's on-disk root directory; may be
+     *                   {@code null}
+     * @param filter     selects which coordinates produce edges; must
+     *                   not be {@code null}
+     * @return the derived upstream edges, in source-order; never
+     *         {@code null}
+     */
+    public static List&lt;CascadeEdge&gt; deriveEdges(Model model,
+                                                Path projectDir,
+                                                CoordinateFilter filter) {
+<span class="fc bfc" id="L136" title="All 2 branches covered.">        if (model == null) {</span>
+<span class="fc" id="L137">            throw new IllegalArgumentException(&quot;model is required&quot;);</span>
+        }
+<span class="fc bfc" id="L139" title="All 2 branches covered.">        if (filter == null) {</span>
+<span class="fc" id="L140">            throw new IllegalArgumentException(&quot;filter is required&quot;);</span>
+        }
+<span class="fc" id="L142">        List&lt;CascadeEdge&gt; edges = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L143">        appendParentEdge(model, filter, edges);</span>
+<span class="fc" id="L144">        appendDependencyEdges(model, filter, edges);</span>
+<span class="fc" id="L145">        appendDependencyManagementEdges(model, filter, edges);</span>
+<span class="fc" id="L146">        appendPluginEdges(model, filter, edges);</span>
+<span class="fc" id="L147">        appendExtensionEdges(projectDir, filter, edges);</span>
+<span class="fc" id="L148">        return List.copyOf(edges);</span>
+    }
+
+    /**
+     * Derives upstream edges and drops self-edges — edges whose
+     * target repository, as resolved by {@code repositoryResolver},
+     * equals {@code sourceRepo} (IKE-Network/ike-issues#496 part D).
+     *
+     * &lt;p&gt;Self-edges are reactor-internal: a project using its own
+     * sibling artifact ({@code ike-tooling} consuming
+     * {@code ike-maven-plugin}, {@code ike-platform} consuming
+     * {@code ike-workspace-maven-plugin}) is a relationship Maven
+     * resolves inside the one reactor build, not a cascade edge.
+     * Dropping them keeps the topological sort a DAG.
+     *
+     * &lt;p&gt;An edge whose target the resolver cannot locate is kept
+     * conservatively — without information, the deriver does not
+     * silently filter it out. Callers can chase the unresolved
+     * coordinate themselves.
+     *
+     * @param model              the project's Maven model
+     * @param projectDir         the project's on-disk root directory;
+     *                           may be {@code null}
+     * @param filter             coordinate filter; required
+     * @param sourceRepo         the source POM's
+     *                           {@link RepositoryKey}; when
+     *                           {@code null}, no self-edge filtering
+     *                           is performed
+     * @param repositoryResolver maps an edge's target coordinate to
+     *                           its {@link RepositoryKey}; when
+     *                           {@code null}, no self-edge filtering
+     *                           is performed
+     * @return external upstream edges in source-order; never
+     *         {@code null}
+     */
+    public static List&lt;CascadeEdge&gt; deriveEdges(Model model,
+                                                Path projectDir,
+                                                CoordinateFilter filter,
+                                                RepositoryKey sourceRepo,
+                                                RepositoryKeyResolver repositoryResolver) {
+<span class="fc" id="L188">        List&lt;CascadeEdge&gt; edges = deriveEdges(model, projectDir, filter);</span>
+<span class="fc bfc" id="L189" title="All 4 branches covered.">        if (sourceRepo == null || repositoryResolver == null) {</span>
+<span class="fc" id="L190">            return edges;</span>
+        }
+<span class="fc" id="L192">        List&lt;CascadeEdge&gt; kept = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L193" title="All 2 branches covered.">        for (CascadeEdge edge : edges) {</span>
+<span class="fc" id="L194">            RepositoryKey target = repositoryResolver</span>
+<span class="fc" id="L195">                    .resolve(edge.coordinate())</span>
+<span class="fc" id="L196">                    .orElse(null);</span>
+<span class="fc bfc" id="L197" title="All 4 branches covered.">            if (target == null || !target.equals(sourceRepo)) {</span>
+<span class="fc" id="L198">                kept.add(edge);</span>
+            }
+<span class="fc" id="L200">        }</span>
+<span class="fc" id="L201">        return List.copyOf(kept);</span>
+    }
+
+    private static void appendParentEdge(Model model,
+                                          CoordinateFilter filter,
+                                          List&lt;CascadeEdge&gt; out) {
+<span class="fc" id="L207">        Parent parent = model.getParent();</span>
+<span class="fc bfc" id="L208" title="All 2 branches covered.">        if (parent == null) {</span>
+<span class="fc" id="L209">            return;</span>
+        }
+        // Maven enforces a version on &lt;parent&gt;; a null/blank groupId
+        // or artifactId here would be a malformed POM and the model
+        // layer would have rejected it.
+<span class="fc" id="L214">        MavenCoordinate.tryOf(parent.getGroupId(), parent.getArtifactId())</span>
+<span class="fc" id="L215">                .filter(filter::accepts)</span>
+<span class="fc" id="L216">                .ifPresent(coord -&gt; out.add(edge(coord, EdgeKind.PARENT)));</span>
+<span class="fc" id="L217">    }</span>
+
+    private static void appendDependencyEdges(Model model,
+                                               CoordinateFilter filter,
+                                               List&lt;CascadeEdge&gt; out) {
+<span class="fc" id="L222">        List&lt;Dependency&gt; deps = model.getDependencies();</span>
+<span class="pc bpc" id="L223" title="1 of 2 branches missed.">        if (deps == null) {</span>
+<span class="nc" id="L224">            return;</span>
+        }
+<span class="fc bfc" id="L226" title="All 2 branches covered.">        for (Dependency dep : deps) {</span>
+<span class="fc bfc" id="L227" title="All 2 branches covered.">            if (!hasVersion(dep.getVersion())) {</span>
+                // Inherits its version from &lt;dependencyManagement&gt;;
+                // the contributing edge is at the depMgmt site, not
+                // here.
+<span class="fc" id="L231">                continue;</span>
+            }
+<span class="fc" id="L233">            MavenCoordinate.tryOf(dep.getGroupId(), dep.getArtifactId())</span>
+<span class="fc" id="L234">                    .filter(filter::accepts)</span>
+<span class="fc" id="L235">                    .ifPresent(coord -&gt; out.add(</span>
+<span class="fc" id="L236">                            edge(coord, EdgeKind.DEPENDENCY)));</span>
+<span class="fc" id="L237">        }</span>
+<span class="fc" id="L238">    }</span>
+
+    private static void appendDependencyManagementEdges(
+            Model model, CoordinateFilter filter,
+            List&lt;CascadeEdge&gt; out) {
+<span class="fc" id="L243">        DependencyManagement dm = model.getDependencyManagement();</span>
+<span class="pc bpc" id="L244" title="1 of 4 branches missed.">        if (dm == null || dm.getDependencies() == null) {</span>
+<span class="fc" id="L245">            return;</span>
+        }
+<span class="fc bfc" id="L247" title="All 2 branches covered.">        for (Dependency dep : dm.getDependencies()) {</span>
+<span class="pc bpc" id="L248" title="1 of 2 branches missed.">            if (!hasVersion(dep.getVersion())) {</span>
+<span class="nc" id="L249">                continue;</span>
+            }
+<span class="fc bfc" id="L251" title="All 2 branches covered.">            EdgeKind kind = &quot;import&quot;.equalsIgnoreCase(dep.getScope())</span>
+<span class="fc" id="L252">                    ? EdgeKind.BOM</span>
+<span class="fc" id="L253">                    : EdgeKind.DEPENDENCY;</span>
+<span class="fc" id="L254">            MavenCoordinate.tryOf(dep.getGroupId(), dep.getArtifactId())</span>
+<span class="fc" id="L255">                    .filter(filter::accepts)</span>
+<span class="fc" id="L256">                    .ifPresent(coord -&gt; out.add(edge(coord, kind)));</span>
+<span class="fc" id="L257">        }</span>
+<span class="fc" id="L258">    }</span>
+
+    private static void appendPluginEdges(Model model,
+                                           CoordinateFilter filter,
+                                           List&lt;CascadeEdge&gt; out) {
+<span class="fc" id="L263">        Build build = model.getBuild();</span>
+<span class="fc bfc" id="L264" title="All 2 branches covered.">        if (build == null) {</span>
+<span class="fc" id="L265">            return;</span>
+        }
+<span class="fc" id="L267">        appendPlugins(build.getPlugins(), filter, out);</span>
+<span class="fc" id="L268">        PluginManagement pm = build.getPluginManagement();</span>
+<span class="fc bfc" id="L269" title="All 2 branches covered.">        if (pm != null) {</span>
+<span class="fc" id="L270">            appendPlugins(pm.getPlugins(), filter, out);</span>
+        }
+<span class="fc" id="L272">    }</span>
+
+    private static void appendPlugins(List&lt;Plugin&gt; plugins,
+                                       CoordinateFilter filter,
+                                       List&lt;CascadeEdge&gt; out) {
+<span class="pc bpc" id="L277" title="1 of 2 branches missed.">        if (plugins == null) {</span>
+<span class="nc" id="L278">            return;</span>
+        }
+<span class="fc bfc" id="L280" title="All 2 branches covered.">        for (Plugin plugin : plugins) {</span>
+<span class="fc bfc" id="L281" title="All 2 branches covered.">            if (!hasVersion(plugin.getVersion())) {</span>
+<span class="fc" id="L282">                continue;</span>
+            }
+            // A plugin's groupId can default to
+            // org.apache.maven.plugins when absent; tryOf returns
+            // empty for null/blank so the deriver skips those
+            // implicit-group entries (third-party, not on the IKE
+            // cascade).
+<span class="fc" id="L289">            MavenCoordinate.tryOf(plugin.getGroupId(),</span>
+<span class="fc" id="L290">                            plugin.getArtifactId())</span>
+<span class="fc" id="L291">                    .filter(filter::accepts)</span>
+<span class="fc" id="L292">                    .ifPresent(coord -&gt; out.add(</span>
+<span class="fc" id="L293">                            edge(coord, EdgeKind.PLUGIN)));</span>
+<span class="fc" id="L294">        }</span>
+<span class="fc" id="L295">    }</span>
+
+    private static void appendExtensionEdges(Path projectDir,
+                                              CoordinateFilter filter,
+                                              List&lt;CascadeEdge&gt; out) {
+<span class="fc bfc" id="L300" title="All 2 branches covered.">        if (projectDir == null) {</span>
+<span class="fc" id="L301">            return;</span>
+        }
+<span class="fc" id="L303">        Path extensionsXml = projectDir.resolve(EXTENSIONS_RELATIVE_PATH);</span>
+<span class="fc bfc" id="L304" title="All 2 branches covered.">        if (!Files.isRegularFile(extensionsXml)) {</span>
+<span class="fc" id="L305">            return;</span>
+        }
+<span class="fc" id="L307">        try (Reader reader = Files.newBufferedReader(</span>
+                extensionsXml, StandardCharsets.UTF_8)) {
+<span class="fc" id="L309">            readExtensions(reader, filter, out);</span>
+<span class="nc" id="L310">        } catch (IOException e) {</span>
+<span class="nc" id="L311">            throw new UncheckedIOException(</span>
+                    &quot;Cannot read &quot; + extensionsXml, e);
+<span class="nc" id="L313">        } catch (XMLStreamException e) {</span>
+<span class="nc" id="L314">            throw new IllegalStateException(</span>
+                    &quot;Malformed &quot; + extensionsXml + &quot;: &quot;
+<span class="nc" id="L316">                    + e.getMessage(), e);</span>
+<span class="fc" id="L317">        }</span>
+<span class="fc" id="L318">    }</span>
+
+    private static void readExtensions(Reader source,
+                                        CoordinateFilter filter,
+                                        List&lt;CascadeEdge&gt; out)
+            throws XMLStreamException {
+<span class="fc" id="L324">        XMLInputFactory factory = XMLInputFactory.newFactory();</span>
+<span class="fc" id="L325">        factory.setProperty(XMLInputFactory.IS_NAMESPACE_AWARE,</span>
+                Boolean.FALSE);
+<span class="fc" id="L327">        factory.setProperty(XMLInputFactory.SUPPORT_DTD,</span>
+                Boolean.FALSE);
+<span class="fc" id="L329">        factory.setProperty(&quot;javax.xml.stream.isSupportingExternalEntities&quot;,</span>
+                Boolean.FALSE);
+<span class="fc" id="L331">        XMLStreamReader xml = factory.createXMLStreamReader(source);</span>
+        try {
+<span class="fc" id="L333">            String groupId = null;</span>
+<span class="fc" id="L334">            String artifactId = null;</span>
+<span class="fc" id="L335">            String version = null;</span>
+<span class="fc" id="L336">            String currentLeaf = null;</span>
+<span class="fc" id="L337">            boolean insideExtension = false;</span>
+<span class="fc" id="L338">            StringBuilder leafText = new StringBuilder();</span>
+
+<span class="fc bfc" id="L340" title="All 2 branches covered.">            while (xml.hasNext()) {</span>
+<span class="fc" id="L341">                int event = xml.next();</span>
+<span class="fc bfc" id="L342" title="All 2 branches covered.">                if (event == XMLStreamConstants.START_ELEMENT) {</span>
+<span class="fc" id="L343">                    String name = xml.getLocalName();</span>
+<span class="fc bfc" id="L344" title="All 2 branches covered.">                    if (EXTENSION_QNAME.getLocalPart().equals(name)) {</span>
+<span class="fc" id="L345">                        insideExtension = true;</span>
+<span class="fc" id="L346">                        groupId = null;</span>
+<span class="fc" id="L347">                        artifactId = null;</span>
+<span class="fc" id="L348">                        version = null;</span>
+<span class="fc bfc" id="L349" title="All 2 branches covered.">                    } else if (insideExtension &amp;&amp; (</span>
+<span class="fc bfc" id="L350" title="All 2 branches covered.">                            GROUP_ID_QNAME.getLocalPart().equals(name)</span>
+<span class="fc bfc" id="L351" title="All 2 branches covered.">                            || ARTIFACT_ID_QNAME.getLocalPart().equals(name)</span>
+<span class="pc bpc" id="L352" title="1 of 2 branches missed.">                            || VERSION_QNAME.getLocalPart().equals(name))) {</span>
+<span class="fc" id="L353">                        currentLeaf = name;</span>
+<span class="fc" id="L354">                        leafText.setLength(0);</span>
+                    }
+<span class="fc bfc" id="L356" title="All 4 branches covered.">                } else if (event == XMLStreamConstants.CHARACTERS</span>
+                        &amp;&amp; currentLeaf != null) {
+<span class="fc" id="L358">                    leafText.append(xml.getText());</span>
+<span class="fc bfc" id="L359" title="All 2 branches covered.">                } else if (event == XMLStreamConstants.END_ELEMENT) {</span>
+<span class="fc" id="L360">                    String name = xml.getLocalName();</span>
+<span class="pc bpc" id="L361" title="1 of 4 branches missed.">                    if (currentLeaf != null &amp;&amp; currentLeaf.equals(name)) {</span>
+<span class="fc" id="L362">                        String value = leafText.toString().trim();</span>
+<span class="pc bpc" id="L363" title="1 of 4 branches missed.">                        switch (currentLeaf) {</span>
+<span class="fc" id="L364">                            case &quot;groupId&quot; -&gt; groupId = value;</span>
+<span class="fc" id="L365">                            case &quot;artifactId&quot; -&gt; artifactId = value;</span>
+<span class="fc" id="L366">                            case &quot;version&quot; -&gt; version = value;</span>
+                            default -&gt; { /* ignored */ }
+                        }
+<span class="fc" id="L369">                        currentLeaf = null;</span>
+<span class="pc bpc" id="L370" title="1 of 4 branches missed.">                    } else if (EXTENSION_QNAME.getLocalPart().equals(name)</span>
+                            &amp;&amp; insideExtension) {
+<span class="pc bpc" id="L372" title="1 of 2 branches missed.">                        if (hasVersion(version)) {</span>
+<span class="fc" id="L373">                            final String g = groupId;</span>
+<span class="fc" id="L374">                            final String a = artifactId;</span>
+<span class="fc" id="L375">                            MavenCoordinate.tryOf(g, a)</span>
+<span class="fc" id="L376">                                    .filter(filter::accepts)</span>
+<span class="fc" id="L377">                                    .ifPresent(coord -&gt; out.add(</span>
+<span class="fc" id="L378">                                            edge(coord,</span>
+                                                    EdgeKind.EXTENSION)));
+                        }
+<span class="fc" id="L381">                        insideExtension = false;</span>
+                    }
+                }
+<span class="fc" id="L384">            }</span>
+        } finally {
+<span class="fc" id="L386">            xml.close();</span>
+        }
+<span class="fc" id="L388">    }</span>
+
+    /**
+     * An identity-only edge for a derived upstream — the deriver does
+     * not know the upstream's on-disk {@code repo} name or git URL
+     * (those come from the {@code &lt;scm&gt;}-keyed node resolution in
+     * IKE-Network/ike-issues#496 part C).
+     */
+    private static CascadeEdge edge(MavenCoordinate coordinate,
+                                    EdgeKind kind) {
+<span class="fc" id="L398">        return new CascadeEdge(coordinate, null, null, kind);</span>
+    }
+
+    /**
+     * A version field counts if it is non-null and non-blank. The
+     * value need not be a literal; {@code ${G·A}} placeholders
+     * count as &quot;version-bearing&quot; because they declare an upstream
+     * pin even if interpolation has not happened yet.
+     */
+    private static boolean hasVersion(String version) {
+<span class="pc bpc" id="L408" title="1 of 4 branches missed.">        return version != null &amp;&amp; !version.isBlank();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
