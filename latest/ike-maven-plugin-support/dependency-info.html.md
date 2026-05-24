@@ -12,14 +12,14 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin-support/dependen
 <dependency>
   <groupId>network.ike.tooling</groupId>
   <artifactId>ike-maven-plugin-support</artifactId>
-  <version>201</version>
+  <version>202</version>
 </dependency>
 ```
 
 ## [Apache Ivy](#apache-ivy)
 
 ```
-<dependency org="network.ike.tooling" name="ike-maven-plugin-support" rev="201">
+<dependency org="network.ike.tooling" name="ike-maven-plugin-support" rev="202">
   <artifact name="ike-maven-plugin-support" type="jar" />
 </dependency>
 ```
@@ -28,24 +28,24 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin-support/dependen
 
 ```
 @Grapes(
-@Grab(group='network.ike.tooling', module='ike-maven-plugin-support', version='201')
+@Grab(group='network.ike.tooling', module='ike-maven-plugin-support', version='202')
 )
 ```
 
 ## [Gradle/Grails](#gradle-grails)
 
 ```
-implementation 'network.ike.tooling:ike-maven-plugin-support:201'
+implementation 'network.ike.tooling:ike-maven-plugin-support:202'
 ```
 
 ## [Scala SBT](#scala-sbt)
 
 ```
-libraryDependencies += "network.ike.tooling" % "ike-maven-plugin-support" % "201"
+libraryDependencies += "network.ike.tooling" % "ike-maven-plugin-support" % "202"
 ```
 
 ## [Leiningen](#leiningen)
 
 ```
-[network.ike.tooling/ike-maven-plugin-support "201"]
+[network.ike.tooling/ike-maven-plugin-support "202"]
 ```
