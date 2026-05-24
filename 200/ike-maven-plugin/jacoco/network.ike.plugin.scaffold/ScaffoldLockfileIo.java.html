@@ -1,0 +1,321 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldLockfileIo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">ScaffoldLockfileIo.java</span></div><h1>ScaffoldLockfileIo.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Read and write {@link ScaffoldLockfile} instances in the on-disk
+ * YAML format documented in the
+ * {@code dev-ike-scaffold-architecture} design note.
+ *
+ * &lt;p&gt;Uses SnakeYAML for parsing; emits a stable, human-friendly
+ * representation via {@link DumperOptions.FlowStyle#BLOCK block
+ * style} with insertion-order preserved. The writer writes the
+ * schema version first, then the top-level stamps, then the
+ * {@code files:} map — so a hand-read diff of
+ * {@code .ike/scaffold.lock} stays easy to follow across publishes.
+ *
+ * &lt;p&gt;All emitted timestamps are in UTC ISO-8601 ({@code &quot;Z&quot;}).
+ */
+public final class ScaffoldLockfileIo {
+
+    private ScaffoldLockfileIo() {}
+
+    // ── Read ────────────────────────────────────────────────────────
+
+    /**
+     * Parse a lockfile from a file path.
+     *
+     * @param path path to the YAML lockfile
+     * @return the parsed lockfile
+     * @throws ScaffoldException if the file cannot be read, is empty,
+     *                           or has an unsupported schema version
+     */
+    public static ScaffoldLockfile read(Path path) {
+<span class="fc" id="L51">        try (Reader reader = Files.newBufferedReader(</span>
+                path, StandardCharsets.UTF_8)) {
+<span class="fc" id="L53">            return read(reader);</span>
+<span class="nc" id="L54">        } catch (IOException e) {</span>
+<span class="nc" id="L55">            throw new ScaffoldException(</span>
+                    &quot;Cannot read scaffold lockfile &quot; + path, e);
+        }
+    }
+
+    /**
+     * Parse a lockfile from a Reader.
+     *
+     * @param reader source of YAML text
+     * @return the parsed lockfile
+     * @throws ScaffoldException if the YAML is empty or has an
+     *                           unsupported schema version
+     */
+    public static ScaffoldLockfile read(Reader reader) {
+<span class="fc" id="L69">        Object raw = new Yaml().load(reader);</span>
+<span class="fc bfc" id="L70" title="All 2 branches covered.">        if (raw == null) {</span>
+<span class="fc" id="L71">            throw new ScaffoldException(</span>
+                    &quot;Empty scaffold lockfile&quot;);
+        }
+<span class="pc bpc" id="L74" title="1 of 2 branches missed.">        if (!(raw instanceof Map&lt;?, ?&gt; rootMap)) {</span>
+<span class="nc" id="L75">            throw new ScaffoldException(</span>
+                    &quot;Scaffold lockfile root must be a YAML mapping, &quot;
+<span class="nc" id="L77">                            + &quot;got &quot; + raw.getClass().getSimpleName());</span>
+        }
+        @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L80">        Map&lt;String, Object&gt; root = (Map&lt;String, Object&gt;) rootMap;</span>
+
+<span class="fc" id="L82">        int schema = intField(root, &quot;schema&quot;, ScaffoldLockfile.CURRENT_SCHEMA);</span>
+<span class="fc bfc" id="L83" title="All 2 branches covered.">        if (schema != ScaffoldLockfile.CURRENT_SCHEMA) {</span>
+<span class="fc" id="L84">            throw new ScaffoldException(</span>
+                    &quot;Unsupported scaffold lockfile schema: &quot; + schema
+                            + &quot; (supported: &quot;
+                            + ScaffoldLockfile.CURRENT_SCHEMA + &quot;)&quot;);
+        }
+
+<span class="fc" id="L90">        String standardsVersion = stringField(</span>
+                root, &quot;standards-version&quot;, null);
+<span class="fc" id="L92">        Instant applied = instantField(root, &quot;applied&quot;);</span>
+
+<span class="fc" id="L94">        Map&lt;String, Object&gt; filesYaml = mapField(root, &quot;files&quot;);</span>
+<span class="fc" id="L95">        Map&lt;String, LockfileEntry&gt; files = new LinkedHashMap&lt;&gt;();</span>
+<span class="pc bpc" id="L96" title="1 of 2 branches missed.">        if (filesYaml != null) {</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">            for (Map.Entry&lt;String, Object&gt; e : filesYaml.entrySet()) {</span>
+<span class="fc" id="L98">                files.put(e.getKey(),</span>
+<span class="fc" id="L99">                        parseEntry(e.getKey(), e.getValue()));</span>
+<span class="fc" id="L100">            }</span>
+        }
+
+<span class="fc" id="L103">        return new ScaffoldLockfile(</span>
+                schema, standardsVersion, applied, files);
+    }
+
+    private static LockfileEntry parseEntry(String key, Object raw) {
+<span class="pc bpc" id="L108" title="1 of 2 branches missed.">        if (!(raw instanceof Map&lt;?, ?&gt; entryMap)) {</span>
+<span class="nc" id="L109">            throw new ScaffoldException(</span>
+                    &quot;Lockfile entry '&quot; + key
+                            + &quot;' must be a YAML mapping&quot;);
+        }
+        @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L114">        Map&lt;String, Object&gt; entry = (Map&lt;String, Object&gt;) entryMap;</span>
+
+<span class="fc" id="L116">        String tierValue = stringField(entry, &quot;tier&quot;, null);</span>
+<span class="fc bfc" id="L117" title="All 2 branches covered.">        if (tierValue == null) {</span>
+<span class="fc" id="L118">            throw new ScaffoldException(</span>
+                    &quot;Lockfile entry '&quot; + key
+                            + &quot;' missing required 'tier' field&quot;);
+        }
+<span class="fc" id="L122">        ScaffoldTier tier = ScaffoldTier.fromManifestValue(tierValue);</span>
+
+<span class="fc" id="L124">        String templateSha = stringField(entry, &quot;template-sha&quot;, null);</span>
+<span class="fc" id="L125">        String appliedSha = stringField(entry, &quot;applied-sha&quot;, null);</span>
+
+<span class="fc" id="L127">        List&lt;ManagedElement&gt; managed = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L128">        Object me = entry.get(&quot;managed-elements&quot;);</span>
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        if (me instanceof List&lt;?&gt; list) {</span>
+<span class="fc bfc" id="L130" title="All 2 branches covered.">            for (Object o : list) {</span>
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">                if (!(o instanceof Map&lt;?, ?&gt; itemMap)) {</span>
+<span class="nc" id="L132">                    throw new ScaffoldException(</span>
+                            &quot;managed-elements entry in '&quot; + key
+                                    + &quot;' must be a YAML mapping&quot;);
+                }
+                @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L137">                Map&lt;String, Object&gt; item = (Map&lt;String, Object&gt;) itemMap;</span>
+<span class="fc" id="L138">                String elemPath = stringField(item, &quot;path&quot;, null);</span>
+<span class="fc" id="L139">                Instant installedAt = instantField(item, &quot;installed-at&quot;);</span>
+<span class="fc" id="L140">                String stdVer = stringField(</span>
+                        item, &quot;standards-version&quot;, null);
+<span class="pc bpc" id="L142" title="2 of 6 branches missed.">                if (elemPath == null || installedAt == null</span>
+                        || stdVer == null) {
+<span class="fc" id="L144">                    throw new ScaffoldException(</span>
+                            &quot;managed-elements entry in '&quot; + key
+                                    + &quot;' requires path, installed-at, &quot;
+                                    + &quot;and standards-version&quot;);
+                }
+<span class="fc" id="L149">                managed.add(new ManagedElement(</span>
+                        elemPath, installedAt, stdVer));
+<span class="fc" id="L151">            }</span>
+        }
+
+<span class="fc" id="L154">        return new LockfileEntry(tier, templateSha, appliedSha, managed);</span>
+    }
+
+    // ── Write ───────────────────────────────────────────────────────
+
+    /**
+     * Serialise a lockfile to YAML text. Does not touch disk.
+     *
+     * @param lockfile the lockfile to serialise
+     * @return its YAML representation
+     */
+    public static String writeToString(ScaffoldLockfile lockfile) {
+<span class="fc" id="L166">        StringWriter out = new StringWriter();</span>
+<span class="fc" id="L167">        write(lockfile, out);</span>
+<span class="fc" id="L168">        return out.toString();</span>
+    }
+
+    /**
+     * Serialise a lockfile to a file path, creating parent
+     * directories if needed.
+     *
+     * @param lockfile the lockfile to serialise
+     * @param path     destination path
+     * @throws ScaffoldException if the file cannot be written
+     */
+    public static void write(ScaffoldLockfile lockfile, Path path) {
+        try {
+<span class="fc" id="L181">            Path parent = path.getParent();</span>
+<span class="pc bpc" id="L182" title="1 of 2 branches missed.">            if (parent != null) {</span>
+<span class="fc" id="L183">                Files.createDirectories(parent);</span>
+            }
+<span class="fc" id="L185">            try (BufferedWriter out = Files.newBufferedWriter(</span>
+                    path, StandardCharsets.UTF_8)) {
+<span class="fc" id="L187">                write(lockfile, out);</span>
+            }
+<span class="nc" id="L189">        } catch (IOException e) {</span>
+<span class="nc" id="L190">            throw new ScaffoldException(</span>
+                    &quot;Cannot write scaffold lockfile &quot; + path, e);
+<span class="fc" id="L192">        }</span>
+<span class="fc" id="L193">    }</span>
+
+    /**
+     * Serialise a lockfile through any {@link Writer}.
+     *
+     * @param lockfile the lockfile to serialise
+     * @param writer   destination writer (not closed)
+     */
+    public static void write(ScaffoldLockfile lockfile, Writer writer) {
+<span class="fc" id="L202">        Map&lt;String, Object&gt; root = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L203">        root.put(&quot;schema&quot;, lockfile.schema());</span>
+<span class="fc bfc" id="L204" title="All 2 branches covered.">        if (lockfile.standardsVersion() != null) {</span>
+<span class="fc" id="L205">            root.put(&quot;standards-version&quot;, lockfile.standardsVersion());</span>
+        }
+<span class="fc bfc" id="L207" title="All 2 branches covered.">        if (lockfile.applied() != null) {</span>
+<span class="fc" id="L208">            root.put(&quot;applied&quot;, toIso(lockfile.applied()));</span>
+        }
+<span class="fc" id="L210">        Map&lt;String, Object&gt; filesOut = new LinkedHashMap&lt;&gt;();</span>
+        for (Map.Entry&lt;String, LockfileEntry&gt; e
+<span class="fc bfc" id="L212" title="All 2 branches covered.">                : lockfile.files().entrySet()) {</span>
+<span class="fc" id="L213">            filesOut.put(e.getKey(), entryToMap(e.getValue()));</span>
+<span class="fc" id="L214">        }</span>
+<span class="fc" id="L215">        root.put(&quot;files&quot;, filesOut);</span>
+
+<span class="fc" id="L217">        DumperOptions opts = new DumperOptions();</span>
+<span class="fc" id="L218">        opts.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);</span>
+<span class="fc" id="L219">        opts.setPrettyFlow(true);</span>
+<span class="fc" id="L220">        opts.setIndent(2);</span>
+<span class="fc" id="L221">        opts.setIndicatorIndent(0);</span>
+<span class="fc" id="L222">        opts.setLineBreak(DumperOptions.LineBreak.UNIX);</span>
+        try {
+<span class="fc" id="L224">            new Yaml(opts).dump(root, writer);</span>
+<span class="nc" id="L225">        } catch (Exception e) {</span>
+<span class="nc" id="L226">            throw new ScaffoldException(</span>
+                    &quot;Failed to serialise scaffold lockfile&quot;, e);
+<span class="fc" id="L228">        }</span>
+<span class="fc" id="L229">    }</span>
+
+    private static Map&lt;String, Object&gt; entryToMap(LockfileEntry entry) {
+<span class="fc" id="L232">        Map&lt;String, Object&gt; m = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L233">        m.put(&quot;tier&quot;, entry.tier().manifestValue());</span>
+<span class="fc bfc" id="L234" title="All 2 branches covered.">        if (entry.templateSha() != null) {</span>
+<span class="fc" id="L235">            m.put(&quot;template-sha&quot;, entry.templateSha());</span>
+        }
+<span class="fc bfc" id="L237" title="All 2 branches covered.">        if (entry.appliedSha() != null) {</span>
+<span class="fc" id="L238">            m.put(&quot;applied-sha&quot;, entry.appliedSha());</span>
+        }
+<span class="fc bfc" id="L240" title="All 2 branches covered.">        if (!entry.managedElements().isEmpty()) {</span>
+<span class="fc" id="L241">            List&lt;Map&lt;String, Object&gt;&gt; list = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L242" title="All 2 branches covered.">            for (ManagedElement e : entry.managedElements()) {</span>
+<span class="fc" id="L243">                Map&lt;String, Object&gt; em = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L244">                em.put(&quot;path&quot;, e.path());</span>
+<span class="fc" id="L245">                em.put(&quot;installed-at&quot;, toIso(e.installedAt()));</span>
+<span class="fc" id="L246">                em.put(&quot;standards-version&quot;, e.standardsVersion());</span>
+<span class="fc" id="L247">                list.add(em);</span>
+<span class="fc" id="L248">            }</span>
+<span class="fc" id="L249">            m.put(&quot;managed-elements&quot;, list);</span>
+        }
+<span class="fc" id="L251">        return m;</span>
+    }
+
+    // ── YAML helpers ────────────────────────────────────────────────
+
+    private static String stringField(
+            Map&lt;String, Object&gt; map, String key, String fallback) {
+<span class="fc" id="L258">        Object v = map.get(key);</span>
+<span class="fc bfc" id="L259" title="All 2 branches covered.">        if (v == null) {</span>
+<span class="fc" id="L260">            return fallback;</span>
+        }
+<span class="fc" id="L262">        return v.toString();</span>
+    }
+
+    private static int intField(
+            Map&lt;String, Object&gt; map, String key, int fallback) {
+<span class="fc" id="L267">        Object v = map.get(key);</span>
+<span class="pc bpc" id="L268" title="1 of 2 branches missed.">        if (v == null) {</span>
+<span class="nc" id="L269">            return fallback;</span>
+        }
+<span class="pc bpc" id="L271" title="1 of 2 branches missed.">        if (v instanceof Number n) {</span>
+<span class="fc" id="L272">            return n.intValue();</span>
+        }
+        try {
+<span class="nc" id="L275">            return Integer.parseInt(v.toString().trim());</span>
+<span class="nc" id="L276">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L277">            throw new ScaffoldException(</span>
+                    &quot;Expected integer for '&quot; + key + &quot;', got &quot; + v);
+        }
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private static Map&lt;String, Object&gt; mapField(
+            Map&lt;String, Object&gt; map, String key) {
+<span class="fc" id="L285">        Object v = map.get(key);</span>
+<span class="pc bpc" id="L286" title="1 of 2 branches missed.">        if (v == null) {</span>
+<span class="nc" id="L287">            return null;</span>
+        }
+<span class="pc bpc" id="L289" title="1 of 2 branches missed.">        if (!(v instanceof Map&lt;?, ?&gt;)) {</span>
+<span class="nc" id="L290">            throw new ScaffoldException(</span>
+                    &quot;Expected mapping for '&quot; + key + &quot;'&quot;);
+        }
+<span class="fc" id="L293">        return (Map&lt;String, Object&gt;) v;</span>
+    }
+
+    private static Instant instantField(
+            Map&lt;String, Object&gt; map, String key) {
+<span class="fc" id="L298">        Object v = map.get(key);</span>
+<span class="fc bfc" id="L299" title="All 2 branches covered.">        if (v == null) {</span>
+<span class="fc" id="L300">            return null;</span>
+        }
+<span class="pc bpc" id="L302" title="1 of 2 branches missed.">        if (v instanceof Instant i) {</span>
+<span class="nc" id="L303">            return i;</span>
+        }
+<span class="pc bpc" id="L305" title="1 of 2 branches missed.">        if (v instanceof java.util.Date d) {</span>
+<span class="nc" id="L306">            return d.toInstant();</span>
+        }
+<span class="fc" id="L308">        String s = v.toString().trim();</span>
+        try {
+<span class="fc" id="L310">            return DateTimeFormatter.ISO_INSTANT.parse(s, Instant::from);</span>
+<span class="nc" id="L311">        } catch (DateTimeParseException e) {</span>
+<span class="nc" id="L312">            throw new ScaffoldException(</span>
+                    &quot;Invalid timestamp for '&quot; + key + &quot;': &quot; + s, e);
+        }
+    }
+
+    private static String toIso(Instant i) {
+<span class="fc" id="L318">        return DateTimeFormatter.ISO_INSTANT.format(i);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
