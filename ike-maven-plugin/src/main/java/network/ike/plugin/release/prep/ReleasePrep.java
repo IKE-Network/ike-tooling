@@ -682,9 +682,16 @@ public final class ReleasePrep {
                     new File(sandbox, "pom.xml").toPath(),
                     bumpedContent, StandardCharsets.UTF_8);
             File sandboxMvnw = new File(sandbox, "mvnw");
-            ctx.log().info("    Running `mvnw verify` in sandbox: " + sandbox);
+            // The verify goal is configurable per IKE-Network/ike-issues#510
+            // — operators can dial down to `test`, `package`, or
+            // `compile` when full `verify` is too slow for the
+            // upstream-bump assurance they want.
+            String verifyGoal = System.getProperty(
+                    "ike.policy.verify.goal", "verify");
+            ctx.log().info("    Running `mvnw " + verifyGoal
+                    + "` in sandbox: " + sandbox);
             ReleaseSupport.exec(sandbox, ctx.log(),
-                    sandboxMvnw.getAbsolutePath(), "verify", "-B");
+                    sandboxMvnw.getAbsolutePath(), verifyGoal, "-B");
             return true;
         } catch (IOException e) {
             ctx.log().warn("    Could not write bumped POM to sandbox: "

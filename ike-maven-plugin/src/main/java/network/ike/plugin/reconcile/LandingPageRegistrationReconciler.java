@@ -27,11 +27,16 @@ import java.util.regex.Pattern;
  * and {@code ike:deregister-site-{draft,publish}} goals
  * (IKE-Network/ike-issues#398).
  *
- * <p><b>Detect</b>: probe
- * {@code https://ike.network/projects/<artifactId>.html} and look for
- * the version cell rendered from the project's {@code projects/<id>.adoc}
- * fragment. Drift = missing fragment, or version cell differs from
- * {@link SiteContext#projectVersion}.
+ * <p><b>Detect</b>: probe the homepage {@code https://ike.network/}
+ * and look for the version cell beneath the project's
+ * {@code <h2 id="<artifactId>">} block — the cell rendered from
+ * the project's {@code projects/<id>.adoc} fragment after it is
+ * included into the master index. Drift = missing section, or
+ * version cell differs from {@link SiteContext#projectVersion}.
+ * (IKE-Network/ike-issues#508 — earlier versions probed
+ * {@code /projects/<id>.html}, which always 404s in the current
+ * single-page site structure; the probe always reported drift and
+ * apply always ran.)
  *
  * <p><b>Apply</b>: clone the org-site source repo, write a fresh
  * fragment via {@link OrgSiteSupport#registerProject}, build the site,
@@ -182,12 +187,18 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
     private record Probe(boolean reachable, String version, String detail) {}
 
     /**
-     * Probe {@code https://ike.network/projects/<artifactId>.html} and
-     * extract the registered version. Returns {@code reachable = false}
-     * for 404 (project not registered) or network errors.
+     * Probe {@code https://ike.network/} (the master single-page
+     * index) and extract the registered version for {@code projectId}
+     * from the version cell beneath the project's
+     * {@code <h2 id="<artifactId>">} section.
+     *
+     * <p>Returns {@code reachable = false} for non-2xx or network
+     * errors, {@code reachable = true} with {@code version = null}
+     * when the homepage loads but the project's section is absent
+     * (= "not registered"). Otherwise returns the version string.
      */
     private static Probe probeRegisteredVersion(String projectId) {
-        String url = "https://ike.network/projects/" + projectId + ".html";
+        String url = "https://ike.network/";
         try (HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(PROBE_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -198,17 +209,29 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
                     .build();
             HttpResponse<String> resp = client.send(req,
                     HttpResponse.BodyHandlers.ofString());
-            if (resp.statusCode() == 404) {
-                return new Probe(false, null, "HTTP 404 (not registered)");
-            }
             if (resp.statusCode() / 100 != 2) {
                 return new Probe(false, null, "HTTP " + resp.statusCode());
             }
-            Matcher m = REGISTERED_VERSION_PATTERN.matcher(resp.body());
+            String body = resp.body();
+            int sectionAt = body.indexOf("id=\"" + projectId + "\"");
+            if (sectionAt < 0) {
+                return new Probe(true, null,
+                        "no <h2 id=\"" + projectId + "\"> section "
+                        + "(project not registered on the homepage)");
+            }
+            // Look for the version cell immediately after the section
+            // start; cap the search window to the next <h2 to avoid
+            // matching a later project's cell on a missing-cell case.
+            int nextSection = body.indexOf("<h2 ", sectionAt + 1);
+            String window = nextSection < 0
+                    ? body.substring(sectionAt)
+                    : body.substring(sectionAt, nextSection);
+            Matcher m = REGISTERED_VERSION_PATTERN.matcher(window);
             if (m.find()) {
                 return new Probe(true, m.group(1).trim(), "");
             }
-            return new Probe(true, null, "no version cell found");
+            return new Probe(true, null, "no version cell in "
+                    + projectId + " section");
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
