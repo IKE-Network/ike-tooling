@@ -505,14 +505,40 @@ public final class ReleasePrep {
                     yield false;
                 }
                 case PROPOSE -> {
+                    String proposeBranch = "propose/" + up.artifactId()
+                            + "-v" + latest;
                     ctx.log().warn("  " + up.ga() + " has a new release: "
                             + current + " → " + latest
-                            + " (policy=propose; pin not auto-updated).");
-                    ctx.log().warn("    Concrete propose semantics — opening a"
-                            + " release-gate branch with the bump — are pending."
-                            + " Treating as notify for now (#498 follow-up).");
-                    ctx.log().warn("    Manual integration: mvn versions:set-property"
-                            + " -Dproperty=" + property + " -DnewVersion=" + latest);
+                            + " (policy=propose).");
+                    if (draft) {
+                        ctx.log().warn("    [DRAFT] Would create branch "
+                                + proposeBranch + " with the bump applied;"
+                                + " not modifying anything in draft mode.");
+                    } else if (branchExistsLocally(gitRoot, proposeBranch)) {
+                        ctx.log().warn("    Branch " + proposeBranch
+                                + " already exists — leaving it for the"
+                                + " operator to integrate.");
+                    } else {
+                        String bumpedContent = parentEdge
+                                ? PomRewriter.updateParentVersion(content,
+                                        up.groupId(), up.artifactId(), latest)
+                                : PomRewriter.updateProperty(content,
+                                        property, latest);
+                        boolean hasOrigin = ReleaseSupport.hasRemote(gitRoot, "origin");
+                        createProposeBranch(gitRoot, proposeBranch, pomFile,
+                                bumpedContent,
+                                "propose: bump " + up.ga() + " "
+                                        + current + " → " + latest,
+                                hasOrigin);
+                        ctx.log().warn("    Created branch " + proposeBranch
+                                + (hasOrigin
+                                        ? " and pushed to origin."
+                                        : " (local only — no origin remote)."));
+                        if (hasOrigin) {
+                            ctx.log().warn("    Open a PR: gh pr create"
+                                    + " --head " + proposeBranch);
+                        }
+                    }
                     yield false;
                 }
             };
@@ -573,6 +599,71 @@ public final class ReleasePrep {
         ReleaseSupport.exec(gitRoot, ctx.log(), "git", "add", "pom.xml");
         ReleaseSupport.exec(gitRoot, ctx.log(), "git", "commit", "-m",
                 "release: align upstream cascade versions");
+    }
+
+    /**
+     * Returns {@code true} when {@code branchName} resolves to a local
+     * git ref. Used by the {@code propose} policy arm to skip
+     * recreating an existing release-gate branch.
+     */
+    private static boolean branchExistsLocally(File gitRoot, String branchName) {
+        try {
+            ReleaseSupport.execCapture(gitRoot, "git", "rev-parse",
+                    "--verify", "refs/heads/" + branchName);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Creates a {@code propose/…} release-gate branch carrying a single
+     * commit that applies a proposed upstream-pin bump.
+     *
+     * <p>Sequence: cut a new branch from the current HEAD, write the
+     * bumped POM content, stage + commit, push to {@code origin} when
+     * available, then force-checkout back to the original branch.
+     * The final checkout runs in a {@code finally} so a push failure
+     * doesn't strand the worktree on the propose branch.
+     *
+     * @param gitRoot       project working tree
+     * @param branchName    the propose branch name to create
+     * @param pomFile       the POM file to overwrite with {@code bumpedContent}
+     * @param bumpedContent the POM content with the upstream pin advanced
+     * @param commitMessage the commit message for the bump
+     * @param push          when {@code true}, also push the new branch
+     *                      to {@code origin} with upstream tracking
+     */
+    private void createProposeBranch(File gitRoot, String branchName,
+                                      File pomFile, String bumpedContent,
+                                      String commitMessage, boolean push) {
+        String currentBranch = ReleaseSupport.currentBranch(gitRoot);
+        try {
+            ReleaseSupport.exec(gitRoot, ctx.log(),
+                    "git", "checkout", "-b", branchName);
+            try {
+                Files.writeString(pomFile.toPath(), bumpedContent,
+                        StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw new MojoException("Could not write "
+                        + pomFile + " on propose branch "
+                        + branchName + ": " + e.getMessage(), e);
+            }
+            ReleaseSupport.exec(gitRoot, ctx.log(),
+                    "git", "add", "pom.xml");
+            ReleaseSupport.exec(gitRoot, ctx.log(),
+                    "git", "commit", "-m", commitMessage);
+            if (push) {
+                ReleaseSupport.exec(gitRoot, ctx.log(),
+                        "git", "push", "-u", "origin", branchName);
+            }
+        } finally {
+            // Always return to the original branch; force checkout
+            // overwrites any stray uncommitted worktree state from a
+            // failure mid-sequence.
+            ReleaseSupport.exec(gitRoot, ctx.log(),
+                    "git", "checkout", "-f", currentBranch);
+        }
     }
 
     /**
