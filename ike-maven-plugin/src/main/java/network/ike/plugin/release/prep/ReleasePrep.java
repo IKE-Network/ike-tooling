@@ -5,6 +5,8 @@ import network.ike.plugin.ReleaseNotesSupport;
 import network.ike.plugin.ReleaseSupport;
 import network.ike.plugin.SnapshotScanner;
 import network.ike.plugin.release.ReleaseContext;
+import network.ike.support.enums.ConstantBackedEnum;
+import network.ike.support.enums.ReleasePolicy;
 import network.ike.plugin.scaffold.FoundationBaker;
 import network.ike.plugin.scaffold.ScaffoldManifest;
 import network.ike.plugin.scaffold.ScaffoldManifestIo;
@@ -30,6 +32,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -78,6 +81,22 @@ public final class ReleasePrep {
                     + "|post-release: .+"
                     + "|merge: release .+"
                     + "|site: publish .+)$");
+
+    /**
+     * Suffix that identifies a {@code ${groupId·artifactId·policy}}
+     * property declaring how this project reacts to an upstream
+     * release (IKE-Network/ike-issues#498). The value must be a
+     * {@link ReleasePolicy} rung.
+     */
+    private static final String POLICY_SUFFIX = "·policy";
+
+    /**
+     * {@link ReleasePolicy} indexed by literal rung name
+     * ({@code notify}, {@code verify}, {@code propose},
+     * {@code integrate}, {@code release}).
+     */
+    private static final Map<String, ReleasePolicy> RELEASE_POLICY_INDEX =
+            ConstantBackedEnum.index(ReleasePolicy.class);
 
     private final ReleaseContext ctx;
     private final Session session;
@@ -375,6 +394,53 @@ public final class ReleasePrep {
         String updated = content;
 
         for (CascadeEdge up : loaded.get().upstream()) {
+            // Release-policy dispatch (IKE-Network/ike-issues#498).
+            // ${G·A·policy} declares how this project responds when
+            // the upstream releases. The default (no property declared)
+            // is INTEGRATE — bump the pin in place, no human gate.
+            // Only INTEGRATE and RELEASE auto-align; the manual-review
+            // policies (NOTIFY / VERIFY / PROPOSE) report the gap and
+            // leave the pin where it is for the operator to resolve.
+            // The ${G·A·policy} property is validated at consumer build
+            // time by ike-version-management-extension; ReleasePrep
+            // re-validates here so a release run gives a clear error
+            // even on consumers that don't register that extension.
+            String policyKey = up.groupId() + "·" + up.artifactId() + POLICY_SUFFIX;
+            String policyValue = ReleaseSupport.readPomProperty(pomFile, policyKey);
+            if (policyValue != null) {
+                policyValue = policyValue.trim();
+            }
+            if (policyValue == null || policyValue.isEmpty() || policyValue.contains("${")) {
+                policyValue = ReleasePolicy.INTEGRATE.literalName();
+            }
+            ReleasePolicy policy = RELEASE_POLICY_INDEX.get(policyValue);
+            if (policy == null) {
+                problems.add(up.ga() + ": unrecognized policy '"
+                        + policyValue + "' for property " + policyKey
+                        + " — must be one of " + RELEASE_POLICY_INDEX.keySet() + ".");
+                continue;
+            }
+            boolean autoAlign = switch (policy) {
+                case INTEGRATE -> true;
+                case RELEASE -> {
+                    ctx.log().info("  " + up.ga()
+                            + " policy=release — aligning pin;"
+                            + " downstream release follows via cascade.");
+                    yield true;
+                }
+                case NOTIFY, VERIFY, PROPOSE -> {
+                    ctx.log().info("  " + up.ga() + " policy="
+                            + policyValue + " — alignment skipped"
+                            + " (auto-align reserved for INTEGRATE / RELEASE;"
+                            + " " + policyValue + " implementation TBD)."
+                            + " Manual integration required.");
+                    yield false;
+                }
+            };
+            if (!autoAlign) {
+                continue;
+            }
+
             // PARENT-kind edges rewrite the <parent><version> block
             // directly; property-kind edges rewrite the ${G·A} property
             // that pins the upstream. The site of the value (the read
