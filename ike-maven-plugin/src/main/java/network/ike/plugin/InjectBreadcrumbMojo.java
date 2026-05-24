@@ -184,22 +184,31 @@ public class InjectBreadcrumbMojo implements org.apache.maven.api.plugin.Mojo {
     /**
      * Generate the IKE theme override CSS for JaCoCo reports.
      *
-     * <p>Overrides JaCoCo's default styling to approximate the Sentry
-     * Maven Skin purple theme: dark header bar, consistent font stack,
-     * purple accent colors, and improved table readability.
+     * <p>Overrides JaCoCo's default styling to match the
+     * {@code sentry-green} palette used by the Maven Site skin:
+     * Verdant header band, Twilight body text, Mist link accents,
+     * Cloud row-hover. Same palette as
+     * {@code ike-base-parent/src/main/site-theme/css/site.css}.
      *
      * @return CSS content as a string
      */
     public static String generateThemeCss() {
         return """
                 /* IKE Theme Override for JaCoCo Reports */
-                /* Aligns JaCoCo's default styling with the Sentry Maven Skin */
+                /* Aligns JaCoCo's default styling with the sentry-green */
+                /* palette used by the Maven Site skin.                   */
+                /*                                                        */
+                /*   Verdant  #4A7D84  banner / table header band         */
+                /*   Twilight #273B36  body text / dark accents           */
+                /*   Mist     #B7E4D2  hover-text on dark bands           */
+                /*   Cloud    #E6EBE7  row-hover background               */
+                /*   Sea      #3A6065  link color (darker Verdant)        */
 
                 body, td {
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
                                  Roboto, "Helvetica Neue", Arial, sans-serif;
                     font-size: 14px;
-                    color: #333;
+                    color: #273B36;
                     margin: 0;
                     padding: 0;
                     background: #fafafa;
@@ -214,25 +223,25 @@ public class InjectBreadcrumbMojo implements org.apache.maven.api.plugin.Mojo {
                 h1 {
                     font-size: 24px;
                     font-weight: 600;
-                    color: #2d2d2d;
+                    color: #273B36;
                     margin: 16px 0;
                     padding-bottom: 8px;
-                    border-bottom: 2px solid #6f42c1;
+                    border-bottom: 2px solid #4A7D84;
                 }
 
                 a {
-                    color: #6f42c1;
+                    color: #3A6065;
                     text-decoration: none;
                 }
 
                 a:hover {
-                    color: #553098;
+                    color: #273B36;
                     text-decoration: underline;
                 }
 
                 /* Breadcrumb bar */
                 .breadcrumb {
-                    background: #343a40;
+                    background: #273B36;
                     color: #fff;
                     padding: 10px 16px;
                     border: none;
@@ -242,7 +251,7 @@ public class InjectBreadcrumbMojo implements org.apache.maven.api.plugin.Mojo {
                 }
 
                 .breadcrumb a {
-                    color: #c9b3f5;
+                    color: #B7E4D2;
                 }
 
                 .breadcrumb a:hover {
@@ -273,24 +282,24 @@ public class InjectBreadcrumbMojo implements org.apache.maven.api.plugin.Mojo {
                 }
 
                 table.coverage thead {
-                    background: #6f42c1;
+                    background: #4A7D84;
                     color: #fff;
                 }
 
                 table.coverage thead td {
                     padding: 8px 14px 8px 8px;
-                    border-bottom: 2px solid #553098;
+                    border-bottom: 2px solid #273B36;
                     font-weight: 600;
                     font-size: 13px;
                 }
 
                 table.coverage thead td.bar {
-                    border-left: 1px solid #8057d4;
+                    border-left: 1px solid #6E9499;
                 }
 
                 table.coverage thead td.ctr1,
                 table.coverage thead td.ctr2 {
-                    border-left: 1px solid #8057d4;
+                    border-left: 1px solid #6E9499;
                 }
 
                 table.coverage tbody td {
@@ -299,7 +308,7 @@ public class InjectBreadcrumbMojo implements org.apache.maven.api.plugin.Mojo {
                 }
 
                 table.coverage tbody tr:hover {
-                    background: #f3effc !important;
+                    background: #E6EBE7 !important;
                 }
 
                 table.coverage tbody td.bar {
