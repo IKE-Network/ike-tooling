@@ -26,17 +26,27 @@ class OrgSiteSupportTest {
     // ── Foundation membership (#465) ────────────────────────────────
 
     @Test
-    void foundation_contains_workspace_extension_between_docs_and_platform() {
+    void foundation_ordering_is_dependency_direction() {
         // The LinkedHashMap insertion order drives the rendered
-        // Foundation section ordering. ike-workspace-extension is a
-        // standalone Tier-0 artifact that ike-platform consumes at
-        // workspace runtime — list it immediately before ike-platform.
+        // Foundation section ordering, top-to-bottom in the
+        // dependency direction (upstream → downstream):
+        //   ike-base-parent (Tier-0 parent)
+        //     → ike-java-support (Tier-0 value types; IKE-Network/ike-issues#498)
+        //       → ike-tooling, ike-docs, ike-workspace-extension (Tier-1)
+        //       → ike-version-management-extension (Tier-1 build extension)
+        //         → ike-platform (Tier-2)
+        // ike-workspace-extension is consumed by ike-platform at
+        // workspace runtime (#460); ike-version-management-extension
+        // is registered, not resolved, so its order relative to its
+        // siblings is by logical grouping.
         assertThat(OrgSiteSupport.FOUNDATION.keySet())
                 .containsExactly(
                         "ike-base-parent",
+                        "ike-java-support",
                         "ike-tooling",
                         "ike-docs",
                         "ike-workspace-extension",
+                        "ike-version-management-extension",
                         "ike-platform");
     }
 
@@ -44,8 +54,12 @@ class OrgSiteSupportTest {
     void foundation_coordinates_use_full_groupId() {
         assertThat(OrgSiteSupport.FOUNDATION.get("ike-base-parent"))
                 .isEqualTo("network.ike:ike-base-parent");
+        assertThat(OrgSiteSupport.FOUNDATION.get("ike-java-support"))
+                .isEqualTo("network.ike:ike-java-support");
         assertThat(OrgSiteSupport.FOUNDATION.get("ike-workspace-extension"))
                 .isEqualTo("network.ike.tooling:ike-workspace-extension");
+        assertThat(OrgSiteSupport.FOUNDATION.get("ike-version-management-extension"))
+                .isEqualTo("network.ike.tooling:ike-version-management-extension");
         assertThat(OrgSiteSupport.FOUNDATION.get("ike-platform"))
                 .isEqualTo("network.ike.platform:ike-platform");
     }

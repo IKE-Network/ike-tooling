@@ -94,12 +94,25 @@ public final class OrgSiteSupport {
         // entry below depends on every entry above.
         Map<String, String> m = new LinkedHashMap<>();
         m.put("ike-base-parent",         "network.ike:ike-base-parent");
+        // Tier-0 zero-dependency value types (ConstantBackedEnum,
+        // EnumDefinition, ReleasePolicy). Depended on by ike-tooling
+        // (IKE-Network/ike-issues#498). Listed early since it sits
+        // above ike-tooling in the dependency direction.
+        m.put("ike-java-support",        "network.ike:ike-java-support");
         m.put("ike-tooling",             "network.ike.tooling:ike-tooling");
         m.put("ike-docs",                "network.ike.docs:ike-docs");
         // Standalone Tier-0 artifact consumed by ike-platform at
         // workspace runtime (#460). Listed before platform so the
         // section reads in dependency order.
         m.put("ike-workspace-extension", "network.ike.tooling:ike-workspace-extension");
+        // Maven 4 build extension consumers register via
+        // .mvn/extensions.xml. Validates canonical ${G·A} pins and
+        // the ${G·A·policy} ladder shipped in #498. Not in the
+        // consumer-coordinate dependency direction (registered, not
+        // resolved) so its order relative to its siblings is by
+        // logical grouping, not by dep direction.
+        m.put("ike-version-management-extension",
+                "network.ike.tooling:ike-version-management-extension");
         m.put("ike-platform",            "network.ike.platform:ike-platform");
         return Collections.unmodifiableMap(m);
     }
@@ -310,6 +323,9 @@ public final class OrgSiteSupport {
             sb.append("                  ike-base-parent\n");
             sb.append("                  (parent inheritance only)\n");
             sb.append("                         |\n");
+            sb.append("                ike-java-support\n");
+            sb.append("                  (Tier-0 value types)\n");
+            sb.append("                         |\n");
             sb.append("        +----------------+----------------+\n");
             sb.append("        v                                 v\n");
             sb.append("   ike-tooling                  ike-workspace-extension\n");
@@ -321,6 +337,10 @@ public final class OrgSiteSupport {
             sb.append("                         v\n");
             sb.append("                    ike-platform\n");
             sb.append("              (consumes all three above)\n");
+            sb.append("\n");
+            sb.append("  ike-version-management-extension\n");
+            sb.append("  (registered at every consumer build;\n");
+            sb.append("   validates ${G·A} pins and ${G·A·policy})\n");
             sb.append("----\n");
             sb.append('\n');
             sb.append("Members at the same level have no dependency on each\n");
