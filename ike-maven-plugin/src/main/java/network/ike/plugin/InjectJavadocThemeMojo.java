@@ -181,49 +181,46 @@ public class InjectJavadocThemeMojo implements org.apache.maven.api.plugin.Mojo 
      * Generate the IKE theme override CSS for Javadoc.
      *
      * <p>Overrides only the {@code :root} custom properties exposed by
-     * the stock Java 25 stylesheet — the cascade does the rest. Same
-     * palette as the JaCoCo theme in {@link InjectBreadcrumbMojo} and
-     * the {@code body.sentry-green} block in
-     * {@code ike-base-parent/src/main/site-theme/css/site.css}. (The
-     * shared-palette extraction is tracked separately —
-     * IKE-Network/ike-issues#518.)
+     * the stock Java 25 stylesheet — the cascade does the rest. Palette
+     * constants come from {@link IkePalette} so this theme,
+     * {@link InjectBreadcrumbMojo}'s, and {@code ike-base-parent}'s
+     * {@code site.css} all share one source.
      *
      * @return CSS content as a string
      */
     public static String generateThemeCss() {
         return """
-                /* IKE Theme Override for Javadoc Reports */
-                /* Overrides the Java 25 default stylesheet's :root */
-                /* custom properties to the sentry-green palette.    */
-                /*                                                   */
-                /*   Verdant  #4A7D84  navbar / table header band    */
-                /*   Twilight #273B36  body text / dark accents      */
-                /*   Mist     #B7E4D2  reserved for future use       */
-                /*   Cloud    #E6EBE7  subnav / table-header tint    */
-                /*   Sea      #3A6065  link color (darker Verdant)   */
-                /*   Accent   #FFA351  selected / active links       */
+                /* IKE Theme Override for Javadoc Reports                  */
+                /* Overrides the Java 25 default stylesheet's :root        */
+                /* custom properties to the sentry-green palette.          */
+                /* Palette source: network.ike.plugin.IkePalette.          */
 
                 :root {
-                    --navbar-background-color: #4A7D84;
+                    --navbar-background-color: %VERDANT%;
                     --navbar-text-color: #ffffff;
 
-                    --subnav-background-color: #E6EBE7;
-                    --subnav-link-color: #3A6065;
+                    --subnav-background-color: %CLOUD%;
+                    --subnav-link-color: %SEA%;
                     --member-heading-background-color: var(--subnav-background-color);
 
-                    --selected-background-color: #FFA351;
-                    --selected-text-color: #273B36;
-                    --selected-link-color: #3A6065;
+                    --selected-background-color: %ACCENT%;
+                    --selected-text-color: %TWILIGHT%;
+                    --selected-link-color: %SEA%;
 
-                    --table-header-color: #E6EBE7;
-                    --title-color: #273B36;
+                    --table-header-color: %CLOUD%;
+                    --title-color: %TWILIGHT%;
 
-                    --link-color: #3A6065;
-                    --link-color-active: #FFA351;
+                    --link-color: %SEA%;
+                    --link-color-active: %ACCENT%;
 
                     --toc-highlight-color: var(--subnav-background-color);
-                    --toc-hover-color: #E6EBE7;
+                    --toc-hover-color: %CLOUD%;
                 }
-                """;
+                """
+                .replace("%VERDANT%", IkePalette.VERDANT)
+                .replace("%TWILIGHT%", IkePalette.TWILIGHT)
+                .replace("%CLOUD%", IkePalette.CLOUD)
+                .replace("%SEA%", IkePalette.SEA)
+                .replace("%ACCENT%", IkePalette.ACCENT);
     }
 }
