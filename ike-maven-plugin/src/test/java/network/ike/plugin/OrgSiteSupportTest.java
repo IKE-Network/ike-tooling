@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -165,6 +166,138 @@ class OrgSiteSupportTest {
                 .doesNotContain("== Foundation")
                 .doesNotContain("Build/release dependency order")
                 .contains("== Examples");
+    }
+
+    // ── site.xml regeneration (#520) ─────────────────────────────────
+
+    @Test
+    void displayTitle_uses_IKE_acronym_and_TitleCase_for_other_tokens() {
+        assertThat(OrgSiteSupport.displayTitle("ike-base-parent"))
+                .isEqualTo("IKE Base Parent");
+        assertThat(OrgSiteSupport.displayTitle("ike-version-management-extension"))
+                .isEqualTo("IKE Version Management Extension");
+        assertThat(OrgSiteSupport.displayTitle("ike-java-support"))
+                .isEqualTo("IKE Java Support");
+        assertThat(OrgSiteSupport.displayTitle("doc-example"))
+                .isEqualTo("Doc Example");
+    }
+
+    @Test
+    void renderSiteMenu_emits_item_per_id_with_url_and_title() {
+        String menu = OrgSiteSupport.renderSiteMenu(
+                "Foundation",
+                List.of("ike-base-parent", "ike-tooling"),
+                id -> "https://ike.network/" + id + "/",
+                OrgSiteSupport::displayTitle);
+
+        assertThat(menu)
+                .contains("<menu name=\"Foundation\">")
+                .contains("<item name=\"IKE Base Parent\"")
+                .contains("href=\"https://ike.network/ike-base-parent/\"")
+                .contains("<item name=\"IKE Tooling\"")
+                .contains("href=\"https://ike.network/ike-tooling/\"")
+                .endsWith("</menu>");
+    }
+
+    @Test
+    void replaceMenu_replaces_only_the_matching_named_block() {
+        String src = """
+                <body>
+                    <menu name="Foundation">
+                        <item name="Old" href="x"/>
+                    </menu>
+                    <menu name="Examples">
+                        <item name="Keep" href="k"/>
+                    </menu>
+                </body>
+                """;
+
+        String replacement = """
+                        <menu name="Foundation">
+                            <item name="New" href="n"/>
+                        </menu>""";
+
+        String out = OrgSiteSupport.replaceMenu(src, "Foundation", replacement);
+
+        assertThat(out)
+                .contains("<item name=\"New\" href=\"n\"/>")
+                .doesNotContain("<item name=\"Old\"")
+                .contains("<item name=\"Keep\" href=\"k\"/>");
+    }
+
+    @Test
+    void replaceMenu_returns_source_unchanged_when_block_absent() {
+        String src = "<body><menu name=\"Other\"><item/></menu></body>";
+        assertThat(OrgSiteSupport.replaceMenu(src, "Foundation", "x"))
+                .isEqualTo(src);
+    }
+
+    @Test
+    void regenerateSiteXml_rewrites_Foundation_Examples_and_Source_in_place() throws Exception {
+        File orgRoot = newOrgRepoWithFragments(
+                "ike-base-parent", "ike-tooling", "ike-platform",
+                "doc-example", "workspace-reactor-example");
+        Path siteXml = orgRoot.toPath().resolve("src/site/site.xml");
+        Files.createDirectories(siteXml.getParent());
+        // Minimal site descriptor — the regenerator should preserve
+        // the licence comment and replace only the three menu blocks.
+        Files.writeString(siteXml, """
+                <site>
+                    <!-- preserved licence header -->
+                    <body>
+                        <menu name="Foundation">
+                            <item name="Stale" href="https://example.org/stale/"/>
+                        </menu>
+                        <menu name="Examples">
+                            <item name="stale-example"
+                                  href="https://example.org/stale/"/>
+                        </menu>
+                        <menu name="Source">
+                            <item name="stale" href="https://example.org/stale"/>
+                        </menu>
+                    </body>
+                </site>
+                """);
+
+        OrgSiteSupport.regenerateSiteXml(orgRoot);
+
+        String updated = Files.readString(siteXml);
+
+        // Licence comment preserved (the regenerator touched only menus).
+        assertThat(updated).contains("preserved licence header");
+
+        // Foundation: in FOUNDATION-map order, with IKE-acronym titles.
+        int basePos = updated.indexOf("IKE Base Parent");
+        int toolPos = updated.indexOf("IKE Tooling");
+        int platPos = updated.indexOf("IKE Platform");
+        assertThat(basePos).isPositive();
+        assertThat(toolPos).isGreaterThan(basePos);
+        assertThat(platPos).isGreaterThan(toolPos);
+
+        // Examples: alphabetical, raw artifact IDs as titles, ike.network URLs.
+        assertThat(updated)
+                .contains("<item name=\"doc-example\"")
+                .contains("href=\"https://ike.network/doc-example/\"")
+                .contains("<item name=\"workspace-reactor-example\"");
+
+        // Source: GitHub URLs for both foundation and examples.
+        assertThat(updated)
+                .contains("href=\"https://github.com/IKE-Network/ike-base-parent\"")
+                .contains("href=\"https://github.com/IKE-Network/doc-example\"");
+
+        // Stale entries are gone.
+        assertThat(updated)
+                .doesNotContain("stale")
+                .doesNotContain("Stale");
+    }
+
+    @Test
+    void regenerateSiteXml_is_a_no_op_when_site_xml_absent() throws Exception {
+        File orgRoot = newOrgRepoWithFragments("ike-base-parent");
+        // No site.xml at src/site/.
+        OrgSiteSupport.regenerateSiteXml(orgRoot);
+        assertThat(Files.exists(orgRoot.toPath().resolve("src/site/site.xml")))
+                .isFalse();
     }
 
     private File newOrgRepoWithFragments(String... artifactIds) throws Exception {

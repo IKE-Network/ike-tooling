@@ -74,6 +74,12 @@ public final class OrgSiteSupport {
     /** Path to the master index AsciiDoc source, relative to repo root. */
     private static final String INDEX_ADOC = "src/site/asciidoc/index.adoc";
 
+    /** Path to the site descriptor, relative to repo root. */
+    private static final String SITE_XML = "src/site/site.xml";
+
+    /** GitHub organization that hosts the foundation repos. */
+    private static final String GH_ORG_URL = "https://github.com/IKE-Network";
+
     /** Branch used for rendered site content (GitHub Pages source). */
     private static final String GH_PAGES_BRANCH = "gh-pages";
 
@@ -468,6 +474,185 @@ public final class OrgSiteSupport {
         }
     }
 
+    // ── Site descriptor (site.xml) regeneration ──────────────────────
+
+    /**
+     * Regenerate the {@code <menu>} blocks in the org-site's
+     * {@code src/site/site.xml} from the same fragment-list that
+     * drives the index body — eliminating the drift class where the
+     * landing-page body is auto-current but the left-nav is a stale
+     * hand-maintained snapshot (IKE-Network/ike-issues#520).
+     *
+     * <p>Three menu blocks are rewritten in place:
+     * <ul>
+     *   <li>{@code <menu name="Foundation">} — entries in
+     *       {@link #FOUNDATION} order, intersected with the
+     *       fragments actually present on disk.</li>
+     *   <li>{@code <menu name="Examples">} — fragments not in
+     *       {@code FOUNDATION}, in alphabetical order.</li>
+     *   <li>{@code <menu name="Source">} — foundation + examples,
+     *       pointing at GitHub repo URLs.</li>
+     * </ul>
+     *
+     * <p>Everything else in {@code site.xml} — skin coordinates,
+     * banners, breadcrumbs, custom block, the licence comment — is
+     * preserved by find-and-replace on each labelled menu block.
+     *
+     * <p>No-op when {@code src/site/site.xml} is absent. Called from
+     * {@link #registerProject} and {@link #deregisterProject} after
+     * {@link #regenerateIndex}; the body and left-nav update in the
+     * same registration step.
+     *
+     * @param orgRoot root of the cloned org repository
+     * @throws MojoException if the descriptor cannot be read or written
+     */
+    public static void regenerateSiteXml(File orgRoot)
+            throws MojoException {
+        Path siteXml = orgRoot.toPath().resolve(SITE_XML);
+        if (!Files.exists(siteXml)) {
+            return;
+        }
+
+        Path fragmentDir = orgRoot.toPath().resolve(FRAGMENT_DIR);
+        List<String> fragmentIds = new ArrayList<>();
+        if (Files.isDirectory(fragmentDir)) {
+            try (DirectoryStream<Path> stream =
+                         Files.newDirectoryStream(fragmentDir, "*.adoc")) {
+                for (Path entry : stream) {
+                    String name = entry.getFileName().toString();
+                    fragmentIds.add(name.substring(0,
+                            name.length() - ".adoc".length()));
+                }
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Could not scan fragment directory: " + fragmentDir, e);
+            }
+        }
+        Collections.sort(fragmentIds);
+
+        List<String> foundation = new ArrayList<>();
+        for (String id : FOUNDATION.keySet()) {
+            if (fragmentIds.contains(id)) {
+                foundation.add(id);
+            }
+        }
+        List<String> examples = new ArrayList<>();
+        for (String id : fragmentIds) {
+            if (!foundation.contains(id)) {
+                examples.add(id);
+            }
+        }
+
+        String original;
+        try {
+            original = Files.readString(siteXml, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new MojoException("Could not read " + siteXml, e);
+        }
+
+        String updated = replaceMenu(original, "Foundation",
+                renderSiteMenu("Foundation", foundation,
+                        id -> "https://ike.network/" + id + "/",
+                        OrgSiteSupport::displayTitle));
+        updated = replaceMenu(updated, "Examples",
+                renderSiteMenu("Examples", examples,
+                        id -> "https://ike.network/" + id + "/",
+                        id -> id));
+        List<String> all = new ArrayList<>(foundation);
+        all.addAll(examples);
+        updated = replaceMenu(updated, "Source",
+                renderSiteMenu("Source", all,
+                        id -> GH_ORG_URL + "/" + id,
+                        id -> id));
+
+        if (!updated.equals(original)) {
+            try {
+                Files.writeString(siteXml, updated, StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw new MojoException("Could not write " + siteXml, e);
+            }
+        }
+    }
+
+    /**
+     * Render one {@code <menu>} block. Pure function — testable
+     * without any I/O.
+     *
+     * @param name        menu name attribute (e.g. {@code "Foundation"})
+     * @param ids         artifact IDs to render as menu items
+     * @param hrefFn      maps an artifact ID to its menu-item URL
+     * @param titleFn     maps an artifact ID to its menu-item display text
+     * @return the {@code <menu>...</menu>} block as text, ready to
+     *         substitute in for the corresponding old block
+     */
+    static String renderSiteMenu(String name, List<String> ids,
+                                 java.util.function.Function<String, String> hrefFn,
+                                 java.util.function.Function<String, String> titleFn) {
+        var sb = new StringBuilder();
+        sb.append("        <menu name=\"").append(name).append("\">\n");
+        for (String id : ids) {
+            sb.append("            <item name=\"")
+                    .append(titleFn.apply(id))
+                    .append("\"\n                  href=\"")
+                    .append(hrefFn.apply(id))
+                    .append("\"/>\n");
+        }
+        sb.append("        </menu>");
+        return sb.toString();
+    }
+
+    /**
+     * Find the {@code <menu name="X">...</menu>} block in {@code src}
+     * and replace it with {@code replacement}. Returns {@code src}
+     * unchanged if no matching menu block is found — the existing
+     * descriptor is then assumed to already lack the block by
+     * design.
+     *
+     * @param src         existing site.xml content
+     * @param menuName    the {@code name=} attribute to locate
+     * @param replacement the new block (as produced by
+     *                    {@link #renderSiteMenu})
+     * @return updated content
+     */
+    static String replaceMenu(String src, String menuName,
+                              String replacement) {
+        var pattern = java.util.regex.Pattern.compile(
+                "[ \\t]*<menu name=\"" + java.util.regex.Pattern.quote(menuName)
+                        + "\">[\\s\\S]*?</menu>",
+                java.util.regex.Pattern.MULTILINE);
+        var matcher = pattern.matcher(src);
+        if (!matcher.find()) {
+            return src;
+        }
+        return matcher.replaceFirst(
+                java.util.regex.Matcher.quoteReplacement(replacement));
+    }
+
+    /**
+     * Turn an artifact ID like {@code ike-base-parent} into a
+     * display title like {@code "IKE Base Parent"}. The {@code IKE}
+     * prefix capitalizes as a known acronym; other tokens use
+     * Title-Case.
+     *
+     * @param artifactId the artifact ID (kebab-case)
+     * @return Title-Case display string
+     */
+    static String displayTitle(String artifactId) {
+        String[] parts = artifactId.split("-");
+        var sb = new StringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) sb.append(' ');
+            String word = parts[i];
+            if ("ike".equals(word)) {
+                sb.append("IKE");
+            } else if (!word.isEmpty()) {
+                sb.append(Character.toUpperCase(word.charAt(0)))
+                        .append(word.substring(1));
+            }
+        }
+        return sb.toString();
+    }
+
     // ── AsciiDoc rendering ───────────────────────────────────────────
 
     /**
@@ -732,6 +917,7 @@ public final class OrgSiteSupport {
             writeFragment(srcRoot, artifactId, name, description,
                     version, siteUrl, githubUrl, modules);
             regenerateIndex(srcRoot);
+            regenerateSiteXml(srcRoot);
             // No renderToXhtml here: the source pom has
             // asciidoctor-parser-doxia-module wired into
             // maven-site-plugin's plugin dependencies, so buildSite's
@@ -775,6 +961,7 @@ public final class OrgSiteSupport {
         try {
             deleteFragment(srcRoot, artifactId);
             regenerateIndex(srcRoot);
+            regenerateSiteXml(srcRoot);
             // No renderToXhtml — see registerProject for the rationale.
             buildSite(srcRoot, log);
             commitAndPush(srcRoot,
