@@ -12,7 +12,7 @@ canonical_url: https://ike.network/ike-tooling/dependency-info.html
 <dependency>
   <groupId>network.ike.tooling</groupId>
   <artifactId>ike-tooling</artifactId>
-  <version>209</version>
+  <version>210</version>
   <type>pom</type>
 </dependency>
 ```
@@ -20,7 +20,7 @@ canonical_url: https://ike.network/ike-tooling/dependency-info.html
 ## [Apache Ivy](#apache-ivy)
 
 ```
-<dependency org="network.ike.tooling" name="ike-tooling" rev="209">
+<dependency org="network.ike.tooling" name="ike-tooling" rev="210">
   <artifact name="ike-tooling" type="pom" />
 </dependency>
 ```
@@ -29,24 +29,24 @@ canonical_url: https://ike.network/ike-tooling/dependency-info.html
 
 ```
 @Grapes(
-@Grab(group='network.ike.tooling', module='ike-tooling', version='209')
+@Grab(group='network.ike.tooling', module='ike-tooling', version='210')
 )
 ```
 
 ## [Gradle/Grails](#gradle-grails)
 
 ```
-implementation 'network.ike.tooling:ike-tooling:209'
+implementation 'network.ike.tooling:ike-tooling:210'
 ```
 
 ## [Scala SBT](#scala-sbt)
 
 ```
-libraryDependencies += "network.ike.tooling" % "ike-tooling" % "209"
+libraryDependencies += "network.ike.tooling" % "ike-tooling" % "210"
 ```
 
 ## [Leiningen](#leiningen)
 
 ```
-[network.ike.tooling/ike-tooling "209"]
+[network.ike.tooling/ike-tooling "210"]
 ```
