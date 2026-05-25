@@ -949,6 +949,23 @@ public final class ReleasePrep {
             ctx.log().error("  Maven:       wrapper not found  ✗");
         }
 
+        // 8. Site lint — catch drift in <url>/site.xml shapes before
+        //    they ship as broken decoration links. Surfaced from the
+        //    bannerRight-collapse incident (IKE-Network/ike-issues#521).
+        //    Each finding is a warning (ignoreable via -Dike.release.ignoreWarnings=true)
+        //    so a release can ship through known drift while we fix
+        //    upstream.
+        List<String> siteFindings = siteLintFindings(gitRoot, projectId);
+        if (siteFindings.isEmpty()) {
+            ctx.log().info("  Site lint:   no issues  ✓");
+        } else {
+            for (String f : siteFindings) {
+                warnings.add("Site lint: " + f);
+            }
+            ctx.log().warn("  Site lint:   " + siteFindings.size()
+                    + " issue(s)");
+        }
+
         // Report the complete preflight picture, then decide (#428).
         if (!errors.isEmpty() || !warnings.isEmpty()) {
             ctx.log().info("");
@@ -1063,6 +1080,112 @@ public final class ReleasePrep {
      *                {@code false} for draft mode (warn only)
      * @throws MojoException if publish mode and warnings are present
      */
+    // ── Site lint (IKE-Network/ike-issues#521) ───────────────────────
+
+    /**
+     * Project {@code <url>} element pattern. Matches the {@code <url>}
+     * that sits between {@code </description>} and {@code <inceptionYear>}
+     * — the canonical position for a Maven {@code <url>} top-level
+     * element. {@code <scm><url>} and {@code <license><url>} are not
+     * picked up because they live elsewhere in the tree.
+     */
+    private static final Pattern PROJECT_URL_ELEMENT = Pattern.compile(
+            "</description>\\s*<url>([^<]+)</url>",
+            Pattern.DOTALL);
+
+    /**
+     * Matches a {@code <bannerRight>} declaration with a GitHub
+     * {@code href}. Indicates the site's primary GitHub link lives in
+     * header chrome — the canonical placement.
+     */
+    private static final Pattern BANNER_RIGHT_GITHUB = Pattern.compile(
+            "<bannerRight[^>]*href=\"https://github\\.com/",
+            Pattern.DOTALL);
+
+    /**
+     * Matches a {@code <links><item name="GitHub" ...></links>} block —
+     * the redundant utility-bar link to GitHub that duplicates
+     * {@code <bannerRight>} on per-project sites.
+     */
+    private static final Pattern LINKS_GITHUB_ITEM = Pattern.compile(
+            "<links>\\s*<item\\s+name=\"GitHub\"",
+            Pattern.DOTALL);
+
+    /**
+     * Inspect {@code pom.xml} and {@code src/site/site.xml} for known
+     * drift patterns that produce broken site decoration links.
+     *
+     * <p>Rules:
+     * <ol>
+     *   <li>Project {@code <url>} must match
+     *       {@code https://ike.network/<projectId>/}. If it points at
+     *       GitHub instead (a common drift), {@code maven-site-plugin}
+     *       relativizes {@code <bannerRight>}'s GitHub href to {@code ./} —
+     *       a self-loop that breaks the link.</li>
+     *   <li>{@code site.xml} must not have a GitHub link in BOTH
+     *       {@code <bannerRight>} and a top-bar {@code <links>} item.
+     *       Pick one (bannerRight is canonical) — the duplication is
+     *       chrome noise.</li>
+     * </ol>
+     *
+     * <p>No-op when {@code pom.xml} or {@code site.xml} is missing.
+     * Findings are returned as warnings; the caller composes the
+     * report block.
+     *
+     * @param gitRoot   the project's git root
+     * @param projectId the project's artifact ID (drives the expected
+     *                  {@code <url>} value)
+     * @return zero or more human-readable findings; empty if everything
+     *         passes
+     */
+    static List<String> siteLintFindings(File gitRoot, String projectId) {
+        List<String> findings = new ArrayList<>();
+
+        File pomFile = new File(gitRoot, "pom.xml");
+        if (pomFile.isFile() && projectId != null && !projectId.isBlank()) {
+            try {
+                String pom = Files.readString(pomFile.toPath());
+                var m = PROJECT_URL_ELEMENT.matcher(pom);
+                if (m.find()) {
+                    String actual = m.group(1).trim();
+                    String expected = "https://ike.network/" + projectId + "/";
+                    if (!expected.equals(actual)) {
+                        findings.add("pom.xml <url> is '" + actual
+                                + "', expected '" + expected
+                                + "' — site-plugin will relativize"
+                                + " bannerRight to './' when the two"
+                                + " URLs share a prefix.");
+                    }
+                }
+            } catch (IOException e) {
+                // tolerate read failure — release-publish has bigger
+                // problems if pom.xml is unreadable, and that surfaces
+                // in other checks.
+            }
+        }
+
+        File siteXml = new File(gitRoot, "src/site/site.xml");
+        if (siteXml.isFile()) {
+            try {
+                String descriptor = Files.readString(siteXml.toPath());
+                boolean bannerRightGitHub = BANNER_RIGHT_GITHUB
+                        .matcher(descriptor).find();
+                boolean linksGitHub = LINKS_GITHUB_ITEM
+                        .matcher(descriptor).find();
+                if (bannerRightGitHub && linksGitHub) {
+                    findings.add("src/site/site.xml has GitHub in both"
+                            + " <bannerRight> and <links> — drop the"
+                            + " <links> item; bannerRight is the"
+                            + " canonical placement.");
+                }
+            } catch (IOException e) {
+                // tolerate read failure
+            }
+        }
+
+        return findings;
+    }
+
     private void preflightJavadoc(boolean publish) throws MojoException {
         File gitRoot = ctx.gitRoot();
         if (!hasAnyJavaSource(gitRoot)) {
