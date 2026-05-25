@@ -468,6 +468,16 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                         mvnw.getAbsolutePath(), "network.ike.tooling:ike-maven-plugin:inject-breadcrumb",
                         "-B", "-T", "1");
 
+                // 4b. Overlay IKE green theme on generated Javadoc apidocs
+                //     (IKE-Network/ike-issues#518). Writes
+                //     resource-files/ike-theme.css next to the stock
+                //     stylesheet.css and patches every HTML page to
+                //     link both.
+                getLog().info("Injecting IKE theme into Javadoc apidocs...");
+                ReleaseSupport.exec(gitRoot, getLog(),
+                        mvnw.getAbsolutePath(), "network.ike.tooling:ike-maven-plugin:inject-javadoc-theme",
+                        "-B", "-T", "1");
+
                 // 5. Stage site (packages for deploy)
                 // Clean target/staging/ first — stale content from
                 // earlier releases (which used a different staging

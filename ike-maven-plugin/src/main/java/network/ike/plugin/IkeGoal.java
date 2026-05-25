@@ -63,6 +63,10 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     /** {@code ike:inject-breadcrumb} — inject breadcrumbs into rendered HTML. */
     INJECT_BREADCRUMB(IkeGoal.NAME_INJECT_BREADCRUMB, InjectBreadcrumbMojo.class,
             "Inject breadcrumb navigation into rendered HTML."),
+    /** {@code ike:inject-javadoc-theme} — overlay the IKE green stylesheet on generated Javadoc apidocs. */
+    INJECT_JAVADOC_THEME(IkeGoal.NAME_INJECT_JAVADOC_THEME,
+            InjectJavadocThemeMojo.class,
+            "Overlay the IKE green stylesheet onto generated Javadoc apidocs."),
     /** {@code ike:jpackage-props} — emit jpackage properties from reactor config. */
     JPACKAGE_PROPS(IkeGoal.NAME_JPACKAGE_PROPS, JpackagePropsMojo.class,
             "Emit jpackage properties files from reactor configuration."),
@@ -169,6 +173,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_HELP = "help";
     /** Mirror for {@link #INJECT_BREADCRUMB}. */
     public static final String NAME_INJECT_BREADCRUMB = "inject-breadcrumb";
+    /** Mirror for {@link #INJECT_JAVADOC_THEME}. */
+    public static final String NAME_INJECT_JAVADOC_THEME = "inject-javadoc-theme";
     /** Mirror for {@link #JPACKAGE_PROPS}. */
     public static final String NAME_JPACKAGE_PROPS = "jpackage-props";
     /** Mirror for {@link #NOTARIZE}. */
