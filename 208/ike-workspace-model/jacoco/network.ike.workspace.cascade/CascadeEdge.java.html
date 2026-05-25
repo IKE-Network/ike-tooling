@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CascadeEdge.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">CascadeEdge.java</span></div><h1>CascadeEdge.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+/**
+ * A directed edge in the IKE release cascade — a pointer from one
+ * project to one of its cascade neighbours.
+ *
+ * &lt;p&gt;An edge carries the neighbour's reactor-root Maven
+ * {@link MavenCoordinate}, an on-disk {@code repo} name, a git
+ * {@code url}, and an {@link EdgeKind} naming the POM site the edge
+ * was derived from. The version property the alignment step
+ * rewrites — once {@code ${G·A}} naming is universal — is mechanical:
+ * {@link MavenCoordinate#versionProperty()} returns
+ * {@code groupId·artifactId}, so no field stores it separately. The
+ * pre-derivation per-project {@code release-cascade.yaml} manifests
+ * carried a {@code version-property} value here; the derivation
+ * pipeline introduced by IKE-Network/ike-issues#496 replaces it.
+ *
+ * @param coordinate the neighbour's reactor-root coordinate; the
+ *                   primary identity key
+ * @param repo       the neighbour's on-disk directory / GitHub repo
+ *                   name; defaults to
+ *                   {@link MavenCoordinate#artifactId()} when blank
+ * @param url        the neighbour's canonical upstream git URL, or
+ *                   {@code null} when unknown
+ * @param kind       the Maven model site this edge was derived from;
+ *                   defaults to {@link EdgeKind#DEPENDENCY} when
+ *                   {@code null}
+ */
+public record CascadeEdge(MavenCoordinate coordinate,
+                           String repo, String url,
+                           EdgeKind kind) {
+
+    /**
+     * Canonical constructor — validates the coordinate, defaults
+     * {@code repo} to the artifactId, and defaults {@code kind} to
+     * {@link EdgeKind#DEPENDENCY}.
+     */
+<span class="fc" id="L38">    public CascadeEdge {</span>
+<span class="pc bpc" id="L39" title="1 of 2 branches missed.">        if (coordinate == null) {</span>
+<span class="nc" id="L40">            throw new IllegalArgumentException(</span>
+                    &quot;cascade edge requires a MavenCoordinate&quot;);
+        }
+<span class="pc bpc" id="L43" title="1 of 4 branches missed.">        repo = (repo == null || repo.isBlank())</span>
+<span class="fc" id="L44">                ? coordinate.artifactId() : repo;</span>
+<span class="fc bfc" id="L45" title="All 2 branches covered.">        kind = (kind == null) ? EdgeKind.DEPENDENCY : kind;</span>
+<span class="fc" id="L46">    }</span>
+
+    /**
+     * Convenience constructor accepting raw {@code groupId} /
+     * {@code artifactId} strings. Wraps them into a
+     * {@link MavenCoordinate}. Defaults {@code kind} to
+     * {@link EdgeKind#DEPENDENCY}.
+     *
+     * @param groupId    the Maven {@code groupId}
+     * @param artifactId the Maven {@code artifactId}
+     * @param repo       the on-disk directory / GitHub repo name
+     * @param url        the canonical upstream git URL
+     */
+    public CascadeEdge(String groupId, String artifactId,
+                       String repo, String url) {
+<span class="fc" id="L61">        this(new MavenCoordinate(groupId, artifactId),</span>
+                repo, url, EdgeKind.DEPENDENCY);
+<span class="fc" id="L63">    }</span>
+
+    /**
+     * Convenience constructor accepting raw {@code groupId} /
+     * {@code artifactId} strings plus an explicit kind.
+     *
+     * @param groupId    the Maven {@code groupId}
+     * @param artifactId the Maven {@code artifactId}
+     * @param repo       the on-disk directory / GitHub repo name
+     * @param url        the canonical upstream git URL
+     * @param kind       the edge kind
+     */
+    public CascadeEdge(String groupId, String artifactId,
+                       String repo, String url, EdgeKind kind) {
+<span class="fc" id="L77">        this(new MavenCoordinate(groupId, artifactId), repo, url, kind);</span>
+<span class="fc" id="L78">    }</span>
+
+    /**
+     * Returns the coordinate's {@code groupId}. Delegates to
+     * {@link MavenCoordinate#groupId()} for compatibility with the
+     * pre-record API.
+     *
+     * @return the {@code groupId}
+     */
+    public String groupId() {
+<span class="fc" id="L88">        return coordinate.groupId();</span>
+    }
+
+    /**
+     * Returns the coordinate's {@code artifactId}. Delegates to
+     * {@link MavenCoordinate#artifactId()} for compatibility with
+     * the pre-record API.
+     *
+     * @return the {@code artifactId}
+     */
+    public String artifactId() {
+<span class="nc" id="L99">        return coordinate.artifactId();</span>
+    }
+
+    /**
+     * Returns the {@code &quot;groupId:artifactId&quot;} display form.
+     *
+     * @return the {@code G:A} string
+     */
+    public String ga() {
+<span class="fc" id="L108">        return coordinate.ga();</span>
+    }
+
+    /**
+     * Returns the canonical IKE version-property name —
+     * {@code groupId·artifactId} (U+00B7 MIDDLE DOT). Derived from
+     * the coordinate; see {@link MavenCoordinate#versionProperty()}.
+     *
+     * @return the canonical {@code G·A} version-property name
+     */
+    public String versionProperty() {
+<span class="fc" id="L119">        return coordinate.versionProperty();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
