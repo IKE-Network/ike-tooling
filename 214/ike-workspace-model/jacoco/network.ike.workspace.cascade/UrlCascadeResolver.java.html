@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UrlCascadeResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">UrlCascadeResolver.java</span></div><h1>UrlCascadeResolver.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import network.ike.plugin.ReleaseSupport;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.function.Consumer;
+
+/**
+ * A {@link CascadeAssembler.CascadeResolver} that resolves cascade
+ * members from their git {@code url} rather than local sibling
+ * checkouts (IKE-Network/ike-issues#429).
+ *
+ * &lt;p&gt;{@code CascadeAssembler} stitches the release cascade from each
+ * member's per-project {@code release-cascade.yaml}. The sibling-checkout
+ * resolver assumes every member is a directory alongside the repo the
+ * goal runs in — true on a developer workstation, false on a CI agent
+ * that has only one repo checked out. This resolver closes that gap:
+ * it shallow-clones each member from its edge's {@code url} and reads
+ * {@code src/main/cascade/release-cascade.yaml} from the clone.
+ *
+ * &lt;p&gt;Clones land in a caller-supplied directory — one subdirectory per
+ * member, named by the edge's {@code repo}. A member already cloned
+ * there is refreshed with {@code git pull --ff-only} rather than
+ * re-cloned. The resolver is host-agnostic: it passes the {@code url}
+ * to {@code git clone} verbatim.
+ */
+public final class UrlCascadeResolver
+        implements CascadeAssembler.CascadeResolver {
+
+    private final Path cloneDir;
+    private final Consumer&lt;String&gt; log;
+
+    /**
+     * Creates a resolver that clones into {@code cloneDir} and logs
+     * nothing.
+     *
+     * @param cloneDir the directory shallow clones are placed under
+     */
+    public UrlCascadeResolver(Path cloneDir) {
+<span class="fc" id="L43">        this(cloneDir, msg -&gt; { });</span>
+<span class="fc" id="L44">    }</span>
+
+    /**
+     * Creates a resolver that clones into {@code cloneDir} and reports
+     * progress through {@code log}.
+     *
+     * @param cloneDir the directory shallow clones are placed under
+     * @param log      sink for one progress line per member resolved
+     */
+<span class="fc" id="L53">    public UrlCascadeResolver(Path cloneDir, Consumer&lt;String&gt; log) {</span>
+<span class="pc bpc" id="L54" title="1 of 2 branches missed.">        if (cloneDir == null) {</span>
+<span class="nc" id="L55">            throw new IllegalArgumentException(&quot;cloneDir is required&quot;);</span>
+        }
+<span class="pc bpc" id="L57" title="1 of 2 branches missed.">        if (log == null) {</span>
+<span class="nc" id="L58">            throw new IllegalArgumentException(&quot;log is required&quot;);</span>
+        }
+<span class="fc" id="L60">        this.cloneDir = cloneDir;</span>
+<span class="fc" id="L61">        this.log = log;</span>
+<span class="fc" id="L62">    }</span>
+
+    /**
+     * Shallow-clones the member named by {@code edge} and parses its
+     * {@code release-cascade.yaml}.
+     *
+     * @param edge the edge naming the member; must carry a {@code url}
+     * @return the member's parsed manifest
+     * @throws IllegalStateException if the edge has no {@code url} or
+     *                               the clone has no manifest
+     * @throws UncheckedIOException  if the clone directory cannot be
+     *                               created
+     */
+    @Override
+    public ProjectCascade resolve(CascadeEdge edge) {
+<span class="pc bpc" id="L77" title="1 of 4 branches missed.">        if (edge.url() == null || edge.url().isBlank()) {</span>
+<span class="fc" id="L78">            throw new IllegalStateException(&quot;cascade edge &quot; + edge.ga()</span>
+                    + &quot; has no url — cannot resolve it without a local&quot;
+                    + &quot; checkout&quot;);
+        }
+        try {
+<span class="fc" id="L83">            Files.createDirectories(cloneDir);</span>
+<span class="nc" id="L84">        } catch (IOException e) {</span>
+<span class="nc" id="L85">            throw new UncheckedIOException(</span>
+                    &quot;cannot create cascade clone directory &quot;
+                    + cloneDir, e);
+<span class="fc" id="L88">        }</span>
+
+<span class="fc" id="L90">        Path checkout = cloneDir.resolve(edge.repo());</span>
+<span class="fc bfc" id="L91" title="All 2 branches covered.">        if (Files.isDirectory(checkout.resolve(&quot;.git&quot;))) {</span>
+<span class="fc" id="L92">            log.accept(&quot;Refreshing &quot; + edge.repo() + &quot; in &quot; + checkout);</span>
+<span class="fc" id="L93">            ReleaseSupport.execCapture(checkout.toFile(),</span>
+                    &quot;git&quot;, &quot;pull&quot;, &quot;--ff-only&quot;);
+        } else {
+<span class="fc" id="L96">            log.accept(&quot;Cloning &quot; + edge.repo() + &quot; from &quot; + edge.url());</span>
+<span class="fc" id="L97">            ReleaseSupport.execCapture(cloneDir.toFile(),</span>
+                    &quot;git&quot;, &quot;clone&quot;, &quot;--depth&quot;, &quot;1&quot;,
+<span class="fc" id="L99">                    edge.url(), edge.repo());</span>
+        }
+
+<span class="fc" id="L102">        Path manifest = checkout.resolve(</span>
+                ProjectCascadeIo.MANIFEST_RELATIVE_PATH);
+<span class="pc bpc" id="L104" title="1 of 2 branches missed.">        if (!Files.isRegularFile(manifest)) {</span>
+<span class="nc" id="L105">            throw new IllegalStateException(&quot;cascade member &quot;</span>
+<span class="nc" id="L106">                    + edge.ga() + &quot; (cloned from &quot; + edge.url()</span>
+                    + &quot;) has no &quot; + ProjectCascadeIo.MANIFEST_RELATIVE_PATH);
+        }
+<span class="fc" id="L109">        return ProjectCascadeIo.read(manifest);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

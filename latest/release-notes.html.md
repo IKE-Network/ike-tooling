@@ -74,10 +74,3 @@ canonical_url: https://ike.network/ike-tooling/release-notes.html
 ### [Internal](#internal_11)
 
 - ws:scaffold-publish report: show parent-cascade from→to and post-run uncommitted state ([#431](https://github.com/IKE-Network/ike-issues/issues/431)[14])
-
-## [ike-tooling v183](#ike-tooling-v183)
-
-### [Internal](#internal_12)
-
-- URL-mode cascade resolver — assemble the release cascade without local sibling checkouts ([#429](https://github.com/IKE-Network/ike-issues/issues/429)[15])
-- Fail ike:release-publish on preflight warnings by default; add ike.release.ignoreWarnings ([#428](https://github.com/IKE-Network/ike-issues/issues/428)[16])

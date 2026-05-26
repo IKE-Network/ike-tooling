@@ -352,23 +352,32 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
 <span class="fc" id="L352">                        up.groupId(), up.artifactId()).orElse(null);</span>
 <span class="fc" id="L353">                displaySite = &quot;&lt;parent&gt;&quot; + up.ga() + &quot;&lt;/parent&gt;&quot;;</span>
             } else {
-<span class="fc" id="L355">                String property = up.versionProperty();</span>
-<span class="pc bpc" id="L356" title="2 of 4 branches missed.">                if (property == null || property.isBlank()) {</span>
-<span class="nc" id="L357">                    continue;</span>
+                // Try typed-marker form first (post-#525), then fall
+                // back to legacy ·-form so stale-pin reporting works
+                // on POMs from both sides of the convention boundary.
+<span class="fc" id="L358">                String property = up.versionProperty();</span>
+<span class="pc bpc" id="L359" title="2 of 4 branches missed.">                pinned = (property == null || property.isBlank())</span>
+<span class="nc" id="L360">                        ? null</span>
+<span class="fc" id="L361">                        : ReleaseSupport.readPomProperty(pom, property);</span>
+<span class="pc bpc" id="L362" title="1 of 2 branches missed.">                if (pinned == null) {</span>
+<span class="fc" id="L363">                    property = up.versionPropertyLegacy();</span>
+<span class="fc" id="L364">                    pinned = ReleaseSupport.readPomProperty(pom, property);</span>
                 }
-<span class="fc" id="L359">                pinned = ReleaseSupport.readPomProperty(pom, property);</span>
-<span class="fc" id="L360">                displaySite = property;</span>
+<span class="pc bpc" id="L366" title="2 of 4 branches missed.">                if (property == null || property.isBlank()) {</span>
+<span class="nc" id="L367">                    continue;</span>
+                }
+<span class="fc" id="L369">                displaySite = property;</span>
             }
-<span class="pc bpc" id="L362" title="2 of 4 branches missed.">            if (pinned == null || pinned.isBlank()</span>
-<span class="fc bfc" id="L363" title="All 2 branches covered.">                    || pinned.contains(&quot;${&quot;)) {</span>
-<span class="fc" id="L364">                continue;</span>
+<span class="pc bpc" id="L371" title="2 of 4 branches missed.">            if (pinned == null || pinned.isBlank()</span>
+<span class="fc bfc" id="L372" title="All 2 branches covered.">                    || pinned.contains(&quot;${&quot;)) {</span>
+<span class="fc" id="L373">                continue;</span>
             }
-<span class="fc bfc" id="L366" title="All 2 branches covered.">            if (!pinned.equals(upstreamLatest)) {</span>
-<span class="fc" id="L367">                stale.add(displaySite + &quot;  (&quot; + pinned + &quot; → &quot;</span>
+<span class="fc bfc" id="L375" title="All 2 branches covered.">            if (!pinned.equals(upstreamLatest)) {</span>
+<span class="fc" id="L376">                stale.add(displaySite + &quot;  (&quot; + pinned + &quot; → &quot;</span>
                         + upstreamLatest + &quot;)&quot;);
             }
-<span class="fc" id="L370">        }</span>
-<span class="fc" id="L371">        return stale;</span>
+<span class="fc" id="L379">        }</span>
+<span class="fc" id="L380">        return stale;</span>
     }
 
     /**
@@ -379,23 +388,23 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
      */
     private static String readPomContent(File pom) {
         try {
-<span class="fc" id="L382">            return java.nio.file.Files.readString(</span>
-<span class="fc" id="L383">                    pom.toPath(),</span>
+<span class="fc" id="L391">            return java.nio.file.Files.readString(</span>
+<span class="fc" id="L392">                    pom.toPath(),</span>
                     java.nio.charset.StandardCharsets.UTF_8);
-<span class="nc" id="L385">        } catch (java.io.IOException e) {</span>
-<span class="nc" id="L386">            return null;</span>
+<span class="nc" id="L394">        } catch (java.io.IOException e) {</span>
+<span class="nc" id="L395">            return null;</span>
         }
     }
 
     /** The newest {@code v*} release tag in a repo, or null. */
     static String latestReleaseTag(File dir) {
         try {
-<span class="fc" id="L393">            String tags = ReleaseSupport.execCapture(dir, &quot;git&quot;, &quot;tag&quot;,</span>
+<span class="fc" id="L402">            String tags = ReleaseSupport.execCapture(dir, &quot;git&quot;, &quot;tag&quot;,</span>
                     &quot;-l&quot;, &quot;v*&quot;, &quot;--sort=-version:refname&quot;);
-<span class="pc bpc" id="L395" title="1 of 4 branches missed.">            return tags == null || tags.isBlank() ? null</span>
-<span class="fc" id="L396">                    : tags.lines().findFirst().orElse(null);</span>
-<span class="nc" id="L397">        } catch (RuntimeException e) {</span>
-<span class="nc" id="L398">            return null;</span>
+<span class="pc bpc" id="L404" title="1 of 4 branches missed.">            return tags == null || tags.isBlank() ? null</span>
+<span class="fc" id="L405">                    : tags.lines().findFirst().orElse(null);</span>
+<span class="nc" id="L406">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L407">            return null;</span>
         }
     }
 
@@ -405,52 +414,52 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
      */
     private static int meaningfulCommitsSinceTag(File dir, String tag) {
         try {
-<span class="nc" id="L408">            String log = ReleaseSupport.execCapture(dir, &quot;git&quot;, &quot;log&quot;,</span>
+<span class="nc" id="L417">            String log = ReleaseSupport.execCapture(dir, &quot;git&quot;, &quot;log&quot;,</span>
                     tag + &quot;..HEAD&quot;, &quot;--pretty=format:%s&quot;, &quot;--no-merges&quot;);
-<span class="nc bnc" id="L410" title="All 4 branches missed.">            if (log == null || log.isBlank()) {</span>
-<span class="nc" id="L411">                return 0;</span>
+<span class="nc bnc" id="L419" title="All 4 branches missed.">            if (log == null || log.isBlank()) {</span>
+<span class="nc" id="L420">                return 0;</span>
             }
-<span class="nc" id="L413">            int count = 0;</span>
-<span class="nc bnc" id="L414" title="All 2 branches missed.">            for (String line : log.strip().split(&quot;\n&quot;)) {</span>
-<span class="nc bnc" id="L415" title="All 2 branches missed.">                if (!RELEASE_CADENCE.matcher(line.strip()).matches()) {</span>
-<span class="nc" id="L416">                    count++;</span>
+<span class="nc" id="L422">            int count = 0;</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">            for (String line : log.strip().split(&quot;\n&quot;)) {</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">                if (!RELEASE_CADENCE.matcher(line.strip()).matches()) {</span>
+<span class="nc" id="L425">                    count++;</span>
                 }
             }
-<span class="nc" id="L419">            return count;</span>
-<span class="nc" id="L420">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L428">            return count;</span>
+<span class="nc" id="L429">        } catch (RuntimeException e) {</span>
             // Cannot tell — assume there is work, so the cascade does
             // not silently skip a repo.
-<span class="nc" id="L423">            return 1;</span>
+<span class="nc" id="L432">            return 1;</span>
         }
     }
 
     /** Logs the per-repo cascade summary table. */
     private void reportSummary(List&lt;Outcome&gt; outcomes) {
-<span class="nc" id="L429">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L430">        getLog().info(&quot;Cascade summary:&quot;);</span>
-<span class="nc bnc" id="L431" title="All 2 branches missed.">        for (Outcome o : outcomes) {</span>
-<span class="nc" id="L432">            getLog().info(&quot;  &quot; + marker(o.kind()) + &quot;  &quot; + o.name()</span>
-<span class="nc bnc" id="L433" title="All 2 branches missed.">                    + (o.detail() != null ? &quot;  (&quot; + o.detail() + &quot;)&quot;</span>
-<span class="nc" id="L434">                            : &quot;&quot;));</span>
-<span class="nc" id="L435">        }</span>
-<span class="nc" id="L436">    }</span>
+<span class="nc" id="L438">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L439">        getLog().info(&quot;Cascade summary:&quot;);</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">        for (Outcome o : outcomes) {</span>
+<span class="nc" id="L441">            getLog().info(&quot;  &quot; + marker(o.kind()) + &quot;  &quot; + o.name()</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">                    + (o.detail() != null ? &quot;  (&quot; + o.detail() + &quot;)&quot;</span>
+<span class="nc" id="L443">                            : &quot;&quot;));</span>
+<span class="nc" id="L444">        }</span>
+<span class="nc" id="L445">    }</span>
 
     private String buildReport(List&lt;Outcome&gt; outcomes) {
-<span class="nc" id="L439">        GoalReportBuilder report = new GoalReportBuilder()</span>
-<span class="nc" id="L440">                .section(&quot;Release cascade&quot;);</span>
-<span class="nc bnc" id="L441" title="All 2 branches missed.">        for (Outcome o : outcomes) {</span>
-<span class="nc" id="L442">            report.bullet(marker(o.kind()) + &quot; **&quot; + o.name() + &quot;**&quot;</span>
-<span class="nc bnc" id="L443" title="All 2 branches missed.">                    + (o.detail() != null ? &quot; — &quot; + o.detail() : &quot;&quot;));</span>
-<span class="nc" id="L444">        }</span>
-<span class="nc" id="L445">        return report.build();</span>
+<span class="nc" id="L448">        GoalReportBuilder report = new GoalReportBuilder()</span>
+<span class="nc" id="L449">                .section(&quot;Release cascade&quot;);</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">        for (Outcome o : outcomes) {</span>
+<span class="nc" id="L451">            report.bullet(marker(o.kind()) + &quot; **&quot; + o.name() + &quot;**&quot;</span>
+<span class="nc bnc" id="L452" title="All 2 branches missed.">                    + (o.detail() != null ? &quot; — &quot; + o.detail() : &quot;&quot;));</span>
+<span class="nc" id="L453">        }</span>
+<span class="nc" id="L454">        return report.build();</span>
     }
 
     private static String marker(Kind kind) {
-<span class="nc bnc" id="L449" title="All 4 branches missed.">        return switch (kind) {</span>
-<span class="nc" id="L450">            case RELEASED -&gt; &quot;✓ released&quot;;</span>
-<span class="nc" id="L451">            case UP_TO_DATE -&gt; &quot;— up to date&quot;;</span>
-<span class="nc" id="L452">            case SKIPPED -&gt; &quot;— skipped&quot;;</span>
-<span class="nc" id="L453">            case FAILED -&gt; &quot;✗ FAILED&quot;;</span>
+<span class="nc bnc" id="L458" title="All 4 branches missed.">        return switch (kind) {</span>
+<span class="nc" id="L459">            case RELEASED -&gt; &quot;✓ released&quot;;</span>
+<span class="nc" id="L460">            case UP_TO_DATE -&gt; &quot;— up to date&quot;;</span>
+<span class="nc" id="L461">            case SKIPPED -&gt; &quot;— skipped&quot;;</span>
+<span class="nc" id="L462">            case FAILED -&gt; &quot;✗ FAILED&quot;;</span>
         };
     }
 }

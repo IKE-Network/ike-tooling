@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MavenCoordinate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">MavenCoordinate.java</span></div><h1>MavenCoordinate.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
 
+import network.ike.support.enums.TypedMarker;
+
 import java.util.Optional;
 
 /**
@@ -24,9 +26,16 @@ import java.util.Optional;
  *       used in log lines and as a parse/format target for human
  *       input.&lt;/li&gt;
  *   &lt;li&gt;{@link #versionProperty()} — the canonical IKE version-property
- *       name {@code groupId·artifactId} (U+00B7 MIDDLE DOT). Used by
- *       the alignment path to locate the {@code ${G·A}} property that
- *       pins this coordinate. See IKE-Network/ike-issues#470.&lt;/li&gt;
+ *       name {@code &lt;groupId&gt;__GA__&lt;artifactId&gt;__VERSION} (typed-marker
+ *       family, IKE-Network/ike-issues#525). Used by the alignment
+ *       path to locate the property that pins this coordinate.&lt;/li&gt;
+ *   &lt;li&gt;{@link #versionPropertyLegacy()} — the pre-#525 form
+ *       {@code &lt;groupId&gt;·&lt;artifactId&gt;} (U+00B7 MIDDLE DOT). Kept for
+ *       transition-period read fallback; callers should look up the
+ *       typed-marker form first, then fall back to the legacy form.&lt;/li&gt;
+ *   &lt;li&gt;{@link #policyProperty()} / {@link #policyPropertyLegacy()} —
+ *       the release-policy property names in the new and legacy
+ *       conventions respectively.&lt;/li&gt;
  *   &lt;li&gt;{@link #toString()} — equal to {@link #ga()}, for direct use
  *       in error messages and string concatenation.&lt;/li&gt;
  * &lt;/ul&gt;
@@ -41,16 +50,16 @@ public record MavenCoordinate(String groupId, String artifactId)
      * Canonical constructor — validates that both components are
      * non-null and non-blank.
      */
-<span class="fc" id="L44">    public MavenCoordinate {</span>
-<span class="fc bfc" id="L45" title="All 4 branches covered.">        if (groupId == null || groupId.isBlank()) {</span>
-<span class="fc" id="L46">            throw new IllegalArgumentException(</span>
+<span class="fc" id="L53">    public MavenCoordinate {</span>
+<span class="fc bfc" id="L54" title="All 4 branches covered.">        if (groupId == null || groupId.isBlank()) {</span>
+<span class="fc" id="L55">            throw new IllegalArgumentException(</span>
                     &quot;MavenCoordinate requires a groupId&quot;);
         }
-<span class="fc bfc" id="L49" title="All 4 branches covered.">        if (artifactId == null || artifactId.isBlank()) {</span>
-<span class="fc" id="L50">            throw new IllegalArgumentException(</span>
+<span class="fc bfc" id="L58" title="All 4 branches covered.">        if (artifactId == null || artifactId.isBlank()) {</span>
+<span class="fc" id="L59">            throw new IllegalArgumentException(</span>
                     &quot;MavenCoordinate requires an artifactId&quot;);
         }
-<span class="fc" id="L53">    }</span>
+<span class="fc" id="L62">    }</span>
 
     /**
      * Builds a coordinate or throws. Sugar for
@@ -61,7 +70,7 @@ public record MavenCoordinate(String groupId, String artifactId)
      * @return the coordinate
      */
     public static MavenCoordinate of(String groupId, String artifactId) {
-<span class="fc" id="L64">        return new MavenCoordinate(groupId, artifactId);</span>
+<span class="fc" id="L73">        return new MavenCoordinate(groupId, artifactId);</span>
     }
 
     /**
@@ -82,11 +91,11 @@ public record MavenCoordinate(String groupId, String artifactId)
      */
     public static Optional&lt;MavenCoordinate&gt; tryOf(String groupId,
                                                    String artifactId) {
-<span class="fc bfc" id="L85" title="All 6 branches covered.">        if (groupId == null || groupId.isBlank()</span>
-<span class="fc bfc" id="L86" title="All 2 branches covered.">                || artifactId == null || artifactId.isBlank()) {</span>
-<span class="fc" id="L87">            return Optional.empty();</span>
+<span class="fc bfc" id="L94" title="All 6 branches covered.">        if (groupId == null || groupId.isBlank()</span>
+<span class="fc bfc" id="L95" title="All 2 branches covered.">                || artifactId == null || artifactId.isBlank()) {</span>
+<span class="fc" id="L96">            return Optional.empty();</span>
         }
-<span class="fc" id="L89">        return Optional.of(new MavenCoordinate(groupId, artifactId));</span>
+<span class="fc" id="L98">        return Optional.of(new MavenCoordinate(groupId, artifactId));</span>
     }
 
     /**
@@ -101,16 +110,16 @@ public record MavenCoordinate(String groupId, String artifactId)
      *                                  component
      */
     public static MavenCoordinate parse(String ga) {
-<span class="fc bfc" id="L104" title="All 2 branches covered.">        if (ga == null) {</span>
-<span class="fc" id="L105">            throw new IllegalArgumentException(&quot;ga string is required&quot;);</span>
+<span class="fc bfc" id="L113" title="All 2 branches covered.">        if (ga == null) {</span>
+<span class="fc" id="L114">            throw new IllegalArgumentException(&quot;ga string is required&quot;);</span>
         }
-<span class="fc" id="L107">        int colon = ga.indexOf(':');</span>
-<span class="fc bfc" id="L108" title="All 2 branches covered.">        if (colon &lt; 0) {</span>
-<span class="fc" id="L109">            throw new IllegalArgumentException(</span>
+<span class="fc" id="L116">        int colon = ga.indexOf(':');</span>
+<span class="fc bfc" id="L117" title="All 2 branches covered.">        if (colon &lt; 0) {</span>
+<span class="fc" id="L118">            throw new IllegalArgumentException(</span>
                     &quot;not a 'groupId:artifactId' coordinate: &quot; + ga);
         }
-<span class="fc" id="L112">        return new MavenCoordinate(</span>
-<span class="fc" id="L113">                ga.substring(0, colon), ga.substring(colon + 1));</span>
+<span class="fc" id="L121">        return new MavenCoordinate(</span>
+<span class="fc" id="L122">                ga.substring(0, colon), ga.substring(colon + 1));</span>
     }
 
     /**
@@ -119,19 +128,61 @@ public record MavenCoordinate(String groupId, String artifactId)
      * @return the {@code G:A} string
      */
     public String ga() {
-<span class="fc" id="L122">        return groupId + &quot;:&quot; + artifactId;</span>
+<span class="fc" id="L131">        return groupId + &quot;:&quot; + artifactId;</span>
     }
 
     /**
-     * Returns the canonical IKE version-property name —
-     * {@code groupId·artifactId} (U+00B7 MIDDLE DOT). The
-     * alignment path uses this to locate the {@code ${G·A}}
-     * property that pins this coordinate.
+     * Returns the canonical IKE version-property name in the
+     * typed-marker family form:
+     * {@code &lt;groupId&gt;__GA__&lt;artifactId&gt;__VERSION}. The alignment
+     * path uses this to locate the property that pins this
+     * coordinate (IKE-Network/ike-issues#525). Callers operating
+     * during the transition period should fall back to
+     * {@link #versionPropertyLegacy()} when this name resolves to
+     * no value — both forms may appear in real POMs while the
+     * foundation cascade rolls forward.
      *
-     * @return the canonical property name
+     * @return the canonical typed-marker property name
      */
     public String versionProperty() {
-<span class="fc" id="L134">        return groupId + &quot;·&quot; + artifactId;</span>
+<span class="fc" id="L148">        return groupId + TypedMarker.GA.token() + artifactId + TypedMarker.VERSION.token();</span>
+    }
+
+    /**
+     * Returns the legacy IKE version-property name —
+     * {@code &lt;groupId&gt;·&lt;artifactId&gt;} (U+00B7 MIDDLE DOT) — used by
+     * the pre-#525 convention. Kept for transition-period read
+     * fallback: callers should try {@link #versionProperty()} first,
+     * then fall back to this. Removed once the foundation cascade
+     * has fully migrated to the typed-marker family.
+     *
+     * @return the legacy property name
+     */
+    public String versionPropertyLegacy() {
+<span class="fc" id="L162">        return groupId + &quot;·&quot; + artifactId;</span>
+    }
+
+    /**
+     * Returns the canonical IKE release-policy property name in the
+     * typed-marker family form:
+     * {@code &lt;groupId&gt;__GA__&lt;artifactId&gt;__POLICY}. Value is a
+     * {@link network.ike.support.enums.ReleasePolicy} rung.
+     *
+     * @return the canonical typed-marker policy property name
+     */
+    public String policyProperty() {
+<span class="fc" id="L174">        return groupId + TypedMarker.GA.token() + artifactId + TypedMarker.POLICY.token();</span>
+    }
+
+    /**
+     * Returns the legacy IKE release-policy property name —
+     * {@code &lt;groupId&gt;·&lt;artifactId&gt;·policy} — used by the pre-#525
+     * convention. Kept for transition-period read fallback.
+     *
+     * @return the legacy policy property name
+     */
+    public String policyPropertyLegacy() {
+<span class="fc" id="L185">        return groupId + &quot;·&quot; + artifactId + &quot;·policy&quot;;</span>
     }
 
     /**
@@ -141,7 +192,7 @@ public record MavenCoordinate(String groupId, String artifactId)
      */
     @Override
     public String toString() {
-<span class="fc" id="L144">        return ga();</span>
+<span class="fc" id="L195">        return ga();</span>
     }
 
     /**
@@ -155,10 +206,10 @@ public record MavenCoordinate(String groupId, String artifactId)
      */
     @Override
     public int compareTo(MavenCoordinate other) {
-<span class="fc" id="L158">        int byGroup = groupId.compareTo(other.groupId);</span>
-<span class="fc bfc" id="L159" title="All 2 branches covered.">        return byGroup != 0</span>
-<span class="fc" id="L160">                ? byGroup</span>
-<span class="fc" id="L161">                : artifactId.compareTo(other.artifactId);</span>
+<span class="fc" id="L209">        int byGroup = groupId.compareTo(other.groupId);</span>
+<span class="fc bfc" id="L210" title="All 2 branches covered.">        return byGroup != 0</span>
+<span class="fc" id="L211">                ? byGroup</span>
+<span class="fc" id="L212">                : artifactId.compareTo(other.artifactId);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

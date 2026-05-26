@@ -6,11 +6,11 @@ canonical_url: https://ike.network/ike-tooling/ike-workspace-model/dependencies.
 
 # Dependencies (SBOM)
 
-Full transitive dependency graph for `ike-workspace-model` 213, generated from [bom.json](bom.json)[1] (CycloneDX 1.6) at build time. Same SBOM source as the SPDX-grouped [licenses.html](licenses.html)[2] and the curated [built-with.html](built-with.html)[3] — three views of the same data.
+Full transitive dependency graph for `ike-workspace-model` 214, generated from [bom.json](bom.json)[1] (CycloneDX 1.6) at build time. Same SBOM source as the SPDX-grouped [licenses.html](licenses.html)[2] and the curated [built-with.html](built-with.html)[3] — three views of the same data.
 
 ## [#summary](#summary)Summary
 
-| Total components | 49 |
+| Total components | 50 |
 | --- | --- |
 | Distinct license expressions | 7 |
 
@@ -38,6 +38,7 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 | `net.java.dev.jna` | `jna` | `5.18.1` | `Apache-2.0 OR LGPL-2.1-or-later` | library |
 | `net.java.dev.jna` | `jna-platform` | `5.18.1` | `Apache-2.0 OR LGPL-2.1-or-later` | library |
 | `network.ike` | `ike-base-parent` | `8` | `Apache-2.0` | library |
+| `network.ike` | `ike-java-support` | `6` | `Apache-2.0` | library |
 | `org.antlr` | `antlr4-runtime` | `4.13.2` | `BSD-3-Clause` | library |
 | `org.apache.commons` | `commons-lang3` | `3.20.0` | `Apache-2.0` | library |
 | `org.apache.commons` | `commons-text` | `1.15.0` | `Apache-2.0` | library |
@@ -74,7 +75,7 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 
 - [Software Bill of Materials (CycloneDX, JSON)](bom.json)[1] — raw machine-readable form. Includes purls, hashes, and dependency-graph edges that this page summarizes.
 - [bom.xml](bom.xml)[4] — same content in XML.
-- As a Maven artifact: pull `ike-workspace-model:​213` with `<classifier>cyclonedx</classifier><type>json</type>` from Nexus / Maven Central.
+- As a Maven artifact: pull `ike-workspace-model:​214` with `<classifier>cyclonedx</classifier><type>json</type>` from Nexus / Maven Central.
 
 ## [#see-also](#see-also)See also
 
