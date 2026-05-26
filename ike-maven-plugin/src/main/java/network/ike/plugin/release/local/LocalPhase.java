@@ -68,9 +68,11 @@ public final class LocalPhase {
         List<File> resolvedPoms = cutBranchAndSetVersion(
                 input, releaseVersion, releaseBranch, rootPom);
 
+        List<File> bakedPoms = bakeIndirections();
+
         firstInstall();
         preflightSite(input.oldVersion());
-        commitAndTag(resolvedPoms, releaseVersion);
+        commitAndTag(resolvedPoms, bakedPoms, releaseVersion);
         restoreReferences();
         mergeToMain(releaseBranch, releaseVersion);
         postBump(rootPom, nextVersion, releaseBranch);
@@ -232,10 +234,13 @@ public final class LocalPhase {
      * {@code git tag -a v<version>}. The tag creation is the
      * irreversibility boundary of the local phase.
      */
-    private void commitAndTag(List<File> resolvedPoms, String releaseVersion) {
+    private void commitAndTag(List<File> resolvedPoms,
+                               List<File> bakedPoms,
+                               String releaseVersion) {
         File gitRoot = ctx.gitRoot();
         ReleaseSupport.exec(gitRoot, ctx.log(), "git", "add", "pom.xml");
         ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), resolvedPoms);
+        ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), bakedPoms);
         ReleaseSupport.exec(gitRoot, ctx.log(),
                 "git", "commit", "-m",
                 "release: set version to " + releaseVersion);
@@ -246,21 +251,50 @@ public final class LocalPhase {
     }
 
     /**
+     * Bakes {@code __ALIAS}-driven indirections into all POM files
+     * before the release tag (IKE-Network/ike-issues#527). Source
+     * poms declare the alias relationship via {@code __ALIAS}
+     * metadata only; this step materializes the corresponding
+     * {@code <short>${G__GA__A__VERSION}</short>} indirections into
+     * the tagged source pom so descendants without vm-ext can
+     * resolve legacy short-name references via Maven inheritance.
+     * {@link #restoreReferences} removes them after the tag.
+     *
+     * @return the list of POM files modified by indirection bake
+     */
+    private List<File> bakeIndirections() {
+        File gitRoot = ctx.gitRoot();
+        ctx.log().info("Baking __ALIAS indirections:");
+        return ReleaseSupport.bakeAliasIndirections(gitRoot, ctx.log());
+    }
+
+    /**
      * B19a — restores {@code ${project.version}} references that
-     * B14 substituted, then commits the restore on the release
-     * branch. The tag created by B18 stays on the release commit
-     * (above this restore-commit), not on the restored commit.
+     * B14 substituted and removes the {@code __ALIAS} indirections
+     * that B14b baked (IKE-Network/ike-issues#527), then commits
+     * the restore on the release branch. The tag created by B18
+     * stays on the release commit (above this restore-commit), not
+     * on the restored commit.
      */
     private void restoreReferences() {
         File gitRoot = ctx.gitRoot();
         ctx.log().info("Restoring ${project.version} references:");
         List<File> restoredPoms = ReleaseSupport.restoreBackups(gitRoot, ctx.log());
+        ctx.log().info("Unbaking __ALIAS indirections:");
+        List<File> unbakedPoms = ReleaseSupport.unbakeAliasIndirections(
+                gitRoot, ctx.log());
+        if (restoredPoms.isEmpty() && unbakedPoms.isEmpty()) {
+            return;
+        }
         if (!restoredPoms.isEmpty()) {
             ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), restoredPoms);
-            ReleaseSupport.exec(gitRoot, ctx.log(),
-                    "git", "commit", "-m",
-                    "release: restore ${project.version} references");
         }
+        if (!unbakedPoms.isEmpty()) {
+            ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), unbakedPoms);
+        }
+        ReleaseSupport.exec(gitRoot, ctx.log(),
+                "git", "commit", "-m",
+                "release: restore source pom state");
     }
 
     /**

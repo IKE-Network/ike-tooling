@@ -515,6 +515,177 @@ class ReleaseSupportTest {
         assertThat(restored).isEmpty();
     }
 
+    // ── bakeAliasIndirections / unbakeAliasIndirections (#527) ───────
+
+    @Test
+    void bakeAliasIndirections_addsIndirectionForEachAliasShortName(
+            @TempDir Path tmpDir) throws Exception {
+        writePom(tmpDir, """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>network.ike</groupId>
+                    <artifactId>ike-base-parent</artifactId>
+                    <version>15-SNAPSHOT</version>
+                    <properties>
+                        <network.ike__GA__ike-base-parent__VERSION>15-SNAPSHOT</network.ike__GA__ike-base-parent__VERSION>
+                        <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
+                    </properties>
+                </project>
+                """);
+
+        var log = new TestLog();
+        var modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+
+        assertThat(modified).hasSize(1);
+        String content = Files.readString(modified.get(0).toPath(), StandardCharsets.UTF_8);
+        assertThat(content)
+                .contains("<ike-base-parent.version>"
+                        + "${network.ike__GA__ike-base-parent__VERSION}"
+                        + "</ike-base-parent.version>");
+    }
+
+    @Test
+    void bakeAliasIndirections_handlesMultipleCommaSeparatedAliases(
+            @TempDir Path tmpDir) throws Exception {
+        writePom(tmpDir, """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>org.example</groupId>
+                    <artifactId>test</artifactId>
+                    <version>1</version>
+                    <properties>
+                        <org.junit.jupiter__GA__junit-jupiter__VERSION>6.0.0</org.junit.jupiter__GA__junit-jupiter__VERSION>
+                        <org.junit.jupiter__GA__junit-jupiter__ALIAS>junit-jupiter.version,junit.version</org.junit.jupiter__GA__junit-jupiter__ALIAS>
+                    </properties>
+                </project>
+                """);
+
+        var log = new TestLog();
+        var modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+
+        assertThat(modified).hasSize(1);
+        String content = Files.readString(modified.get(0).toPath(), StandardCharsets.UTF_8);
+        assertThat(content)
+                .contains("<junit-jupiter.version>"
+                        + "${org.junit.jupiter__GA__junit-jupiter__VERSION}"
+                        + "</junit-jupiter.version>")
+                .contains("<junit.version>"
+                        + "${org.junit.jupiter__GA__junit-jupiter__VERSION}"
+                        + "</junit.version>");
+    }
+
+    @Test
+    void bakeAliasIndirections_noOp_whenNoAliasDeclarations(
+            @TempDir Path tmpDir) throws Exception {
+        writePom(tmpDir, """
+                <project>
+                    <version>1</version>
+                    <properties>
+                        <some-other.version>2</some-other.version>
+                    </properties>
+                </project>
+                """);
+
+        var log = new TestLog();
+        var modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+
+        assertThat(modified).isEmpty();
+    }
+
+    @Test
+    void bakeAliasIndirections_skipsAlreadyDeclaredIndirections(
+            @TempDir Path tmpDir) throws Exception {
+        // A project that already has a hand-written indirection should
+        // not be modified by bake (idempotent).
+        writePom(tmpDir, """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>network.ike</groupId>
+                    <artifactId>ike-base-parent</artifactId>
+                    <version>15-SNAPSHOT</version>
+                    <properties>
+                        <network.ike__GA__ike-base-parent__VERSION>15-SNAPSHOT</network.ike__GA__ike-base-parent__VERSION>
+                        <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
+                        <ike-base-parent.version>${network.ike__GA__ike-base-parent__VERSION}</ike-base-parent.version>
+                    </properties>
+                </project>
+                """);
+
+        var log = new TestLog();
+        var modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+
+        assertThat(modified).isEmpty();
+    }
+
+    @Test
+    void unbakeAliasIndirections_removesGeneratedIndirections(
+            @TempDir Path tmpDir) throws Exception {
+        // Bake first, then unbake — should round-trip.
+        String source = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>network.ike</groupId>
+                    <artifactId>ike-base-parent</artifactId>
+                    <version>15-SNAPSHOT</version>
+                    <properties>
+                        <network.ike__GA__ike-base-parent__VERSION>15-SNAPSHOT</network.ike__GA__ike-base-parent__VERSION>
+                        <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
+                    </properties>
+                </project>
+                """;
+        writePom(tmpDir, source);
+
+        var log = new TestLog();
+        ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+        Path pom = tmpDir.resolve("pom.xml");
+        String afterBake = Files.readString(pom, StandardCharsets.UTF_8);
+        assertThat(afterBake).contains("<ike-base-parent.version>");
+
+        var unbaked = ReleaseSupport.unbakeAliasIndirections(tmpDir.toFile(), log);
+        assertThat(unbaked).hasSize(1);
+        String afterUnbake = Files.readString(pom, StandardCharsets.UTF_8);
+        assertThat(afterUnbake).doesNotContain("<ike-base-parent.version>");
+        assertThat(afterUnbake)
+                .contains("<network.ike__GA__ike-base-parent__VERSION>")
+                .contains("<network.ike__GA__ike-base-parent__ALIAS>");
+    }
+
+    @Test
+    void unbakeAliasIndirections_leavesHandWrittenIndirectionsAlone(
+            @TempDir Path tmpDir) throws Exception {
+        // An indirection whose value differs from the expected
+        // canonical reference is hand-written; unbake must not
+        // touch it.
+        writePom(tmpDir, """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>network.ike</groupId>
+                    <artifactId>ike-base-parent</artifactId>
+                    <version>15-SNAPSHOT</version>
+                    <properties>
+                        <network.ike__GA__ike-base-parent__VERSION>15-SNAPSHOT</network.ike__GA__ike-base-parent__VERSION>
+                        <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
+                        <ike-base-parent.version>14</ike-base-parent.version>
+                    </properties>
+                </project>
+                """);
+
+        var log = new TestLog();
+        var modified = ReleaseSupport.unbakeAliasIndirections(tmpDir.toFile(), log);
+
+        // Value "14" doesn't match the expected canonical reference,
+        // so unbake leaves it alone.
+        assertThat(modified).isEmpty();
+        Path pom = tmpDir.resolve("pom.xml");
+        String content = Files.readString(pom, StandardCharsets.UTF_8);
+        assertThat(content).contains("<ike-base-parent.version>14</ike-base-parent.version>");
+    }
+
     // ── routeSubprocessLine ─────────────────────────────────────────
 
     @Test

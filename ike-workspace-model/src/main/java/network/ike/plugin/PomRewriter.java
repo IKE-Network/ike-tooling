@@ -3,8 +3,13 @@ package network.ike.plugin;
 import org.openrewrite.xml.XPathMatcher;
 import org.openrewrite.xml.XmlParser;
 import org.openrewrite.xml.XmlVisitor;
+import org.openrewrite.xml.tree.Content;
 import org.openrewrite.xml.tree.Xml;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -261,6 +266,121 @@ public final class PomRewriter {
         }.visitNonNull(doc, 0);
 
         return print(updated);
+    }
+
+    /**
+     * Add a property to the POM's {@code <properties>} block. No-op
+     * if the property is already declared (use {@link #updateProperty}
+     * to change an existing value). No-op if the POM has no
+     * {@code <properties>} block.
+     *
+     * <p>Introduced for the {@code __ALIAS} indirection bake step
+     * (IKE-Network/ike-issues#527): release-publish reads
+     * {@code __ALIAS} declarations and materializes the corresponding
+     * {@code <short>${canonical}</short>} indirections into the
+     * release-tagged source pom.
+     *
+     * @param pomContent    the raw POM text
+     * @param propertyName  the property name to add
+     * @param propertyValue the property value
+     * @return updated POM text, or unchanged if the property is
+     *         already declared or no {@code <properties>} block exists
+     */
+    public static String addProperty(String pomContent,
+                                      String propertyName,
+                                      String propertyValue) {
+        Xml.Document doc = parse(pomContent);
+        if (doc == null) return pomContent;
+
+        XPathMatcher propertiesMatcher = new XPathMatcher("/project/properties");
+
+        Xml.Document updated = (Xml.Document) new XmlVisitor<Integer>() {
+            @Override
+            public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
+                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);
+                if (propertiesMatcher.matches(getCursor())) {
+                    if (t.getChild(propertyName).isPresent()) {
+                        return t;
+                    }
+                    Xml.Tag newProp = Xml.Tag.build(
+                            "<" + propertyName + ">" + propertyValue
+                                    + "</" + propertyName + ">");
+                    List<Content> newContent = new ArrayList<Content>(t.getContent());
+                    newContent.add(newProp);
+                    return t.withContent(newContent);
+                }
+                return t;
+            }
+        }.visitNonNull(doc, 0);
+
+        return print(updated);
+    }
+
+    /**
+     * Remove a property from the POM's {@code <properties>} block.
+     * No-op if the property is not declared.
+     *
+     * <p>Introduced for the {@code __ALIAS} indirection unbake step
+     * (IKE-Network/ike-issues#527): release-publish removes the
+     * materialized indirections after the release tag, before the
+     * merge back to main.
+     *
+     * @param pomContent   the raw POM text
+     * @param propertyName the property name to remove
+     * @return updated POM text, or unchanged if no match
+     */
+    public static String removeProperty(String pomContent,
+                                         String propertyName) {
+        Xml.Document doc = parse(pomContent);
+        if (doc == null) return pomContent;
+
+        XPathMatcher propertiesMatcher = new XPathMatcher("/project/properties");
+
+        Xml.Document updated = (Xml.Document) new XmlVisitor<Integer>() {
+            @Override
+            public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
+                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);
+                if (propertiesMatcher.matches(getCursor())) {
+                    var filtered = t.getContent().stream()
+                            .filter(c -> !(c instanceof Xml.Tag child
+                                    && propertyName.equals(child.getName())))
+                            .toList();
+                    return t.withContent(filtered);
+                }
+                return t;
+            }
+        }.visitNonNull(doc, 0);
+
+        return print(updated);
+    }
+
+    /**
+     * List the properties declared in the POM's {@code <properties>}
+     * block. Returns name → value pairs in declaration order.
+     * Whitespace, comments, and non-tag content are skipped.
+     *
+     * <p>Used by the indirection bake/unbake steps
+     * (IKE-Network/ike-issues#527) to scan for {@code __ALIAS}
+     * declarations.
+     *
+     * @param pomContent the raw POM text
+     * @return name → value map of declared properties; empty if no
+     *         {@code <properties>} block exists
+     */
+    public static Map<String, String> listProperties(String pomContent) {
+        Xml.Document doc = parse(pomContent);
+        if (doc == null) return Map.of();
+
+        Map<String, String> result = new LinkedHashMap<>();
+        doc.getRoot().getChild("properties").ifPresent(props -> {
+            for (Content c : props.getContent()) {
+                if (c instanceof Xml.Tag child) {
+                    String value = child.getValue().orElse("");
+                    result.put(child.getName(), value);
+                }
+            }
+        });
+        return result;
     }
 
     /**

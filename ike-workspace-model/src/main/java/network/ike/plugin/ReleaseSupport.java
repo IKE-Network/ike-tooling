@@ -1,5 +1,6 @@
 package network.ike.plugin;
 
+import network.ike.support.enums.TypedMarker;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.Log;
 
@@ -14,7 +15,9 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -775,6 +778,175 @@ public class ReleaseSupport {
             }
         }
         return restored;
+    }
+
+    /**
+     * Bake {@code __ALIAS}-driven indirections into all POM files
+     * under the git root. For each property whose name ends in
+     * {@code __ALIAS} (carrying a comma-separated list of legacy
+     * short-name aliases), generates and adds a corresponding
+     * indirection property {@code <short>${G__GA__A__VERSION}</short>}
+     * to the same POM — unless the property is already declared.
+     *
+     * <p>This is the release-time materialization step: source poms
+     * declare the alias relationship via {@code __ALIAS} metadata
+     * only; the actual indirection lines (required for Maven
+     * property resolution) are added by release-publish to the
+     * tagged source pom, then removed by
+     * {@link #unbakeAliasIndirections} after the tag. See
+     * IKE-Network/ike-issues#527.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @return the list of POM files that were modified
+     * @throws MojoException if a file cannot be read or written
+     */
+    public static List<File> bakeAliasIndirections(File gitRoot, Log log)
+            throws MojoException {
+        List<File> pomFiles = findPomFiles(gitRoot);
+        List<File> modified = new ArrayList<>();
+        String aliasSuffix = TypedMarker.ALIAS.token();
+        String versionSuffix = TypedMarker.VERSION.token();
+
+        for (File pom : pomFiles) {
+            try {
+                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);
+                Map<String, String> properties = PomRewriter.listProperties(content);
+                Map<String, String> indirectionsToAdd = new LinkedHashMap<>();
+
+                for (Map.Entry<String, String> entry : properties.entrySet()) {
+                    String name = entry.getKey();
+                    if (!name.endsWith(aliasSuffix)) {
+                        continue;
+                    }
+                    // <G>__GA__<A>__ALIAS → <G>__GA__<A>
+                    String coordPrefix = name.substring(0,
+                            name.length() - aliasSuffix.length());
+                    String canonical = coordPrefix + versionSuffix;
+                    String reference = "${" + canonical + "}";
+
+                    String aliasValue = entry.getValue();
+                    if (aliasValue == null || aliasValue.isBlank()) {
+                        continue;
+                    }
+                    for (String shortName : aliasValue.split(",")) {
+                        String trimmed = shortName.trim();
+                        if (trimmed.isEmpty() || properties.containsKey(trimmed)) {
+                            continue;
+                        }
+                        indirectionsToAdd.put(trimmed, reference);
+                    }
+                }
+
+                if (indirectionsToAdd.isEmpty()) {
+                    continue;
+                }
+
+                String updated = content;
+                for (Map.Entry<String, String> e : indirectionsToAdd.entrySet()) {
+                    updated = PomRewriter.addProperty(updated, e.getKey(), e.getValue());
+                }
+
+                if (updated.equals(content)) {
+                    continue;
+                }
+
+                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);
+                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();
+                log.info("  Baked " + indirectionsToAdd.size() + " indirection"
+                        + (indirectionsToAdd.size() == 1 ? "" : "s") + " in " + rel);
+                modified.add(pom);
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to bake __ALIAS indirections in " + pom, e);
+            }
+        }
+        return modified;
+    }
+
+    /**
+     * Unbake {@code __ALIAS}-driven indirections from all POM files
+     * under the git root — the inverse of
+     * {@link #bakeAliasIndirections}. For each property whose name
+     * ends in {@code __ALIAS}, removes any corresponding indirection
+     * property whose value exactly matches the expected canonical
+     * reference {@code ${G__GA__A__VERSION}}. Indirection lines with
+     * different values (e.g. project-local hand-written ones) are
+     * left alone.
+     *
+     * <p>This is the post-tag removal step: after the release tag
+     * captures the baked state, the source pom is restored to its
+     * declarative-only form for the SNAPSHOT cycle. See
+     * IKE-Network/ike-issues#527.
+     *
+     * @param gitRoot the git repository root directory
+     * @param log     Maven logger
+     * @return the list of POM files that were modified
+     * @throws MojoException if a file cannot be read or written
+     */
+    public static List<File> unbakeAliasIndirections(File gitRoot, Log log)
+            throws MojoException {
+        List<File> pomFiles = findPomFiles(gitRoot);
+        List<File> modified = new ArrayList<>();
+        String aliasSuffix = TypedMarker.ALIAS.token();
+        String versionSuffix = TypedMarker.VERSION.token();
+
+        for (File pom : pomFiles) {
+            try {
+                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);
+                Map<String, String> properties = PomRewriter.listProperties(content);
+                List<String> indirectionsToRemove = new ArrayList<>();
+
+                for (Map.Entry<String, String> entry : properties.entrySet()) {
+                    String name = entry.getKey();
+                    if (!name.endsWith(aliasSuffix)) {
+                        continue;
+                    }
+                    String coordPrefix = name.substring(0,
+                            name.length() - aliasSuffix.length());
+                    String canonical = coordPrefix + versionSuffix;
+                    String expectedReference = "${" + canonical + "}";
+
+                    String aliasValue = entry.getValue();
+                    if (aliasValue == null || aliasValue.isBlank()) {
+                        continue;
+                    }
+                    for (String shortName : aliasValue.split(",")) {
+                        String trimmed = shortName.trim();
+                        if (trimmed.isEmpty()) {
+                            continue;
+                        }
+                        String currentValue = properties.get(trimmed);
+                        if (expectedReference.equals(currentValue)) {
+                            indirectionsToRemove.add(trimmed);
+                        }
+                    }
+                }
+
+                if (indirectionsToRemove.isEmpty()) {
+                    continue;
+                }
+
+                String updated = content;
+                for (String name : indirectionsToRemove) {
+                    updated = PomRewriter.removeProperty(updated, name);
+                }
+
+                if (updated.equals(content)) {
+                    continue;
+                }
+
+                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);
+                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();
+                log.info("  Unbaked " + indirectionsToRemove.size() + " indirection"
+                        + (indirectionsToRemove.size() == 1 ? "" : "s") + " in " + rel);
+                modified.add(pom);
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Failed to unbake __ALIAS indirections in " + pom, e);
+            }
+        }
+        return modified;
     }
 
     /**
