@@ -68,9 +68,3 @@ canonical_url: https://ike.network/ike-tooling/release-notes.html
 - Consolidate the AsciiDoc doc-rendering pipeline into ike-doc-maven-plugin ([#437](https://github.com/IKE-Network/ike-issues/issues/437)[11])
 - Add Central-required POM metadata (developers, scm); fix stale reactor comment ([#434](https://github.com/IKE-Network/ike-issues/issues/434)[12])
 - Re-pin koncept-asciidoc-extension to network.ike.docs groupId ([#432](https://github.com/IKE-Network/ike-issues/issues/432)[13])
-
-## [ike-platform v68](#ike-platform-v68)
-
-### [Internal](#internal_11)
-
-- ws:scaffold-publish report: show parent-cascade from→to and post-run uncommitted state ([#431](https://github.com/IKE-Network/ike-issues/issues/431)[14])
