@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WorktreeGuard.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release</a> &gt; <span class="el_source">WorktreeGuard.java</span></div><h1>WorktreeGuard.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release;
+
+import network.ike.plugin.ReleaseSupport;
+
+/**
+ * AutoCloseable wrapper around the release pipeline's worktree
+ * detach/restore boundary.
+ *
+ * &lt;p&gt;Acquired via {@link #detach(ReleaseContext, String, Runnable)} —
+ * the factory runs {@code git checkout &lt;releaseTag&gt;}, leaving the
+ * worktree pointed at the release tag. {@link #close()} stashes any
+ * foreign worktree changes (delegated to the caller-supplied
+ * {@code Runnable}) and then runs {@code git checkout main} to
+ * restore the worktree.
+ *
+ * &lt;p&gt;Use as a try-with-resources around the externally-visible
+ * deploy portion of the release pipeline:
+ *
+ * &lt;pre&gt;
+ * try (WorktreeGuard guard = WorktreeGuard.detach(ctx, &quot;v&quot; + version,
+ *         () -&amp;gt; stashForeignWorktreeChanges(ctx, version))) {
+ *     // site generation, gh-pages publish, Nexus/Central deploys
+ * }
+ * // worktree is restored to main, regardless of how the block exited
+ * &lt;/pre&gt;
+ *
+ * &lt;p&gt;If the detach itself fails, the factory throws and no guard
+ * instance is returned — the caller's try-with-resources block
+ * never enters and no cleanup runs, matching the prior behavior
+ * where a failed detach left no work to undo.
+ *
+ * &lt;p&gt;Carved out of {@code ReleaseDraftMojo} during the Phase 4 P3
+ * prep commit (IKE-Network/ike-issues#489). The stash callback
+ * preserves the existing {@code stashForeignWorktreeChanges} as-is
+ * on the mojo so other code paths that invoke it are unchanged;
+ * a future commit can migrate the stash logic into a sibling
+ * helper once {@code LocalPhase} is extracted.
+ */
+public final class WorktreeGuard implements AutoCloseable {
+
+    private final ReleaseContext ctx;
+    private final Runnable foreignStash;
+
+<span class="fc" id="L44">    private WorktreeGuard(ReleaseContext ctx, Runnable foreignStash) {</span>
+<span class="fc" id="L45">        this.ctx = ctx;</span>
+<span class="fc" id="L46">        this.foreignStash = foreignStash;</span>
+<span class="fc" id="L47">    }</span>
+
+    /**
+     * Detaches the worktree to the given release tag.
+     *
+     * &lt;p&gt;Runs {@code git checkout &lt;releaseTag&gt;} from
+     * {@code ctx.gitRoot()}. If the checkout fails, this method
+     * throws and no guard instance is returned.
+     *
+     * @param ctx          the release context carrying the git root and logger
+     * @param releaseTag   the tag to detach to (typically {@code &quot;v&quot; + version})
+     * @param foreignStash callback invoked from {@link #close()} before the
+     *                     {@code git checkout main} step; intended to stash
+     *                     foreign mid-flight worktree changes that would
+     *                     otherwise block the checkout
+     * @return a new {@code WorktreeGuard} ready to be closed
+     */
+    public static WorktreeGuard detach(ReleaseContext ctx, String releaseTag, Runnable foreignStash) {
+<span class="fc" id="L65">        ReleaseSupport.exec(ctx.gitRoot(), ctx.log(), &quot;git&quot;, &quot;checkout&quot;, releaseTag);</span>
+<span class="fc" id="L66">        return new WorktreeGuard(ctx, foreignStash);</span>
+    }
+
+    /**
+     * Restores the worktree to {@code main}.
+     *
+     * &lt;p&gt;Runs the {@code foreignStash} callback to clear any
+     * mid-flight worktree changes, then runs {@code git checkout main}.
+     * Called automatically when the try-with-resources block exits,
+     * regardless of whether the block exited normally or by exception.
+     */
+    @Override
+    public void close() {
+<span class="fc" id="L79">        foreignStash.run();</span>
+<span class="fc" id="L80">        ReleaseSupport.exec(ctx.gitRoot(), ctx.log(), &quot;git&quot;, &quot;checkout&quot;, &quot;main&quot;);</span>
+<span class="fc" id="L81">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

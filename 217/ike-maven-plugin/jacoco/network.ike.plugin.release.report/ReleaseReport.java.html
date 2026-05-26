@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReleaseReport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release.report</a> &gt; <span class="el_source">ReleaseReport.java</span></div><h1>ReleaseReport.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release.report;
+
+import network.ike.plugin.release.ReleaseContext;
+import network.ike.plugin.release.central.CentralOutcome;
+import network.ike.plugin.release.nexus.NexusOutcome;
+import network.ike.plugin.support.GoalReportBuilder;
+import network.ike.workspace.cascade.CascadeReporter;
+import network.ike.workspace.cascade.ProjectCascade;
+import network.ike.workspace.cascade.ProjectCascadeIo;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Renders the markdown report body and the cascade-preview/footer log
+ * lines for {@code ike:release-draft} and {@code ike:release-publish}.
+ *
+ * &lt;p&gt;The report body is the markdown payload of the {@code GoalReportSpec}
+ * returned by {@code ReleaseDraftMojo.runGoal()}; the IKE goal-report
+ * aggregator collects it for the workspace-level run report. The
+ * cascade log lines are advisory output emitted directly through
+ * {@code ctx.log()}.
+ *
+ * &lt;p&gt;Carved out of {@code ReleaseDraftMojo} during the Phase 4
+ * Commit 6 (IKE-Network/ike-issues#489). The companion
+ * {@link DraftRenderer} wraps this class for the draft-mode short-circuit.
+ */
+public final class ReleaseReport {
+
+    private final ReleaseContext ctx;
+
+    /**
+     * Creates a new report renderer bound to the given context.
+     *
+     * @param ctx the per-invocation release context
+     */
+<span class="fc" id="L37">    public ReleaseReport(ReleaseContext ctx) {</span>
+<span class="fc" id="L38">        this.ctx = ctx;</span>
+<span class="fc" id="L39">    }</span>
+
+    /**
+     * Prints the foundation release cascade section
+     * (IKE-Network/ike-issues#402, #420).
+     *
+     * &lt;p&gt;When the releasing repository version-controls its own
+     * {@code src/main/cascade/release-cascade.yaml} it is a cascade
+     * member: this surfaces the downstream repos the release affects
+     * — a preview in draft mode, a &quot;what's next&quot; footer in publish
+     * mode. A repository with no such file (an ordinary consumer) or
+     * an unreadable manifest is silently skipped — cascade reporting
+     * is purely advisory and never fails or blocks a release.
+     *
+     * @param draft {@code true} for the draft preview, {@code false}
+     *              for the post-publish footer
+     */
+    public void reportCascade(boolean draft) {
+        try {
+<span class="fc" id="L58">            Optional&lt;ProjectCascade&gt; loaded = ProjectCascadeIo.load(</span>
+<span class="fc" id="L59">                    ctx.gitRoot().toPath().resolve(</span>
+                            ProjectCascadeIo.MANIFEST_RELATIVE_PATH));
+<span class="pc bpc" id="L61" title="1 of 2 branches missed.">            if (loaded.isEmpty()) {</span>
+                // No release-cascade.yaml — an ordinary consumer, not
+                // a foundation cascade member. Nothing to report.
+<span class="fc" id="L64">                return;</span>
+            }
+<span class="nc" id="L66">            String repo = ctx.gitRoot().getName();</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">            List&lt;String&gt; lines = draft</span>
+<span class="nc" id="L68">                    ? CascadeReporter.draftPreview(loaded.get(), repo)</span>
+<span class="nc" id="L69">                    : CascadeReporter.publishFooter(loaded.get(), repo);</span>
+<span class="nc" id="L70">            ctx.log().info(&quot;&quot;);</span>
+<span class="nc" id="L71">            lines.forEach(ctx.log()::info);</span>
+<span class="nc" id="L72">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L73">            ctx.log().warn(&quot;Release cascade report skipped: &quot;</span>
+<span class="nc" id="L74">                    + e.getMessage());</span>
+<span class="nc" id="L75">        }</span>
+<span class="nc" id="L76">    }</span>
+
+    /**
+     * Builds the markdown body for an {@code ike:release-*} session report.
+     *
+     * @param draft            {@code true} for draft preview, {@code false}
+     *                         for a completed publish run
+     * @param oldVersion       the pre-release POM version
+     * @param releaseBranch    the release branch that was (or would be) created
+     * @param projectId        the artifactId of the project being released
+     * @param releaseTimestamp the reproducible build timestamp stamped into
+     *                         {@code project.build.outputTimestamp}
+     * @param nexus            the Nexus deploy outcome (use {@code NexusOutcome.initial()} for draft)
+     * @param central          the Central deploy outcome (use {@code CentralOutcome.initial()} for draft)
+     * @return the markdown body
+     */
+    public String build(boolean draft, String oldVersion, String releaseBranch,
+                        String projectId, String releaseTimestamp,
+                        NexusOutcome nexus, CentralOutcome central) {
+<span class="fc" id="L95">        String releaseVersion = ctx.request().releaseVersion();</span>
+<span class="fc" id="L96">        String nextVersion = ctx.request().nextVersion();</span>
+<span class="fc" id="L97">        boolean publishSite = ctx.request().publishSite();</span>
+<span class="fc" id="L98">        boolean publishToCentral = ctx.request().publishToCentral();</span>
+<span class="fc" id="L99">        boolean skipNexusDeploy = ctx.request().skipNexusDeploy();</span>
+<span class="fc" id="L100">        int nexusDeployMaxAttempts = ctx.request().nexusDeployMaxAttempts();</span>
+<span class="fc" id="L101">        int centralDeployMaxAttempts = ctx.request().centralDeployMaxAttempts();</span>
+
+<span class="fc" id="L103">        GoalReportBuilder report = new GoalReportBuilder();</span>
+<span class="fc" id="L104">        report.raw(&quot;**Project:** &quot; + projectId + &quot;\n&quot;</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">                + &quot;**Mode:** &quot; + (draft ? &quot;draft (preview)&quot; : &quot;publish&quot;) + &quot;\n&quot;</span>
+                + &quot;**Version:** &quot; + oldVersion + &quot; → &quot; + releaseVersion + &quot;\n&quot;
+                + &quot;**Next version:** &quot; + nextVersion + &quot;\n&quot;
+                + &quot;**Release branch:** &quot; + releaseBranch + &quot;\n&quot;
+                + &quot;**Tag:** v&quot; + releaseVersion + &quot;\n&quot;
+                + &quot;**Timestamp:** &quot; + releaseTimestamp + &quot;\n\n&quot;);
+
+<span class="pc bpc" id="L112" title="1 of 2 branches missed.">        String verb = draft ? &quot;Would&quot; : &quot;Did&quot;;</span>
+<span class="fc" id="L113">        report.section(&quot;Local actions&quot;);</span>
+<span class="fc" id="L114">        StringBuilder local = new StringBuilder();</span>
+<span class="fc" id="L115">        local.append(&quot;1. &quot;).append(verb)</span>
+<span class="fc" id="L116">                .append(&quot; create branch `&quot;).append(releaseBranch).append(&quot;`\n&quot;);</span>
+<span class="fc" id="L117">        local.append(&quot;2. &quot;).append(verb)</span>
+<span class="fc" id="L118">                .append(&quot; set version &quot;).append(oldVersion).append(&quot; → &quot;)</span>
+<span class="fc" id="L119">                .append(releaseVersion).append(&quot;\n&quot;);</span>
+<span class="fc" id="L120">        local.append(&quot;3. &quot;).append(verb)</span>
+<span class="fc" id="L121">                .append(&quot; stamp `project.build.outputTimestamp`\n&quot;);</span>
+<span class="fc" id="L122">        local.append(&quot;4. &quot;).append(verb)</span>
+<span class="fc" id="L123">                .append(&quot; resolve `${project.version}` in all POMs\n&quot;);</span>
+<span class="fc" id="L124">        local.append(&quot;5. &quot;).append(verb).append(&quot; run `mvnw clean verify -B`\n&quot;);</span>
+<span class="fc" id="L125">        local.append(&quot;6. &quot;).append(verb)</span>
+<span class="fc" id="L126">                .append(&quot; commit and tag `v&quot;).append(releaseVersion)</span>
+<span class="fc" id="L127">                .append(&quot;`\n&quot;);</span>
+<span class="fc" id="L128">        local.append(&quot;7. &quot;).append(verb)</span>
+<span class="fc" id="L129">                .append(&quot; merge `&quot;).append(releaseBranch).append(&quot;` to main\n&quot;);</span>
+<span class="fc" id="L130">        local.append(&quot;8. &quot;).append(verb)</span>
+<span class="fc" id="L131">                .append(&quot; bump to next version &quot;).append(nextVersion)</span>
+<span class="fc" id="L132">                .append(&quot;\n\n&quot;);</span>
+<span class="fc" id="L133">        report.raw(local.toString());</span>
+
+<span class="fc" id="L135">        report.section(&quot;External actions&quot;);</span>
+<span class="fc" id="L136">        StringBuilder external = new StringBuilder();</span>
+<span class="fc" id="L137">        int step = 1;</span>
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">        if (publishSite) {</span>
+<span class="nc" id="L139">            external.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="nc" id="L140">                    .append(&quot; generate site\n&quot;);</span>
+        }
+<span class="fc" id="L142">        external.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L143">                .append(&quot; deploy to Nexus from tag `v&quot;)</span>
+<span class="fc" id="L144">                .append(releaseVersion).append(&quot;`&quot;)</span>
+<span class="fc" id="L145">                .append(deployAttemptSuffix(</span>
+<span class="fc" id="L146">                        nexus.attempts(), nexusDeployMaxAttempts))</span>
+<span class="fc" id="L147">                .append('\n');</span>
+<span class="pc bpc" id="L148" title="1 of 2 branches missed.">        if (publishToCentral) {</span>
+<span class="nc" id="L149">            external.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="nc" id="L150">                    .append(&quot; publish to Maven Central from tag `v&quot;)</span>
+<span class="nc" id="L151">                    .append(releaseVersion).append(&quot;`&quot;)</span>
+<span class="nc" id="L152">                    .append(centralOutcomeSuffix(central, centralDeployMaxAttempts))</span>
+<span class="nc" id="L153">                    .append('\n');</span>
+        }
+<span class="pc bpc" id="L155" title="1 of 2 branches missed.">        if (publishSite) {</span>
+<span class="nc" id="L156">            external.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="nc" id="L157">                    .append(&quot; force-push site to gh-pages on origin &quot;</span>
+                            + &quot;(serves at `https://ike.network/&quot;)
+<span class="nc" id="L159">                    .append(projectId).append(&quot;/`)\n&quot;);</span>
+        }
+<span class="fc" id="L161">        external.append(step++).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L162">                .append(&quot; push tag and main to origin\n&quot;);</span>
+<span class="fc" id="L163">        external.append(step).append(&quot;. &quot;).append(verb)</span>
+<span class="fc" id="L164">                .append(&quot; create GitHub Release\n&quot;);</span>
+<span class="fc" id="L165">        report.raw(external.toString());</span>
+
+        // Deploy details section (publish mode only — draft has no
+        // cycle data to report). Always renders the Nexus line.
+        // The Maven Central line renders only when publishToCentral
+        // is set, with three possible outcomes (success / skip /
+        // failure). IKE-Network/ike-issues#482.
+<span class="pc bpc" id="L172" title="1 of 2 branches missed.">        if (!draft) {</span>
+<span class="nc" id="L173">            report.section(&quot;Deploy details&quot;);</span>
+<span class="nc" id="L174">            StringBuilder deploy = new StringBuilder();</span>
+<span class="nc" id="L175">            deploy.append(&quot;- **Nexus:** &quot;)</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">                    .append(nexus.succeeded()</span>
+                            ? &quot;✅ succeeded on cycle &quot;
+<span class="nc" id="L178">                                    + nexus.attempts() + &quot;/&quot;</span>
+<span class="nc" id="L179">                                    + nexusDeployMaxAttempts</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">                            : skipNexusDeploy</span>
+<span class="nc" id="L181">                                    ? &quot;⚠ skipped (ike.skipNexusDeploy=true)&quot;</span>
+<span class="nc" id="L182">                                    : &quot;❌ did not run&quot;)</span>
+<span class="nc" id="L183">                    .append('\n');</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">            if (publishToCentral) {</span>
+<span class="nc" id="L185">                deploy.append(&quot;- **Maven Central:** &quot;);</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">                if (central.asyncSpawned()) {</span>
+                    // Async path (#484) — outcome unknown at this point.
+<span class="nc" id="L188">                    deploy.append(&quot;⏳ running async (#484) — track &quot;</span>
+                                    + &quot;with `mvn &quot;)
+<span class="nc" id="L190">                            .append(&quot;ike:central-status&quot;)</span>
+<span class="nc" id="L191">                            .append(&quot;`&quot;)</span>
+<span class="nc" id="L192">                            .append(&quot;\n  - Sentinel: `&quot;)</span>
+<span class="nc" id="L193">                            .append(central.sentinelPath())</span>
+<span class="nc" id="L194">                            .append(&quot;`\n  - Log: `&quot;)</span>
+<span class="nc" id="L195">                            .append(central.logPath())</span>
+<span class="nc" id="L196">                            .append('`');</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">                } else if (central.succeeded()) {</span>
+<span class="nc" id="L198">                    deploy.append(&quot;✅ succeeded on cycle &quot;)</span>
+<span class="nc" id="L199">                            .append(central.attempts()).append(&quot;/&quot;)</span>
+<span class="nc" id="L200">                            .append(centralDeployMaxAttempts);</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">                } else if (central.skipReason() != null) {</span>
+<span class="nc" id="L202">                    deploy.append(&quot;⚠ skipped — &quot;)</span>
+<span class="nc" id="L203">                            .append(central.skipReason());</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                } else if (central.attempts() &gt; 0) {</span>
+<span class="nc" id="L205">                    deploy.append(&quot;❌ failed after &quot;)</span>
+<span class="nc" id="L206">                            .append(central.attempts()).append(&quot;/&quot;)</span>
+<span class="nc" id="L207">                            .append(centralDeployMaxAttempts)</span>
+<span class="nc" id="L208">                            .append(&quot; cycles&quot;);</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">                    if (central.failureSummary() != null) {</span>
+<span class="nc" id="L210">                        deploy.append(&quot; — &quot;)</span>
+<span class="nc" id="L211">                                .append(central.failureSummary());</span>
+                    }
+<span class="nc" id="L213">                    deploy.append(&quot;\n  Retry: `git checkout v&quot;)</span>
+<span class="nc" id="L214">                            .append(releaseVersion)</span>
+<span class="nc" id="L215">                            .append(&quot; &amp;&amp; mvn jreleaser:deploy`&quot;);</span>
+                } else {
+<span class="nc" id="L217">                    deploy.append(&quot;⚠ did not run&quot;);</span>
+                }
+<span class="nc" id="L219">                deploy.append('\n');</span>
+            }
+<span class="nc" id="L221">            report.raw(deploy.toString());</span>
+        }
+
+<span class="fc" id="L224">        return report.build();</span>
+    }
+
+    /**
+     * Renders a {@code &quot; (cycle N/M)&quot;} suffix for the post-release
+     * report, or empty when no cycles were tracked (draft mode).
+     */
+    private static String deployAttemptSuffix(int attempts, int max) {
+<span class="pc bpc" id="L232" title="1 of 2 branches missed.">        if (attempts &lt;= 0) {</span>
+<span class="fc" id="L233">            return &quot;&quot;;</span>
+        }
+<span class="nc" id="L235">        return &quot; (cycle &quot; + attempts + &quot;/&quot; + max + &quot;)&quot;;</span>
+    }
+
+    /**
+     * Renders an outcome suffix for the Maven Central row in the
+     * External-actions list. Distinguishes succeeded / skipped /
+     * failed / pending-draft.
+     */
+    private static String centralOutcomeSuffix(CentralOutcome central, int maxAttempts) {
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if (central.asyncSpawned()) {</span>
+<span class="nc" id="L245">            return &quot; (async — see Deploy details)&quot;;</span>
+        }
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        if (central.succeeded()) {</span>
+<span class="nc" id="L248">            return &quot; (cycle &quot; + central.attempts() + &quot;/&quot;</span>
+                    + maxAttempts + &quot;)&quot;;
+        }
+<span class="nc bnc" id="L251" title="All 2 branches missed.">        if (central.skipReason() != null) {</span>
+<span class="nc" id="L252">            return &quot; — skipped (&quot; + central.skipReason() + &quot;)&quot;;</span>
+        }
+<span class="nc bnc" id="L254" title="All 2 branches missed.">        if (central.attempts() &gt; 0) {</span>
+<span class="nc" id="L255">            return &quot; — FAILED after &quot; + central.attempts() + &quot;/&quot;</span>
+                    + maxAttempts + &quot; cycles&quot;;
+        }
+<span class="nc" id="L258">        return &quot;&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
