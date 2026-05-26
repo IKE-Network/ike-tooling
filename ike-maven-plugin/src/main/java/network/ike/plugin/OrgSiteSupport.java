@@ -115,11 +115,12 @@ public final class OrgSiteSupport {
         // section reads in dependency order.
         m.put("ike-workspace-extension", "network.ike.tooling:ike-workspace-extension");
         // Maven 4 build extension consumers register via
-        // .mvn/extensions.xml. Validates canonical ${G·A} pins and
-        // the ${G·A·policy} ladder shipped in #498. Not in the
-        // consumer-coordinate dependency direction (registered, not
-        // resolved) so its order relative to its siblings is by
-        // logical grouping, not by dep direction.
+        // .mvn/extensions.xml. Validates canonical typed-marker pins
+        // (${G__GA__A__VERSION}) and the ${G__GA__A__POLICY} ladder
+        // shipped in #498/#525. Not in the consumer-coordinate
+        // dependency direction (registered, not resolved) so its
+        // order relative to its siblings is by logical grouping, not
+        // by dep direction.
         m.put("ike-version-management-extension",
                 "network.ike.tooling:ike-version-management-extension");
         m.put("ike-platform",            "network.ike.platform:ike-platform");
@@ -199,7 +200,7 @@ public final class OrgSiteSupport {
             + "    style=dotted;\n"
             + "    color=\"#6a1b9a\";\n"
             + "    label=\"registered at every consumer build\\n"
-                    + "validates ${G·A} pins and ${G·A·policy}\";\n"
+                    + "validates typed-marker pins + policies\";\n"
             + "    fontsize=10;\n"
             + "    vme [label=\"ike-version-management-extension\","
                     + " fillcolor=\"#f3e5f5\", color=\"#6a1b9a\"];\n"

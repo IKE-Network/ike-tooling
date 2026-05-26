@@ -1,5 +1,7 @@
 package network.ike.workspace.cascade;
 
+import network.ike.support.enums.TypedMarker;
+
 import java.util.Optional;
 
 /**
@@ -24,9 +26,16 @@ import java.util.Optional;
  *       used in log lines and as a parse/format target for human
  *       input.</li>
  *   <li>{@link #versionProperty()} — the canonical IKE version-property
- *       name {@code groupId·artifactId} (U+00B7 MIDDLE DOT). Used by
- *       the alignment path to locate the {@code ${G·A}} property that
- *       pins this coordinate. See IKE-Network/ike-issues#470.</li>
+ *       name {@code <groupId>__GA__<artifactId>__VERSION} (typed-marker
+ *       family, IKE-Network/ike-issues#525). Used by the alignment
+ *       path to locate the property that pins this coordinate.</li>
+ *   <li>{@link #versionPropertyLegacy()} — the pre-#525 form
+ *       {@code <groupId>·<artifactId>} (U+00B7 MIDDLE DOT). Kept for
+ *       transition-period read fallback; callers should look up the
+ *       typed-marker form first, then fall back to the legacy form.</li>
+ *   <li>{@link #policyProperty()} / {@link #policyPropertyLegacy()} —
+ *       the release-policy property names in the new and legacy
+ *       conventions respectively.</li>
  *   <li>{@link #toString()} — equal to {@link #ga()}, for direct use
  *       in error messages and string concatenation.</li>
  * </ul>
@@ -123,15 +132,57 @@ public record MavenCoordinate(String groupId, String artifactId)
     }
 
     /**
-     * Returns the canonical IKE version-property name —
-     * {@code groupId·artifactId} (U+00B7 MIDDLE DOT). The
-     * alignment path uses this to locate the {@code ${G·A}}
-     * property that pins this coordinate.
+     * Returns the canonical IKE version-property name in the
+     * typed-marker family form:
+     * {@code <groupId>__GA__<artifactId>__VERSION}. The alignment
+     * path uses this to locate the property that pins this
+     * coordinate (IKE-Network/ike-issues#525). Callers operating
+     * during the transition period should fall back to
+     * {@link #versionPropertyLegacy()} when this name resolves to
+     * no value — both forms may appear in real POMs while the
+     * foundation cascade rolls forward.
      *
-     * @return the canonical property name
+     * @return the canonical typed-marker property name
      */
     public String versionProperty() {
+        return groupId + TypedMarker.GA.token() + artifactId + TypedMarker.VERSION.token();
+    }
+
+    /**
+     * Returns the legacy IKE version-property name —
+     * {@code <groupId>·<artifactId>} (U+00B7 MIDDLE DOT) — used by
+     * the pre-#525 convention. Kept for transition-period read
+     * fallback: callers should try {@link #versionProperty()} first,
+     * then fall back to this. Removed once the foundation cascade
+     * has fully migrated to the typed-marker family.
+     *
+     * @return the legacy property name
+     */
+    public String versionPropertyLegacy() {
         return groupId + "·" + artifactId;
+    }
+
+    /**
+     * Returns the canonical IKE release-policy property name in the
+     * typed-marker family form:
+     * {@code <groupId>__GA__<artifactId>__POLICY}. Value is a
+     * {@link network.ike.support.enums.ReleasePolicy} rung.
+     *
+     * @return the canonical typed-marker policy property name
+     */
+    public String policyProperty() {
+        return groupId + TypedMarker.GA.token() + artifactId + TypedMarker.POLICY.token();
+    }
+
+    /**
+     * Returns the legacy IKE release-policy property name —
+     * {@code <groupId>·<artifactId>·policy} — used by the pre-#525
+     * convention. Kept for transition-period read fallback.
+     *
+     * @return the legacy policy property name
+     */
+    public String policyPropertyLegacy() {
+        return groupId + "·" + artifactId + "·policy";
     }
 
     /**

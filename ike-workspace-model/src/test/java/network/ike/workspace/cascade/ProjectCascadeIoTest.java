@@ -81,11 +81,14 @@ class ProjectCascadeIoTest {
                 .satisfies(e -> {
                     assertThat(e.ga())
                             .isEqualTo("network.ike.tooling:ike-tooling");
-                    // versionProperty() is now derived from G·A, not
-                    // read from the YAML — see IKE-Network/ike-issues#496.
+                    // versionProperty() is derived from the coordinate
+                    // using the typed-marker family (#525) — not read
+                    // from the YAML. See IKE-Network/ike-issues#496.
                     // The legacy "ike-tooling.version" field in the
                     // YAML manifest is read and discarded.
                     assertThat(e.versionProperty())
+                            .isEqualTo("network.ike.tooling__GA__ike-tooling__VERSION");
+                    assertThat(e.versionPropertyLegacy())
                             .isEqualTo("network.ike.tooling·ike-tooling");
                 });
         // repo overrides the artifactId default.

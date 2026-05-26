@@ -91,10 +91,34 @@ class MavenCoordinateTest {
     }
 
     @Test
-    void versionProperty_uses_middle_dot() {
+    void versionProperty_uses_typed_marker_family() {
+        // Post-#525: <G>__GA__<A>__VERSION
         assertThat(new MavenCoordinate(
                 "network.ike.tooling", "ike-tooling").versionProperty())
+                .isEqualTo("network.ike.tooling__GA__ike-tooling__VERSION");
+    }
+
+    @Test
+    void versionPropertyLegacy_uses_middle_dot() {
+        // Pre-#525 legacy form, kept for transition-period read fallback
+        assertThat(new MavenCoordinate(
+                "network.ike.tooling", "ike-tooling").versionPropertyLegacy())
                 .isEqualTo("network.ike.tooling·ike-tooling");
+    }
+
+    @Test
+    void policyProperty_uses_typed_marker_family() {
+        // Post-#525: <G>__GA__<A>__POLICY
+        assertThat(new MavenCoordinate(
+                "network.ike.tooling", "ike-tooling").policyProperty())
+                .isEqualTo("network.ike.tooling__GA__ike-tooling__POLICY");
+    }
+
+    @Test
+    void policyPropertyLegacy_uses_middle_dot() {
+        assertThat(new MavenCoordinate(
+                "network.ike.tooling", "ike-tooling").policyPropertyLegacy())
+                .isEqualTo("network.ike.tooling·ike-tooling·policy");
     }
 
     @Test

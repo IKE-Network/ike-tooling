@@ -109,13 +109,47 @@ public record CascadeEdge(MavenCoordinate coordinate,
     }
 
     /**
-     * Returns the canonical IKE version-property name —
-     * {@code groupId·artifactId} (U+00B7 MIDDLE DOT). Derived from
-     * the coordinate; see {@link MavenCoordinate#versionProperty()}.
+     * Returns the canonical IKE version-property name in the
+     * typed-marker family form
+     * ({@code <G>__GA__<A>__VERSION}). Derived from the coordinate;
+     * see {@link MavenCoordinate#versionProperty()}. Callers
+     * operating during the transition period should fall back to
+     * {@link #versionPropertyLegacy()} when this name resolves to
+     * no value.
      *
-     * @return the canonical {@code G·A} version-property name
+     * @return the canonical typed-marker version-property name
      */
     public String versionProperty() {
         return coordinate.versionProperty();
+    }
+
+    /**
+     * Returns the legacy version-property name ({@code G·A}) used by
+     * the pre-#525 convention. Transition-period read fallback only.
+     *
+     * @return the legacy version-property name
+     */
+    public String versionPropertyLegacy() {
+        return coordinate.versionPropertyLegacy();
+    }
+
+    /**
+     * Returns the canonical release-policy property name in the
+     * typed-marker family form ({@code <G>__GA__<A>__POLICY}).
+     *
+     * @return the canonical typed-marker policy property name
+     */
+    public String policyProperty() {
+        return coordinate.policyProperty();
+    }
+
+    /**
+     * Returns the legacy release-policy property name
+     * ({@code G·A·policy}). Transition-period read fallback only.
+     *
+     * @return the legacy policy property name
+     */
+    public String policyPropertyLegacy() {
+        return coordinate.policyPropertyLegacy();
     }
 }

@@ -352,11 +352,20 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
                         up.groupId(), up.artifactId()).orElse(null);
                 displaySite = "<parent>" + up.ga() + "</parent>";
             } else {
+                // Try typed-marker form first (post-#525), then fall
+                // back to legacy ·-form so stale-pin reporting works
+                // on POMs from both sides of the convention boundary.
                 String property = up.versionProperty();
+                pinned = (property == null || property.isBlank())
+                        ? null
+                        : ReleaseSupport.readPomProperty(pom, property);
+                if (pinned == null) {
+                    property = up.versionPropertyLegacy();
+                    pinned = ReleaseSupport.readPomProperty(pom, property);
+                }
                 if (property == null || property.isBlank()) {
                     continue;
                 }
-                pinned = ReleaseSupport.readPomProperty(pom, property);
                 displaySite = property;
             }
             if (pinned == null || pinned.isBlank()

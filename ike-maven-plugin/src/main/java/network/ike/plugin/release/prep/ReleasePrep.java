@@ -83,14 +83,6 @@ public final class ReleasePrep {
                     + "|site: publish .+)$");
 
     /**
-     * Suffix that identifies a {@code ${groupId·artifactId·policy}}
-     * property declaring how this project reacts to an upstream
-     * release (IKE-Network/ike-issues#498). The value must be a
-     * {@link ReleasePolicy} rung.
-     */
-    private static final String POLICY_SUFFIX = "·policy";
-
-    /**
      * {@link ReleasePolicy} indexed by literal rung name
      * ({@code notify}, {@code verify}, {@code propose},
      * {@code integrate}, {@code release}).
@@ -394,20 +386,27 @@ public final class ReleasePrep {
         String updated = content;
 
         for (CascadeEdge up : loaded.get().upstream()) {
-            // ── Resolve policy (IKE-Network/ike-issues#498) ──────────
-            // ${G·A·policy} declares how this project responds when
-            // the upstream releases. Default (no property declared)
-            // is INTEGRATE — bump the pin in place, no human gate.
-            // Policy is read and validated BEFORE the upstream-version
-            // resolution so the dispatch below sees the full gap
-            // context (current pin + latest released) when reporting
-            // to the operator. The ${G·A·policy} property is also
-            // validated at consumer build time by
+            // ── Resolve policy (IKE-Network/ike-issues#498, #525) ────
+            // <G>__GA__<A>__POLICY (typed-marker family) declares how
+            // this project responds when the upstream releases. The
+            // pre-#525 form (<G>·<A>·policy) is also accepted during
+            // the foundation cascade transition. Default (no property
+            // declared) is INTEGRATE — bump the pin in place, no
+            // human gate. Policy is read and validated BEFORE the
+            // upstream-version resolution so the dispatch below sees
+            // the full gap context (current pin + latest released)
+            // when reporting to the operator. The policy property is
+            // also validated at consumer build time by
             // ike-version-management-extension; ReleasePrep re-validates
             // here so a release run gives a clear error even on
             // consumers that don't register that extension.
-            String policyKey = up.groupId() + "·" + up.artifactId() + POLICY_SUFFIX;
+            String policyKey = up.policyProperty();
             String policyValue = ReleaseSupport.readPomProperty(pomFile, policyKey);
+            if (policyValue == null) {
+                // Transition fallback: pre-#525 ·policy form
+                policyKey = up.policyPropertyLegacy();
+                policyValue = ReleaseSupport.readPomProperty(pomFile, policyKey);
+            }
             if (policyValue != null) {
                 policyValue = policyValue.trim();
             }
@@ -424,19 +423,32 @@ public final class ReleasePrep {
 
             // ── Read current pin value ───────────────────────────────
             // PARENT-kind edges rewrite the <parent><version> block
-            // directly; property-kind edges rewrite the ${G·A} property
-            // that pins the upstream. The site of the value (the read
-            // and the write) differs by kind; the candidate-resolution
-            // and "is the pin stale" logic is the same for both.
+            // directly; property-kind edges rewrite the version-pin
+            // property that pins the upstream. The site of the value
+            // (the read and the write) differs by kind; the
+            // candidate-resolution and "is the pin stale" logic is
+            // the same for both.
+            //
+            // For property-kind edges we look up the typed-marker
+            // form (<G>__GA__<A>__VERSION, post-#525) first, then
+            // fall back to the legacy form (<G>·<A>) so the cascade
+            // works on both pre- and post-#525 POMs during the
+            // transition. Whichever form resolves becomes the write
+            // target — the form is preserved naturally.
             boolean parentEdge = up.kind() == EdgeKind.PARENT;
             String property = up.versionProperty();
-            String displaySite = parentEdge
-                    ? "<parent>" + up.ga() + "</parent>"
-                    : "<" + property + ">";
             String current = parentEdge
                     ? PomRewriter.readParentVersion(content,
                             up.groupId(), up.artifactId()).orElse(null)
                     : ReleaseSupport.readPomProperty(pomFile, property);
+            if (!parentEdge && current == null) {
+                // Transition fallback: pre-#525 ·-form pin
+                property = up.versionPropertyLegacy();
+                current = ReleaseSupport.readPomProperty(pomFile, property);
+            }
+            String displaySite = parentEdge
+                    ? "<parent>" + up.ga() + "</parent>"
+                    : "<" + property + ">";
             if (current == null) {
                 problems.add(up.ga() + ": POM has no " + displaySite
                         + ".");
