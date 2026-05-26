@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SiblingRepositoryKeyResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">SiblingRepositoryKeyResolver.java</span></div><h1>SiblingRepositoryKeyResolver.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * A {@link RepositoryKeyResolver} backed by sibling checkouts on the
+ * local filesystem (IKE-Network/ike-issues#496 part C).
+ *
+ * &lt;p&gt;Scans a base directory of sibling repository checkouts, walks
+ * every {@code pom.xml} it finds, and indexes the coordinate the POM
+ * declares against the {@link RepositoryKey} of the repository
+ * containing it. Subsequent {@link #resolve(String, String) resolve}
+ * calls are constant-time map lookups against the index.
+ *
+ * &lt;h2&gt;How the repository identity is determined&lt;/h2&gt;
+ *
+ * &lt;p&gt;The repository identity is taken from the &lt;em&gt;root POM of the
+ * containing git repository&lt;/em&gt;, not from Maven inheritance. For
+ * each {@code pom.xml} found:
+ *
+ * &lt;ol&gt;
+ *   &lt;li&gt;Walk upward to the nearest ancestor directory containing a
+ *       {@code .git} entry — the git repo root.&lt;/li&gt;
+ *   &lt;li&gt;Read that root's {@code pom.xml} for its local
+ *       {@code &lt;scm&gt;} block.&lt;/li&gt;
+ *   &lt;li&gt;Convert the {@code &lt;scm&gt;} URL or connection to a
+ *       {@link RepositoryKey} via {@link RepositoryKey#of(String)}.&lt;/li&gt;
+ *   &lt;li&gt;Index every coordinate produced under that git repo against
+ *       this same key.&lt;/li&gt;
+ * &lt;/ol&gt;
+ *
+ * &lt;p&gt;This bypasses Maven's default {@code &lt;scm&gt;} inheritance, which
+ * appends each subproject's {@code &lt;artifactId&gt;} to the parent's
+ * URL (producing paths like {@code .../ike-tooling/ike-build-standards}
+ * for what is in fact still the {@code ike-tooling} repository). The
+ * git-boundary read gives every coordinate in a reactor the same
+ * key — the goal of the cascade's repository-keyed node model.
+ *
+ * &lt;h2&gt;Scoping&lt;/h2&gt;
+ *
+ * &lt;p&gt;The scan is bounded: it descends from the supplied base
+ * directory but skips {@code target/}, {@code .git/}, {@code .idea/},
+ * {@code node_modules/}, and similar build/IDE caches.
+ */
+public final class SiblingRepositoryKeyResolver
+        implements RepositoryKeyResolver {
+
+    /** Conventional directory names skipped during the POM scan. */
+<span class="fc" id="L64">    private static final java.util.Set&lt;String&gt; SKIP_DIRS = java.util.Set.of(</span>
+            &quot;target&quot;, &quot;.git&quot;, &quot;.idea&quot;, &quot;.mvn&quot;, &quot;node_modules&quot;,
+            &quot;.gradle&quot;, &quot;build&quot;, &quot;dist&quot;);
+
+    private final Path baseDir;
+    private final Map&lt;MavenCoordinate, RepositoryKey&gt; byCoordinate;
+    private boolean indexed;
+
+    /**
+     * Creates a resolver that lazily indexes the POMs under
+     * {@code baseDir} on the first {@link #resolve} call.
+     *
+     * @param baseDir the directory of sibling checkouts; required
+     */
+<span class="fc" id="L78">    public SiblingRepositoryKeyResolver(Path baseDir) {</span>
+<span class="fc bfc" id="L79" title="All 2 branches covered.">        if (baseDir == null) {</span>
+<span class="fc" id="L80">            throw new IllegalArgumentException(&quot;baseDir is required&quot;);</span>
+        }
+<span class="fc" id="L82">        this.baseDir = baseDir;</span>
+<span class="fc" id="L83">        this.byCoordinate = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L84">        this.indexed = false;</span>
+<span class="fc" id="L85">    }</span>
+
+    /**
+     * Indexes the POMs eagerly. Optional — {@link #resolve} will
+     * trigger the same indexing on first call.
+     */
+    public synchronized void index() {
+<span class="pc bpc" id="L92" title="1 of 2 branches missed.">        if (indexed) {</span>
+<span class="nc" id="L93">            return;</span>
+        }
+<span class="fc" id="L95">        indexed = true;</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">        if (!Files.isDirectory(baseDir)) {</span>
+<span class="fc" id="L97">            return;</span>
+        }
+<span class="fc" id="L99">        walkPoms(baseDir);</span>
+<span class="fc" id="L100">    }</span>
+
+    @Override
+    public Optional&lt;RepositoryKey&gt; resolve(MavenCoordinate coordinate) {
+<span class="pc bpc" id="L104" title="1 of 2 branches missed.">        if (coordinate == null) {</span>
+<span class="nc" id="L105">            return Optional.empty();</span>
+        }
+<span class="fc bfc" id="L107" title="All 2 branches covered.">        if (!indexed) {</span>
+<span class="fc" id="L108">            index();</span>
+        }
+<span class="fc" id="L110">        return Optional.ofNullable(byCoordinate.get(coordinate));</span>
+    }
+
+    private void walkPoms(Path root) {
+        try {
+<span class="fc" id="L115">            Files.walkFileTree(root, new SimpleFileVisitor&lt;&gt;() {</span>
+                @Override
+                public FileVisitResult preVisitDirectory(
+                        Path dir, BasicFileAttributes attrs) {
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">                    String name = dir.getFileName() == null</span>
+<span class="pc" id="L120">                            ? &quot;&quot; : dir.getFileName().toString();</span>
+<span class="fc bfc" id="L121" title="All 4 branches covered.">                    if (!dir.equals(root) &amp;&amp; SKIP_DIRS.contains(name)) {</span>
+<span class="fc" id="L122">                        return FileVisitResult.SKIP_SUBTREE;</span>
+                    }
+<span class="fc" id="L124">                    return FileVisitResult.CONTINUE;</span>
+                }
+
+                @Override
+                public FileVisitResult visitFile(
+                        Path file, BasicFileAttributes attrs) {
+<span class="pc bpc" id="L130" title="1 of 2 branches missed.">                    if (&quot;pom.xml&quot;.equals(</span>
+<span class="fc" id="L131">                            file.getFileName().toString())) {</span>
+<span class="fc" id="L132">                        indexPom(file);</span>
+                    }
+<span class="fc" id="L134">                    return FileVisitResult.CONTINUE;</span>
+                }
+            });
+<span class="nc" id="L137">        } catch (IOException e) {</span>
+<span class="nc" id="L138">            throw new UncheckedIOException(</span>
+                    &quot;Cannot scan &quot; + root + &quot; for POMs&quot;, e);
+<span class="fc" id="L140">        }</span>
+<span class="fc" id="L141">    }</span>
+
+    private void indexPom(Path pom) {
+<span class="fc" id="L144">        Path repoRoot = gitRoot(pom.getParent());</span>
+<span class="pc bpc" id="L145" title="1 of 2 branches missed.">        if (repoRoot == null) {</span>
+            // POM not inside any git repo we can identify; skip.
+<span class="nc" id="L147">            return;</span>
+        }
+<span class="fc" id="L149">        RepositoryKey key = repoKey(repoRoot);</span>
+<span class="fc bfc" id="L150" title="All 2 branches covered.">        if (key == null) {</span>
+<span class="fc" id="L151">            return;</span>
+        }
+<span class="fc" id="L153">        PomCoordinates coords = readCoordinates(pom);</span>
+<span class="fc" id="L154">        MavenCoordinate.tryOf(coords.groupId, coords.artifactId)</span>
+<span class="fc" id="L155">                .ifPresent(coord -&gt; byCoordinate.put(coord, key));</span>
+<span class="fc" id="L156">    }</span>
+
+    /**
+     * Returns the nearest ancestor directory that contains a
+     * {@code .git} entry, or {@code null} when none exists at or
+     * above {@code start}.
+     */
+    private static Path gitRoot(Path start) {
+<span class="fc" id="L164">        Path cursor = start;</span>
+<span class="pc bpc" id="L165" title="1 of 2 branches missed.">        while (cursor != null) {</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">            if (Files.exists(cursor.resolve(&quot;.git&quot;))) {</span>
+<span class="fc" id="L167">                return cursor;</span>
+            }
+<span class="fc" id="L169">            cursor = cursor.getParent();</span>
+        }
+<span class="nc" id="L171">        return null;</span>
+    }
+
+<span class="fc" id="L174">    private final Map&lt;Path, RepositoryKey&gt; repoKeyCache =</span>
+            new java.util.concurrent.ConcurrentHashMap&lt;&gt;();
+
+    private RepositoryKey repoKey(Path repoRoot) {
+<span class="fc" id="L178">        RepositoryKey cached = repoKeyCache.get(repoRoot);</span>
+<span class="fc bfc" id="L179" title="All 2 branches covered.">        if (cached != null) {</span>
+<span class="fc" id="L180">            return cached;</span>
+        }
+<span class="fc" id="L182">        Path rootPom = repoRoot.resolve(&quot;pom.xml&quot;);</span>
+<span class="pc bpc" id="L183" title="1 of 2 branches missed.">        if (!Files.isRegularFile(rootPom)) {</span>
+<span class="nc" id="L184">            return null;</span>
+        }
+<span class="fc" id="L186">        ScmIdentity scm = readScm(rootPom);</span>
+<span class="pc bpc" id="L187" title="1 of 4 branches missed.">        String url = scm.url != null &amp;&amp; !scm.url.isBlank()</span>
+<span class="fc" id="L188">                ? scm.url</span>
+<span class="fc" id="L189">                : scm.connection;</span>
+<span class="pc bpc" id="L190" title="1 of 4 branches missed.">        if (url == null || url.isBlank()) {</span>
+<span class="fc" id="L191">            return null;</span>
+        }
+<span class="fc" id="L193">        RepositoryKey key = RepositoryKey.of(url);</span>
+<span class="fc" id="L194">        repoKeyCache.put(repoRoot, key);</span>
+<span class="fc" id="L195">        return key;</span>
+    }
+
+    // ── POM XML reading ────────────────────────────────────────────
+
+<span class="fc" id="L200">    private record PomCoordinates(String groupId, String artifactId) {}</span>
+
+<span class="fc" id="L202">    private record ScmIdentity(String url, String connection) {}</span>
+
+    private static PomCoordinates readCoordinates(Path pom) {
+<span class="fc" id="L205">        try (Reader reader = Files.newBufferedReader(</span>
+                pom, StandardCharsets.UTF_8)) {
+<span class="fc" id="L207">            return parseCoordinates(reader);</span>
+<span class="nc" id="L208">        } catch (IOException e) {</span>
+<span class="nc" id="L209">            throw new UncheckedIOException(</span>
+                    &quot;Cannot read &quot; + pom, e);
+<span class="nc" id="L211">        } catch (XMLStreamException e) {</span>
+<span class="nc" id="L212">            throw new IllegalStateException(</span>
+<span class="nc" id="L213">                    &quot;Malformed &quot; + pom + &quot;: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    private static ScmIdentity readScm(Path pom) {
+<span class="fc" id="L218">        try (Reader reader = Files.newBufferedReader(</span>
+                pom, StandardCharsets.UTF_8)) {
+<span class="fc" id="L220">            return parseScm(reader);</span>
+<span class="nc" id="L221">        } catch (IOException e) {</span>
+<span class="nc" id="L222">            throw new UncheckedIOException(</span>
+                    &quot;Cannot read &quot; + pom, e);
+<span class="nc" id="L224">        } catch (XMLStreamException e) {</span>
+<span class="nc" id="L225">            throw new IllegalStateException(</span>
+<span class="nc" id="L226">                    &quot;Malformed &quot; + pom + &quot;: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    /**
+     * Extracts the project's top-level {@code &lt;groupId&gt;} and
+     * {@code &lt;artifactId&gt;}. When {@code &lt;groupId&gt;} is absent at the
+     * project level it falls back to {@code &lt;parent&gt;&lt;groupId&gt;} —
+     * the standard Maven inheritance default.
+     */
+    private static PomCoordinates parseCoordinates(Reader source)
+            throws XMLStreamException {
+<span class="fc" id="L238">        XMLStreamReader xml = openReader(source);</span>
+        try {
+<span class="fc" id="L240">            String projectGroupId = null;</span>
+<span class="fc" id="L241">            String parentGroupId = null;</span>
+<span class="fc" id="L242">            String artifactId = null;</span>
+<span class="fc" id="L243">            int depth = 0;</span>
+<span class="fc" id="L244">            String containerAtDepth1 = null;</span>
+<span class="fc" id="L245">            String currentLeaf = null;</span>
+<span class="fc" id="L246">            StringBuilder leaf = new StringBuilder();</span>
+
+<span class="fc bfc" id="L248" title="All 2 branches covered.">            while (xml.hasNext()) {</span>
+<span class="fc" id="L249">                int event = xml.next();</span>
+<span class="fc bfc" id="L250" title="All 2 branches covered.">                if (event == XMLStreamConstants.START_ELEMENT) {</span>
+<span class="fc" id="L251">                    depth++;</span>
+<span class="fc" id="L252">                    String name = xml.getLocalName();</span>
+<span class="fc bfc" id="L253" title="All 4 branches covered.">                    if (depth == 2 &amp;&amp; &quot;parent&quot;.equals(name)) {</span>
+<span class="fc" id="L254">                        containerAtDepth1 = &quot;parent&quot;;</span>
+<span class="fc bfc" id="L255" title="All 2 branches covered.">                    } else if (depth == 3</span>
+<span class="fc bfc" id="L256" title="All 2 branches covered.">                            &amp;&amp; &quot;parent&quot;.equals(containerAtDepth1)</span>
+<span class="fc bfc" id="L257" title="All 2 branches covered.">                            &amp;&amp; (&quot;groupId&quot;.equals(name))) {</span>
+<span class="fc" id="L258">                        currentLeaf = &quot;parent.groupId&quot;;</span>
+<span class="fc" id="L259">                        leaf.setLength(0);</span>
+<span class="fc bfc" id="L260" title="All 4 branches covered.">                    } else if (depth == 2 &amp;&amp; (&quot;groupId&quot;.equals(name)</span>
+<span class="fc bfc" id="L261" title="All 2 branches covered.">                            || &quot;artifactId&quot;.equals(name))) {</span>
+<span class="fc" id="L262">                        currentLeaf = &quot;project.&quot; + name;</span>
+<span class="fc" id="L263">                        leaf.setLength(0);</span>
+                    }
+<span class="fc bfc" id="L265" title="All 4 branches covered.">                } else if (event == XMLStreamConstants.CHARACTERS</span>
+                        &amp;&amp; currentLeaf != null) {
+<span class="fc" id="L267">                    leaf.append(xml.getText());</span>
+<span class="fc bfc" id="L268" title="All 2 branches covered.">                } else if (event == XMLStreamConstants.END_ELEMENT) {</span>
+<span class="fc" id="L269">                    String name = xml.getLocalName();</span>
+<span class="fc bfc" id="L270" title="All 2 branches covered.">                    if (currentLeaf != null) {</span>
+<span class="fc" id="L271">                        String value = leaf.toString().trim();</span>
+<span class="pc bpc" id="L272" title="1 of 4 branches missed.">                        switch (currentLeaf) {</span>
+<span class="fc" id="L273">                            case &quot;project.groupId&quot; -&gt; projectGroupId = value;</span>
+<span class="fc" id="L274">                            case &quot;project.artifactId&quot; -&gt; artifactId = value;</span>
+<span class="fc" id="L275">                            case &quot;parent.groupId&quot; -&gt; parentGroupId = value;</span>
+                            default -&gt; { /* ignored */ }
+                        }
+<span class="fc" id="L278">                        currentLeaf = null;</span>
+                    }
+<span class="fc bfc" id="L280" title="All 4 branches covered.">                    if (depth == 2 &amp;&amp; &quot;parent&quot;.equals(name)) {</span>
+<span class="fc" id="L281">                        containerAtDepth1 = null;</span>
+                    }
+<span class="fc" id="L283">                    depth--;</span>
+                }
+<span class="fc" id="L285">            }</span>
+<span class="pc bpc" id="L286" title="1 of 4 branches missed.">            String groupId = projectGroupId != null &amp;&amp; !projectGroupId.isBlank()</span>
+<span class="fc" id="L287">                    ? projectGroupId</span>
+<span class="fc" id="L288">                    : parentGroupId;</span>
+<span class="fc" id="L289">            return new PomCoordinates(groupId, artifactId);</span>
+        } finally {
+<span class="fc" id="L291">            xml.close();</span>
+        }
+    }
+
+    /**
+     * Extracts the project's local {@code &lt;scm&gt;&lt;url&gt;} and
+     * {@code &lt;scm&gt;&lt;connection&gt;}. Does not consult inheritance —
+     * the caller is reading the git-repo-root POM where IKE
+     * convention places the local declaration.
+     */
+    private static ScmIdentity parseScm(Reader source)
+            throws XMLStreamException {
+<span class="fc" id="L303">        XMLStreamReader xml = openReader(source);</span>
+        try {
+<span class="fc" id="L305">            String url = null;</span>
+<span class="fc" id="L306">            String connection = null;</span>
+<span class="fc" id="L307">            int depth = 0;</span>
+<span class="fc" id="L308">            String containerAtDepth1 = null;</span>
+<span class="fc" id="L309">            String currentLeaf = null;</span>
+<span class="fc" id="L310">            StringBuilder leaf = new StringBuilder();</span>
+
+<span class="fc bfc" id="L312" title="All 2 branches covered.">            while (xml.hasNext()) {</span>
+<span class="fc" id="L313">                int event = xml.next();</span>
+<span class="fc bfc" id="L314" title="All 2 branches covered.">                if (event == XMLStreamConstants.START_ELEMENT) {</span>
+<span class="fc" id="L315">                    depth++;</span>
+<span class="fc" id="L316">                    String name = xml.getLocalName();</span>
+<span class="fc bfc" id="L317" title="All 4 branches covered.">                    if (depth == 2 &amp;&amp; &quot;scm&quot;.equals(name)) {</span>
+<span class="fc" id="L318">                        containerAtDepth1 = &quot;scm&quot;;</span>
+<span class="fc bfc" id="L319" title="All 2 branches covered.">                    } else if (depth == 3</span>
+<span class="pc bpc" id="L320" title="1 of 2 branches missed.">                            &amp;&amp; &quot;scm&quot;.equals(containerAtDepth1)</span>
+<span class="fc bfc" id="L321" title="All 2 branches covered.">                            &amp;&amp; (&quot;url&quot;.equals(name)</span>
+<span class="pc bpc" id="L322" title="1 of 2 branches missed.">                                    || &quot;connection&quot;.equals(name))) {</span>
+<span class="fc" id="L323">                        currentLeaf = name;</span>
+<span class="fc" id="L324">                        leaf.setLength(0);</span>
+                    }
+<span class="fc bfc" id="L326" title="All 4 branches covered.">                } else if (event == XMLStreamConstants.CHARACTERS</span>
+                        &amp;&amp; currentLeaf != null) {
+<span class="fc" id="L328">                    leaf.append(xml.getText());</span>
+<span class="fc bfc" id="L329" title="All 2 branches covered.">                } else if (event == XMLStreamConstants.END_ELEMENT) {</span>
+<span class="fc" id="L330">                    String name = xml.getLocalName();</span>
+<span class="fc bfc" id="L331" title="All 2 branches covered.">                    if (currentLeaf != null) {</span>
+<span class="fc" id="L332">                        String value = leaf.toString().trim();</span>
+<span class="pc bpc" id="L333" title="1 of 3 branches missed.">                        switch (currentLeaf) {</span>
+<span class="fc" id="L334">                            case &quot;url&quot; -&gt; url = value;</span>
+<span class="fc" id="L335">                            case &quot;connection&quot; -&gt; connection = value;</span>
+                            default -&gt; { /* ignored */ }
+                        }
+<span class="fc" id="L338">                        currentLeaf = null;</span>
+                    }
+<span class="fc bfc" id="L340" title="All 4 branches covered.">                    if (depth == 2 &amp;&amp; &quot;scm&quot;.equals(name)) {</span>
+<span class="fc" id="L341">                        containerAtDepth1 = null;</span>
+                    }
+<span class="fc" id="L343">                    depth--;</span>
+                }
+<span class="fc" id="L345">            }</span>
+<span class="fc" id="L346">            return new ScmIdentity(url, connection);</span>
+        } finally {
+<span class="fc" id="L348">            xml.close();</span>
+        }
+    }
+
+    private static XMLStreamReader openReader(Reader source)
+            throws XMLStreamException {
+<span class="fc" id="L354">        XMLInputFactory factory = XMLInputFactory.newFactory();</span>
+<span class="fc" id="L355">        factory.setProperty(XMLInputFactory.IS_NAMESPACE_AWARE,</span>
+                Boolean.FALSE);
+<span class="fc" id="L357">        factory.setProperty(XMLInputFactory.SUPPORT_DTD, Boolean.FALSE);</span>
+<span class="fc" id="L358">        factory.setProperty(</span>
+                &quot;javax.xml.stream.isSupportingExternalEntities&quot;,
+                Boolean.FALSE);
+<span class="fc" id="L361">        return factory.createXMLStreamReader(source);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
