@@ -1,6 +1,6 @@
 ---
-date_published: 2026-05-24
-date_modified: 2026-05-24
+date_published: 2026-05-25
+date_modified: 2026-05-25
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/self-host-bootstrap.html
 ---
 
@@ -65,7 +65,7 @@ where `X` is the version we’re about to release.
 
 During release flow, submodules are set to `X` (the release version). A `<plugins>` reference to the plugin at `X-SNAPSHOT` is a reference to a **different GAV** than any submodule — no graph edge to a submodule — no reactor cycle.
 
-If we used `212` here, we’d be back to `X`, and the cycle would return. The whole point is that `X-SNAPSHOT` and `X` are different artifacts as far as Maven’s reactor graph is concerned.
+If we used `213` here, we’d be back to `X`, and the cycle would return. The whole point is that `X-SNAPSHOT` and `X` are different artifacts as far as Maven’s reactor graph is concerned.
 
 ### [#why-x-snapshot-is-guaranteed-in--m2](#why-x-snapshot-is-guaranteed-in--m2)Why X-SNAPSHOT is guaranteed in `~/.m2`
 

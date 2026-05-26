@@ -1,6 +1,6 @@
 ---
-date_published: 2026-05-24
-date_modified: 2026-05-24
+date_published: 2026-05-25
+date_modified: 2026-05-25
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/release-cascade.html
 ---
 
@@ -12,7 +12,7 @@ The IKE foundation is three repositories that must release in topological order,
 ike-tooling  →  ike-docs  →  ike-platform
 ```
 
-`ike-docs` and `ike-platform` declare `ike-maven-plugin` — and consume `ike-build-standards` — through `211`; `ike-platform` also consumes `ike-docs` through `61`. A downstream repo released against a stale upstream pin ships a **split foundation**. The release cascade is the machinery that keeps the three coherent.
+`ike-docs` and `ike-platform` declare `ike-maven-plugin` — and consume `ike-build-standards` — through `212`; `ike-platform` also consumes `ike-docs` through `62`. A downstream repo released against a stale upstream pin ships a **split foundation**. The release cascade is the machinery that keeps the three coherent.
 
 ## [#a-decentralized-loosely-coupled-model](#a-decentralized-loosely-coupled-model)A decentralized, loosely-coupled model
 
