@@ -115,7 +115,8 @@ public final class ManifestReader {
         }
         return new IdeSettings(
                 stringField(map, "language-level", null),
-                stringField(map, "jdk-name", null)
+                stringField(map, "jdk-name", null),
+                boolField(map, "track-misc-xml", false)
         );
     }
 
@@ -217,6 +218,18 @@ public final class ManifestReader {
             return defaultValue;
         }
         return value.toString();
+    }
+
+    private static boolean boolField(Map<String, Object> map, String key,
+                                      boolean defaultValue) {
+        Object value = map.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        return Boolean.parseBoolean(value.toString());
     }
 
     // ── Legacy schema migration (#150) ──────────────────────────────

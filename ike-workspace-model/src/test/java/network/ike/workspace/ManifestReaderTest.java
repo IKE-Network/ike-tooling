@@ -122,6 +122,7 @@ class ManifestReaderTest {
         assertThat(manifest.ide().hasAnyValue()).isFalse();
         assertThat(manifest.ide().languageLevel()).isNull();
         assertThat(manifest.ide().jdkName()).isNull();
+        assertThat(manifest.ide().trackMiscXml()).isFalse();
     }
 
     @Test
@@ -137,6 +138,7 @@ class ManifestReaderTest {
         assertThat(m.ide().languageLevel()).isEqualTo("JDK_25_PREVIEW");
         assertThat(m.ide().jdkName()).isEqualTo("25");
         assertThat(m.ide().hasAnyValue()).isTrue();
+        assertThat(m.ide().trackMiscXml()).isFalse();
     }
 
     @Test
@@ -151,6 +153,20 @@ class ManifestReaderTest {
         assertThat(m.ide().languageLevel()).isEqualTo("JDK_21");
         assertThat(m.ide().jdkName()).isNull();
         assertThat(m.ide().hasAnyValue()).isTrue();
+    }
+
+    @Test
+    void parsesTrackMiscXmlOptIn() {
+        String yaml = """
+                schema-version: "1.0"
+                ide:
+                  track-misc-xml: true
+                subprojects: {}
+                """;
+        Manifest m = ManifestReader.read(new StringReader(yaml));
+        assertThat(m.ide().trackMiscXml()).isTrue();
+        // track-misc-xml alone does not make the section "enforceable"
+        assertThat(m.ide().hasAnyValue()).isFalse();
     }
 
     // ── Legacy-schema hard-cut (#150) ────────────────────────────

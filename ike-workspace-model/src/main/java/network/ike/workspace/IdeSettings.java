@@ -16,6 +16,7 @@ package network.ike.workspace;
  * ide:
  *   language-level: JDK_25_PREVIEW
  *   jdk-name: "25"
+ *   track-misc-xml: true   # optional; default false
  * }</pre>
  *
  * @param languageLevel IntelliJ language-level enum value written to
@@ -25,14 +26,21 @@ package network.ike.workspace;
  * @param jdkName       IntelliJ JDK alias written as
  *                      {@code project-jdk-name} in {@code .idea/misc.xml}.
  *                      Null means "do not enforce".
+ * @param trackMiscXml  whether {@code .idea/misc.xml} is whitelisted
+ *                      (committed) by the workspace {@code .gitignore}.
+ *                      Defaults to {@code false}: misc.xml co-mingles
+ *                      per-machine Maven profile selection (enabled/
+ *                      disabled profiles), so it stays ignored unless a
+ *                      workspace opts in (IKE-Network/ike-issues#571).
  */
 public record IdeSettings(
         String languageLevel,
-        String jdkName
+        String jdkName,
+        boolean trackMiscXml
 ) {
 
     /** A sentinel value equivalent to the {@code ide:} section being absent. */
-    public static final IdeSettings EMPTY = new IdeSettings(null, null);
+    public static final IdeSettings EMPTY = new IdeSettings(null, null, false);
 
     /**
      * Whether the {@code ide} section contributed any enforceable
