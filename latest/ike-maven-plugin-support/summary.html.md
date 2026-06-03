@@ -1,6 +1,6 @@
 ---
-date_published: 2026-05-25
-date_modified: 2026-05-25
+date_published: 2026-06-02
+date_modified: 2026-06-02
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin-support/summary.html
 ---
 
@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin-support/summary.
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-maven-plugin-support |
-| Version | 217 |
+| Version | 218 |
 | Type | jar |
 | Java Version | 25 |
