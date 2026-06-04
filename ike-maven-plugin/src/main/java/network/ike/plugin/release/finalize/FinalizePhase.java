@@ -108,8 +108,19 @@ public final class FinalizePhase {
         String issueRepo = ctx.request().issueRepo();
         String milestoneName = projectId + " v" + version;
 
-        Path notesFile = ReleaseNotesSupport.generateToFile(
-                issueRepo, milestoneName, ctx.log());
+        Path notesFile;
+        try {
+            notesFile = ReleaseNotesSupport.generateToFile(
+                    issueRepo, milestoneName, ctx.log());
+        } catch (Exception e) {
+            // A GitHub API failure here (rate limit, auth, network) must not
+            // fail a release whose artifacts have already shipped — fall back
+            // to GitHub's auto-generated notes (IKE-Network/ike-issues#572).
+            ctx.log().warn("Could not generate milestone notes for \""
+                    + milestoneName + "\" — falling back to auto-generated "
+                    + "notes: " + e.getMessage());
+            notesFile = null;
+        }
 
         try {
             if (notesFile != null) {
