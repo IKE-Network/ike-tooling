@@ -374,10 +374,11 @@ public final class ReleaseNotesSupport {
 
     /**
      * Fetch a GitHub API endpoint. Tries {@code gh api} first
-     * (authenticated via the gh CLI's keyring, 5,000 req/hr), then
-     * falls back to {@code HttpClient} with an optional
-     * {@code GITHUB_TOKEN} environment variable (60 req/hr
-     * unauthenticated).
+     * (authenticated via the gh CLI's token — {@code GH_TOKEN} or its
+     * stored credential, 5,000 req/hr), then falls back to
+     * {@code HttpClient} with an optional token from {@code GH_TOKEN}
+     * (canonical) or {@code GITHUB_TOKEN} (legacy fallback); an
+     * unauthenticated request is limited to 60 req/hr.
      */
     private static String apiGet(String url) throws IOException,
             InterruptedException, MojoException {
@@ -403,7 +404,12 @@ public final class ReleaseNotesSupport {
                 .header("Accept", "application/vnd.github+json")
                 .GET();
 
-        String token = System.getenv("GITHUB_TOKEN");
+        // Canonical GH_TOKEN (gh's own precedence variable), falling back to
+        // the legacy GITHUB_TOKEN (IKE-Network/ike-issues#576).
+        String token = System.getenv("GH_TOKEN");
+        if (token == null || token.isBlank()) {
+            token = System.getenv("GITHUB_TOKEN");
+        }
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
         }
