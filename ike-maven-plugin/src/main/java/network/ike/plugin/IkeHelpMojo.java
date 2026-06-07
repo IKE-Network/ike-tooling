@@ -42,14 +42,50 @@ public class IkeHelpMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("IKE Build Tools — Available Goals");
         getLog().info("══════════════════════════════════════════════════════════════");
         getLog().info("");
+        boolean anyConsoleBacked = false;
         for (IkeGoal goal : goals) {
             String name = goal.qualified();
             String padding = " ".repeat(Math.max(2, 34 - name.length()));
-            getLog().info("  " + name + padding + goal.description());
+            String console = consoleEquivalent(goal);
+            String hint = (console == null) ? ""
+                    : "  [engine — prefer " + console + "]";
+            anyConsoleBacked |= console != null;
+            getLog().info("  " + name + padding + goal.description() + hint);
         }
         getLog().info("");
         getLog().info(goals.size() + " goal(s). Most ship as a -draft / -publish "
                 + "pair — -draft previews, -publish applies.");
+        if (anyConsoleBacked) {
+            getLog().info("");
+            getLog().info("  [engine] goals are the per-repo engine for the "
+                    + "ws: console — prefer the ws: command (it works in a");
+            getLog().info("  single repo or a workspace); the ike: form runs "
+                    + "underneath (ike-issues#601).");
+        }
         getLog().info("");
+    }
+
+    /**
+     * The {@code ws:} console command that is the typed entry point for
+     * this goal, or {@code null} if it has none.
+     *
+     * <p>{@code ike:release-*} and {@code ike:scaffold-{draft,publish}} are
+     * the per-repo engine that {@code ws:release} / {@code ws:scaffold}
+     * invoke; the {@code ws:} command is transparent over a single repo and
+     * a workspace (ike-issues#601), so it is the entry point a developer
+     * types. {@code ike:release-cascade} (the foundation self-release) and
+     * the build-lifecycle goals have no {@code ws:} equivalent and are not
+     * demoted. Returned as a string because the {@code ike:} plugin does
+     * not depend on the downstream {@code ws:} plugin.
+     *
+     * @param goal the ike goal
+     * @return the {@code ws:} console command, or {@code null}
+     */
+    static String consoleEquivalent(IkeGoal goal) {
+        return switch (goal) {
+            case RELEASE_DRAFT, RELEASE_PUBLISH -> "ws:release";
+            case SCAFFOLD_DRAFT, SCAFFOLD_PUBLISH -> "ws:scaffold";
+            default -> null;
+        };
     }
 }
