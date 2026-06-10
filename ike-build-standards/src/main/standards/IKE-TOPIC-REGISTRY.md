@@ -109,7 +109,7 @@ assemblies:                        # catalog of assembly documents
 | `title`        | string     | Human-readable title. Should match the level-1 heading in the `.adoc` file. |
 | `type`         | enum       | One of: `concept`, `task`, `reference`, `dialog`.            |
 | `keywords`     | string[]   | 3–8 searchable terms. Include synonyms and abbreviations that a searcher might use. Do not repeat words from the title. |
-| `status`       | enum       | One of: `draft`, `review`, `published`, `deprecated`.        |
+| `status`       | enum       | One of: `draft`, `proposed`, `review`, `published`, `deprecated`. |
 | `summary`      | string     | 1–2 sentences describing the topic's content. Written in indicative mood ("Describes the..." not "This topic describes..."). Must be useful for search — include key terms not covered by `keywords`. |
 
 ### Optional Fields
@@ -172,9 +172,16 @@ Examples:
 draft → review → published
                      ↓
                 deprecated
+
+draft → proposed → review        (proposal adopted)
+        proposed → deprecated    (proposal declined or superseded)
 ```
 
 - **draft**: Content is being authored or decomposed. May contain TODOs and placeholders.
+- **proposed**: Content-complete design proposal awaiting an adoption decision. Distinct from
+  `draft` (content still being authored): a proposed topic is ready to read, but the approach
+  it argues for has not been decided. On adoption, move to `review`; if declined or
+  superseded, move to `deprecated`.
 - **review**: Content is complete and awaiting technical review.
 - **published**: Content is reviewed and approved for inclusion in assemblies.
 - **deprecated**: Content is superseded or no longer applicable. Retained in the registry for

@@ -16,7 +16,7 @@ Every topic `.adoc` file must follow this structure:
 // {topic-id}
 // Topic: {title}
 // Type: {concept|task|reference|dialog}
-// Status: {draft|review|published|deprecated}
+// Status: {draft|proposed|review|published|deprecated}
 :topic-id: arch-coord-versioning
 :topic-type: concept
 :topic-status: draft
