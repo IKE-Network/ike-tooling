@@ -1,6 +1,6 @@
 ---
-date_published: 2026-06-06
-date_modified: 2026-06-06
+date_published: 2026-06-15
+date_modified: 2026-06-15
 canonical_url: https://ike.network/ike-tooling/ike-build-standards/project-info.html
 ---
 
