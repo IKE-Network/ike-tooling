@@ -153,3 +153,8 @@ more than one location.
 - `slf4j-simple` for test scope only.
 - Log at appropriate levels: ERROR for unrecoverable failures, WARN for degraded behavior, INFO for lifecycle events, DEBUG for diagnostic detail.
 - Use parameterized messages: `log.info("Loaded {} concepts from {}", count, path)` — never string concatenation.
+
+## JavaFX
+
+For reactive UI code — properties, bindings, the JavaFX 21 `Subscription`
+model, and `map`/`flatMap` — see [IKE-JAVAFX.md](IKE-JAVAFX.md).
