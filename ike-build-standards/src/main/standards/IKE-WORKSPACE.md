@@ -10,9 +10,17 @@ Workspace operations are implemented as Maven plugin goals in
 `ike-workspace-maven-plugin` (groupId `network.ike.platform`),
 invokable via the `ws:` prefix.
 
-Single-repo goals (release, setup, asciidoc, etc.) remain in
-`ike-maven-plugin` (groupId `network.ike.tooling`), invokable via
-the `ike:` prefix.
+The per-repo build engine lives in `ike-maven-plugin` (groupId
+`network.ike.tooling`), invoked via the `ike:` prefix — it implements the
+actual scaffold, release, and asciidoc work that `ws:` goals delegate to.
+
+The `ws:` console runs on a *working set of 1..N* (ike-issues#601 / #611 /
+#703): with a `workspace.yaml` it fans out across subprojects; in a single
+repository with none, the working-tree and lifecycle goals (`ws:commit`,
+`ws:push`, `ws:pull`, `ws:sync`, `ws:scaffold`, `ws:release`,
+`ws:feature-*`, `ws:sibling-create`) operate on that one repo — a working
+set of one. Run `ws:help` for the per-goal single-repo vs. workspace
+breakdown.
 
 Both prefixes require the corresponding groupIds in
 `~/.m2/settings.xml` `<pluginGroups>` — see Prerequisites below.
