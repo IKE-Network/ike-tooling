@@ -6,6 +6,8 @@ import network.ike.plugin.release.RetrySchedule;
 import network.ike.plugin.release.WorktreeGuard;
 import network.ike.plugin.release.central.CentralOutcome;
 import network.ike.plugin.release.central.CentralPhase;
+import network.ike.plugin.release.coherence.CoherenceVerifier;
+import network.ike.plugin.release.coherence.ResolutionScope;
 import network.ike.plugin.release.finalize.FinalizeInput;
 import network.ike.plugin.release.finalize.FinalizePhase;
 import network.ike.plugin.release.local.LocalInput;
@@ -284,6 +286,23 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
     @Parameter(property = "ike.release.ignoreWarnings", defaultValue = "false")
     boolean ignoreWarnings;
 
+    /**
+     * The repository scope at which a publish must confirm its own
+     * just-released artifact resolves before declaring success
+     * (IKE-Network/ike-issues#705).
+     *
+     * <p>One of {@code local}, {@code nexus} (default), or
+     * {@code central}. A {@code -publish} demands {@code ≥ nexus} — the
+     * shared, consumer-resolvable source of truth — so {@code local}
+     * (which verifies nothing, the build's own {@code install} having
+     * trivially populated the local cache) is rejected for publish.
+     * {@code central} is the opt-in public-availability gate. See
+     * {@link network.ike.plugin.release.coherence.ResolutionScope}.
+     */
+    @Parameter(property = "ike.resolutionScope",
+            defaultValue = ResolutionScope.NAME_NEXUS)
+    String resolutionScope;
+
     /** Override working directory for tests. If null, uses current directory. */
     File baseDir;
 
@@ -318,6 +337,19 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         if (!nextVersion.endsWith("-SNAPSHOT")) {
             throw new MojoException(
                     "Next version must end with -SNAPSHOT (got '" + nextVersion + "').");
+        }
+
+        // Resolution scope (#705): parse + validate up front so a bad
+        // value or a publish-at-local fails before any work.
+        ResolutionScope scope = parseResolutionScope(resolutionScope);
+        if (publish && !scope.satisfiesPublishMinimum()) {
+            throw new MojoException(
+                    "ike.resolutionScope=" + scope.literalName()
+                    + " is rejected for a publish: it verifies nothing (the build's"
+                    + " own install populates the local cache). A publish must"
+                    + " confirm its artifact in a shared, consumer-resolvable"
+                    + " repository — use '" + ResolutionScope.NAME_NEXUS
+                    + "' (default) or '" + ResolutionScope.NAME_CENTRAL + "' (#705).");
         }
 
         // Validate branch and detect resume scenario (#111)
@@ -585,9 +617,32 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
         // WorktreeGuard.close() has restored the worktree to main —
         // rationale for the stash step is on stashForeignWorktreeChanges.
 
+        // ── Coherence gate (#705): self-resolution + pin assert ───────
+        // The release does not complete — and the TeamCity finish-trigger
+        // does not fire any downstream — until this module confirms its
+        // OWN just-deployed artifact resolves cold at the demanded scope,
+        // and its own upstream pins are current against fresh metadata.
+        // Runs AFTER the Nexus deploy (the artifact must exist to be
+        // verified) and BEFORE the tag/main push + GitHub Release, so a
+        // failure halts here: no tag, no release, no cascade fire —
+        // incoherence becomes a red build, never a silent downstream.
+        // Skipped when the deploy was skipped (nothing was published to
+        // verify) or there is no origin (a local-only release).
+        if (prep.hasOrigin() && nexusOutcome.succeeded()) {
+            CoherenceVerifier coherence = new CoherenceVerifier(getSession(), getLog());
+            coherence.verifySelfResolves(
+                    ReleaseSupport.readPomGroupId(rootPom), projectId,
+                    releaseVersion, scope);
+            coherence.assertUpstreamPinsCurrent(gitRoot, scope);
+        } else if (skipNexusDeploy) {
+            getLog().warn("Coherence gate skipped: ike.skipNexusDeploy=true "
+                    + "— nothing was published to verify (#705).");
+        }
+
         // ── Finalize: push tag + main, create GitHub Release ─────
         new FinalizePhase(ctx).execute(new FinalizeInput(
-                prep.hasOrigin(), projectId, releaseVersion));
+                prep.hasOrigin(), projectId, releaseVersion,
+                prep.foundationUpgrades()));
 
         // Pre-#304: this block called cleanRemoteSiteDir to ssh-delete
         // the main-branch snapshot mirror on scpexe://proxy. With the
@@ -670,7 +725,37 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 startDir.toPath(),
                 report.build(false, oldVersion, releaseBranch,
                         projectId, releaseTimestamp,
-                        nexusOutcome, centralOutcome));
+                        nexusOutcome, centralOutcome,
+                        prep.foundationUpgrades()));
+    }
+
+    /**
+     * Parses the {@code ike.resolutionScope} property into a typed
+     * {@link ResolutionScope}, failing with a clear message on an
+     * unrecognized value (IKE-Network/ike-issues#705).
+     *
+     * @param value the raw property value
+     * @return the matching scope
+     * @throws MojoException if {@code value} is not a known scope literal
+     */
+    private static ResolutionScope parseResolutionScope(String value) throws MojoException {
+        // null/blank → the NEXUS default. The @Parameter defaultValue
+        // supplies "nexus" under a real Maven run, but a direct Mojo
+        // instantiation (tests) leaves the field null, so default in
+        // code too rather than throwing on an unset value.
+        String v = value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        if (v.isEmpty()) {
+            return ResolutionScope.NEXUS;
+        }
+        for (ResolutionScope s : ResolutionScope.values()) {
+            if (s.literalName().equals(v)) {
+                return s;
+            }
+        }
+        throw new MojoException("Unrecognized ike.resolutionScope '" + value
+                + "' — must be one of " + ResolutionScope.NAME_LOCAL + ", "
+                + ResolutionScope.NAME_NEXUS + ", " + ResolutionScope.NAME_CENTRAL
+                + " (#705).");
     }
 
     /**

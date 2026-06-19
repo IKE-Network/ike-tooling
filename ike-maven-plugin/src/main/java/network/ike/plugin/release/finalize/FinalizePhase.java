@@ -72,7 +72,8 @@ public final class FinalizePhase {
                     "git", "push", "origin", "main");
             mainPushed = true;
 
-            createGitHubRelease(input.projectId(), input.releaseVersion());
+            createGitHubRelease(input.projectId(), input.releaseVersion(),
+                    input.foundationUpgrades());
             githubReleaseAttempted = true;
         } else {
             ctx.log().info("No 'origin' remote — skipping push");
@@ -102,8 +103,12 @@ public final class FinalizePhase {
      *
      * @param projectId the project's Maven artifact id
      * @param version   the released version (no {@code -SNAPSHOT})
+     * @param foundationUpgrades the upstream-version bumps this release applied;
+     *                  rendered as a "Foundation upgrades" section so a
+     *                  cascade-only rebuild's notes are never empty (#706)
      */
-    private void createGitHubRelease(String projectId, String version) {
+    private void createGitHubRelease(String projectId, String version,
+            java.util.List<network.ike.plugin.CascadeBump> foundationUpgrades) {
         File gitRoot = ctx.gitRoot();
         String issueRepo = ctx.request().issueRepo();
         String milestoneName = projectId + " v" + version;
@@ -111,7 +116,7 @@ public final class FinalizePhase {
         Path notesFile;
         try {
             notesFile = ReleaseNotesSupport.generateToFile(
-                    issueRepo, milestoneName, ctx.log());
+                    issueRepo, milestoneName, foundationUpgrades, ctx.log());
         } catch (Exception e) {
             // A GitHub API failure here (rate limit, auth, network) must not
             // fail a release whose artifacts have already shipped — fall back

@@ -60,15 +60,50 @@ public final class ReleaseNotesSupport {
      */
     public static String generate(String repo, String milestone, Log log)
             throws MojoException {
+        return generate(repo, milestone, List.of(), log);
+    }
+
+    /**
+     * Generate release notes markdown for a named milestone, including a
+     * "Foundation upgrades" section for any cascade version bumps the
+     * release applied (IKE-Network/ike-issues#706).
+     *
+     * <p>Returns {@code null} only when there is genuinely nothing to
+     * report — no milestone <em>and</em> no foundation upgrades — so the
+     * caller can fall back to GitHub's auto-generated notes. A
+     * cascade-only rebuild (no milestone, but real upstream bumps) yields
+     * a non-null body announcing what it was rebuilt against, rather than
+     * a silent "no changes."
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title (e.g., "ike-docs v76")
+     * @param upgrades  the upstream-version bumps the release applied (may be empty)
+     * @param log       Maven logger (may be null for non-Maven callers)
+     * @return formatted markdown, or null if there is nothing to report
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static String generate(String repo, String milestone,
+            List<CascadeBump> upgrades, Log log) throws MojoException {
+        List<CascadeBump> ups = upgrades == null ? List.of() : upgrades;
         try {
             int milestoneNumber = findMilestone(repo, milestone);
-            if (milestoneNumber < 0) return null;
-
-            List<Issue> issues = fetchClosedIssues(repo, milestoneNumber);
-            return formatNotes(milestone, issues);
+            List<Issue> issues = milestoneNumber < 0
+                    ? List.of()
+                    : fetchClosedIssues(repo, milestoneNumber);
+            // Nothing to report at all — let the caller fall back to
+            // GitHub's auto-generated commit notes.
+            if (milestoneNumber < 0 && ups.isEmpty()) {
+                return null;
+            }
+            return formatNotes(milestone, issues, ups);
         } catch (IOException | InterruptedException e) {
             if (log != null) {
                 log.warn("Release notes generation failed: " + e.getMessage());
+            }
+            // Even if the GitHub API failed, the foundation upgrades are
+            // known locally — surface them rather than a silent fallback.
+            if (!ups.isEmpty()) {
+                return formatNotes(milestone, List.of(), ups);
             }
             return null;
         }
@@ -87,7 +122,24 @@ public final class ReleaseNotesSupport {
      */
     public static Path generateToFile(String repo, String milestone, Log log)
             throws MojoException {
-        String notes = generate(repo, milestone, log);
+        return generateToFile(repo, milestone, List.of(), log);
+    }
+
+    /**
+     * Try to generate release notes (with a "Foundation upgrades"
+     * section sourced from {@code upgrades}, #706), writing to a temp
+     * file suitable for {@code gh release create --notes-file}.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param upgrades  the upstream-version bumps the release applied (may be empty)
+     * @param log       Maven logger (may be null)
+     * @return path to the temp file, or null if there was nothing to report
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static Path generateToFile(String repo, String milestone,
+            List<CascadeBump> upgrades, Log log) throws MojoException {
+        String notes = generate(repo, milestone, upgrades, log);
         if (notes == null) return null;
 
         try {
@@ -968,6 +1020,22 @@ public final class ReleaseNotesSupport {
      * @return Markdown-formatted release notes
      */
     public static String formatNotes(String milestoneName, List<Issue> issues) {
+        return formatNotes(milestoneName, issues, List.of());
+    }
+
+    /**
+     * Format release notes as Markdown, including a "Foundation
+     * upgrades" section for cascade version bumps
+     * (IKE-Network/ike-issues#706).
+     *
+     * @param milestoneName the milestone title
+     * @param issues        closed issues from the milestone
+     * @param upgrades      the upstream-version bumps the release applied (may be empty)
+     * @return Markdown-formatted release notes
+     */
+    public static String formatNotes(String milestoneName, List<Issue> issues,
+            List<CascadeBump> upgrades) {
+        List<CascadeBump> ups = upgrades == null ? List.of() : upgrades;
         List<Issue> fixes = new ArrayList<>();
         List<Issue> enhancements = new ArrayList<>();
         List<Issue> internal = new ArrayList<>();
@@ -996,12 +1064,38 @@ public final class ReleaseNotesSupport {
         appendSection(sb, "Fixes", fixes);
         appendSection(sb, "Enhancements", enhancements);
         appendSection(sb, "Internal", internal);
+        appendFoundationUpgrades(sb, ups);
 
-        if (issues.isEmpty()) {
+        // Only the genuinely-empty case prints the placeholder. A
+        // cascade-only rebuild has no closed issues but real foundation
+        // upgrades — that is "what changed," not "no changes" (#706).
+        if (issues.isEmpty() && ups.isEmpty()) {
             sb.append("No closed issues in this milestone.\n");
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Appends a "Foundation upgrades" section announcing the upstream
+     * rebuild — a one-line "Rebuilt against …" summary plus the
+     * per-artifact old→new transitions (IKE-Network/ike-issues#706).
+     */
+    private static void appendFoundationUpgrades(StringBuilder sb,
+            List<CascadeBump> upgrades) {
+        if (upgrades.isEmpty()) return;
+
+        sb.append("### Foundation upgrades\n\n");
+        String rebuiltAgainst = upgrades.stream()
+                .map(b -> b.artifactId() + " " + b.latest())
+                .collect(java.util.stream.Collectors.joining(", "));
+        sb.append("Rebuilt against ").append(rebuiltAgainst).append(".\n\n");
+        for (CascadeBump b : upgrades) {
+            sb.append("- `").append(b.ga()).append("` ")
+                    .append(b.current()).append(" → ").append(b.latest())
+                    .append('\n');
+        }
+        sb.append("\n");
     }
 
     private static void appendSection(StringBuilder sb, String heading,

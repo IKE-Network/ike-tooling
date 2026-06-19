@@ -1,5 +1,6 @@
 package network.ike.plugin.release.report;
 
+import network.ike.plugin.CascadeBump;
 import network.ike.plugin.release.ReleaseContext;
 import network.ike.plugin.release.central.CentralOutcome;
 import network.ike.plugin.release.nexus.NexusOutcome;
@@ -87,11 +88,14 @@ public final class ReleaseReport {
      *                         {@code project.build.outputTimestamp}
      * @param nexus            the Nexus deploy outcome (use {@code NexusOutcome.initial()} for draft)
      * @param central          the Central deploy outcome (use {@code CentralOutcome.initial()} for draft)
+     * @param foundationUpgrades the upstream-version bumps the release applied; rendered as a
+     *                         "Foundation upgrades" section when non-empty (#706)
      * @return the markdown body
      */
     public String build(boolean draft, String oldVersion, String releaseBranch,
                         String projectId, String releaseTimestamp,
-                        NexusOutcome nexus, CentralOutcome central) {
+                        NexusOutcome nexus, CentralOutcome central,
+                        List<CascadeBump> foundationUpgrades) {
         String releaseVersion = ctx.request().releaseVersion();
         String nextVersion = ctx.request().nextVersion();
         boolean publishSite = ctx.request().publishSite();
@@ -108,6 +112,21 @@ public final class ReleaseReport {
                 + "**Release branch:** " + releaseBranch + "\n"
                 + "**Tag:** v" + releaseVersion + "\n"
                 + "**Timestamp:** " + releaseTimestamp + "\n\n");
+
+        // Foundation upgrades (#706) — a cascade-only rebuild's "what
+        // changed." Empty in draft mode (no bumps are applied) and for
+        // ordinary non-cascade releases.
+        if (foundationUpgrades != null && !foundationUpgrades.isEmpty()) {
+            report.section("Foundation upgrades");
+            StringBuilder up = new StringBuilder();
+            for (CascadeBump b : foundationUpgrades) {
+                up.append("- `").append(b.ga()).append("` ")
+                        .append(b.current()).append(" → ").append(b.latest())
+                        .append('\n');
+            }
+            up.append('\n');
+            report.raw(up.toString());
+        }
 
         String verb = draft ? "Would" : "Did";
         report.section("Local actions");

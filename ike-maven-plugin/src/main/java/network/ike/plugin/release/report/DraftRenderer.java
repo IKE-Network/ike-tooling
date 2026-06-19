@@ -88,7 +88,8 @@ public final class DraftRenderer {
         report.reportCascade(true);
         String body = report.build(true, oldVersion, releaseBranch, projectId,
                 prep.releaseTimestamp(),
-                NexusOutcome.initial(), CentralOutcome.initial());
+                NexusOutcome.initial(), CentralOutcome.initial(),
+                prep.foundationUpgrades());
         return new GoalReportSpec(IkeGoal.RELEASE_DRAFT, startDirPath, body);
     }
 }

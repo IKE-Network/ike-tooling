@@ -59,6 +59,35 @@ class ReleaseNotesIntegrationTest {
     }
 
     @Test
+    void formatNotes_renders_foundation_upgrades_section() {
+        // #706 — a cascade-only rebuild (no issues) announces what it was
+        // rebuilt against rather than "No closed issues".
+        var upgrades = List.of(
+                new CascadeBump("network.ike.tooling", "ike-tooling", "221", "222"),
+                new CascadeBump("network.ike.docs", "ike-docs", "75", "76"));
+
+        String notes = ReleaseNotesSupport.formatNotes("ike-docs v76",
+                List.of(), upgrades);
+
+        assertThat(notes).contains("### Foundation upgrades");
+        assertThat(notes).contains("Rebuilt against ike-tooling 222, ike-docs 76.");
+        assertThat(notes).contains("- `network.ike.tooling:ike-tooling` 221 → 222");
+        assertThat(notes).contains("- `network.ike.docs:ike-docs` 75 → 76");
+        // The "no changes" placeholder must not appear when there are
+        // real upgrades to report.
+        assertThat(notes).doesNotContain("No closed issues");
+    }
+
+    @Test
+    void formatNotes_still_announces_no_changes_when_truly_empty() {
+        String notes = ReleaseNotesSupport.formatNotes("ike-docs v76",
+                List.of(), List.of());
+
+        assertThat(notes).contains("No closed issues in this milestone.");
+        assertThat(notes).doesNotContain("### Foundation upgrades");
+    }
+
+    @Test
     void testingContext_toMarkdown_categorizes_issues() {
         var closed = List.of(
                 new Issue(13, "Add bootstrap checklist", List.of("documentation")),

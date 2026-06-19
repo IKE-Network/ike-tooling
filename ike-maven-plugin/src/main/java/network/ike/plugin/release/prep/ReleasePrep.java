@@ -1,10 +1,12 @@
 package network.ike.plugin.release.prep;
 
+import network.ike.plugin.CascadeBump;
 import network.ike.plugin.PomRewriter;
 import network.ike.plugin.ReleaseNotesSupport;
 import network.ike.plugin.ReleaseSupport;
 import network.ike.plugin.SnapshotScanner;
 import network.ike.plugin.release.ReleaseContext;
+import network.ike.plugin.release.coherence.ColdLocalRepo;
 import network.ike.support.enums.ConstantBackedEnum;
 import network.ike.support.enums.ReleasePolicy;
 import network.ike.plugin.scaffold.FoundationBaker;
@@ -35,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * The release prep phase — B1–B12 of the {@code ReleaseDraftMojo}
@@ -166,13 +169,16 @@ public final class ReleasePrep {
 
         // B8 — upstream cascade alignment (#419): bump this repo's
         // ${X.version} pins to latest released upstreams so a single-repo
-        // release never ships on a stale foundation.
-        alignUpstreamProperties(draft);
+        // release never ships on a stale foundation. The applied upgrades
+        // flow to the release notes so a cascade-only rebuild announces
+        // what it was rebuilt against rather than "no changes" (#706).
+        List<CascadeBump> foundationUpgrades = alignUpstreamProperties(draft);
 
         // B9 — derive reproducible-build timestamp from current HEAD commit.
         String releaseTimestamp = resolveCommitTimestamp();
 
-        return new PrepOutcome(projectId, hasOrigin, releaseTimestamp, draft);
+        return new PrepOutcome(projectId, hasOrigin, releaseTimestamp, draft,
+                foundationUpgrades);
     }
 
     /**
@@ -353,11 +359,15 @@ public final class ReleasePrep {
      *
      * @param draft {@code true} to report only; {@code false} to
      *              rewrite the POM and commit
+     * @return the upgrades actually applied (empty in draft mode, when
+     *         this repo is not a cascade member, or when every pin was
+     *         already current) — surfaced into the align commit message
+     *         and the release notes (IKE-Network/ike-issues#706)
      * @throws MojoException on an unresolvable upstream or a missing
      *                       {@code version-property} in publish mode,
      *                       or on an I/O failure
      */
-    private void alignUpstreamProperties(boolean draft) throws MojoException {
+    private List<CascadeBump> alignUpstreamProperties(boolean draft) throws MojoException {
         File gitRoot = ctx.gitRoot();
         Optional<ProjectCascade> loaded = ProjectCascadeIo.load(
                 gitRoot.toPath().resolve(
@@ -365,7 +375,7 @@ public final class ReleasePrep {
         if (loaded.isEmpty() || loaded.get().upstream().isEmpty()) {
             // Not a cascade member, or the cascade head — nothing
             // upstream to align.
-            return;
+            return List.of();
         }
 
         File pomFile = new File(gitRoot, "pom.xml");
@@ -379,11 +389,28 @@ public final class ReleasePrep {
                     + e.getMessage(), e);
         }
 
-        CandidateVersionResolver resolver =
-                new SessionCandidateVersionResolver(session);
-        List<String> bumps = new ArrayList<>();
+        List<CascadeBump> bumps = new ArrayList<>();
         List<String> problems = new ArrayList<>();
         String updated = content;
+
+        // Resolve "latest released" against FRESH metadata (#705). A
+        // normal resolver trusts the local metadata cache (daily update
+        // policy); if that cache is stale — or Nexus hasn't finished
+        // propagating a just-deployed upstream — B8 would see the OLD
+        // version, leave the pin untouched, and ship an incoherent
+        // build (the ike-platform v110 incident, 2026-06-18). An empty
+        // local repo forces a real metadata fetch from the remotes.
+        ColdLocalRepo cold;
+        try {
+            cold = new ColdLocalRepo(session);
+        } catch (IOException e) {
+            throw new MojoException("Could not create a fresh-metadata"
+                    + " resolver for upstream cascade alignment: "
+                    + e.getMessage(), e);
+        }
+        try {
+        CandidateVersionResolver resolver =
+                new SessionCandidateVersionResolver(cold.session);
 
         for (CascadeEdge up : loaded.get().upstream()) {
             // ── Resolve policy (IKE-Network/ike-issues#498, #525) ────
@@ -592,9 +619,12 @@ public final class ReleasePrep {
                             latest);
             if (!after.equals(updated)) {
                 updated = after;
-                bumps.add(displaySite + ": " + current + " -> "
-                        + latest);
+                bumps.add(new CascadeBump(up.groupId(), up.artifactId(),
+                        current, latest));
             }
+        }
+        } finally {
+            cold.close();
         }
 
         if (!problems.isEmpty()) {
@@ -614,17 +644,21 @@ public final class ReleasePrep {
         if (bumps.isEmpty()) {
             ctx.log().info("Upstream cascade alignment: ${X.version}"
                     + " pins already at the latest released versions.");
-            return;
+            return List.of();
         }
 
         ctx.log().info("Upstream cascade alignment:");
-        for (String b : bumps) {
-            ctx.log().info("  " + (draft ? "→ " : "✓ ") + b);
+        for (CascadeBump b : bumps) {
+            ctx.log().info("  " + (draft ? "→ " : "✓ ") + b.ga()
+                    + ": " + b.current() + " -> " + b.latest());
         }
         if (draft) {
             ctx.log().info("  [DRAFT] pom.xml not modified — publish"
                     + " would rewrite and commit it.");
-            return;
+            // Draft must not leak bumps as "applied": nothing was
+            // written or committed, so the draft report has no real
+            // upgrades to announce (IKE-Network/ike-issues#706).
+            return List.of();
         }
 
         try {
@@ -635,8 +669,16 @@ public final class ReleasePrep {
                     + ": " + e.getMessage(), e);
         }
         ReleaseSupport.exec(gitRoot, ctx.log(), "git", "add", "pom.xml");
+        // Descriptive commit message naming each upgrade — a cascade-only
+        // rebuild's commit is otherwise generic and the notes generator
+        // treats a generic "release:" commit as noise (#706). e.g.
+        // "release: align upstream cascade — ike-tooling 221→222, ike-docs 75→76"
+        String summary = bumps.stream()
+                .map(CascadeBump::compact)
+                .collect(Collectors.joining(", "));
         ReleaseSupport.exec(gitRoot, ctx.log(), "git", "commit", "-m",
-                "release: align upstream cascade versions");
+                "release: align upstream cascade — " + summary);
+        return bumps;
     }
 
     /**
