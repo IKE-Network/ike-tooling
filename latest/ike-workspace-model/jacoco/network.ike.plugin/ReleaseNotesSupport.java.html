@@ -60,17 +60,52 @@ public final class ReleaseNotesSupport {
      */
     public static String generate(String repo, String milestone, Log log)
             throws MojoException {
-        try {
-<span class="fc" id="L64">            int milestoneNumber = findMilestone(repo, milestone);</span>
-<span class="pc bpc" id="L65" title="1 of 2 branches missed.">            if (milestoneNumber &lt; 0) return null;</span>
+<span class="fc" id="L63">        return generate(repo, milestone, List.of(), log);</span>
+    }
 
-<span class="nc" id="L67">            List&lt;Issue&gt; issues = fetchClosedIssues(repo, milestoneNumber);</span>
-<span class="nc" id="L68">            return formatNotes(milestone, issues);</span>
-<span class="nc" id="L69">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L70" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L71">                log.warn(&quot;Release notes generation failed: &quot; + e.getMessage());</span>
+    /**
+     * Generate release notes markdown for a named milestone, including a
+     * &quot;Foundation upgrades&quot; section for any cascade version bumps the
+     * release applied (IKE-Network/ike-issues#706).
+     *
+     * &lt;p&gt;Returns {@code null} only when there is genuinely nothing to
+     * report — no milestone &lt;em&gt;and&lt;/em&gt; no foundation upgrades — so the
+     * caller can fall back to GitHub's auto-generated notes. A
+     * cascade-only rebuild (no milestone, but real upstream bumps) yields
+     * a non-null body announcing what it was rebuilt against, rather than
+     * a silent &quot;no changes.&quot;
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title (e.g., &quot;ike-docs v76&quot;)
+     * @param upgrades  the upstream-version bumps the release applied (may be empty)
+     * @param log       Maven logger (may be null for non-Maven callers)
+     * @return formatted markdown, or null if there is nothing to report
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static String generate(String repo, String milestone,
+            List&lt;CascadeBump&gt; upgrades, Log log) throws MojoException {
+<span class="pc bpc" id="L87" title="1 of 2 branches missed.">        List&lt;CascadeBump&gt; ups = upgrades == null ? List.of() : upgrades;</span>
+        try {
+<span class="fc" id="L89">            int milestoneNumber = findMilestone(repo, milestone);</span>
+<span class="pc bpc" id="L90" title="1 of 2 branches missed.">            List&lt;Issue&gt; issues = milestoneNumber &lt; 0</span>
+<span class="fc" id="L91">                    ? List.of()</span>
+<span class="pc" id="L92">                    : fetchClosedIssues(repo, milestoneNumber);</span>
+            // Nothing to report at all — let the caller fall back to
+            // GitHub's auto-generated commit notes.
+<span class="pc bpc" id="L95" title="2 of 4 branches missed.">            if (milestoneNumber &lt; 0 &amp;&amp; ups.isEmpty()) {</span>
+<span class="fc" id="L96">                return null;</span>
             }
-<span class="nc" id="L73">            return null;</span>
+<span class="nc" id="L98">            return formatNotes(milestone, issues, ups);</span>
+<span class="nc" id="L99">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L101">                log.warn(&quot;Release notes generation failed: &quot; + e.getMessage());</span>
+            }
+            // Even if the GitHub API failed, the foundation upgrades are
+            // known locally — surface them rather than a silent fallback.
+<span class="nc bnc" id="L105" title="All 2 branches missed.">            if (!ups.isEmpty()) {</span>
+<span class="nc" id="L106">                return formatNotes(milestone, List.of(), ups);</span>
+            }
+<span class="nc" id="L108">            return null;</span>
         }
     }
 
@@ -87,19 +122,36 @@ public final class ReleaseNotesSupport {
      */
     public static Path generateToFile(String repo, String milestone, Log log)
             throws MojoException {
-<span class="nc" id="L90">        String notes = generate(repo, milestone, log);</span>
-<span class="nc bnc" id="L91" title="All 2 branches missed.">        if (notes == null) return null;</span>
+<span class="nc" id="L125">        return generateToFile(repo, milestone, List.of(), log);</span>
+    }
+
+    /**
+     * Try to generate release notes (with a &quot;Foundation upgrades&quot;
+     * section sourced from {@code upgrades}, #706), writing to a temp
+     * file suitable for {@code gh release create --notes-file}.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param upgrades  the upstream-version bumps the release applied (may be empty)
+     * @param log       Maven logger (may be null)
+     * @return path to the temp file, or null if there was nothing to report
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static Path generateToFile(String repo, String milestone,
+            List&lt;CascadeBump&gt; upgrades, Log log) throws MojoException {
+<span class="nc" id="L142">        String notes = generate(repo, milestone, upgrades, log);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if (notes == null) return null;</span>
 
         try {
-<span class="nc" id="L94">            Path tempFile = Files.createTempFile(&quot;release-notes-&quot;, &quot;.md&quot;);</span>
-<span class="nc" id="L95">            Files.writeString(tempFile, notes, StandardCharsets.UTF_8);</span>
-<span class="nc" id="L96">            return tempFile;</span>
-<span class="nc" id="L97">        } catch (IOException e) {</span>
-<span class="nc bnc" id="L98" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L99">                log.warn(&quot;Could not write release notes to temp file: &quot;</span>
-<span class="nc" id="L100">                        + e.getMessage());</span>
+<span class="nc" id="L146">            Path tempFile = Files.createTempFile(&quot;release-notes-&quot;, &quot;.md&quot;);</span>
+<span class="nc" id="L147">            Files.writeString(tempFile, notes, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L148">            return tempFile;</span>
+<span class="nc" id="L149">        } catch (IOException e) {</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L151">                log.warn(&quot;Could not write release notes to temp file: &quot;</span>
+<span class="nc" id="L152">                        + e.getMessage());</span>
             }
-<span class="nc" id="L102">            return null;</span>
+<span class="nc" id="L154">            return null;</span>
         }
     }
 
@@ -118,30 +170,30 @@ public final class ReleaseNotesSupport {
     public static boolean closeMilestone(String repo, String milestone, Log log)
             throws MojoException {
         try {
-<span class="nc" id="L121">            int number = findMilestone(repo, milestone);</span>
-<span class="nc bnc" id="L122" title="All 2 branches missed.">            if (number &lt; 0) return false;</span>
+<span class="nc" id="L173">            int number = findMilestone(repo, milestone);</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">            if (number &lt; 0) return false;</span>
 
             // Check for remaining open issues
-<span class="nc" id="L125">            List&lt;Issue&gt; open = fetchOpenIssues(repo, number);</span>
-<span class="nc bnc" id="L126" title="All 4 branches missed.">            if (!open.isEmpty() &amp;&amp; log != null) {</span>
-<span class="nc" id="L127">                log.warn(&quot;Milestone \&quot;&quot; + milestone + &quot;\&quot; has &quot;</span>
-<span class="nc" id="L128">                        + open.size() + &quot; open issue(s) remaining:&quot;);</span>
-<span class="nc bnc" id="L129" title="All 2 branches missed.">                for (Issue issue : open) {</span>
-<span class="nc" id="L130">                    log.warn(&quot;  #&quot; + issue.number() + &quot; &quot; + issue.title());</span>
-<span class="nc" id="L131">                }</span>
+<span class="nc" id="L177">            List&lt;Issue&gt; open = fetchOpenIssues(repo, number);</span>
+<span class="nc bnc" id="L178" title="All 4 branches missed.">            if (!open.isEmpty() &amp;&amp; log != null) {</span>
+<span class="nc" id="L179">                log.warn(&quot;Milestone \&quot;&quot; + milestone + &quot;\&quot; has &quot;</span>
+<span class="nc" id="L180">                        + open.size() + &quot; open issue(s) remaining:&quot;);</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">                for (Issue issue : open) {</span>
+<span class="nc" id="L182">                    log.warn(&quot;  #&quot; + issue.number() + &quot; &quot; + issue.title());</span>
+<span class="nc" id="L183">                }</span>
             }
 
-<span class="nc" id="L134">            closeMilestoneViaGh(repo, number);</span>
+<span class="nc" id="L186">            closeMilestoneViaGh(repo, number);</span>
 
-<span class="nc bnc" id="L136" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L137">                log.info(&quot;Closed milestone: &quot; + milestone);</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L189">                log.info(&quot;Closed milestone: &quot; + milestone);</span>
             }
-<span class="nc" id="L139">            return true;</span>
-<span class="nc" id="L140">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L141" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L142">                log.warn(&quot;Could not close milestone: &quot; + e.getMessage());</span>
+<span class="nc" id="L191">            return true;</span>
+<span class="nc" id="L192">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L194">                log.warn(&quot;Could not close milestone: &quot; + e.getMessage());</span>
             }
-<span class="nc" id="L144">            return false;</span>
+<span class="nc" id="L196">            return false;</span>
         }
     }
 
@@ -160,18 +212,18 @@ public final class ReleaseNotesSupport {
                                                    Log log)
             throws MojoException {
         try {
-<span class="nc" id="L163">            int number = findMilestone(repo, milestone);</span>
-<span class="nc bnc" id="L164" title="All 2 branches missed.">            if (number &lt; 0) return null;</span>
+<span class="nc" id="L215">            int number = findMilestone(repo, milestone);</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">            if (number &lt; 0) return null;</span>
 
-<span class="nc" id="L166">            List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
-<span class="nc" id="L167">            List&lt;Issue&gt; open = fetchOpenIssues(repo, number);</span>
+<span class="nc" id="L218">            List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
+<span class="nc" id="L219">            List&lt;Issue&gt; open = fetchOpenIssues(repo, number);</span>
 
-<span class="nc" id="L169">            return new TestingContext(milestone, closed, open);</span>
-<span class="nc" id="L170">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L171" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L172">                log.warn(&quot;Could not snapshot milestone: &quot; + e.getMessage());</span>
+<span class="nc" id="L221">            return new TestingContext(milestone, closed, open);</span>
+<span class="nc" id="L222">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L224">                log.warn(&quot;Could not snapshot milestone: &quot; + e.getMessage());</span>
             }
-<span class="nc" id="L174">            return null;</span>
+<span class="nc" id="L226">            return null;</span>
         }
     }
 
@@ -182,7 +234,7 @@ public final class ReleaseNotesSupport {
      * @param readyToTest closed issues — completed work available in this build
      * @param inProgress  open issues — work actively changing
      */
-<span class="fc" id="L185">    public record TestingContext(String milestone,</span>
+<span class="fc" id="L237">    public record TestingContext(String milestone,</span>
                                  List&lt;Issue&gt; readyToTest,
                                  List&lt;Issue&gt; inProgress) {
 
@@ -192,32 +244,32 @@ public final class ReleaseNotesSupport {
          * @return markdown-formatted testing context
          */
         public String toMarkdown() {
-<span class="fc" id="L195">            StringBuilder sb = new StringBuilder();</span>
-<span class="fc" id="L196">            sb.append(&quot;## Testing Context: &quot;).append(milestone).append(&quot;\n\n&quot;);</span>
+<span class="fc" id="L247">            StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L248">            sb.append(&quot;## Testing Context: &quot;).append(milestone).append(&quot;\n\n&quot;);</span>
 
-<span class="fc bfc" id="L198" title="All 2 branches covered.">            if (!readyToTest.isEmpty()) {</span>
-<span class="fc" id="L199">                sb.append(&quot;### Ready to Test\n\n&quot;);</span>
-<span class="fc bfc" id="L200" title="All 2 branches covered.">                for (Issue issue : readyToTest) {</span>
-<span class="fc" id="L201">                    sb.append(&quot;- &quot;).append(issue.title())</span>
-<span class="fc" id="L202">                            .append(&quot; (#&quot;).append(issue.number()).append(&quot;)\n&quot;);</span>
-<span class="fc" id="L203">                }</span>
-<span class="fc" id="L204">                sb.append(&quot;\n&quot;);</span>
+<span class="fc bfc" id="L250" title="All 2 branches covered.">            if (!readyToTest.isEmpty()) {</span>
+<span class="fc" id="L251">                sb.append(&quot;### Ready to Test\n\n&quot;);</span>
+<span class="fc bfc" id="L252" title="All 2 branches covered.">                for (Issue issue : readyToTest) {</span>
+<span class="fc" id="L253">                    sb.append(&quot;- &quot;).append(issue.title())</span>
+<span class="fc" id="L254">                            .append(&quot; (#&quot;).append(issue.number()).append(&quot;)\n&quot;);</span>
+<span class="fc" id="L255">                }</span>
+<span class="fc" id="L256">                sb.append(&quot;\n&quot;);</span>
             }
 
-<span class="fc bfc" id="L207" title="All 2 branches covered.">            if (!inProgress.isEmpty()) {</span>
-<span class="fc" id="L208">                sb.append(&quot;### In Progress\n\n&quot;);</span>
-<span class="fc bfc" id="L209" title="All 2 branches covered.">                for (Issue issue : inProgress) {</span>
-<span class="fc" id="L210">                    sb.append(&quot;- &quot;).append(issue.title())</span>
-<span class="fc" id="L211">                            .append(&quot; (#&quot;).append(issue.number()).append(&quot;)\n&quot;);</span>
-<span class="fc" id="L212">                }</span>
-<span class="fc" id="L213">                sb.append(&quot;\n&quot;);</span>
+<span class="fc bfc" id="L259" title="All 2 branches covered.">            if (!inProgress.isEmpty()) {</span>
+<span class="fc" id="L260">                sb.append(&quot;### In Progress\n\n&quot;);</span>
+<span class="fc bfc" id="L261" title="All 2 branches covered.">                for (Issue issue : inProgress) {</span>
+<span class="fc" id="L262">                    sb.append(&quot;- &quot;).append(issue.title())</span>
+<span class="fc" id="L263">                            .append(&quot; (#&quot;).append(issue.number()).append(&quot;)\n&quot;);</span>
+<span class="fc" id="L264">                }</span>
+<span class="fc" id="L265">                sb.append(&quot;\n&quot;);</span>
             }
 
-<span class="pc bpc" id="L216" title="1 of 4 branches missed.">            if (readyToTest.isEmpty() &amp;&amp; inProgress.isEmpty()) {</span>
-<span class="fc" id="L217">                sb.append(&quot;No issues in milestone.\n&quot;);</span>
+<span class="pc bpc" id="L268" title="1 of 4 branches missed.">            if (readyToTest.isEmpty() &amp;&amp; inProgress.isEmpty()) {</span>
+<span class="fc" id="L269">                sb.append(&quot;No issues in milestone.\n&quot;);</span>
             }
 
-<span class="fc" id="L220">            return sb.toString();</span>
+<span class="fc" id="L272">            return sb.toString();</span>
         }
 
         /**
@@ -227,149 +279,149 @@ public final class ReleaseNotesSupport {
          * @return YAML-formatted testing context
          */
         public String toYaml(String indent) {
-<span class="fc" id="L230">            StringBuilder sb = new StringBuilder();</span>
-<span class="fc" id="L231">            sb.append(indent).append(&quot;testing-context:\n&quot;);</span>
-<span class="fc" id="L232">            sb.append(indent).append(&quot;  milestone: \&quot;&quot;).append(milestone).append(&quot;\&quot;\n&quot;);</span>
+<span class="fc" id="L282">            StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L283">            sb.append(indent).append(&quot;testing-context:\n&quot;);</span>
+<span class="fc" id="L284">            sb.append(indent).append(&quot;  milestone: \&quot;&quot;).append(milestone).append(&quot;\&quot;\n&quot;);</span>
 
-<span class="pc bpc" id="L234" title="1 of 2 branches missed.">            if (!readyToTest.isEmpty()) {</span>
-<span class="fc" id="L235">                sb.append(indent).append(&quot;  ready-to-test:\n&quot;);</span>
-<span class="fc bfc" id="L236" title="All 2 branches covered.">                for (Issue issue : readyToTest) {</span>
-<span class="fc" id="L237">                    sb.append(indent).append(&quot;    - number: &quot;).append(issue.number()).append(&quot;\n&quot;);</span>
-<span class="fc" id="L238">                    sb.append(indent).append(&quot;      title: \&quot;&quot;).append(escapeYaml(issue.title())).append(&quot;\&quot;\n&quot;);</span>
-<span class="fc" id="L239">                }</span>
+<span class="pc bpc" id="L286" title="1 of 2 branches missed.">            if (!readyToTest.isEmpty()) {</span>
+<span class="fc" id="L287">                sb.append(indent).append(&quot;  ready-to-test:\n&quot;);</span>
+<span class="fc bfc" id="L288" title="All 2 branches covered.">                for (Issue issue : readyToTest) {</span>
+<span class="fc" id="L289">                    sb.append(indent).append(&quot;    - number: &quot;).append(issue.number()).append(&quot;\n&quot;);</span>
+<span class="fc" id="L290">                    sb.append(indent).append(&quot;      title: \&quot;&quot;).append(escapeYaml(issue.title())).append(&quot;\&quot;\n&quot;);</span>
+<span class="fc" id="L291">                }</span>
             }
 
-<span class="pc bpc" id="L242" title="1 of 2 branches missed.">            if (!inProgress.isEmpty()) {</span>
-<span class="fc" id="L243">                sb.append(indent).append(&quot;  in-progress:\n&quot;);</span>
-<span class="fc bfc" id="L244" title="All 2 branches covered.">                for (Issue issue : inProgress) {</span>
-<span class="fc" id="L245">                    sb.append(indent).append(&quot;    - number: &quot;).append(issue.number()).append(&quot;\n&quot;);</span>
-<span class="fc" id="L246">                    sb.append(indent).append(&quot;      title: \&quot;&quot;).append(escapeYaml(issue.title())).append(&quot;\&quot;\n&quot;);</span>
-<span class="fc" id="L247">                }</span>
+<span class="pc bpc" id="L294" title="1 of 2 branches missed.">            if (!inProgress.isEmpty()) {</span>
+<span class="fc" id="L295">                sb.append(indent).append(&quot;  in-progress:\n&quot;);</span>
+<span class="fc bfc" id="L296" title="All 2 branches covered.">                for (Issue issue : inProgress) {</span>
+<span class="fc" id="L297">                    sb.append(indent).append(&quot;    - number: &quot;).append(issue.number()).append(&quot;\n&quot;);</span>
+<span class="fc" id="L298">                    sb.append(indent).append(&quot;      title: \&quot;&quot;).append(escapeYaml(issue.title())).append(&quot;\&quot;\n&quot;);</span>
+<span class="fc" id="L299">                }</span>
             }
 
-<span class="fc" id="L250">            return sb.toString();</span>
+<span class="fc" id="L302">            return sb.toString();</span>
         }
 
         private static String escapeYaml(String s) {
-<span class="fc" id="L254">            return s.replace(&quot;\&quot;&quot;, &quot;\\\&quot;&quot;);</span>
+<span class="fc" id="L306">            return s.replace(&quot;\&quot;&quot;, &quot;\\\&quot;&quot;);</span>
         }
     }
 
     static int findMilestone(String repo, String title)
             throws IOException, InterruptedException, MojoException {
-<span class="fc" id="L260">        String url = API_BASE + &quot;/repos/&quot; + repo</span>
+<span class="fc" id="L312">        String url = API_BASE + &quot;/repos/&quot; + repo</span>
                 + &quot;/milestones?state=all&amp;per_page=100&quot;;
-<span class="fc" id="L262">        List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
+<span class="fc" id="L314">        List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
 
-<span class="fc bfc" id="L264" title="All 2 branches covered.">        for (Map&lt;String, Object&gt; ms : milestones) {</span>
-<span class="pc bpc" id="L265" title="1 of 2 branches missed.">            if (title.equals(ms.get(&quot;title&quot;))) {</span>
-<span class="nc" id="L266">                return ((Number) ms.get(&quot;number&quot;)).intValue();</span>
+<span class="fc bfc" id="L316" title="All 2 branches covered.">        for (Map&lt;String, Object&gt; ms : milestones) {</span>
+<span class="pc bpc" id="L317" title="1 of 2 branches missed.">            if (title.equals(ms.get(&quot;title&quot;))) {</span>
+<span class="nc" id="L318">                return ((Number) ms.get(&quot;number&quot;)).intValue();</span>
             }
-<span class="fc" id="L268">        }</span>
+<span class="fc" id="L320">        }</span>
 
-<span class="fc" id="L270">        return -1; // Not found — non-fatal</span>
+<span class="fc" id="L322">        return -1; // Not found — non-fatal</span>
     }
 
     static List&lt;Issue&gt; fetchClosedIssues(String repo, int milestoneNumber)
             throws IOException, InterruptedException, MojoException {
-<span class="nc" id="L275">        List&lt;Issue&gt; all = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L276">        int page = 1;</span>
+<span class="nc" id="L327">        List&lt;Issue&gt; all = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L328">        int page = 1;</span>
 
         while (true) {
-<span class="nc" id="L279">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
+<span class="nc" id="L331">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
                     + &quot;/issues?milestone=&quot; + milestoneNumber
                     + &quot;&amp;state=closed&amp;per_page=100&amp;page=&quot; + page;
-<span class="nc" id="L282">            List&lt;Map&lt;String, Object&gt;&gt; batch = apiGetList(url);</span>
+<span class="nc" id="L334">            List&lt;Map&lt;String, Object&gt;&gt; batch = apiGetList(url);</span>
 
-<span class="nc bnc" id="L284" title="All 2 branches missed.">            if (batch.isEmpty()) break;</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">            if (batch.isEmpty()) break;</span>
 
-<span class="nc bnc" id="L286" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; item : batch) {</span>
-<span class="nc bnc" id="L287" title="All 2 branches missed.">                if (item.containsKey(&quot;pull_request&quot;)) continue;</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; item : batch) {</span>
+<span class="nc bnc" id="L339" title="All 2 branches missed.">                if (item.containsKey(&quot;pull_request&quot;)) continue;</span>
 
-<span class="nc" id="L289">                int number = ((Number) item.get(&quot;number&quot;)).intValue();</span>
-<span class="nc" id="L290">                String itemTitle = (String) item.get(&quot;title&quot;);</span>
+<span class="nc" id="L341">                int number = ((Number) item.get(&quot;number&quot;)).intValue();</span>
+<span class="nc" id="L342">                String itemTitle = (String) item.get(&quot;title&quot;);</span>
 
-<span class="nc" id="L292">                List&lt;String&gt; labels = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L293">                Object labelsObj = item.get(&quot;labels&quot;);</span>
-<span class="nc bnc" id="L294" title="All 2 branches missed.">                if (labelsObj instanceof List&lt;?&gt; labelList) {</span>
-<span class="nc bnc" id="L295" title="All 2 branches missed.">                    for (Object labelObj : labelList) {</span>
-<span class="nc bnc" id="L296" title="All 2 branches missed.">                        if (labelObj instanceof Map&lt;?, ?&gt; labelMap) {</span>
-<span class="nc" id="L297">                            Object name = labelMap.get(&quot;name&quot;);</span>
-<span class="nc bnc" id="L298" title="All 2 branches missed.">                            if (name instanceof String s) {</span>
-<span class="nc" id="L299">                                labels.add(s);</span>
+<span class="nc" id="L344">                List&lt;String&gt; labels = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L345">                Object labelsObj = item.get(&quot;labels&quot;);</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">                if (labelsObj instanceof List&lt;?&gt; labelList) {</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">                    for (Object labelObj : labelList) {</span>
+<span class="nc bnc" id="L348" title="All 2 branches missed.">                        if (labelObj instanceof Map&lt;?, ?&gt; labelMap) {</span>
+<span class="nc" id="L349">                            Object name = labelMap.get(&quot;name&quot;);</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">                            if (name instanceof String s) {</span>
+<span class="nc" id="L351">                                labels.add(s);</span>
                             }
                         }
-<span class="nc" id="L302">                    }</span>
+<span class="nc" id="L354">                    }</span>
                 }
 
-<span class="nc" id="L305">                all.add(new Issue(number, itemTitle, labels));</span>
-<span class="nc" id="L306">            }</span>
+<span class="nc" id="L357">                all.add(new Issue(number, itemTitle, labels));</span>
+<span class="nc" id="L358">            }</span>
 
-<span class="nc" id="L308">            page++;</span>
-<span class="nc" id="L309">        }</span>
+<span class="nc" id="L360">            page++;</span>
+<span class="nc" id="L361">        }</span>
 
-<span class="nc" id="L311">        return all;</span>
+<span class="nc" id="L363">        return all;</span>
     }
 
     static List&lt;Issue&gt; fetchOpenIssues(String repo, int milestoneNumber)
             throws IOException, InterruptedException, MojoException {
-<span class="nc" id="L316">        List&lt;Issue&gt; all = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L317">        int page = 1;</span>
+<span class="nc" id="L368">        List&lt;Issue&gt; all = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L369">        int page = 1;</span>
 
         while (true) {
-<span class="nc" id="L320">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
+<span class="nc" id="L372">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
                     + &quot;/issues?milestone=&quot; + milestoneNumber
                     + &quot;&amp;state=open&amp;per_page=100&amp;page=&quot; + page;
-<span class="nc" id="L323">            List&lt;Map&lt;String, Object&gt;&gt; batch = apiGetList(url);</span>
+<span class="nc" id="L375">            List&lt;Map&lt;String, Object&gt;&gt; batch = apiGetList(url);</span>
 
-<span class="nc bnc" id="L325" title="All 2 branches missed.">            if (batch.isEmpty()) break;</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">            if (batch.isEmpty()) break;</span>
 
-<span class="nc bnc" id="L327" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; item : batch) {</span>
-<span class="nc bnc" id="L328" title="All 2 branches missed.">                if (item.containsKey(&quot;pull_request&quot;)) continue;</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; item : batch) {</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">                if (item.containsKey(&quot;pull_request&quot;)) continue;</span>
 
-<span class="nc" id="L330">                int number = ((Number) item.get(&quot;number&quot;)).intValue();</span>
-<span class="nc" id="L331">                String itemTitle = (String) item.get(&quot;title&quot;);</span>
+<span class="nc" id="L382">                int number = ((Number) item.get(&quot;number&quot;)).intValue();</span>
+<span class="nc" id="L383">                String itemTitle = (String) item.get(&quot;title&quot;);</span>
 
-<span class="nc" id="L333">                List&lt;String&gt; labels = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L334">                Object labelsObj = item.get(&quot;labels&quot;);</span>
-<span class="nc bnc" id="L335" title="All 2 branches missed.">                if (labelsObj instanceof List&lt;?&gt; labelList) {</span>
-<span class="nc bnc" id="L336" title="All 2 branches missed.">                    for (Object labelObj : labelList) {</span>
-<span class="nc bnc" id="L337" title="All 2 branches missed.">                        if (labelObj instanceof Map&lt;?, ?&gt; labelMap) {</span>
-<span class="nc" id="L338">                            Object name = labelMap.get(&quot;name&quot;);</span>
-<span class="nc bnc" id="L339" title="All 2 branches missed.">                            if (name instanceof String s) {</span>
-<span class="nc" id="L340">                                labels.add(s);</span>
+<span class="nc" id="L385">                List&lt;String&gt; labels = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L386">                Object labelsObj = item.get(&quot;labels&quot;);</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">                if (labelsObj instanceof List&lt;?&gt; labelList) {</span>
+<span class="nc bnc" id="L388" title="All 2 branches missed.">                    for (Object labelObj : labelList) {</span>
+<span class="nc bnc" id="L389" title="All 2 branches missed.">                        if (labelObj instanceof Map&lt;?, ?&gt; labelMap) {</span>
+<span class="nc" id="L390">                            Object name = labelMap.get(&quot;name&quot;);</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">                            if (name instanceof String s) {</span>
+<span class="nc" id="L392">                                labels.add(s);</span>
                             }
                         }
-<span class="nc" id="L343">                    }</span>
+<span class="nc" id="L395">                    }</span>
                 }
 
-<span class="nc" id="L346">                all.add(new Issue(number, itemTitle, labels));</span>
-<span class="nc" id="L347">            }</span>
+<span class="nc" id="L398">                all.add(new Issue(number, itemTitle, labels));</span>
+<span class="nc" id="L399">            }</span>
 
-<span class="nc" id="L349">            page++;</span>
-<span class="nc" id="L350">        }</span>
+<span class="nc" id="L401">            page++;</span>
+<span class="nc" id="L402">        }</span>
 
-<span class="nc" id="L352">        return all;</span>
+<span class="nc" id="L404">        return all;</span>
     }
 
     @SuppressWarnings(&quot;unchecked&quot;)
     private static List&lt;Map&lt;String, Object&gt;&gt; apiGetList(String url)
             throws IOException, InterruptedException, MojoException {
-<span class="fc" id="L358">        String body = apiGet(url);</span>
-<span class="fc" id="L359">        Yaml yaml = new Yaml();</span>
-<span class="fc" id="L360">        Object parsed = yaml.load(body);</span>
+<span class="fc" id="L410">        String body = apiGet(url);</span>
+<span class="fc" id="L411">        Yaml yaml = new Yaml();</span>
+<span class="fc" id="L412">        Object parsed = yaml.load(body);</span>
 
-<span class="pc bpc" id="L362" title="1 of 2 branches missed.">        if (parsed instanceof List&lt;?&gt; list) {</span>
-<span class="fc" id="L363">            List&lt;Map&lt;String, Object&gt;&gt; result = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L364" title="All 2 branches covered.">            for (Object item : list) {</span>
-<span class="pc bpc" id="L365" title="1 of 2 branches missed.">                if (item instanceof Map&lt;?, ?&gt; map) {</span>
-<span class="fc" id="L366">                    result.add((Map&lt;String, Object&gt;) map);</span>
+<span class="pc bpc" id="L414" title="1 of 2 branches missed.">        if (parsed instanceof List&lt;?&gt; list) {</span>
+<span class="fc" id="L415">            List&lt;Map&lt;String, Object&gt;&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L416" title="All 2 branches covered.">            for (Object item : list) {</span>
+<span class="pc bpc" id="L417" title="1 of 2 branches missed.">                if (item instanceof Map&lt;?, ?&gt; map) {</span>
+<span class="fc" id="L418">                    result.add((Map&lt;String, Object&gt;) map);</span>
                 }
-<span class="fc" id="L368">            }</span>
-<span class="fc" id="L369">            return result;</span>
+<span class="fc" id="L420">            }</span>
+<span class="fc" id="L421">            return result;</span>
         }
 
-<span class="nc" id="L372">        return List.of();</span>
+<span class="nc" id="L424">        return List.of();</span>
     }
 
     /**
@@ -383,47 +435,47 @@ public final class ReleaseNotesSupport {
     private static String apiGet(String url) throws IOException,
             InterruptedException, MojoException {
         // Extract the API path from the full URL for gh api
-<span class="fc" id="L386">        String apiPath = url.replace(API_BASE + &quot;/&quot;, &quot;&quot;);</span>
+<span class="fc" id="L438">        String apiPath = url.replace(API_BASE + &quot;/&quot;, &quot;&quot;);</span>
 
         // Try gh api first — authenticated, higher rate limit
         try {
-<span class="fc" id="L390">            return ReleaseSupport.execCapture(new java.io.File(&quot;.&quot;),</span>
+<span class="fc" id="L442">            return ReleaseSupport.execCapture(new java.io.File(&quot;.&quot;),</span>
                     &quot;gh&quot;, &quot;api&quot;, apiPath);
-<span class="nc" id="L392">        } catch (MojoException e) {</span>
+<span class="nc" id="L444">        } catch (MojoException e) {</span>
             // gh not available or failed — fall through to HttpClient
         }
 
         // Fallback: HttpClient with optional GITHUB_TOKEN
-<span class="nc" id="L397">        HttpClient client = HttpClient.newBuilder()</span>
-<span class="nc" id="L398">                .connectTimeout(TIMEOUT)</span>
-<span class="nc" id="L399">                .build();</span>
+<span class="nc" id="L449">        HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L450">                .connectTimeout(TIMEOUT)</span>
+<span class="nc" id="L451">                .build();</span>
 
-<span class="nc" id="L401">        HttpRequest.Builder builder = HttpRequest.newBuilder()</span>
-<span class="nc" id="L402">                .uri(URI.create(url))</span>
-<span class="nc" id="L403">                .timeout(TIMEOUT)</span>
-<span class="nc" id="L404">                .header(&quot;Accept&quot;, &quot;application/vnd.github+json&quot;)</span>
-<span class="nc" id="L405">                .GET();</span>
+<span class="nc" id="L453">        HttpRequest.Builder builder = HttpRequest.newBuilder()</span>
+<span class="nc" id="L454">                .uri(URI.create(url))</span>
+<span class="nc" id="L455">                .timeout(TIMEOUT)</span>
+<span class="nc" id="L456">                .header(&quot;Accept&quot;, &quot;application/vnd.github+json&quot;)</span>
+<span class="nc" id="L457">                .GET();</span>
 
         // Canonical GH_TOKEN (gh's own precedence variable), falling back to
         // the legacy GITHUB_TOKEN (IKE-Network/ike-issues#576).
-<span class="nc" id="L409">        String token = System.getenv(&quot;GH_TOKEN&quot;);</span>
-<span class="nc bnc" id="L410" title="All 4 branches missed.">        if (token == null || token.isBlank()) {</span>
-<span class="nc" id="L411">            token = System.getenv(&quot;GITHUB_TOKEN&quot;);</span>
+<span class="nc" id="L461">        String token = System.getenv(&quot;GH_TOKEN&quot;);</span>
+<span class="nc bnc" id="L462" title="All 4 branches missed.">        if (token == null || token.isBlank()) {</span>
+<span class="nc" id="L463">            token = System.getenv(&quot;GITHUB_TOKEN&quot;);</span>
         }
-<span class="nc bnc" id="L413" title="All 4 branches missed.">        if (token != null &amp;&amp; !token.isBlank()) {</span>
-<span class="nc" id="L414">            builder.header(&quot;Authorization&quot;, &quot;Bearer &quot; + token);</span>
-        }
-
-<span class="nc" id="L417">        HttpResponse&lt;String&gt; response = client.send(builder.build(),</span>
-<span class="nc" id="L418">                HttpResponse.BodyHandlers.ofString());</span>
-
-<span class="nc bnc" id="L420" title="All 2 branches missed.">        if (response.statusCode() != 200) {</span>
-<span class="nc" id="L421">            throw new MojoException(</span>
-<span class="nc" id="L422">                    &quot;GitHub API returned &quot; + response.statusCode()</span>
-<span class="nc" id="L423">                            + &quot; for &quot; + url + &quot;: &quot; + response.body());</span>
+<span class="nc bnc" id="L465" title="All 4 branches missed.">        if (token != null &amp;&amp; !token.isBlank()) {</span>
+<span class="nc" id="L466">            builder.header(&quot;Authorization&quot;, &quot;Bearer &quot; + token);</span>
         }
 
-<span class="nc" id="L426">        return response.body();</span>
+<span class="nc" id="L469">        HttpResponse&lt;String&gt; response = client.send(builder.build(),</span>
+<span class="nc" id="L470">                HttpResponse.BodyHandlers.ofString());</span>
+
+<span class="nc bnc" id="L472" title="All 2 branches missed.">        if (response.statusCode() != 200) {</span>
+<span class="nc" id="L473">            throw new MojoException(</span>
+<span class="nc" id="L474">                    &quot;GitHub API returned &quot; + response.statusCode()</span>
+<span class="nc" id="L475">                            + &quot; for &quot; + url + &quot;: &quot; + response.body());</span>
+        }
+
+<span class="nc" id="L478">        return response.body();</span>
     }
 
     /**
@@ -433,10 +485,10 @@ public final class ReleaseNotesSupport {
      */
     private static void closeMilestoneViaGh(String repo, int milestoneNumber)
             throws MojoException {
-<span class="nc" id="L436">        ReleaseSupport.execCapture(new java.io.File(&quot;.&quot;),</span>
+<span class="nc" id="L488">        ReleaseSupport.execCapture(new java.io.File(&quot;.&quot;),</span>
                 &quot;gh&quot;, &quot;api&quot;, &quot;repos/&quot; + repo + &quot;/milestones/&quot; + milestoneNumber,
                 &quot;-X&quot;, &quot;PATCH&quot;, &quot;-f&quot;, &quot;state=closed&quot;);
-<span class="nc" id="L439">    }</span>
+<span class="nc" id="L491">    }</span>
 
     // ── pending-release label removal ───────────────────────────────
 
@@ -447,7 +499,7 @@ public final class ReleaseNotesSupport {
      * @param repo   {@code owner/repo} form (e.g., &quot;IKE-Network/ike-issues&quot;)
      * @param number issue number
      */
-<span class="fc" id="L450">    public record IssueRef(String repo, int number) {}</span>
+<span class="fc" id="L502">    public record IssueRef(String repo, int number) {}</span>
 
     /**
      * Matches GitHub's closing-keyword trailers in commit message bodies.
@@ -461,7 +513,7 @@ public final class ReleaseNotesSupport {
      * {@code fixed}, {@code resolve}, {@code resolves}, {@code resolved}
      * — matching GitHub's documented auto-close keywords.
      */
-<span class="fc" id="L464">    private static final Pattern CLOSING_TRAILER_PATTERN = Pattern.compile(</span>
+<span class="fc" id="L516">    private static final Pattern CLOSING_TRAILER_PATTERN = Pattern.compile(</span>
             &quot;(?im)^\\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\b\\s*:?\\s+&quot;
                     + &quot;(?:([\\w.-]+)/([\\w.-]+))?#(\\d+)\\b&quot;);
 
@@ -474,7 +526,7 @@ public final class ReleaseNotesSupport {
      * &lt;p&gt;Used by trailer-compliance preflight to verify every commit
      * in a release range references at least one tracked issue.
      */
-<span class="fc" id="L477">    private static final Pattern ANY_ISSUE_TRAILER_PATTERN = Pattern.compile(</span>
+<span class="fc" id="L529">    private static final Pattern ANY_ISSUE_TRAILER_PATTERN = Pattern.compile(</span>
             &quot;(?im)^\\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)&quot;
                     + &quot;\\b\\s*:?\\s+&quot;
                     + &quot;(?:[\\w.-]+/[\\w.-]+)?#\\d+\\b&quot;);
@@ -521,48 +573,48 @@ public final class ReleaseNotesSupport {
                                                   String fallbackRepo,
                                                   Log log) {
         try {
-<span class="nc bnc" id="L524" title="All 2 branches missed.">            String prev = previousTag != null ? previousTag</span>
-<span class="nc" id="L525">                    : resolvePreviousTag(gitDir, headRef);</span>
-<span class="nc bnc" id="L526" title="All 4 branches missed.">            if (prev == null || prev.isBlank()) {</span>
-<span class="nc bnc" id="L527" title="All 2 branches missed.">                if (log != null) {</span>
-<span class="nc" id="L528">                    log.info(&quot;No previous release tag found; &quot;</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">            String prev = previousTag != null ? previousTag</span>
+<span class="nc" id="L577">                    : resolvePreviousTag(gitDir, headRef);</span>
+<span class="nc bnc" id="L578" title="All 4 branches missed.">            if (prev == null || prev.isBlank()) {</span>
+<span class="nc bnc" id="L579" title="All 2 branches missed.">                if (log != null) {</span>
+<span class="nc" id="L580">                    log.info(&quot;No previous release tag found; &quot;</span>
                             + &quot;skipping pending-release label removal&quot;);
                 }
-<span class="nc" id="L531">                return 0;</span>
+<span class="nc" id="L583">                return 0;</span>
             }
 
-<span class="nc" id="L534">            Set&lt;IssueRef&gt; refs = collectClosingTrailerRefs(</span>
+<span class="nc" id="L586">            Set&lt;IssueRef&gt; refs = collectClosingTrailerRefs(</span>
                     gitDir, prev, headRef, fallbackRepo);
-<span class="nc bnc" id="L536" title="All 2 branches missed.">            if (refs.isEmpty()) {</span>
-<span class="nc bnc" id="L537" title="All 2 branches missed.">                if (log != null) {</span>
-<span class="nc" id="L538">                    log.info(&quot;No release-closing trailers found in &quot;</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">            if (refs.isEmpty()) {</span>
+<span class="nc bnc" id="L589" title="All 2 branches missed.">                if (log != null) {</span>
+<span class="nc" id="L590">                    log.info(&quot;No release-closing trailers found in &quot;</span>
                             + prev + &quot;..&quot; + headRef);
                 }
-<span class="nc" id="L541">                return 0;</span>
+<span class="nc" id="L593">                return 0;</span>
             }
 
-<span class="nc bnc" id="L544" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L545">                log.info(&quot;Removing pending-release label from &quot;</span>
-<span class="nc" id="L546">                        + refs.size() + &quot; referenced issue(s)...&quot;);</span>
+<span class="nc bnc" id="L596" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L597">                log.info(&quot;Removing pending-release label from &quot;</span>
+<span class="nc" id="L598">                        + refs.size() + &quot; referenced issue(s)...&quot;);</span>
             }
-<span class="nc" id="L548">            int removed = 0;</span>
-<span class="nc bnc" id="L549" title="All 2 branches missed.">            for (IssueRef ref : refs) {</span>
-<span class="nc bnc" id="L550" title="All 2 branches missed.">                if (removePendingReleaseLabelOnIssue(ref, log)) {</span>
-<span class="nc" id="L551">                    removed++;</span>
+<span class="nc" id="L600">            int removed = 0;</span>
+<span class="nc bnc" id="L601" title="All 2 branches missed.">            for (IssueRef ref : refs) {</span>
+<span class="nc bnc" id="L602" title="All 2 branches missed.">                if (removePendingReleaseLabelOnIssue(ref, log)) {</span>
+<span class="nc" id="L603">                    removed++;</span>
                 }
-<span class="nc" id="L553">            }</span>
-<span class="nc bnc" id="L554" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L555">                log.info(&quot;Removed pending-release label from &quot;</span>
-<span class="nc" id="L556">                        + removed + &quot; of &quot; + refs.size()</span>
+<span class="nc" id="L605">            }</span>
+<span class="nc bnc" id="L606" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L607">                log.info(&quot;Removed pending-release label from &quot;</span>
+<span class="nc" id="L608">                        + removed + &quot; of &quot; + refs.size()</span>
                         + &quot; referenced issue(s)&quot;);
             }
-<span class="nc" id="L559">            return removed;</span>
-<span class="nc" id="L560">        } catch (Exception e) {</span>
-<span class="nc bnc" id="L561" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L562">                log.warn(&quot;Could not process pending-release labels: &quot;</span>
-<span class="nc" id="L563">                        + e.getMessage());</span>
+<span class="nc" id="L611">            return removed;</span>
+<span class="nc" id="L612">        } catch (Exception e) {</span>
+<span class="nc bnc" id="L613" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L614">                log.warn(&quot;Could not process pending-release labels: &quot;</span>
+<span class="nc" id="L615">                        + e.getMessage());</span>
             }
-<span class="nc" id="L565">            return 0;</span>
+<span class="nc" id="L617">            return 0;</span>
         }
     }
 
@@ -573,10 +625,10 @@ public final class ReleaseNotesSupport {
      */
     static String resolvePreviousTag(File gitDir, String headRef) {
         try {
-<span class="nc" id="L576">            return ReleaseSupport.execCapture(gitDir, &quot;git&quot;, &quot;describe&quot;,</span>
+<span class="nc" id="L628">            return ReleaseSupport.execCapture(gitDir, &quot;git&quot;, &quot;describe&quot;,</span>
                     &quot;--tags&quot;, &quot;--abbrev=0&quot;, headRef + &quot;^&quot;);
-<span class="nc" id="L578">        } catch (Exception e) {</span>
-<span class="nc" id="L579">            return null;</span>
+<span class="nc" id="L630">        } catch (Exception e) {</span>
+<span class="nc" id="L631">            return null;</span>
         }
     }
 
@@ -590,11 +642,11 @@ public final class ReleaseNotesSupport {
                                                     String headRef,
                                                     String fallbackRepo) {
         try {
-<span class="nc" id="L593">            String body = ReleaseSupport.execCapture(gitDir, &quot;git&quot;, &quot;log&quot;,</span>
+<span class="nc" id="L645">            String body = ReleaseSupport.execCapture(gitDir, &quot;git&quot;, &quot;log&quot;,</span>
                     &quot;--format=%B%n--end--&quot;, previousTag + &quot;..&quot; + headRef);
-<span class="nc" id="L595">            return parseClosingTrailers(body, fallbackRepo);</span>
-<span class="nc" id="L596">        } catch (Exception e) {</span>
-<span class="nc" id="L597">            return new LinkedHashSet&lt;&gt;();</span>
+<span class="nc" id="L647">            return parseClosingTrailers(body, fallbackRepo);</span>
+<span class="nc" id="L648">        } catch (Exception e) {</span>
+<span class="nc" id="L649">            return new LinkedHashSet&lt;&gt;();</span>
         }
     }
 
@@ -611,10 +663,10 @@ public final class ReleaseNotesSupport {
      * @return true if any issue trailer is present
      */
     public static boolean hasAnyIssueTrailer(String commitMessage) {
-<span class="fc bfc" id="L614" title="All 4 branches covered.">        if (commitMessage == null || commitMessage.isEmpty()) {</span>
-<span class="fc" id="L615">            return false;</span>
+<span class="fc bfc" id="L666" title="All 4 branches covered.">        if (commitMessage == null || commitMessage.isEmpty()) {</span>
+<span class="fc" id="L667">            return false;</span>
         }
-<span class="fc" id="L617">        return ANY_ISSUE_TRAILER_PATTERN.matcher(commitMessage).find();</span>
+<span class="fc" id="L669">        return ANY_ISSUE_TRAILER_PATTERN.matcher(commitMessage).find();</span>
     }
 
     /**
@@ -637,23 +689,23 @@ public final class ReleaseNotesSupport {
      */
     public static Set&lt;IssueRef&gt; parseClosingTrailers(String commitMessages,
                                                       String fallbackRepo) {
-<span class="fc" id="L640">        Set&lt;IssueRef&gt; refs = new LinkedHashSet&lt;&gt;();</span>
-<span class="fc bfc" id="L641" title="All 4 branches covered.">        if (commitMessages == null || commitMessages.isEmpty()) {</span>
-<span class="fc" id="L642">            return refs;</span>
+<span class="fc" id="L692">        Set&lt;IssueRef&gt; refs = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L693" title="All 4 branches covered.">        if (commitMessages == null || commitMessages.isEmpty()) {</span>
+<span class="fc" id="L694">            return refs;</span>
         }
-<span class="fc" id="L644">        Matcher matcher = CLOSING_TRAILER_PATTERN.matcher(commitMessages);</span>
-<span class="fc bfc" id="L645" title="All 2 branches covered.">        while (matcher.find()) {</span>
-<span class="fc" id="L646">            String owner = matcher.group(1);</span>
-<span class="fc" id="L647">            String repo = matcher.group(2);</span>
-<span class="fc" id="L648">            int number = Integer.parseInt(matcher.group(3));</span>
-<span class="pc bpc" id="L649" title="1 of 4 branches missed.">            String fullRepo = (owner != null &amp;&amp; repo != null)</span>
-<span class="fc" id="L650">                    ? owner + &quot;/&quot; + repo</span>
-<span class="fc" id="L651">                    : fallbackRepo;</span>
-<span class="fc bfc" id="L652" title="All 2 branches covered.">            if (fullRepo != null) {</span>
-<span class="fc" id="L653">                refs.add(new IssueRef(fullRepo, number));</span>
+<span class="fc" id="L696">        Matcher matcher = CLOSING_TRAILER_PATTERN.matcher(commitMessages);</span>
+<span class="fc bfc" id="L697" title="All 2 branches covered.">        while (matcher.find()) {</span>
+<span class="fc" id="L698">            String owner = matcher.group(1);</span>
+<span class="fc" id="L699">            String repo = matcher.group(2);</span>
+<span class="fc" id="L700">            int number = Integer.parseInt(matcher.group(3));</span>
+<span class="pc bpc" id="L701" title="1 of 4 branches missed.">            String fullRepo = (owner != null &amp;&amp; repo != null)</span>
+<span class="fc" id="L702">                    ? owner + &quot;/&quot; + repo</span>
+<span class="fc" id="L703">                    : fallbackRepo;</span>
+<span class="fc bfc" id="L704" title="All 2 branches covered.">            if (fullRepo != null) {</span>
+<span class="fc" id="L705">                refs.add(new IssueRef(fullRepo, number));</span>
             }
-<span class="fc" id="L655">        }</span>
-<span class="fc" id="L656">        return refs;</span>
+<span class="fc" id="L707">        }</span>
+<span class="fc" id="L708">        return refs;</span>
     }
 
     /**
@@ -666,23 +718,23 @@ public final class ReleaseNotesSupport {
     private static boolean removePendingReleaseLabelOnIssue(IssueRef ref,
                                                              Log log) {
         try {
-<span class="nc" id="L669">            ReleaseSupport.execCapture(new File(&quot;.&quot;),</span>
+<span class="nc" id="L721">            ReleaseSupport.execCapture(new File(&quot;.&quot;),</span>
                     &quot;gh&quot;, &quot;api&quot;, &quot;-X&quot;, &quot;DELETE&quot;,
-<span class="nc" id="L671">                    &quot;/repos/&quot; + ref.repo() + &quot;/issues/&quot; + ref.number()</span>
+<span class="nc" id="L723">                    &quot;/repos/&quot; + ref.repo() + &quot;/issues/&quot; + ref.number()</span>
                             + &quot;/labels/pending-release&quot;);
-<span class="nc bnc" id="L673" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L674">                log.info(&quot;  Removed pending-release from &quot; + ref.repo()</span>
-<span class="nc" id="L675">                        + &quot;#&quot; + ref.number());</span>
+<span class="nc bnc" id="L725" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L726">                log.info(&quot;  Removed pending-release from &quot; + ref.repo()</span>
+<span class="nc" id="L727">                        + &quot;#&quot; + ref.number());</span>
             }
-<span class="nc" id="L677">            return true;</span>
-<span class="nc" id="L678">        } catch (Exception e) {</span>
-<span class="nc bnc" id="L679" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L680">                log.debug(&quot;  pending-release not removed from &quot;</span>
-<span class="nc" id="L681">                        + ref.repo() + &quot;#&quot; + ref.number()</span>
+<span class="nc" id="L729">            return true;</span>
+<span class="nc" id="L730">        } catch (Exception e) {</span>
+<span class="nc bnc" id="L731" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L732">                log.debug(&quot;  pending-release not removed from &quot;</span>
+<span class="nc" id="L733">                        + ref.repo() + &quot;#&quot; + ref.number()</span>
                         + &quot; (label not applied or remove failed): &quot;
-<span class="nc" id="L683">                        + e.getMessage());</span>
+<span class="nc" id="L735">                        + e.getMessage());</span>
             }
-<span class="nc" id="L685">            return false;</span>
+<span class="nc" id="L737">            return false;</span>
         }
     }
 
@@ -700,71 +752,71 @@ public final class ReleaseNotesSupport {
     public static Path generateFullHistory(String repo, Path outputDir, Log log)
             throws MojoException {
         try {
-<span class="nc" id="L703">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
+<span class="nc" id="L755">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
                     + &quot;/milestones?state=all&amp;per_page=100&amp;direction=desc&amp;sort=completeness&quot;;
-<span class="nc" id="L705">            List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
+<span class="nc" id="L757">            List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
 
-<span class="nc" id="L707">            StringBuilder adoc = new StringBuilder();</span>
-<span class="nc" id="L708">            adoc.append(&quot;= Release Notes\n\n&quot;);</span>
+<span class="nc" id="L759">            StringBuilder adoc = new StringBuilder();</span>
+<span class="nc" id="L760">            adoc.append(&quot;= Release Notes\n\n&quot;);</span>
 
-<span class="nc" id="L710">            boolean hasContent = false;</span>
+<span class="nc" id="L762">            boolean hasContent = false;</span>
 
             // Process each milestone (newest first)
-<span class="nc bnc" id="L713" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; ms : milestones) {</span>
-<span class="nc" id="L714">                String title = (String) ms.get(&quot;title&quot;);</span>
-<span class="nc" id="L715">                int number = ((Number) ms.get(&quot;number&quot;)).intValue();</span>
-<span class="nc" id="L716">                String state = (String) ms.get(&quot;state&quot;);</span>
-<span class="nc" id="L717">                int closedCount = ((Number) ms.get(&quot;closed_issues&quot;)).intValue();</span>
+<span class="nc bnc" id="L765" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; ms : milestones) {</span>
+<span class="nc" id="L766">                String title = (String) ms.get(&quot;title&quot;);</span>
+<span class="nc" id="L767">                int number = ((Number) ms.get(&quot;number&quot;)).intValue();</span>
+<span class="nc" id="L768">                String state = (String) ms.get(&quot;state&quot;);</span>
+<span class="nc" id="L769">                int closedCount = ((Number) ms.get(&quot;closed_issues&quot;)).intValue();</span>
 
-<span class="nc bnc" id="L719" title="All 2 branches missed.">                if (closedCount == 0) continue;</span>
+<span class="nc bnc" id="L771" title="All 2 branches missed.">                if (closedCount == 0) continue;</span>
 
-<span class="nc" id="L721">                List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
-<span class="nc bnc" id="L722" title="All 2 branches missed.">                if (closed.isEmpty()) continue;</span>
+<span class="nc" id="L773">                List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
+<span class="nc bnc" id="L774" title="All 2 branches missed.">                if (closed.isEmpty()) continue;</span>
 
-<span class="nc" id="L724">                hasContent = true;</span>
-<span class="nc bnc" id="L725" title="All 2 branches missed.">                String stateMarker = &quot;open&quot;.equals(state) ? &quot; _(in progress)_&quot; : &quot;&quot;;</span>
-<span class="nc" id="L726">                adoc.append(&quot;== &quot;).append(title).append(stateMarker).append(&quot;\n\n&quot;);</span>
+<span class="nc" id="L776">                hasContent = true;</span>
+<span class="nc bnc" id="L777" title="All 2 branches missed.">                String stateMarker = &quot;open&quot;.equals(state) ? &quot; _(in progress)_&quot; : &quot;&quot;;</span>
+<span class="nc" id="L778">                adoc.append(&quot;== &quot;).append(title).append(stateMarker).append(&quot;\n\n&quot;);</span>
 
-<span class="nc" id="L728">                List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L729">                List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L730">                List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L780">                List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L781">                List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L782">                List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
 
-<span class="nc bnc" id="L732" title="All 2 branches missed.">                for (Issue issue : closed) {</span>
-<span class="nc bnc" id="L733" title="All 2 branches missed.">                    if (issue.labels.contains(&quot;bug&quot;)) {</span>
-<span class="nc" id="L734">                        fixes.add(issue);</span>
-<span class="nc bnc" id="L735" title="All 2 branches missed.">                    } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
-<span class="nc" id="L736">                        enhancements.add(issue);</span>
+<span class="nc bnc" id="L784" title="All 2 branches missed.">                for (Issue issue : closed) {</span>
+<span class="nc bnc" id="L785" title="All 2 branches missed.">                    if (issue.labels.contains(&quot;bug&quot;)) {</span>
+<span class="nc" id="L786">                        fixes.add(issue);</span>
+<span class="nc bnc" id="L787" title="All 2 branches missed.">                    } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
+<span class="nc" id="L788">                        enhancements.add(issue);</span>
                     } else {
-<span class="nc" id="L738">                        internal.add(issue);</span>
+<span class="nc" id="L790">                        internal.add(issue);</span>
                     }
-<span class="nc" id="L740">                }</span>
+<span class="nc" id="L792">                }</span>
 
-<span class="nc" id="L742">                Comparator&lt;Issue&gt; byNumber = Comparator.comparingInt(i -&gt; i.number);</span>
-<span class="nc" id="L743">                fixes.sort(byNumber);</span>
-<span class="nc" id="L744">                enhancements.sort(byNumber);</span>
-<span class="nc" id="L745">                internal.sort(byNumber);</span>
+<span class="nc" id="L794">                Comparator&lt;Issue&gt; byNumber = Comparator.comparingInt(i -&gt; i.number);</span>
+<span class="nc" id="L795">                fixes.sort(byNumber);</span>
+<span class="nc" id="L796">                enhancements.sort(byNumber);</span>
+<span class="nc" id="L797">                internal.sort(byNumber);</span>
 
-<span class="nc" id="L747">                appendAsciidocSection(adoc, &quot;Fixes&quot;, fixes, repo);</span>
-<span class="nc" id="L748">                appendAsciidocSection(adoc, &quot;Enhancements&quot;, enhancements, repo);</span>
-<span class="nc" id="L749">                appendAsciidocSection(adoc, &quot;Internal&quot;, internal, repo);</span>
-<span class="nc" id="L750">            }</span>
+<span class="nc" id="L799">                appendAsciidocSection(adoc, &quot;Fixes&quot;, fixes, repo);</span>
+<span class="nc" id="L800">                appendAsciidocSection(adoc, &quot;Enhancements&quot;, enhancements, repo);</span>
+<span class="nc" id="L801">                appendAsciidocSection(adoc, &quot;Internal&quot;, internal, repo);</span>
+<span class="nc" id="L802">            }</span>
 
-<span class="nc bnc" id="L752" title="All 2 branches missed.">            if (!hasContent) {</span>
-<span class="nc" id="L753">                adoc.append(&quot;No release milestones found. See the\n&quot;);</span>
-<span class="nc" id="L754">                adoc.append(&quot;https://github.com/&quot;).append(repo)</span>
-<span class="nc" id="L755">                        .append(&quot;/issues[issue tracker] for details.\n&quot;);</span>
+<span class="nc bnc" id="L804" title="All 2 branches missed.">            if (!hasContent) {</span>
+<span class="nc" id="L805">                adoc.append(&quot;No release milestones found. See the\n&quot;);</span>
+<span class="nc" id="L806">                adoc.append(&quot;https://github.com/&quot;).append(repo)</span>
+<span class="nc" id="L807">                        .append(&quot;/issues[issue tracker] for details.\n&quot;);</span>
             }
 
-<span class="nc" id="L758">            Files.createDirectories(outputDir);</span>
-<span class="nc" id="L759">            Path outFile = outputDir.resolve(&quot;release-notes.adoc&quot;);</span>
-<span class="nc" id="L760">            Files.writeString(outFile, adoc.toString(), StandardCharsets.UTF_8);</span>
-<span class="nc" id="L761">            return outFile;</span>
-<span class="nc" id="L762">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L763" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L764">                log.warn(&quot;Full release history generation failed: &quot;</span>
-<span class="nc" id="L765">                        + e.getMessage());</span>
+<span class="nc" id="L810">            Files.createDirectories(outputDir);</span>
+<span class="nc" id="L811">            Path outFile = outputDir.resolve(&quot;release-notes.adoc&quot;);</span>
+<span class="nc" id="L812">            Files.writeString(outFile, adoc.toString(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L813">            return outFile;</span>
+<span class="nc" id="L814">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L815" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L816">                log.warn(&quot;Full release history generation failed: &quot;</span>
+<span class="nc" id="L817">                        + e.getMessage());</span>
             }
-<span class="nc" id="L767">            return null;</span>
+<span class="nc" id="L819">            return null;</span>
         }
     }
 
@@ -785,82 +837,82 @@ public final class ReleaseNotesSupport {
                                                  Log log)
             throws MojoException {
         try {
-<span class="nc" id="L788">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
+<span class="nc" id="L840">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
                     + &quot;/milestones?state=all&amp;per_page=100&amp;direction=desc&quot;;
-<span class="nc" id="L790">            List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
+<span class="nc" id="L842">            List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
 
-<span class="nc" id="L792">            StringBuilder html = new StringBuilder();</span>
-<span class="nc" id="L793">            html.append(&quot;&lt;div class=\&quot;ike-release-notes\&quot;&gt;\n&quot;);</span>
-<span class="nc" id="L794">            html.append(&quot;&lt;h1&gt;Release Notes&lt;/h1&gt;\n&quot;);</span>
+<span class="nc" id="L844">            StringBuilder html = new StringBuilder();</span>
+<span class="nc" id="L845">            html.append(&quot;&lt;div class=\&quot;ike-release-notes\&quot;&gt;\n&quot;);</span>
+<span class="nc" id="L846">            html.append(&quot;&lt;h1&gt;Release Notes&lt;/h1&gt;\n&quot;);</span>
 
-<span class="nc" id="L796">            boolean hasContent = false;</span>
+<span class="nc" id="L848">            boolean hasContent = false;</span>
 
-<span class="nc bnc" id="L798" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; ms : milestones) {</span>
-<span class="nc" id="L799">                String title = (String) ms.get(&quot;title&quot;);</span>
-<span class="nc" id="L800">                int number = ((Number) ms.get(&quot;number&quot;)).intValue();</span>
-<span class="nc" id="L801">                int closedCount = ((Number) ms.get(&quot;closed_issues&quot;)).intValue();</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; ms : milestones) {</span>
+<span class="nc" id="L851">                String title = (String) ms.get(&quot;title&quot;);</span>
+<span class="nc" id="L852">                int number = ((Number) ms.get(&quot;number&quot;)).intValue();</span>
+<span class="nc" id="L853">                int closedCount = ((Number) ms.get(&quot;closed_issues&quot;)).intValue();</span>
 
-<span class="nc bnc" id="L803" title="All 2 branches missed.">                if (closedCount == 0) continue;</span>
+<span class="nc bnc" id="L855" title="All 2 branches missed.">                if (closedCount == 0) continue;</span>
 
-<span class="nc" id="L805">                List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
-<span class="nc bnc" id="L806" title="All 2 branches missed.">                if (closed.isEmpty()) continue;</span>
+<span class="nc" id="L857">                List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
+<span class="nc bnc" id="L858" title="All 2 branches missed.">                if (closed.isEmpty()) continue;</span>
 
-<span class="nc" id="L808">                hasContent = true;</span>
-<span class="nc" id="L809">                html.append(&quot;&lt;h2&gt;&quot;).append(escapeHtml(title)).append(&quot;&lt;/h2&gt;\n&quot;);</span>
+<span class="nc" id="L860">                hasContent = true;</span>
+<span class="nc" id="L861">                html.append(&quot;&lt;h2&gt;&quot;).append(escapeHtml(title)).append(&quot;&lt;/h2&gt;\n&quot;);</span>
 
-<span class="nc" id="L811">                List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L812">                List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L813">                List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L863">                List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L864">                List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L865">                List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
 
-<span class="nc bnc" id="L815" title="All 2 branches missed.">                for (Issue issue : closed) {</span>
-<span class="nc bnc" id="L816" title="All 2 branches missed.">                    if (issue.labels.contains(&quot;bug&quot;)) fixes.add(issue);</span>
-<span class="nc bnc" id="L817" title="All 2 branches missed.">                    else if (issue.labels.contains(&quot;enhancement&quot;)) enhancements.add(issue);</span>
-<span class="nc" id="L818">                    else internal.add(issue);</span>
-<span class="nc" id="L819">                }</span>
+<span class="nc bnc" id="L867" title="All 2 branches missed.">                for (Issue issue : closed) {</span>
+<span class="nc bnc" id="L868" title="All 2 branches missed.">                    if (issue.labels.contains(&quot;bug&quot;)) fixes.add(issue);</span>
+<span class="nc bnc" id="L869" title="All 2 branches missed.">                    else if (issue.labels.contains(&quot;enhancement&quot;)) enhancements.add(issue);</span>
+<span class="nc" id="L870">                    else internal.add(issue);</span>
+<span class="nc" id="L871">                }</span>
 
-<span class="nc" id="L821">                appendHtmlSection(html, &quot;Fixes&quot;, fixes, repo);</span>
-<span class="nc" id="L822">                appendHtmlSection(html, &quot;Enhancements&quot;, enhancements, repo);</span>
-<span class="nc" id="L823">                appendHtmlSection(html, &quot;Internal&quot;, internal, repo);</span>
-<span class="nc" id="L824">            }</span>
+<span class="nc" id="L873">                appendHtmlSection(html, &quot;Fixes&quot;, fixes, repo);</span>
+<span class="nc" id="L874">                appendHtmlSection(html, &quot;Enhancements&quot;, enhancements, repo);</span>
+<span class="nc" id="L875">                appendHtmlSection(html, &quot;Internal&quot;, internal, repo);</span>
+<span class="nc" id="L876">            }</span>
 
-<span class="nc bnc" id="L826" title="All 2 branches missed.">            if (!hasContent) {</span>
-<span class="nc" id="L827">                html.append(&quot;&lt;p&gt;No release milestones found. See the &quot;);</span>
-<span class="nc" id="L828">                html.append(&quot;&lt;a href=\&quot;https://github.com/&quot;).append(repo);</span>
-<span class="nc" id="L829">                html.append(&quot;/milestones\&quot;&gt;issue tracker&lt;/a&gt; for details.&lt;/p&gt;\n&quot;);</span>
+<span class="nc bnc" id="L878" title="All 2 branches missed.">            if (!hasContent) {</span>
+<span class="nc" id="L879">                html.append(&quot;&lt;p&gt;No release milestones found. See the &quot;);</span>
+<span class="nc" id="L880">                html.append(&quot;&lt;a href=\&quot;https://github.com/&quot;).append(repo);</span>
+<span class="nc" id="L881">                html.append(&quot;/milestones\&quot;&gt;issue tracker&lt;/a&gt; for details.&lt;/p&gt;\n&quot;);</span>
             }
 
-<span class="nc" id="L832">            html.append(&quot;&lt;/div&gt;\n&quot;);</span>
+<span class="nc" id="L884">            html.append(&quot;&lt;/div&gt;\n&quot;);</span>
 
-<span class="nc" id="L834">            Files.createDirectories(outputDir);</span>
-<span class="nc" id="L835">            Path outFile = outputDir.resolve(&quot;release-notes.xhtml&quot;);</span>
-<span class="nc" id="L836">            Files.writeString(outFile, html.toString(), StandardCharsets.UTF_8);</span>
-<span class="nc" id="L837">            return outFile;</span>
-<span class="nc" id="L838">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L839" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L840">                log.warn(&quot;Release history XHTML generation failed: &quot;</span>
-<span class="nc" id="L841">                        + e.getMessage());</span>
+<span class="nc" id="L886">            Files.createDirectories(outputDir);</span>
+<span class="nc" id="L887">            Path outFile = outputDir.resolve(&quot;release-notes.xhtml&quot;);</span>
+<span class="nc" id="L888">            Files.writeString(outFile, html.toString(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L889">            return outFile;</span>
+<span class="nc" id="L890">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L891" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L892">                log.warn(&quot;Release history XHTML generation failed: &quot;</span>
+<span class="nc" id="L893">                        + e.getMessage());</span>
             }
-<span class="nc" id="L843">            return null;</span>
+<span class="nc" id="L895">            return null;</span>
         }
     }
 
     private static void appendHtmlSection(StringBuilder html, String heading,
                                            List&lt;Issue&gt; issues, String repo) {
-<span class="nc bnc" id="L849" title="All 2 branches missed.">        if (issues.isEmpty()) return;</span>
+<span class="nc bnc" id="L901" title="All 2 branches missed.">        if (issues.isEmpty()) return;</span>
 
-<span class="nc" id="L851">        html.append(&quot;&lt;h3&gt;&quot;).append(heading).append(&quot;&lt;/h3&gt;\n&lt;ul&gt;\n&quot;);</span>
-<span class="nc bnc" id="L852" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
-<span class="nc" id="L853">            html.append(&quot;&lt;li&gt;&quot;).append(escapeHtml(issue.title()))</span>
-<span class="nc" id="L854">                    .append(&quot; (&lt;a href=\&quot;https://github.com/&quot;).append(repo)</span>
-<span class="nc" id="L855">                    .append(&quot;/issues/&quot;).append(issue.number())</span>
-<span class="nc" id="L856">                    .append(&quot;\&quot;&gt;#&quot;).append(issue.number())</span>
-<span class="nc" id="L857">                    .append(&quot;&lt;/a&gt;)&lt;/li&gt;\n&quot;);</span>
-<span class="nc" id="L858">        }</span>
-<span class="nc" id="L859">        html.append(&quot;&lt;/ul&gt;\n&quot;);</span>
-<span class="nc" id="L860">    }</span>
+<span class="nc" id="L903">        html.append(&quot;&lt;h3&gt;&quot;).append(heading).append(&quot;&lt;/h3&gt;\n&lt;ul&gt;\n&quot;);</span>
+<span class="nc bnc" id="L904" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
+<span class="nc" id="L905">            html.append(&quot;&lt;li&gt;&quot;).append(escapeHtml(issue.title()))</span>
+<span class="nc" id="L906">                    .append(&quot; (&lt;a href=\&quot;https://github.com/&quot;).append(repo)</span>
+<span class="nc" id="L907">                    .append(&quot;/issues/&quot;).append(issue.number())</span>
+<span class="nc" id="L908">                    .append(&quot;\&quot;&gt;#&quot;).append(issue.number())</span>
+<span class="nc" id="L909">                    .append(&quot;&lt;/a&gt;)&lt;/li&gt;\n&quot;);</span>
+<span class="nc" id="L910">        }</span>
+<span class="nc" id="L911">        html.append(&quot;&lt;/ul&gt;\n&quot;);</span>
+<span class="nc" id="L912">    }</span>
 
     private static String escapeHtml(String s) {
-<span class="nc" id="L863">        return s.replace(&quot;&amp;&quot;, &quot;&amp;amp;&quot;).replace(&quot;&lt;&quot;, &quot;&amp;lt;&quot;).replace(&quot;&gt;&quot;, &quot;&amp;gt;&quot;);</span>
+<span class="nc" id="L915">        return s.replace(&quot;&amp;&quot;, &quot;&amp;amp;&quot;).replace(&quot;&lt;&quot;, &quot;&amp;lt;&quot;).replace(&quot;&gt;&quot;, &quot;&amp;gt;&quot;);</span>
     }
 
     /**
@@ -879,22 +931,22 @@ public final class ReleaseNotesSupport {
                                                Path outputDir, Log log)
             throws MojoException {
         try {
-<span class="nc" id="L882">            int milestoneNumber = findMilestone(repo, milestone);</span>
-<span class="nc bnc" id="L883" title="All 2 branches missed.">            if (milestoneNumber &lt; 0) return null;</span>
+<span class="nc" id="L934">            int milestoneNumber = findMilestone(repo, milestone);</span>
+<span class="nc bnc" id="L935" title="All 2 branches missed.">            if (milestoneNumber &lt; 0) return null;</span>
 
-<span class="nc" id="L885">            List&lt;Issue&gt; issues = fetchClosedIssues(repo, milestoneNumber);</span>
-<span class="nc" id="L886">            String adoc = formatAsciidoc(milestone, issues, repo);</span>
+<span class="nc" id="L937">            List&lt;Issue&gt; issues = fetchClosedIssues(repo, milestoneNumber);</span>
+<span class="nc" id="L938">            String adoc = formatAsciidoc(milestone, issues, repo);</span>
 
-<span class="nc" id="L888">            Files.createDirectories(outputDir);</span>
-<span class="nc" id="L889">            Path outFile = outputDir.resolve(&quot;release-notes.adoc&quot;);</span>
-<span class="nc" id="L890">            Files.writeString(outFile, adoc, StandardCharsets.UTF_8);</span>
-<span class="nc" id="L891">            return outFile;</span>
-<span class="nc" id="L892">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L893" title="All 2 branches missed.">            if (log != null) {</span>
-<span class="nc" id="L894">                log.warn(&quot;AsciiDoc release notes generation failed: &quot;</span>
-<span class="nc" id="L895">                        + e.getMessage());</span>
+<span class="nc" id="L940">            Files.createDirectories(outputDir);</span>
+<span class="nc" id="L941">            Path outFile = outputDir.resolve(&quot;release-notes.adoc&quot;);</span>
+<span class="nc" id="L942">            Files.writeString(outFile, adoc, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L943">            return outFile;</span>
+<span class="nc" id="L944">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L945" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L946">                log.warn(&quot;AsciiDoc release notes generation failed: &quot;</span>
+<span class="nc" id="L947">                        + e.getMessage());</span>
             }
-<span class="nc" id="L897">            return null;</span>
+<span class="nc" id="L949">            return null;</span>
         }
     }
 
@@ -908,55 +960,55 @@ public final class ReleaseNotesSupport {
      */
     public static String formatAsciidoc(String milestoneName, List&lt;Issue&gt; issues,
                                          String repo) {
-<span class="nc" id="L911">        List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L912">        List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L913">        List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L963">        List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L964">        List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L965">        List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
 
-<span class="nc bnc" id="L915" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
-<span class="nc bnc" id="L916" title="All 2 branches missed.">            if (issue.labels.contains(&quot;bug&quot;)) {</span>
-<span class="nc" id="L917">                fixes.add(issue);</span>
-<span class="nc bnc" id="L918" title="All 2 branches missed.">            } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
-<span class="nc" id="L919">                enhancements.add(issue);</span>
+<span class="nc bnc" id="L967" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
+<span class="nc bnc" id="L968" title="All 2 branches missed.">            if (issue.labels.contains(&quot;bug&quot;)) {</span>
+<span class="nc" id="L969">                fixes.add(issue);</span>
+<span class="nc bnc" id="L970" title="All 2 branches missed.">            } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
+<span class="nc" id="L971">                enhancements.add(issue);</span>
             } else {
-<span class="nc" id="L921">                internal.add(issue);</span>
+<span class="nc" id="L973">                internal.add(issue);</span>
             }
-<span class="nc" id="L923">        }</span>
+<span class="nc" id="L975">        }</span>
 
-<span class="nc" id="L925">        Comparator&lt;Issue&gt; noteworthy = Comparator</span>
-<span class="nc bnc" id="L926" title="All 2 branches missed.">                .&lt;Issue, Boolean&gt;comparing(i -&gt; !i.labels.contains(&quot;release-notes&quot;))</span>
-<span class="nc" id="L927">                .thenComparingInt(i -&gt; i.number);</span>
+<span class="nc" id="L977">        Comparator&lt;Issue&gt; noteworthy = Comparator</span>
+<span class="nc bnc" id="L978" title="All 2 branches missed.">                .&lt;Issue, Boolean&gt;comparing(i -&gt; !i.labels.contains(&quot;release-notes&quot;))</span>
+<span class="nc" id="L979">                .thenComparingInt(i -&gt; i.number);</span>
 
-<span class="nc" id="L929">        fixes.sort(noteworthy);</span>
-<span class="nc" id="L930">        enhancements.sort(noteworthy);</span>
-<span class="nc" id="L931">        internal.sort(noteworthy);</span>
+<span class="nc" id="L981">        fixes.sort(noteworthy);</span>
+<span class="nc" id="L982">        enhancements.sort(noteworthy);</span>
+<span class="nc" id="L983">        internal.sort(noteworthy);</span>
 
-<span class="nc" id="L933">        StringBuilder sb = new StringBuilder();</span>
-<span class="nc" id="L934">        sb.append(&quot;= Release Notes: &quot;).append(milestoneName).append(&quot;\n\n&quot;);</span>
+<span class="nc" id="L985">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L986">        sb.append(&quot;= Release Notes: &quot;).append(milestoneName).append(&quot;\n\n&quot;);</span>
 
-<span class="nc" id="L936">        appendAsciidocSection(sb, &quot;Fixes&quot;, fixes, repo);</span>
-<span class="nc" id="L937">        appendAsciidocSection(sb, &quot;Enhancements&quot;, enhancements, repo);</span>
-<span class="nc" id="L938">        appendAsciidocSection(sb, &quot;Internal&quot;, internal, repo);</span>
+<span class="nc" id="L988">        appendAsciidocSection(sb, &quot;Fixes&quot;, fixes, repo);</span>
+<span class="nc" id="L989">        appendAsciidocSection(sb, &quot;Enhancements&quot;, enhancements, repo);</span>
+<span class="nc" id="L990">        appendAsciidocSection(sb, &quot;Internal&quot;, internal, repo);</span>
 
-<span class="nc bnc" id="L940" title="All 2 branches missed.">        if (issues.isEmpty()) {</span>
-<span class="nc" id="L941">            sb.append(&quot;No closed issues in this milestone.\n&quot;);</span>
+<span class="nc bnc" id="L992" title="All 2 branches missed.">        if (issues.isEmpty()) {</span>
+<span class="nc" id="L993">            sb.append(&quot;No closed issues in this milestone.\n&quot;);</span>
         }
 
-<span class="nc" id="L944">        return sb.toString();</span>
+<span class="nc" id="L996">        return sb.toString();</span>
     }
 
     private static void appendAsciidocSection(StringBuilder sb, String heading,
                                                List&lt;Issue&gt; issues, String repo) {
-<span class="nc bnc" id="L949" title="All 2 branches missed.">        if (issues.isEmpty()) return;</span>
+<span class="nc bnc" id="L1001" title="All 2 branches missed.">        if (issues.isEmpty()) return;</span>
 
-<span class="nc" id="L951">        sb.append(&quot;== &quot;).append(heading).append(&quot;\n\n&quot;);</span>
-<span class="nc bnc" id="L952" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
-<span class="nc" id="L953">            sb.append(&quot;* &quot;).append(issue.title())</span>
-<span class="nc" id="L954">                    .append(&quot; (https://github.com/&quot;).append(repo)</span>
-<span class="nc" id="L955">                    .append(&quot;/issues/&quot;).append(issue.number())</span>
-<span class="nc" id="L956">                    .append(&quot;[#&quot;).append(issue.number()).append(&quot;])\n&quot;);</span>
-<span class="nc" id="L957">        }</span>
-<span class="nc" id="L958">        sb.append(&quot;\n&quot;);</span>
-<span class="nc" id="L959">    }</span>
+<span class="nc" id="L1003">        sb.append(&quot;== &quot;).append(heading).append(&quot;\n\n&quot;);</span>
+<span class="nc bnc" id="L1004" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
+<span class="nc" id="L1005">            sb.append(&quot;* &quot;).append(issue.title())</span>
+<span class="nc" id="L1006">                    .append(&quot; (https://github.com/&quot;).append(repo)</span>
+<span class="nc" id="L1007">                    .append(&quot;/issues/&quot;).append(issue.number())</span>
+<span class="nc" id="L1008">                    .append(&quot;[#&quot;).append(issue.number()).append(&quot;])\n&quot;);</span>
+<span class="nc" id="L1009">        }</span>
+<span class="nc" id="L1010">        sb.append(&quot;\n&quot;);</span>
+<span class="nc" id="L1011">    }</span>
 
     // ── Formatting (Markdown) ───────────────────────────────────────
 
@@ -968,52 +1020,94 @@ public final class ReleaseNotesSupport {
      * @return Markdown-formatted release notes
      */
     public static String formatNotes(String milestoneName, List&lt;Issue&gt; issues) {
-<span class="fc" id="L971">        List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L972">        List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L973">        List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1023">        return formatNotes(milestoneName, issues, List.of());</span>
+    }
 
-<span class="fc bfc" id="L975" title="All 2 branches covered.">        for (Issue issue : issues) {</span>
-<span class="fc bfc" id="L976" title="All 2 branches covered.">            if (issue.labels.contains(&quot;bug&quot;)) {</span>
-<span class="fc" id="L977">                fixes.add(issue);</span>
-<span class="fc bfc" id="L978" title="All 2 branches covered.">            } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
-<span class="fc" id="L979">                enhancements.add(issue);</span>
+    /**
+     * Format release notes as Markdown, including a &quot;Foundation
+     * upgrades&quot; section for cascade version bumps
+     * (IKE-Network/ike-issues#706).
+     *
+     * @param milestoneName the milestone title
+     * @param issues        closed issues from the milestone
+     * @param upgrades      the upstream-version bumps the release applied (may be empty)
+     * @return Markdown-formatted release notes
+     */
+    public static String formatNotes(String milestoneName, List&lt;Issue&gt; issues,
+            List&lt;CascadeBump&gt; upgrades) {
+<span class="pc bpc" id="L1038" title="1 of 2 branches missed.">        List&lt;CascadeBump&gt; ups = upgrades == null ? List.of() : upgrades;</span>
+<span class="fc" id="L1039">        List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1040">        List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1041">        List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L1043" title="All 2 branches covered.">        for (Issue issue : issues) {</span>
+<span class="fc bfc" id="L1044" title="All 2 branches covered.">            if (issue.labels.contains(&quot;bug&quot;)) {</span>
+<span class="fc" id="L1045">                fixes.add(issue);</span>
+<span class="fc bfc" id="L1046" title="All 2 branches covered.">            } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
+<span class="fc" id="L1047">                enhancements.add(issue);</span>
             } else {
-<span class="fc" id="L981">                internal.add(issue);</span>
+<span class="fc" id="L1049">                internal.add(issue);</span>
             }
-<span class="fc" id="L983">        }</span>
+<span class="fc" id="L1051">        }</span>
 
-<span class="fc" id="L985">        Comparator&lt;Issue&gt; noteworthy = Comparator</span>
-<span class="pc bnc" id="L986" title="All 2 branches missed.">                .&lt;Issue, Boolean&gt;comparing(i -&gt; !i.labels.contains(&quot;release-notes&quot;))</span>
-<span class="pc" id="L987">                .thenComparingInt(i -&gt; i.number);</span>
+<span class="fc" id="L1053">        Comparator&lt;Issue&gt; noteworthy = Comparator</span>
+<span class="pc bnc" id="L1054" title="All 2 branches missed.">                .&lt;Issue, Boolean&gt;comparing(i -&gt; !i.labels.contains(&quot;release-notes&quot;))</span>
+<span class="pc" id="L1055">                .thenComparingInt(i -&gt; i.number);</span>
 
-<span class="fc" id="L989">        fixes.sort(noteworthy);</span>
-<span class="fc" id="L990">        enhancements.sort(noteworthy);</span>
-<span class="fc" id="L991">        internal.sort(noteworthy);</span>
+<span class="fc" id="L1057">        fixes.sort(noteworthy);</span>
+<span class="fc" id="L1058">        enhancements.sort(noteworthy);</span>
+<span class="fc" id="L1059">        internal.sort(noteworthy);</span>
 
-<span class="fc" id="L993">        StringBuilder sb = new StringBuilder();</span>
-<span class="fc" id="L994">        sb.append(&quot;## &quot;).append(milestoneName).append(&quot;\n\n&quot;);</span>
+<span class="fc" id="L1061">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L1062">        sb.append(&quot;## &quot;).append(milestoneName).append(&quot;\n\n&quot;);</span>
 
-<span class="fc" id="L996">        appendSection(sb, &quot;Fixes&quot;, fixes);</span>
-<span class="fc" id="L997">        appendSection(sb, &quot;Enhancements&quot;, enhancements);</span>
-<span class="fc" id="L998">        appendSection(sb, &quot;Internal&quot;, internal);</span>
+<span class="fc" id="L1064">        appendSection(sb, &quot;Fixes&quot;, fixes);</span>
+<span class="fc" id="L1065">        appendSection(sb, &quot;Enhancements&quot;, enhancements);</span>
+<span class="fc" id="L1066">        appendSection(sb, &quot;Internal&quot;, internal);</span>
+<span class="fc" id="L1067">        appendFoundationUpgrades(sb, ups);</span>
 
-<span class="fc bfc" id="L1000" title="All 2 branches covered.">        if (issues.isEmpty()) {</span>
-<span class="fc" id="L1001">            sb.append(&quot;No closed issues in this milestone.\n&quot;);</span>
+        // Only the genuinely-empty case prints the placeholder. A
+        // cascade-only rebuild has no closed issues but real foundation
+        // upgrades — that is &quot;what changed,&quot; not &quot;no changes&quot; (#706).
+<span class="fc bfc" id="L1072" title="All 4 branches covered.">        if (issues.isEmpty() &amp;&amp; ups.isEmpty()) {</span>
+<span class="fc" id="L1073">            sb.append(&quot;No closed issues in this milestone.\n&quot;);</span>
         }
 
-<span class="fc" id="L1004">        return sb.toString();</span>
+<span class="fc" id="L1076">        return sb.toString();</span>
     }
+
+    /**
+     * Appends a &quot;Foundation upgrades&quot; section announcing the upstream
+     * rebuild — a one-line &quot;Rebuilt against …&quot; summary plus the
+     * per-artifact old→new transitions (IKE-Network/ike-issues#706).
+     */
+    private static void appendFoundationUpgrades(StringBuilder sb,
+            List&lt;CascadeBump&gt; upgrades) {
+<span class="fc bfc" id="L1086" title="All 2 branches covered.">        if (upgrades.isEmpty()) return;</span>
+
+<span class="fc" id="L1088">        sb.append(&quot;### Foundation upgrades\n\n&quot;);</span>
+<span class="fc" id="L1089">        String rebuiltAgainst = upgrades.stream()</span>
+<span class="fc" id="L1090">                .map(b -&gt; b.artifactId() + &quot; &quot; + b.latest())</span>
+<span class="fc" id="L1091">                .collect(java.util.stream.Collectors.joining(&quot;, &quot;));</span>
+<span class="fc" id="L1092">        sb.append(&quot;Rebuilt against &quot;).append(rebuiltAgainst).append(&quot;.\n\n&quot;);</span>
+<span class="fc bfc" id="L1093" title="All 2 branches covered.">        for (CascadeBump b : upgrades) {</span>
+<span class="fc" id="L1094">            sb.append(&quot;- `&quot;).append(b.ga()).append(&quot;` &quot;)</span>
+<span class="fc" id="L1095">                    .append(b.current()).append(&quot; → &quot;).append(b.latest())</span>
+<span class="fc" id="L1096">                    .append('\n');</span>
+<span class="fc" id="L1097">        }</span>
+<span class="fc" id="L1098">        sb.append(&quot;\n&quot;);</span>
+<span class="fc" id="L1099">    }</span>
 
     private static void appendSection(StringBuilder sb, String heading,
                                        List&lt;Issue&gt; issues) {
-<span class="fc bfc" id="L1009" title="All 2 branches covered.">        if (issues.isEmpty()) return;</span>
+<span class="fc bfc" id="L1103" title="All 2 branches covered.">        if (issues.isEmpty()) return;</span>
 
-<span class="fc" id="L1011">        sb.append(&quot;### &quot;).append(heading).append(&quot;\n\n&quot;);</span>
-<span class="fc bfc" id="L1012" title="All 2 branches covered.">        for (Issue issue : issues) {</span>
-<span class="fc" id="L1013">            sb.append(&quot;- &quot;).append(issue.title)</span>
-<span class="fc" id="L1014">                    .append(&quot; (#&quot;).append(issue.number).append(&quot;)\n&quot;);</span>
-<span class="fc" id="L1015">        }</span>
-<span class="fc" id="L1016">        sb.append(&quot;\n&quot;);</span>
-<span class="fc" id="L1017">    }</span>
+<span class="fc" id="L1105">        sb.append(&quot;### &quot;).append(heading).append(&quot;\n\n&quot;);</span>
+<span class="fc bfc" id="L1106" title="All 2 branches covered.">        for (Issue issue : issues) {</span>
+<span class="fc" id="L1107">            sb.append(&quot;- &quot;).append(issue.title)</span>
+<span class="fc" id="L1108">                    .append(&quot; (#&quot;).append(issue.number).append(&quot;)\n&quot;);</span>
+<span class="fc" id="L1109">        }</span>
+<span class="fc" id="L1110">        sb.append(&quot;\n&quot;);</span>
+<span class="fc" id="L1111">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

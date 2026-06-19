@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Sha256.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">Sha256.java</span></div><h1>Sha256.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
+/**
+ * SHA-256 hash utility for scaffold checksums.
+ *
+ * &lt;p&gt;Produces values in the canonical lockfile form
+ * {@code &quot;sha256:&quot; + lowercase-hex-digest}. All scaffold lockfile and
+ * manifest hashes must flow through this class so the algorithm label
+ * stays consistent.
+ *
+ * &lt;p&gt;Hashes are computed over the raw byte content of the file or
+ * string. Consumers that need line-ending normalisation must do so
+ * before calling this class.
+ */
+public final class Sha256 {
+
+    /** Prefix distinguishing this algorithm in a lockfile value. */
+    public static final String PREFIX = &quot;sha256:&quot;;
+
+    private Sha256() {}
+
+    /**
+     * Hash a byte array.
+     *
+     * @param data the bytes to hash; {@code null} is treated as empty
+     * @return {@code &quot;sha256:&quot; + hex-digest}
+     */
+    public static String of(byte[] data) {
+<span class="fc" id="L37">        MessageDigest md = newDigest();</span>
+<span class="fc bfc" id="L38" title="All 2 branches covered.">        md.update(data == null ? new byte[0] : data);</span>
+<span class="fc" id="L39">        return format(md.digest());</span>
+    }
+
+    /**
+     * Hash a string using UTF-8 encoding.
+     *
+     * @param text the string to hash; {@code null} is treated as empty
+     * @return {@code &quot;sha256:&quot; + hex-digest}
+     */
+    public static String of(String text) {
+<span class="fc bfc" id="L49" title="All 2 branches covered.">        return of(text == null</span>
+<span class="fc" id="L50">                ? new byte[0]</span>
+<span class="fc" id="L51">                : text.getBytes(StandardCharsets.UTF_8));</span>
+    }
+
+    /**
+     * Hash the bytes of a file, streaming so large files don't load
+     * into memory all at once.
+     *
+     * @param path existing readable file
+     * @return {@code &quot;sha256:&quot; + hex-digest}
+     * @throws ScaffoldException if the file cannot be read
+     */
+    public static String ofFile(Path path) {
+<span class="fc" id="L63">        MessageDigest md = newDigest();</span>
+<span class="fc" id="L64">        try (InputStream in = Files.newInputStream(path)) {</span>
+<span class="fc" id="L65">            byte[] buf = new byte[8192];</span>
+            int n;
+<span class="fc bfc" id="L67" title="All 2 branches covered.">            while ((n = in.read(buf)) &gt; 0) {</span>
+<span class="fc" id="L68">                md.update(buf, 0, n);</span>
+            }
+<span class="fc" id="L70">            return format(md.digest());</span>
+<span class="fc" id="L71">        } catch (IOException e) {</span>
+<span class="fc" id="L72">            throw new ScaffoldException(</span>
+                    &quot;Cannot hash file &quot; + path, e);
+        }
+    }
+
+    /**
+     * Compare a known hash to the current hash of a file.
+     *
+     * @param path     existing readable file
+     * @param expected hash string in the form
+     *                 {@code &quot;sha256:&quot; + hex-digest}; {@code null}
+     *                 returns {@code false}
+     * @return {@code true} iff the file's current hash equals
+     *         {@code expected}
+     */
+    public static boolean matches(Path path, String expected) {
+<span class="fc bfc" id="L88" title="All 2 branches covered.">        if (expected == null) {</span>
+<span class="fc" id="L89">            return false;</span>
+        }
+<span class="fc" id="L91">        return ofFile(path).equals(expected);</span>
+    }
+
+    private static MessageDigest newDigest() {
+        try {
+<span class="fc" id="L96">            return MessageDigest.getInstance(&quot;SHA-256&quot;);</span>
+<span class="nc" id="L97">        } catch (NoSuchAlgorithmException e) {</span>
+<span class="nc" id="L98">            throw new IllegalStateException(</span>
+                    &quot;SHA-256 not available&quot;, e);
+        }
+    }
+
+    private static String format(byte[] digest) {
+<span class="fc" id="L104">        StringBuilder sb = new StringBuilder(</span>
+<span class="fc" id="L105">                PREFIX.length() + digest.length * 2);</span>
+<span class="fc" id="L106">        sb.append(PREFIX);</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">        for (byte b : digest) {</span>
+<span class="fc" id="L108">            sb.append(Character.forDigit((b &gt;&gt; 4) &amp; 0xF, 16));</span>
+<span class="fc" id="L109">            sb.append(Character.forDigit(b &amp; 0xF, 16));</span>
+        }
+<span class="fc" id="L111">        return sb.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
