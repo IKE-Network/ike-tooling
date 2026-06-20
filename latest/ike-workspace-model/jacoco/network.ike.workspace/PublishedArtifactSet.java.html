@@ -48,6 +48,17 @@ public final class PublishedArtifactSet {
 <span class="fc" id="L48">            Pattern.compile(&quot;&lt;module&gt;([^&lt;]+)&lt;/module&gt;&quot;);</span>
 <span class="fc" id="L49">    private static final Pattern PARENT_BLOCK =</span>
 <span class="fc" id="L50">            Pattern.compile(&quot;(?s)&lt;parent&gt;.*?&lt;/parent&gt;&quot;);</span>
+    /** Self-closing {@code &lt;parent/&gt;} — Maven 4.1.0's inferred parent (carries no groupId). */
+<span class="fc" id="L52">    private static final Pattern PARENT_SELF_CLOSING =</span>
+<span class="fc" id="L53">            Pattern.compile(&quot;&lt;parent\\s*/&gt;&quot;);</span>
+    /**
+     * Start of the first POM body section that may itself contain a {@code &lt;groupId&gt;}
+     * — a dependency, managed dependency, or plugin. The project's own coordinates are
+     * schema-ordered before these, so own-coordinate extraction stops here so a
+     * dependency's groupId is never mistaken for the project's (ike-issues#719).
+     */
+<span class="fc" id="L60">    private static final Pattern BODY_SECTION = Pattern.compile(</span>
+            &quot;&lt;(dependencies|dependencyManagement|build|reporting|profiles|distributionManagement)\\b&quot;);
 
     /**
      * Scan a subproject root and return the complete set of published
@@ -62,15 +73,15 @@ public final class PublishedArtifactSet {
      * @throws IOException if a POM file cannot be read
      */
     public static Set&lt;Artifact&gt; scan(Path subprojectRoot) throws IOException {
-<span class="fc" id="L65">        Set&lt;Artifact&gt; artifacts = new LinkedHashSet&lt;&gt;();</span>
-<span class="fc" id="L66">        Path rootPom = subprojectRoot.resolve(&quot;pom.xml&quot;);</span>
+<span class="fc" id="L76">        Set&lt;Artifact&gt; artifacts = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc" id="L77">        Path rootPom = subprojectRoot.resolve(&quot;pom.xml&quot;);</span>
 
-<span class="pc bpc" id="L68" title="1 of 2 branches missed.">        if (!Files.exists(rootPom)) {</span>
-<span class="nc" id="L69">            return artifacts;</span>
+<span class="pc bpc" id="L79" title="1 of 2 branches missed.">        if (!Files.exists(rootPom)) {</span>
+<span class="nc" id="L80">            return artifacts;</span>
         }
 
-<span class="fc" id="L72">        scanPom(subprojectRoot, rootPom, null, artifacts);</span>
-<span class="fc" id="L73">        return artifacts;</span>
+<span class="fc" id="L83">        scanPom(subprojectRoot, rootPom, null, artifacts);</span>
+<span class="fc" id="L84">        return artifacts;</span>
     }
 
     /**
@@ -83,7 +94,7 @@ public final class PublishedArtifactSet {
      */
     public static boolean matches(Set&lt;Artifact&gt; artifacts,
                                   String groupId, String artifactId) {
-<span class="fc" id="L86">        return artifacts.contains(new Artifact(groupId, artifactId));</span>
+<span class="fc" id="L97">        return artifacts.contains(new Artifact(groupId, artifactId));</span>
     }
 
     /**
@@ -98,73 +109,91 @@ public final class PublishedArtifactSet {
     private static void scanPom(Path subprojectRoot, Path pomPath,
                                 String inheritGroupId,
                                 Set&lt;Artifact&gt; artifacts) throws IOException {
-<span class="fc" id="L101">        String content = Files.readString(pomPath, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L112">        String content = Files.readString(pomPath, StandardCharsets.UTF_8);</span>
 
-        // Extract groupId from parent block (for inheritance)
-<span class="fc" id="L104">        String parentGroupId = null;</span>
-<span class="fc" id="L105">        Matcher parentMatcher = PARENT_BLOCK.matcher(content);</span>
-<span class="fc bfc" id="L106" title="All 2 branches covered.">        if (parentMatcher.find()) {</span>
-<span class="fc" id="L107">            String parentBlock = parentMatcher.group();</span>
-<span class="fc" id="L108">            Matcher gm = GROUP_ID_PATTERN.matcher(parentBlock);</span>
-<span class="pc bpc" id="L109" title="1 of 2 branches missed.">            if (gm.find()) {</span>
-<span class="fc" id="L110">                parentGroupId = gm.group(1).trim();</span>
+        // groupId declared inside a paired &lt;parent&gt;…&lt;/parent&gt; block, if any (used
+        // for inheritance). A self-closing &lt;parent/&gt; — Maven 4.1.0's inferred
+        // parent — carries none, so the groupId then comes from inheritGroupId.
+<span class="fc" id="L117">        String parentGroupId = null;</span>
+<span class="fc" id="L118">        Matcher parentMatcher = PARENT_BLOCK.matcher(content);</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">        if (parentMatcher.find()) {</span>
+<span class="fc" id="L120">            Matcher gm = GROUP_ID_PATTERN.matcher(parentMatcher.group());</span>
+<span class="pc bpc" id="L121" title="1 of 2 branches missed.">            if (gm.find()) {</span>
+<span class="fc" id="L122">                parentGroupId = gm.group(1).trim();</span>
             }
         }
 
-        // Strip parent block to find project's own coordinates
-<span class="fc" id="L115">        String stripped = PARENT_BLOCK.matcher(content).replaceFirst(&quot;&quot;);</span>
+        // Strip the parent block (paired or self-closing) so the parent's own
+        // groupId is never read as the project's.
+<span class="fc" id="L128">        String stripped = PARENT_BLOCK.matcher(content).replaceFirst(&quot;&quot;);</span>
+<span class="fc" id="L129">        stripped = PARENT_SELF_CLOSING.matcher(stripped).replaceFirst(&quot;&quot;);</span>
 
-        // Extract project groupId (outside parent block)
-<span class="fc" id="L118">        String groupId = null;</span>
-<span class="fc" id="L119">        Matcher gidMatcher = GROUP_ID_PATTERN.matcher(stripped);</span>
-<span class="fc bfc" id="L120" title="All 2 branches covered.">        if (gidMatcher.find()) {</span>
-<span class="fc" id="L121">            groupId = gidMatcher.group(1).trim();</span>
+        // The project's own &lt;groupId&gt;/&lt;artifactId&gt; are schema-ordered BEFORE any
+        // body section that can also carry a &lt;groupId&gt; (dependencies, managed
+        // dependencies, plugins). Restrict extraction to that header so a
+        // dependency's groupId is never mistaken for the project's — the bug that
+        // dropped komet's inter-subproject edges (ike-issues#719). A module that
+        // declares no own groupId (the Maven-4.1.0 norm under &lt;parent/&gt;) then
+        // correctly yields null here and inherits below.
+<span class="fc" id="L138">        String header = stripped.substring(0, bodySectionStart(stripped));</span>
+
+        // Inherit groupId: prefer own, then the parent block, then the reactor
+        // parent passed down the recursion.
+<span class="fc" id="L142">        String groupId = firstCapture(GROUP_ID_PATTERN, header);</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">        if (groupId == null) {</span>
+<span class="fc" id="L144">            groupId = parentGroupId;</span>
+        }
+<span class="fc bfc" id="L146" title="All 2 branches covered.">        if (groupId == null) {</span>
+<span class="fc" id="L147">            groupId = inheritGroupId;</span>
         }
 
-        // Inherit groupId: prefer own, then parent block, then caller
-<span class="fc bfc" id="L125" title="All 2 branches covered.">        if (groupId == null) {</span>
-<span class="fc" id="L126">            groupId = parentGroupId;</span>
-        }
-<span class="pc bpc" id="L128" title="1 of 2 branches missed.">        if (groupId == null) {</span>
-<span class="nc" id="L129">            groupId = inheritGroupId;</span>
-        }
+<span class="fc" id="L150">        String artifactId = firstCapture(ARTIFACT_ID_PATTERN, header);</span>
 
-        // Extract artifactId (outside parent block)
-<span class="fc" id="L133">        String artifactId = null;</span>
-<span class="fc" id="L134">        Matcher aidMatcher = ARTIFACT_ID_PATTERN.matcher(stripped);</span>
-<span class="pc bpc" id="L135" title="1 of 2 branches missed.">        if (aidMatcher.find()) {</span>
-<span class="fc" id="L136">            artifactId = aidMatcher.group(1).trim();</span>
-        }
-
-<span class="pc bpc" id="L139" title="2 of 4 branches missed.">        if (groupId != null &amp;&amp; artifactId != null) {</span>
-<span class="fc" id="L140">            artifacts.add(new Artifact(groupId, artifactId));</span>
+<span class="pc bpc" id="L152" title="2 of 4 branches missed.">        if (groupId != null &amp;&amp; artifactId != null) {</span>
+<span class="fc" id="L153">            artifacts.add(new Artifact(groupId, artifactId));</span>
         }
 
         // The groupId to pass down for inheritance
-<span class="fc" id="L144">        String effectiveGroupId = groupId;</span>
+<span class="fc" id="L157">        String effectiveGroupId = groupId;</span>
 
         // Find subprojects (POM 4.1.0) or modules (POM 4.0.0)
-<span class="fc" id="L147">        Path pomDir = pomPath.getParent();</span>
+<span class="fc" id="L160">        Path pomDir = pomPath.getParent();</span>
 
         // Scan &lt;subproject&gt; entries first (newer model)
-<span class="fc" id="L150">        Matcher subMatcher = SUBPROJECTS_PATTERN.matcher(content);</span>
-<span class="pc bpc" id="L151" title="1 of 2 branches missed.">        while (subMatcher.find()) {</span>
-<span class="nc" id="L152">            String subproject = subMatcher.group(1).trim();</span>
-<span class="nc" id="L153">            Path subPom = pomDir.resolve(subproject).resolve(&quot;pom.xml&quot;);</span>
-<span class="nc bnc" id="L154" title="All 2 branches missed.">            if (Files.exists(subPom)) {</span>
-<span class="nc" id="L155">                scanPom(subprojectRoot, subPom, effectiveGroupId, artifacts);</span>
+<span class="fc" id="L163">        Matcher subMatcher = SUBPROJECTS_PATTERN.matcher(content);</span>
+<span class="fc bfc" id="L164" title="All 2 branches covered.">        while (subMatcher.find()) {</span>
+<span class="fc" id="L165">            String subproject = subMatcher.group(1).trim();</span>
+<span class="fc" id="L166">            Path subPom = pomDir.resolve(subproject).resolve(&quot;pom.xml&quot;);</span>
+<span class="pc bpc" id="L167" title="1 of 2 branches missed.">            if (Files.exists(subPom)) {</span>
+<span class="fc" id="L168">                scanPom(subprojectRoot, subPom, effectiveGroupId, artifacts);</span>
             }
-<span class="nc" id="L157">        }</span>
+<span class="fc" id="L170">        }</span>
 
         // Scan &lt;module&gt; entries (classic model)
-<span class="fc" id="L160">        Matcher modMatcher = MODULES_PATTERN.matcher(content);</span>
-<span class="fc bfc" id="L161" title="All 2 branches covered.">        while (modMatcher.find()) {</span>
-<span class="fc" id="L162">            String module = modMatcher.group(1).trim();</span>
-<span class="fc" id="L163">            Path modPom = pomDir.resolve(module).resolve(&quot;pom.xml&quot;);</span>
-<span class="pc bpc" id="L164" title="1 of 2 branches missed.">            if (Files.exists(modPom)) {</span>
-<span class="fc" id="L165">                scanPom(subprojectRoot, modPom, effectiveGroupId, artifacts);</span>
+<span class="fc" id="L173">        Matcher modMatcher = MODULES_PATTERN.matcher(content);</span>
+<span class="fc bfc" id="L174" title="All 2 branches covered.">        while (modMatcher.find()) {</span>
+<span class="fc" id="L175">            String module = modMatcher.group(1).trim();</span>
+<span class="fc" id="L176">            Path modPom = pomDir.resolve(module).resolve(&quot;pom.xml&quot;);</span>
+<span class="pc bpc" id="L177" title="1 of 2 branches missed.">            if (Files.exists(modPom)) {</span>
+<span class="fc" id="L178">                scanPom(subprojectRoot, modPom, effectiveGroupId, artifacts);</span>
             }
-<span class="fc" id="L167">        }</span>
-<span class="fc" id="L168">    }</span>
+<span class="fc" id="L180">        }</span>
+<span class="fc" id="L181">    }</span>
+
+    /** First capture group of {@code pattern} in {@code text}, trimmed, or null. */
+    private static String firstCapture(Pattern pattern, String text) {
+<span class="fc" id="L185">        Matcher m = pattern.matcher(text);</span>
+<span class="fc bfc" id="L186" title="All 2 branches covered.">        return m.find() ? m.group(1).trim() : null;</span>
+    }
+
+    /**
+     * Index where the first {@code &lt;groupId&gt;}-bearing body section starts, or the
+     * full length when there is none — bounding own-coordinate extraction so a
+     * dependency/plugin groupId is never read as the project's.
+     */
+    private static int bodySectionStart(String content) {
+<span class="fc" id="L195">        Matcher m = BODY_SECTION.matcher(content);</span>
+<span class="fc bfc" id="L196" title="All 2 branches covered.">        return m.find() ? m.start() : content.length();</span>
+    }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

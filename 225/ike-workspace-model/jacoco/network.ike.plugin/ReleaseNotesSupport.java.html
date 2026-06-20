@@ -1,0 +1,1404 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReleaseNotesSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ReleaseNotesSupport.java</span></div><h1>ReleaseNotesSupport.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.Log;
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Locale;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Generates release notes from a GitHub milestone's closed issues.
+ *
+ * &lt;p&gt;Queries the GitHub REST API, categorizes issues by label into
+ * Fixes, Enhancements, and Internal sections, and produces markdown.
+ * JSON responses are parsed via SnakeYAML (JSON is valid YAML).
+ *
+ * &lt;p&gt;Used by both {@code ws:release-notes} (standalone) and
+ * {@code ike:release} (integrated into the release workflow).
+ */
+public final class ReleaseNotesSupport {
+
+    private ReleaseNotesSupport() {}
+
+    private static final String API_BASE = &quot;https://api.github.com&quot;;
+<span class="fc" id="L45">    private static final Duration TIMEOUT = Duration.ofSeconds(10);</span>
+
+    /**
+     * A closed issue from a GitHub milestone.
+     *
+     * @param number issue number
+     * @param title  issue title
+     * @param labels label names
+     */
+<span class="fc" id="L54">    public record Issue(int number, String title, List&lt;String&gt; labels) {}</span>
+
+    /**
+     * Generate release notes markdown for a named milestone.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title (e.g., &quot;ike-tooling v57&quot;)
+     * @param log       Maven logger (may be null for non-Maven callers)
+     * @return formatted markdown, or null if the milestone is not found
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static String generate(String repo, String milestone, Log log)
+            throws MojoException {
+<span class="fc" id="L67">        return generate(repo, milestone, List.of(), log);</span>
+    }
+
+    /**
+     * Generate release notes markdown for a named milestone, including a
+     * &quot;Foundation upgrades&quot; section for any cascade version bumps the
+     * release applied (IKE-Network/ike-issues#706).
+     *
+     * &lt;p&gt;Returns {@code null} only when there is genuinely nothing to
+     * report — no milestone &lt;em&gt;and&lt;/em&gt; no foundation upgrades — so the
+     * caller can fall back to GitHub's auto-generated notes. A
+     * cascade-only rebuild (no milestone, but real upstream bumps) yields
+     * a non-null body announcing what it was rebuilt against, rather than
+     * a silent &quot;no changes.&quot;
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title (e.g., &quot;ike-docs v76&quot;)
+     * @param upgrades  the upstream-version bumps the release applied (may be empty)
+     * @param log       Maven logger (may be null for non-Maven callers)
+     * @return formatted markdown, or null if there is nothing to report
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static String generate(String repo, String milestone,
+            List&lt;CascadeBump&gt; upgrades, Log log) throws MojoException {
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">        List&lt;CascadeBump&gt; ups = upgrades == null ? List.of() : upgrades;</span>
+        try {
+<span class="fc" id="L93">            int milestoneNumber = findMilestone(repo, milestone);</span>
+<span class="pc bpc" id="L94" title="1 of 2 branches missed.">            List&lt;Issue&gt; issues = milestoneNumber &lt; 0</span>
+<span class="fc" id="L95">                    ? List.of()</span>
+<span class="pc" id="L96">                    : fetchClosedIssues(repo, milestoneNumber);</span>
+            // Nothing to report at all — let the caller fall back to
+            // GitHub's auto-generated commit notes.
+<span class="pc bpc" id="L99" title="2 of 4 branches missed.">            if (milestoneNumber &lt; 0 &amp;&amp; ups.isEmpty()) {</span>
+<span class="fc" id="L100">                return null;</span>
+            }
+<span class="nc" id="L102">            return formatNotes(milestone, issues, ups);</span>
+<span class="nc" id="L103">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L105">                log.warn(&quot;Release notes generation failed: &quot; + e.getMessage());</span>
+            }
+            // Even if the GitHub API failed, the foundation upgrades are
+            // known locally — surface them rather than a silent fallback.
+<span class="nc bnc" id="L109" title="All 2 branches missed.">            if (!ups.isEmpty()) {</span>
+<span class="nc" id="L110">                return formatNotes(milestone, List.of(), ups);</span>
+            }
+<span class="nc" id="L112">            return null;</span>
+        }
+    }
+
+    /**
+     * Try to generate release notes, writing to a temp file suitable
+     * for {@code gh release create --notes-file}. Returns the path,
+     * or null if notes could not be generated.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param log       Maven logger (may be null)
+     * @return path to the temp file, or null on failure
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static Path generateToFile(String repo, String milestone, Log log)
+            throws MojoException {
+<span class="nc" id="L129">        return generateToFile(repo, milestone, List.of(), log);</span>
+    }
+
+    /**
+     * Try to generate release notes (with a &quot;Foundation upgrades&quot;
+     * section sourced from {@code upgrades}, #706), writing to a temp
+     * file suitable for {@code gh release create --notes-file}.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param upgrades  the upstream-version bumps the release applied (may be empty)
+     * @param log       Maven logger (may be null)
+     * @return path to the temp file, or null if there was nothing to report
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static Path generateToFile(String repo, String milestone,
+            List&lt;CascadeBump&gt; upgrades, Log log) throws MojoException {
+<span class="nc" id="L146">        String notes = generate(repo, milestone, upgrades, log);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">        if (notes == null) return null;</span>
+
+        try {
+<span class="nc" id="L150">            Path tempFile = Files.createTempFile(&quot;release-notes-&quot;, &quot;.md&quot;);</span>
+<span class="nc" id="L151">            Files.writeString(tempFile, notes, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L152">            return tempFile;</span>
+<span class="nc" id="L153">        } catch (IOException e) {</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L155">                log.warn(&quot;Could not write release notes to temp file: &quot;</span>
+<span class="nc" id="L156">                        + e.getMessage());</span>
+            }
+<span class="nc" id="L158">            return null;</span>
+        }
+    }
+
+    // ── GitHub API ──────────────────────────────────────────────────
+
+    /**
+     * Close a GitHub milestone by title. Warns if the milestone has
+     * open issues remaining.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param log       Maven logger
+     * @return true if closed, false if not found
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static boolean closeMilestone(String repo, String milestone, Log log)
+            throws MojoException {
+        try {
+<span class="nc" id="L177">            int number = findMilestone(repo, milestone);</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">            if (number &lt; 0) return false;</span>
+
+            // Check for remaining open issues
+<span class="nc" id="L181">            List&lt;Issue&gt; open = fetchOpenIssues(repo, number);</span>
+<span class="nc bnc" id="L182" title="All 4 branches missed.">            if (!open.isEmpty() &amp;&amp; log != null) {</span>
+<span class="nc" id="L183">                log.warn(&quot;Milestone \&quot;&quot; + milestone + &quot;\&quot; has &quot;</span>
+<span class="nc" id="L184">                        + open.size() + &quot; open issue(s) remaining:&quot;);</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                for (Issue issue : open) {</span>
+<span class="nc" id="L186">                    log.warn(&quot;  #&quot; + issue.number() + &quot; &quot; + issue.title());</span>
+<span class="nc" id="L187">                }</span>
+            }
+
+<span class="nc" id="L190">            closeMilestoneViaGh(repo, number);</span>
+
+<span class="nc bnc" id="L192" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L193">                log.info(&quot;Closed milestone: &quot; + milestone);</span>
+            }
+<span class="nc" id="L195">            return true;</span>
+<span class="nc" id="L196">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L198">                log.warn(&quot;Could not close milestone: &quot; + e.getMessage());</span>
+            }
+<span class="nc" id="L200">            return false;</span>
+        }
+    }
+
+    /**
+     * Fetch all issues (open and closed) for a milestone, returning
+     * them categorized for a checkpoint testing context snapshot.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param log       Maven logger
+     * @return snapshot with closed (ready to test) and open (in progress) issues,
+     *         or null if milestone not found
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static TestingContext snapshotMilestone(String repo, String milestone,
+                                                   Log log)
+            throws MojoException {
+        try {
+<span class="nc" id="L219">            int number = findMilestone(repo, milestone);</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (number &lt; 0) return null;</span>
+
+<span class="nc" id="L222">            List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
+<span class="nc" id="L223">            List&lt;Issue&gt; open = fetchOpenIssues(repo, number);</span>
+
+<span class="nc" id="L225">            return new TestingContext(milestone, closed, open);</span>
+<span class="nc" id="L226">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L228">                log.warn(&quot;Could not snapshot milestone: &quot; + e.getMessage());</span>
+            }
+<span class="nc" id="L230">            return null;</span>
+        }
+    }
+
+    /**
+     * A snapshot of milestone state for checkpoint testing context.
+     *
+     * @param milestone  the milestone title
+     * @param readyToTest closed issues — completed work available in this build
+     * @param inProgress  open issues — work actively changing
+     */
+<span class="fc" id="L241">    public record TestingContext(String milestone,</span>
+                                 List&lt;Issue&gt; readyToTest,
+                                 List&lt;Issue&gt; inProgress) {
+
+        /**
+         * Format as markdown for inclusion in checkpoint output.
+         *
+         * @return markdown-formatted testing context
+         */
+        public String toMarkdown() {
+<span class="fc" id="L251">            StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L252">            sb.append(&quot;## Testing Context: &quot;).append(milestone).append(&quot;\n\n&quot;);</span>
+
+<span class="fc bfc" id="L254" title="All 2 branches covered.">            if (!readyToTest.isEmpty()) {</span>
+<span class="fc" id="L255">                sb.append(&quot;### Ready to Test\n\n&quot;);</span>
+<span class="fc bfc" id="L256" title="All 2 branches covered.">                for (Issue issue : readyToTest) {</span>
+<span class="fc" id="L257">                    sb.append(&quot;- &quot;).append(issue.title())</span>
+<span class="fc" id="L258">                            .append(&quot; (#&quot;).append(issue.number()).append(&quot;)\n&quot;);</span>
+<span class="fc" id="L259">                }</span>
+<span class="fc" id="L260">                sb.append(&quot;\n&quot;);</span>
+            }
+
+<span class="fc bfc" id="L263" title="All 2 branches covered.">            if (!inProgress.isEmpty()) {</span>
+<span class="fc" id="L264">                sb.append(&quot;### In Progress\n\n&quot;);</span>
+<span class="fc bfc" id="L265" title="All 2 branches covered.">                for (Issue issue : inProgress) {</span>
+<span class="fc" id="L266">                    sb.append(&quot;- &quot;).append(issue.title())</span>
+<span class="fc" id="L267">                            .append(&quot; (#&quot;).append(issue.number()).append(&quot;)\n&quot;);</span>
+<span class="fc" id="L268">                }</span>
+<span class="fc" id="L269">                sb.append(&quot;\n&quot;);</span>
+            }
+
+<span class="pc bpc" id="L272" title="1 of 4 branches missed.">            if (readyToTest.isEmpty() &amp;&amp; inProgress.isEmpty()) {</span>
+<span class="fc" id="L273">                sb.append(&quot;No issues in milestone.\n&quot;);</span>
+            }
+
+<span class="fc" id="L276">            return sb.toString();</span>
+        }
+
+        /**
+         * Format as YAML for embedding in checkpoint YAML files.
+         *
+         * @param indent whitespace prefix for each line
+         * @return YAML-formatted testing context
+         */
+        public String toYaml(String indent) {
+<span class="fc" id="L286">            StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L287">            sb.append(indent).append(&quot;testing-context:\n&quot;);</span>
+<span class="fc" id="L288">            sb.append(indent).append(&quot;  milestone: \&quot;&quot;).append(milestone).append(&quot;\&quot;\n&quot;);</span>
+
+<span class="pc bpc" id="L290" title="1 of 2 branches missed.">            if (!readyToTest.isEmpty()) {</span>
+<span class="fc" id="L291">                sb.append(indent).append(&quot;  ready-to-test:\n&quot;);</span>
+<span class="fc bfc" id="L292" title="All 2 branches covered.">                for (Issue issue : readyToTest) {</span>
+<span class="fc" id="L293">                    sb.append(indent).append(&quot;    - number: &quot;).append(issue.number()).append(&quot;\n&quot;);</span>
+<span class="fc" id="L294">                    sb.append(indent).append(&quot;      title: \&quot;&quot;).append(escapeYaml(issue.title())).append(&quot;\&quot;\n&quot;);</span>
+<span class="fc" id="L295">                }</span>
+            }
+
+<span class="pc bpc" id="L298" title="1 of 2 branches missed.">            if (!inProgress.isEmpty()) {</span>
+<span class="fc" id="L299">                sb.append(indent).append(&quot;  in-progress:\n&quot;);</span>
+<span class="fc bfc" id="L300" title="All 2 branches covered.">                for (Issue issue : inProgress) {</span>
+<span class="fc" id="L301">                    sb.append(indent).append(&quot;    - number: &quot;).append(issue.number()).append(&quot;\n&quot;);</span>
+<span class="fc" id="L302">                    sb.append(indent).append(&quot;      title: \&quot;&quot;).append(escapeYaml(issue.title())).append(&quot;\&quot;\n&quot;);</span>
+<span class="fc" id="L303">                }</span>
+            }
+
+<span class="fc" id="L306">            return sb.toString();</span>
+        }
+
+        private static String escapeYaml(String s) {
+<span class="fc" id="L310">            return s.replace(&quot;\&quot;&quot;, &quot;\\\&quot;&quot;);</span>
+        }
+    }
+
+    static int findMilestone(String repo, String title)
+            throws IOException, InterruptedException, MojoException {
+<span class="fc" id="L316">        String url = API_BASE + &quot;/repos/&quot; + repo</span>
+                + &quot;/milestones?state=all&amp;per_page=100&quot;;
+<span class="fc" id="L318">        List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
+
+<span class="fc bfc" id="L320" title="All 2 branches covered.">        for (Map&lt;String, Object&gt; ms : milestones) {</span>
+<span class="pc bpc" id="L321" title="1 of 2 branches missed.">            if (title.equals(ms.get(&quot;title&quot;))) {</span>
+<span class="nc" id="L322">                return ((Number) ms.get(&quot;number&quot;)).intValue();</span>
+            }
+<span class="fc" id="L324">        }</span>
+
+<span class="fc" id="L326">        return -1; // Not found — non-fatal</span>
+    }
+
+    static List&lt;Issue&gt; fetchClosedIssues(String repo, int milestoneNumber)
+            throws IOException, InterruptedException, MojoException {
+<span class="nc" id="L331">        List&lt;Issue&gt; all = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L332">        int page = 1;</span>
+
+        while (true) {
+<span class="nc" id="L335">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
+                    + &quot;/issues?milestone=&quot; + milestoneNumber
+                    + &quot;&amp;state=closed&amp;per_page=100&amp;page=&quot; + page;
+<span class="nc" id="L338">            List&lt;Map&lt;String, Object&gt;&gt; batch = apiGetList(url);</span>
+
+<span class="nc bnc" id="L340" title="All 2 branches missed.">            if (batch.isEmpty()) break;</span>
+
+<span class="nc bnc" id="L342" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; item : batch) {</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">                if (item.containsKey(&quot;pull_request&quot;)) continue;</span>
+
+<span class="nc" id="L345">                int number = ((Number) item.get(&quot;number&quot;)).intValue();</span>
+<span class="nc" id="L346">                String itemTitle = (String) item.get(&quot;title&quot;);</span>
+
+<span class="nc" id="L348">                List&lt;String&gt; labels = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L349">                Object labelsObj = item.get(&quot;labels&quot;);</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">                if (labelsObj instanceof List&lt;?&gt; labelList) {</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">                    for (Object labelObj : labelList) {</span>
+<span class="nc bnc" id="L352" title="All 2 branches missed.">                        if (labelObj instanceof Map&lt;?, ?&gt; labelMap) {</span>
+<span class="nc" id="L353">                            Object name = labelMap.get(&quot;name&quot;);</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">                            if (name instanceof String s) {</span>
+<span class="nc" id="L355">                                labels.add(s);</span>
+                            }
+                        }
+<span class="nc" id="L358">                    }</span>
+                }
+
+<span class="nc" id="L361">                all.add(new Issue(number, itemTitle, labels));</span>
+<span class="nc" id="L362">            }</span>
+
+<span class="nc" id="L364">            page++;</span>
+<span class="nc" id="L365">        }</span>
+
+<span class="nc" id="L367">        return all;</span>
+    }
+
+    static List&lt;Issue&gt; fetchOpenIssues(String repo, int milestoneNumber)
+            throws IOException, InterruptedException, MojoException {
+<span class="nc" id="L372">        List&lt;Issue&gt; all = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L373">        int page = 1;</span>
+
+        while (true) {
+<span class="nc" id="L376">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
+                    + &quot;/issues?milestone=&quot; + milestoneNumber
+                    + &quot;&amp;state=open&amp;per_page=100&amp;page=&quot; + page;
+<span class="nc" id="L379">            List&lt;Map&lt;String, Object&gt;&gt; batch = apiGetList(url);</span>
+
+<span class="nc bnc" id="L381" title="All 2 branches missed.">            if (batch.isEmpty()) break;</span>
+
+<span class="nc bnc" id="L383" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; item : batch) {</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">                if (item.containsKey(&quot;pull_request&quot;)) continue;</span>
+
+<span class="nc" id="L386">                int number = ((Number) item.get(&quot;number&quot;)).intValue();</span>
+<span class="nc" id="L387">                String itemTitle = (String) item.get(&quot;title&quot;);</span>
+
+<span class="nc" id="L389">                List&lt;String&gt; labels = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L390">                Object labelsObj = item.get(&quot;labels&quot;);</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">                if (labelsObj instanceof List&lt;?&gt; labelList) {</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">                    for (Object labelObj : labelList) {</span>
+<span class="nc bnc" id="L393" title="All 2 branches missed.">                        if (labelObj instanceof Map&lt;?, ?&gt; labelMap) {</span>
+<span class="nc" id="L394">                            Object name = labelMap.get(&quot;name&quot;);</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">                            if (name instanceof String s) {</span>
+<span class="nc" id="L396">                                labels.add(s);</span>
+                            }
+                        }
+<span class="nc" id="L399">                    }</span>
+                }
+
+<span class="nc" id="L402">                all.add(new Issue(number, itemTitle, labels));</span>
+<span class="nc" id="L403">            }</span>
+
+<span class="nc" id="L405">            page++;</span>
+<span class="nc" id="L406">        }</span>
+
+<span class="nc" id="L408">        return all;</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private static List&lt;Map&lt;String, Object&gt;&gt; apiGetList(String url)
+            throws IOException, InterruptedException, MojoException {
+<span class="fc" id="L414">        String body = apiGet(url);</span>
+<span class="fc" id="L415">        Yaml yaml = new Yaml();</span>
+<span class="fc" id="L416">        Object parsed = yaml.load(body);</span>
+
+<span class="pc bpc" id="L418" title="1 of 2 branches missed.">        if (parsed instanceof List&lt;?&gt; list) {</span>
+<span class="fc" id="L419">            List&lt;Map&lt;String, Object&gt;&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L420" title="All 2 branches covered.">            for (Object item : list) {</span>
+<span class="pc bpc" id="L421" title="1 of 2 branches missed.">                if (item instanceof Map&lt;?, ?&gt; map) {</span>
+<span class="fc" id="L422">                    result.add((Map&lt;String, Object&gt;) map);</span>
+                }
+<span class="fc" id="L424">            }</span>
+<span class="fc" id="L425">            return result;</span>
+        }
+
+<span class="nc" id="L428">        return List.of();</span>
+    }
+
+    /**
+     * Fetch a GitHub API endpoint. Tries {@code gh api} first
+     * (authenticated via the gh CLI's token — {@code GH_TOKEN} or its
+     * stored credential, 5,000 req/hr), then falls back to
+     * {@code HttpClient} with an optional token from {@code GH_TOKEN}
+     * (canonical) or {@code GITHUB_TOKEN} (legacy fallback); an
+     * unauthenticated request is limited to 60 req/hr.
+     */
+    private static String apiGet(String url) throws IOException,
+            InterruptedException, MojoException {
+        // Extract the API path from the full URL for gh api
+<span class="fc" id="L442">        String apiPath = url.replace(API_BASE + &quot;/&quot;, &quot;&quot;);</span>
+
+        // Try gh api first — authenticated, higher rate limit
+        try {
+<span class="fc" id="L446">            return ReleaseSupport.execCapture(new java.io.File(&quot;.&quot;),</span>
+                    &quot;gh&quot;, &quot;api&quot;, apiPath);
+<span class="nc" id="L448">        } catch (MojoException e) {</span>
+            // gh not available or failed — fall through to HttpClient
+        }
+
+        // Fallback: HttpClient with optional GITHUB_TOKEN
+<span class="nc" id="L453">        HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L454">                .connectTimeout(TIMEOUT)</span>
+<span class="nc" id="L455">                .build();</span>
+
+<span class="nc" id="L457">        HttpRequest.Builder builder = HttpRequest.newBuilder()</span>
+<span class="nc" id="L458">                .uri(URI.create(url))</span>
+<span class="nc" id="L459">                .timeout(TIMEOUT)</span>
+<span class="nc" id="L460">                .header(&quot;Accept&quot;, &quot;application/vnd.github+json&quot;)</span>
+<span class="nc" id="L461">                .GET();</span>
+
+        // Canonical GH_TOKEN (gh's own precedence variable), falling back to
+        // the legacy GITHUB_TOKEN (IKE-Network/ike-issues#576).
+<span class="nc" id="L465">        String token = System.getenv(&quot;GH_TOKEN&quot;);</span>
+<span class="nc bnc" id="L466" title="All 4 branches missed.">        if (token == null || token.isBlank()) {</span>
+<span class="nc" id="L467">            token = System.getenv(&quot;GITHUB_TOKEN&quot;);</span>
+        }
+<span class="nc bnc" id="L469" title="All 4 branches missed.">        if (token != null &amp;&amp; !token.isBlank()) {</span>
+<span class="nc" id="L470">            builder.header(&quot;Authorization&quot;, &quot;Bearer &quot; + token);</span>
+        }
+
+<span class="nc" id="L473">        HttpResponse&lt;String&gt; response = client.send(builder.build(),</span>
+<span class="nc" id="L474">                HttpResponse.BodyHandlers.ofString());</span>
+
+<span class="nc bnc" id="L476" title="All 2 branches missed.">        if (response.statusCode() != 200) {</span>
+<span class="nc" id="L477">            throw new MojoException(</span>
+<span class="nc" id="L478">                    &quot;GitHub API returned &quot; + response.statusCode()</span>
+<span class="nc" id="L479">                            + &quot; for &quot; + url + &quot;: &quot; + response.body());</span>
+        }
+
+<span class="nc" id="L482">        return response.body();</span>
+    }
+
+    /**
+     * Close a GitHub milestone by number using the {@code gh} CLI,
+     * which handles authentication via its own keyring. This avoids
+     * requiring {@code GITHUB_TOKEN} for write operations.
+     */
+    private static void closeMilestoneViaGh(String repo, int milestoneNumber)
+            throws MojoException {
+<span class="nc" id="L492">        ReleaseSupport.execCapture(new java.io.File(&quot;.&quot;),</span>
+                &quot;gh&quot;, &quot;api&quot;, &quot;repos/&quot; + repo + &quot;/milestones/&quot; + milestoneNumber,
+                &quot;-X&quot;, &quot;PATCH&quot;, &quot;-f&quot;, &quot;state=closed&quot;);
+<span class="nc" id="L495">    }</span>
+
+    // ── pending-release label removal ───────────────────────────────
+
+    /**
+     * A GitHub issue reference parsed from a closing-keyword commit
+     * trailer.
+     *
+     * @param repo   {@code owner/repo} form (e.g., &quot;IKE-Network/ike-issues&quot;)
+     * @param number issue number
+     */
+<span class="fc" id="L506">    public record IssueRef(String repo, int number) {}</span>
+
+    /**
+     * Matches GitHub's closing-keyword trailers in commit message bodies.
+     *
+     * &lt;p&gt;Captures: {@code (owner)?/(repo)?#(number)}. Owner and repo
+     * are optional to support legacy bare {@code #N} references; the
+     * IKE commit-message standard requires the full form.
+     *
+     * &lt;p&gt;Recognized keywords (case-insensitive): {@code close},
+     * {@code closes}, {@code closed}, {@code fix}, {@code fixes},
+     * {@code fixed}, {@code resolve}, {@code resolves}, {@code resolved}
+     * — matching GitHub's documented auto-close keywords.
+     */
+<span class="fc" id="L520">    private static final Pattern CLOSING_TRAILER_PATTERN = Pattern.compile(</span>
+            &quot;(?im)^\\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\b\\s*:?\\s+&quot;
+                    + &quot;(?:([\\w.-]+)/([\\w.-]+))?#(\\d+)\\b&quot;);
+
+    /**
+     * Matches any IKE-COMMITS.md issue-association trailer — closing
+     * keywords ({@code Fixes}, {@code Closes}, {@code Resolves} and
+     * variants) or {@code Refs} / {@code Ref} for partial or
+     * cross-repo references that should not auto-close.
+     *
+     * &lt;p&gt;Used by trailer-compliance preflight to verify every commit
+     * in a release range references at least one tracked issue.
+     */
+<span class="fc" id="L533">    private static final Pattern ANY_ISSUE_TRAILER_PATTERN = Pattern.compile(</span>
+            &quot;(?im)^\\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)&quot;
+                    + &quot;\\b\\s*:?\\s+&quot;
+                    + &quot;(?:[\\w.-]+/[\\w.-]+)?#\\d+\\b&quot;);
+
+    /**
+     * Like {@link #ANY_ISSUE_TRAILER_PATTERN} but &lt;em&gt;capturing&lt;/em&gt; the
+     * {@code (owner)?/(repo)?#(number)} groups, for rendering issue
+     * references into a changelog. Matches both closing keywords and
+     * {@code Refs}/{@code Ref}.
+     */
+<span class="fc" id="L544">    private static final Pattern ISSUE_REF_CAPTURE_PATTERN = Pattern.compile(</span>
+            &quot;(?im)^\\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)&quot;
+                    + &quot;\\b\\s*:?\\s+&quot;
+                    + &quot;(?:([\\w.-]+)/([\\w.-]+))?#(\\d+)\\b&quot;);
+
+    /**
+     * Matches a trailing parenthetical of bare {@code #N} issue numbers
+     * on a subject line (e.g. {@code &quot; (#705, #706)&quot;}) — stripped from
+     * the changelog subject so the authoritative full-form refs from the
+     * trailers aren't duplicated alongside ambiguous bare ones.
+     */
+<span class="fc" id="L555">    private static final Pattern TRAILING_BARE_REFS_PATTERN = Pattern.compile(</span>
+            &quot;\\s*\\((?:#\\d+(?:\\s*,\\s*)?)+\\)\\s*$&quot;);
+
+    /**
+     * Release-machinery commit subjects, filtered out of a changelog —
+     * the cadence commits a release produces have no changelog value.
+     */
+<span class="fc" id="L562">    private static final Pattern MACHINERY_SUBJECT_PATTERN = Pattern.compile(</span>
+            &quot;(?i)^(?:release:|merge:|post-release:|workspace: pre-|bump |\\[maven-release).*&quot;);
+
+    /**
+     * Remove the {@code pending-release} label from every issue
+     * referenced by a release-closing trailer ({@code Fixes},
+     * {@code Closes}, {@code Resolves} and grammatical variants) in
+     * commits between {@code previousTag} and {@code headRef}.
+     *
+     * &lt;p&gt;Implements the &quot;label = live state&quot; half of the
+     * {@code pending-release} pattern defined in {@code IKE-COMMITS.md}:
+     * a commit lands marking an issue {@code Fixes …}, the issue gets
+     * the {@code pending-release} label as a not-yet-shipped marker,
+     * and when the release actually ships the label comes off so
+     * {@code is:closed label:pending-release} accurately reflects
+     * fixes still awaiting a release.
+     *
+     * &lt;p&gt;Trailer references must use the full
+     * {@code &lt;owner&gt;/&lt;repo&gt;#N} form; bare {@code #N} references are
+     * resolved against {@code fallbackRepo}.
+     *
+     * &lt;p&gt;Pass {@code null} for {@code previousTag} to auto-derive it
+     * via {@code git describe --tags --abbrev=0 &lt;headRef&gt;^}. If no
+     * previous tag is reachable, label removal is skipped with an
+     * informational message.
+     *
+     * &lt;p&gt;Non-fatal: any failure (missing {@code gh} CLI, missing
+     * label, network error, auth error) is logged and the method
+     * continues processing the remaining references. The release is
+     * already done at this point.
+     *
+     * @param gitDir       the git working tree
+     * @param previousTag  the previous release tag, or null to auto-derive
+     * @param headRef      the new release commit or tag (e.g., &quot;v57&quot;)
+     * @param fallbackRepo {@code owner/repo} for bare {@code #N} refs;
+     *                     may be null to ignore bare refs
+     * @param log          Maven logger (may be null)
+     * @return number of issues from which the label was actually removed
+     */
+    public static int removePendingReleaseLabels(File gitDir,
+                                                  String previousTag,
+                                                  String headRef,
+                                                  String fallbackRepo,
+                                                  Log log) {
+        try {
+<span class="nc bnc" id="L607" title="All 2 branches missed.">            String prev = previousTag != null ? previousTag</span>
+<span class="nc" id="L608">                    : resolvePreviousTag(gitDir, headRef);</span>
+<span class="nc bnc" id="L609" title="All 4 branches missed.">            if (prev == null || prev.isBlank()) {</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">                if (log != null) {</span>
+<span class="nc" id="L611">                    log.info(&quot;No previous release tag found; &quot;</span>
+                            + &quot;skipping pending-release label removal&quot;);
+                }
+<span class="nc" id="L614">                return 0;</span>
+            }
+
+<span class="nc" id="L617">            Set&lt;IssueRef&gt; refs = collectClosingTrailerRefs(</span>
+                    gitDir, prev, headRef, fallbackRepo);
+<span class="nc bnc" id="L619" title="All 2 branches missed.">            if (refs.isEmpty()) {</span>
+<span class="nc bnc" id="L620" title="All 2 branches missed.">                if (log != null) {</span>
+<span class="nc" id="L621">                    log.info(&quot;No release-closing trailers found in &quot;</span>
+                            + prev + &quot;..&quot; + headRef);
+                }
+<span class="nc" id="L624">                return 0;</span>
+            }
+
+<span class="nc bnc" id="L627" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L628">                log.info(&quot;Removing pending-release label from &quot;</span>
+<span class="nc" id="L629">                        + refs.size() + &quot; referenced issue(s)...&quot;);</span>
+            }
+<span class="nc" id="L631">            int removed = 0;</span>
+<span class="nc bnc" id="L632" title="All 2 branches missed.">            for (IssueRef ref : refs) {</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">                if (removePendingReleaseLabelOnIssue(ref, log)) {</span>
+<span class="nc" id="L634">                    removed++;</span>
+                }
+<span class="nc" id="L636">            }</span>
+<span class="nc bnc" id="L637" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L638">                log.info(&quot;Removed pending-release label from &quot;</span>
+<span class="nc" id="L639">                        + removed + &quot; of &quot; + refs.size()</span>
+                        + &quot; referenced issue(s)&quot;);
+            }
+<span class="nc" id="L642">            return removed;</span>
+<span class="nc" id="L643">        } catch (Exception e) {</span>
+<span class="nc bnc" id="L644" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L645">                log.warn(&quot;Could not process pending-release labels: &quot;</span>
+<span class="nc" id="L646">                        + e.getMessage());</span>
+            }
+<span class="nc" id="L648">            return 0;</span>
+        }
+    }
+
+    /**
+     * Auto-derive the previous release tag via
+     * {@code git describe --tags --abbrev=0 &lt;headRef&gt;^}. Returns null
+     * if no previous tag is reachable (e.g., first release of a repo).
+     */
+    static String resolvePreviousTag(File gitDir, String headRef) {
+        try {
+<span class="nc" id="L659">            return ReleaseSupport.execCapture(gitDir, &quot;git&quot;, &quot;describe&quot;,</span>
+                    &quot;--tags&quot;, &quot;--abbrev=0&quot;, headRef + &quot;^&quot;);
+<span class="nc" id="L661">        } catch (Exception e) {</span>
+<span class="nc" id="L662">            return null;</span>
+        }
+    }
+
+    /**
+     * Collect unique closing-trailer issue references from commits in
+     * {@code previousTag..headRef}. Delegates to
+     * {@link #parseClosingTrailers} for the actual parsing.
+     */
+    static Set&lt;IssueRef&gt; collectClosingTrailerRefs(File gitDir,
+                                                    String previousTag,
+                                                    String headRef,
+                                                    String fallbackRepo) {
+        try {
+<span class="nc" id="L676">            String body = ReleaseSupport.execCapture(gitDir, &quot;git&quot;, &quot;log&quot;,</span>
+                    &quot;--format=%B%n--end--&quot;, previousTag + &quot;..&quot; + headRef);
+<span class="nc" id="L678">            return parseClosingTrailers(body, fallbackRepo);</span>
+<span class="nc" id="L679">        } catch (Exception e) {</span>
+<span class="nc" id="L680">            return new LinkedHashSet&lt;&gt;();</span>
+        }
+    }
+
+    /**
+     * The full commit messages (subject + body) in
+     * {@code fromRef..toRef}, newest first — the input
+     * {@link #formatChangelog} consumes.
+     *
+     * &lt;p&gt;Reads via {@code git log}, so it works on the release worktree
+     * (a full checkout). Returns an empty list if the range can't be
+     * read (e.g. a shallow checkout, or no previous tag).
+     *
+     * @param gitDir  the git working tree
+     * @param fromRef the exclusive lower bound (e.g. the previous tag)
+     * @param toRef   the inclusive upper bound (e.g. {@code HEAD} or a tag)
+     * @return the commit messages, newest first
+     */
+    public static List&lt;String&gt; commitMessagesBetween(File gitDir,
+            String fromRef, String toRef) {
+<span class="fc" id="L700">        List&lt;String&gt; messages = new ArrayList&lt;&gt;();</span>
+        try {
+<span class="fc" id="L702">            String sep = &quot;--ike-commit-end--&quot;;</span>
+<span class="fc" id="L703">            String out = ReleaseSupport.execCapture(gitDir, &quot;git&quot;, &quot;log&quot;,</span>
+                    &quot;--format=%B%n&quot; + sep, fromRef + &quot;..&quot; + toRef);
+<span class="fc bfc" id="L705" title="All 2 branches covered.">            for (String chunk : out.split(Pattern.quote(sep))) {</span>
+<span class="fc" id="L706">                String message = chunk.strip();</span>
+<span class="pc bpc" id="L707" title="1 of 2 branches missed.">                if (!message.isEmpty()) {</span>
+<span class="fc" id="L708">                    messages.add(message);</span>
+                }
+            }
+<span class="nc" id="L711">        } catch (Exception e) {</span>
+            // unreadable range (shallow checkout, missing ref) -&gt; empty
+<span class="nc" id="L713">            return new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L714">        }</span>
+<span class="fc" id="L715">        return messages;</span>
+    }
+
+    /**
+     * Returns {@code true} if {@code commitMessage} contains at least
+     * one IKE-COMMITS.md issue trailer ({@code Fixes}, {@code Closes},
+     * {@code Resolves}, {@code Refs} and grammatical variants) with a
+     * {@code #N} or {@code &lt;owner&gt;/&lt;repo&gt;#N} reference.
+     *
+     * &lt;p&gt;Used by release-time preflight to flag commits that violate
+     * the &quot;every commit references a tracked issue&quot; rule.
+     *
+     * @param commitMessage commit message body, including subject and trailers
+     * @return true if any issue trailer is present
+     */
+    public static boolean hasAnyIssueTrailer(String commitMessage) {
+<span class="fc bfc" id="L731" title="All 4 branches covered.">        if (commitMessage == null || commitMessage.isEmpty()) {</span>
+<span class="fc" id="L732">            return false;</span>
+        }
+<span class="fc" id="L734">        return ANY_ISSUE_TRAILER_PATTERN.matcher(commitMessage).find();</span>
+    }
+
+    /**
+     * Parse closing-keyword trailers (e.g., {@code Fixes}, {@code Closes},
+     * {@code Resolves} and grammatical variants) from a block of commit
+     * message text. Returns unique references in encounter order.
+     *
+     * &lt;p&gt;Trailers without an explicit {@code owner/repo} prefix are
+     * resolved against {@code fallbackRepo}; if {@code fallbackRepo} is
+     * null, bare references are ignored.
+     *
+     * &lt;p&gt;Public so the workspace plugin (in a different module) can
+     * call this from {@code ws:checkpoint-publish} per
+     * IKE-Network/ike-issues#394 — checkpoint reporting needs the
+     * same trailer parser that release-time label removal uses.
+     *
+     * @param commitMessages concatenated commit message bodies
+     * @param fallbackRepo   {@code owner/repo} for bare references, or null
+     * @return ordered set of unique issue references found
+     */
+    public static Set&lt;IssueRef&gt; parseClosingTrailers(String commitMessages,
+                                                      String fallbackRepo) {
+<span class="fc" id="L757">        Set&lt;IssueRef&gt; refs = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L758" title="All 4 branches covered.">        if (commitMessages == null || commitMessages.isEmpty()) {</span>
+<span class="fc" id="L759">            return refs;</span>
+        }
+<span class="fc" id="L761">        Matcher matcher = CLOSING_TRAILER_PATTERN.matcher(commitMessages);</span>
+<span class="fc bfc" id="L762" title="All 2 branches covered.">        while (matcher.find()) {</span>
+<span class="fc" id="L763">            String owner = matcher.group(1);</span>
+<span class="fc" id="L764">            String repo = matcher.group(2);</span>
+<span class="fc" id="L765">            int number = Integer.parseInt(matcher.group(3));</span>
+<span class="pc bpc" id="L766" title="1 of 4 branches missed.">            String fullRepo = (owner != null &amp;&amp; repo != null)</span>
+<span class="fc" id="L767">                    ? owner + &quot;/&quot; + repo</span>
+<span class="fc" id="L768">                    : fallbackRepo;</span>
+<span class="fc bfc" id="L769" title="All 2 branches covered.">            if (fullRepo != null) {</span>
+<span class="fc" id="L770">                refs.add(new IssueRef(fullRepo, number));</span>
+            }
+<span class="fc" id="L772">        }</span>
+<span class="fc" id="L773">        return refs;</span>
+    }
+
+    /**
+     * Remove the {@code pending-release} label from a single issue
+     * via the {@code gh} CLI. Returns true on success; returns false
+     * (and logs at debug level) when the label is not applied, which
+     * is the most common case — gh returns HTTP 404 for &quot;Label does
+     * not exist&quot; on the target issue.
+     */
+    private static boolean removePendingReleaseLabelOnIssue(IssueRef ref,
+                                                             Log log) {
+        try {
+<span class="nc" id="L786">            ReleaseSupport.execCapture(new File(&quot;.&quot;),</span>
+                    &quot;gh&quot;, &quot;api&quot;, &quot;-X&quot;, &quot;DELETE&quot;,
+<span class="nc" id="L788">                    &quot;/repos/&quot; + ref.repo() + &quot;/issues/&quot; + ref.number()</span>
+                            + &quot;/labels/pending-release&quot;);
+<span class="nc bnc" id="L790" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L791">                log.info(&quot;  Removed pending-release from &quot; + ref.repo()</span>
+<span class="nc" id="L792">                        + &quot;#&quot; + ref.number());</span>
+            }
+<span class="nc" id="L794">            return true;</span>
+<span class="nc" id="L795">        } catch (Exception e) {</span>
+<span class="nc bnc" id="L796" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L797">                log.debug(&quot;  pending-release not removed from &quot;</span>
+<span class="nc" id="L798">                        + ref.repo() + &quot;#&quot; + ref.number()</span>
+                        + &quot; (label not applied or remove failed): &quot;
+<span class="nc" id="L800">                        + e.getMessage());</span>
+            }
+<span class="nc" id="L802">            return false;</span>
+        }
+    }
+
+    /**
+     * Generate a full release history page as AsciiDoc, covering all
+     * closed milestones and any closed issues without a milestone.
+     * Each milestone becomes a section with categorized issues.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param outputDir directory to write release-notes.adoc into
+     * @param log       Maven logger
+     * @return the written file path, or null on failure
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static Path generateFullHistory(String repo, Path outputDir, Log log)
+            throws MojoException {
+        try {
+<span class="nc" id="L820">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
+                    + &quot;/milestones?state=all&amp;per_page=100&amp;direction=desc&amp;sort=completeness&quot;;
+<span class="nc" id="L822">            List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
+
+<span class="nc" id="L824">            StringBuilder adoc = new StringBuilder();</span>
+<span class="nc" id="L825">            adoc.append(&quot;= Release Notes\n\n&quot;);</span>
+
+<span class="nc" id="L827">            boolean hasContent = false;</span>
+
+            // Process each milestone (newest first)
+<span class="nc bnc" id="L830" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; ms : milestones) {</span>
+<span class="nc" id="L831">                String title = (String) ms.get(&quot;title&quot;);</span>
+<span class="nc" id="L832">                int number = ((Number) ms.get(&quot;number&quot;)).intValue();</span>
+<span class="nc" id="L833">                String state = (String) ms.get(&quot;state&quot;);</span>
+<span class="nc" id="L834">                int closedCount = ((Number) ms.get(&quot;closed_issues&quot;)).intValue();</span>
+
+<span class="nc bnc" id="L836" title="All 2 branches missed.">                if (closedCount == 0) continue;</span>
+
+<span class="nc" id="L838">                List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
+<span class="nc bnc" id="L839" title="All 2 branches missed.">                if (closed.isEmpty()) continue;</span>
+
+<span class="nc" id="L841">                hasContent = true;</span>
+<span class="nc bnc" id="L842" title="All 2 branches missed.">                String stateMarker = &quot;open&quot;.equals(state) ? &quot; _(in progress)_&quot; : &quot;&quot;;</span>
+<span class="nc" id="L843">                adoc.append(&quot;== &quot;).append(title).append(stateMarker).append(&quot;\n\n&quot;);</span>
+
+<span class="nc" id="L845">                List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L846">                List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L847">                List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L849" title="All 2 branches missed.">                for (Issue issue : closed) {</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">                    if (issue.labels.contains(&quot;bug&quot;)) {</span>
+<span class="nc" id="L851">                        fixes.add(issue);</span>
+<span class="nc bnc" id="L852" title="All 2 branches missed.">                    } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
+<span class="nc" id="L853">                        enhancements.add(issue);</span>
+                    } else {
+<span class="nc" id="L855">                        internal.add(issue);</span>
+                    }
+<span class="nc" id="L857">                }</span>
+
+<span class="nc" id="L859">                Comparator&lt;Issue&gt; byNumber = Comparator.comparingInt(i -&gt; i.number);</span>
+<span class="nc" id="L860">                fixes.sort(byNumber);</span>
+<span class="nc" id="L861">                enhancements.sort(byNumber);</span>
+<span class="nc" id="L862">                internal.sort(byNumber);</span>
+
+<span class="nc" id="L864">                appendAsciidocSection(adoc, &quot;Fixes&quot;, fixes, repo);</span>
+<span class="nc" id="L865">                appendAsciidocSection(adoc, &quot;Enhancements&quot;, enhancements, repo);</span>
+<span class="nc" id="L866">                appendAsciidocSection(adoc, &quot;Internal&quot;, internal, repo);</span>
+<span class="nc" id="L867">            }</span>
+
+<span class="nc bnc" id="L869" title="All 2 branches missed.">            if (!hasContent) {</span>
+<span class="nc" id="L870">                adoc.append(&quot;No release milestones found. See the\n&quot;);</span>
+<span class="nc" id="L871">                adoc.append(&quot;https://github.com/&quot;).append(repo)</span>
+<span class="nc" id="L872">                        .append(&quot;/issues[issue tracker] for details.\n&quot;);</span>
+            }
+
+<span class="nc" id="L875">            Files.createDirectories(outputDir);</span>
+<span class="nc" id="L876">            Path outFile = outputDir.resolve(&quot;release-notes.adoc&quot;);</span>
+<span class="nc" id="L877">            Files.writeString(outFile, adoc.toString(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L878">            return outFile;</span>
+<span class="nc" id="L879">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L880" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L881">                log.warn(&quot;Full release history generation failed: &quot;</span>
+<span class="nc" id="L882">                        + e.getMessage());</span>
+            }
+<span class="nc" id="L884">            return null;</span>
+        }
+    }
+
+    /**
+     * Generate a full release history as an XHTML fragment suitable for
+     * inclusion in the Maven site via {@code generatedSiteDirectory}.
+     * The fragment is wrapped in a root {@code &lt;div&gt;} with an
+     * {@code &lt;h1&gt;} title, matching the format that
+     * {@code maven-site-plugin} expects from generated content.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param outputDir directory to write release-notes.xhtml into
+     * @param log       Maven logger
+     * @return the written file path, or null on failure
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static Path generateFullHistoryXhtml(String repo, Path outputDir,
+                                                 Log log)
+            throws MojoException {
+        try {
+<span class="nc" id="L905">            String url = API_BASE + &quot;/repos/&quot; + repo</span>
+                    + &quot;/milestones?state=all&amp;per_page=100&amp;direction=desc&quot;;
+<span class="nc" id="L907">            List&lt;Map&lt;String, Object&gt;&gt; milestones = apiGetList(url);</span>
+
+<span class="nc" id="L909">            StringBuilder html = new StringBuilder();</span>
+<span class="nc" id="L910">            html.append(&quot;&lt;div class=\&quot;ike-release-notes\&quot;&gt;\n&quot;);</span>
+<span class="nc" id="L911">            html.append(&quot;&lt;h1&gt;Release Notes&lt;/h1&gt;\n&quot;);</span>
+
+<span class="nc" id="L913">            boolean hasContent = false;</span>
+
+<span class="nc bnc" id="L915" title="All 2 branches missed.">            for (Map&lt;String, Object&gt; ms : milestones) {</span>
+<span class="nc" id="L916">                String title = (String) ms.get(&quot;title&quot;);</span>
+<span class="nc" id="L917">                int number = ((Number) ms.get(&quot;number&quot;)).intValue();</span>
+<span class="nc" id="L918">                int closedCount = ((Number) ms.get(&quot;closed_issues&quot;)).intValue();</span>
+
+<span class="nc bnc" id="L920" title="All 2 branches missed.">                if (closedCount == 0) continue;</span>
+
+<span class="nc" id="L922">                List&lt;Issue&gt; closed = fetchClosedIssues(repo, number);</span>
+<span class="nc bnc" id="L923" title="All 2 branches missed.">                if (closed.isEmpty()) continue;</span>
+
+<span class="nc" id="L925">                hasContent = true;</span>
+<span class="nc" id="L926">                html.append(&quot;&lt;h2&gt;&quot;).append(escapeHtml(title)).append(&quot;&lt;/h2&gt;\n&quot;);</span>
+
+<span class="nc" id="L928">                List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L929">                List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L930">                List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L932" title="All 2 branches missed.">                for (Issue issue : closed) {</span>
+<span class="nc bnc" id="L933" title="All 2 branches missed.">                    if (issue.labels.contains(&quot;bug&quot;)) fixes.add(issue);</span>
+<span class="nc bnc" id="L934" title="All 2 branches missed.">                    else if (issue.labels.contains(&quot;enhancement&quot;)) enhancements.add(issue);</span>
+<span class="nc" id="L935">                    else internal.add(issue);</span>
+<span class="nc" id="L936">                }</span>
+
+<span class="nc" id="L938">                appendHtmlSection(html, &quot;Fixes&quot;, fixes, repo);</span>
+<span class="nc" id="L939">                appendHtmlSection(html, &quot;Enhancements&quot;, enhancements, repo);</span>
+<span class="nc" id="L940">                appendHtmlSection(html, &quot;Internal&quot;, internal, repo);</span>
+<span class="nc" id="L941">            }</span>
+
+<span class="nc bnc" id="L943" title="All 2 branches missed.">            if (!hasContent) {</span>
+<span class="nc" id="L944">                html.append(&quot;&lt;p&gt;No release milestones found. See the &quot;);</span>
+<span class="nc" id="L945">                html.append(&quot;&lt;a href=\&quot;https://github.com/&quot;).append(repo);</span>
+<span class="nc" id="L946">                html.append(&quot;/milestones\&quot;&gt;issue tracker&lt;/a&gt; for details.&lt;/p&gt;\n&quot;);</span>
+            }
+
+<span class="nc" id="L949">            html.append(&quot;&lt;/div&gt;\n&quot;);</span>
+
+<span class="nc" id="L951">            Files.createDirectories(outputDir);</span>
+<span class="nc" id="L952">            Path outFile = outputDir.resolve(&quot;release-notes.xhtml&quot;);</span>
+<span class="nc" id="L953">            Files.writeString(outFile, html.toString(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L954">            return outFile;</span>
+<span class="nc" id="L955">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L956" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L957">                log.warn(&quot;Release history XHTML generation failed: &quot;</span>
+<span class="nc" id="L958">                        + e.getMessage());</span>
+            }
+<span class="nc" id="L960">            return null;</span>
+        }
+    }
+
+    private static void appendHtmlSection(StringBuilder html, String heading,
+                                           List&lt;Issue&gt; issues, String repo) {
+<span class="nc bnc" id="L966" title="All 2 branches missed.">        if (issues.isEmpty()) return;</span>
+
+<span class="nc" id="L968">        html.append(&quot;&lt;h3&gt;&quot;).append(heading).append(&quot;&lt;/h3&gt;\n&lt;ul&gt;\n&quot;);</span>
+<span class="nc bnc" id="L969" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
+<span class="nc" id="L970">            html.append(&quot;&lt;li&gt;&quot;).append(escapeHtml(issue.title()))</span>
+<span class="nc" id="L971">                    .append(&quot; (&lt;a href=\&quot;https://github.com/&quot;).append(repo)</span>
+<span class="nc" id="L972">                    .append(&quot;/issues/&quot;).append(issue.number())</span>
+<span class="nc" id="L973">                    .append(&quot;\&quot;&gt;#&quot;).append(issue.number())</span>
+<span class="nc" id="L974">                    .append(&quot;&lt;/a&gt;)&lt;/li&gt;\n&quot;);</span>
+<span class="nc" id="L975">        }</span>
+<span class="nc" id="L976">        html.append(&quot;&lt;/ul&gt;\n&quot;);</span>
+<span class="nc" id="L977">    }</span>
+
+    private static String escapeHtml(String s) {
+<span class="nc" id="L980">        return s.replace(&quot;&amp;&quot;, &quot;&amp;amp;&quot;).replace(&quot;&lt;&quot;, &quot;&amp;lt;&quot;).replace(&quot;&gt;&quot;, &quot;&amp;gt;&quot;);</span>
+    }
+
+    /**
+     * Generate release notes as AsciiDoc and write to a file, suitable
+     * for inclusion in the Maven site build. Returns the path, or null
+     * if the milestone is not found.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title
+     * @param outputDir directory to write the AsciiDoc file into
+     * @param log       Maven logger
+     * @return path to the written file, or null on failure
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static Path generateAsciidocToFile(String repo, String milestone,
+                                               Path outputDir, Log log)
+            throws MojoException {
+        try {
+<span class="nc" id="L999">            int milestoneNumber = findMilestone(repo, milestone);</span>
+<span class="nc bnc" id="L1000" title="All 2 branches missed.">            if (milestoneNumber &lt; 0) return null;</span>
+
+<span class="nc" id="L1002">            List&lt;Issue&gt; issues = fetchClosedIssues(repo, milestoneNumber);</span>
+<span class="nc" id="L1003">            String adoc = formatAsciidoc(milestone, issues, repo);</span>
+
+<span class="nc" id="L1005">            Files.createDirectories(outputDir);</span>
+<span class="nc" id="L1006">            Path outFile = outputDir.resolve(&quot;release-notes.adoc&quot;);</span>
+<span class="nc" id="L1007">            Files.writeString(outFile, adoc, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L1008">            return outFile;</span>
+<span class="nc" id="L1009">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L1010" title="All 2 branches missed.">            if (log != null) {</span>
+<span class="nc" id="L1011">                log.warn(&quot;AsciiDoc release notes generation failed: &quot;</span>
+<span class="nc" id="L1012">                        + e.getMessage());</span>
+            }
+<span class="nc" id="L1014">            return null;</span>
+        }
+    }
+
+    /**
+     * Format release notes as AsciiDoc for site integration.
+     *
+     * @param milestoneName the milestone title
+     * @param issues        closed issues from the milestone
+     * @param repo          GitHub repository (e.g., &quot;IKE-Network/ike-issues&quot;)
+     * @return AsciiDoc-formatted release notes
+     */
+    public static String formatAsciidoc(String milestoneName, List&lt;Issue&gt; issues,
+                                         String repo) {
+<span class="nc" id="L1028">        List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1029">        List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1030">        List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L1032" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
+<span class="nc bnc" id="L1033" title="All 2 branches missed.">            if (issue.labels.contains(&quot;bug&quot;)) {</span>
+<span class="nc" id="L1034">                fixes.add(issue);</span>
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">            } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
+<span class="nc" id="L1036">                enhancements.add(issue);</span>
+            } else {
+<span class="nc" id="L1038">                internal.add(issue);</span>
+            }
+<span class="nc" id="L1040">        }</span>
+
+<span class="nc" id="L1042">        Comparator&lt;Issue&gt; noteworthy = Comparator</span>
+<span class="nc bnc" id="L1043" title="All 2 branches missed.">                .&lt;Issue, Boolean&gt;comparing(i -&gt; !i.labels.contains(&quot;release-notes&quot;))</span>
+<span class="nc" id="L1044">                .thenComparingInt(i -&gt; i.number);</span>
+
+<span class="nc" id="L1046">        fixes.sort(noteworthy);</span>
+<span class="nc" id="L1047">        enhancements.sort(noteworthy);</span>
+<span class="nc" id="L1048">        internal.sort(noteworthy);</span>
+
+<span class="nc" id="L1050">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L1051">        sb.append(&quot;= Release Notes: &quot;).append(milestoneName).append(&quot;\n\n&quot;);</span>
+
+<span class="nc" id="L1053">        appendAsciidocSection(sb, &quot;Fixes&quot;, fixes, repo);</span>
+<span class="nc" id="L1054">        appendAsciidocSection(sb, &quot;Enhancements&quot;, enhancements, repo);</span>
+<span class="nc" id="L1055">        appendAsciidocSection(sb, &quot;Internal&quot;, internal, repo);</span>
+
+<span class="nc bnc" id="L1057" title="All 2 branches missed.">        if (issues.isEmpty()) {</span>
+<span class="nc" id="L1058">            sb.append(&quot;No closed issues in this milestone.\n&quot;);</span>
+        }
+
+<span class="nc" id="L1061">        return sb.toString();</span>
+    }
+
+    private static void appendAsciidocSection(StringBuilder sb, String heading,
+                                               List&lt;Issue&gt; issues, String repo) {
+<span class="nc bnc" id="L1066" title="All 2 branches missed.">        if (issues.isEmpty()) return;</span>
+
+<span class="nc" id="L1068">        sb.append(&quot;== &quot;).append(heading).append(&quot;\n\n&quot;);</span>
+<span class="nc bnc" id="L1069" title="All 2 branches missed.">        for (Issue issue : issues) {</span>
+<span class="nc" id="L1070">            sb.append(&quot;* &quot;).append(issue.title())</span>
+<span class="nc" id="L1071">                    .append(&quot; (https://github.com/&quot;).append(repo)</span>
+<span class="nc" id="L1072">                    .append(&quot;/issues/&quot;).append(issue.number())</span>
+<span class="nc" id="L1073">                    .append(&quot;[#&quot;).append(issue.number()).append(&quot;])\n&quot;);</span>
+<span class="nc" id="L1074">        }</span>
+<span class="nc" id="L1075">        sb.append(&quot;\n&quot;);</span>
+<span class="nc" id="L1076">    }</span>
+
+    // ── Formatting (Markdown) ───────────────────────────────────────
+
+    /**
+     * Format release notes as Markdown for GitHub Release bodies.
+     *
+     * @param milestoneName the milestone title
+     * @param issues        closed issues from the milestone
+     * @return Markdown-formatted release notes
+     */
+    public static String formatNotes(String milestoneName, List&lt;Issue&gt; issues) {
+<span class="fc" id="L1088">        return formatNotes(milestoneName, issues, List.of());</span>
+    }
+
+    /**
+     * Format release notes as Markdown, including a &quot;Foundation
+     * upgrades&quot; section for cascade version bumps
+     * (IKE-Network/ike-issues#706).
+     *
+     * @param milestoneName the milestone title
+     * @param issues        closed issues from the milestone
+     * @param upgrades      the upstream-version bumps the release applied (may be empty)
+     * @return Markdown-formatted release notes
+     */
+    public static String formatNotes(String milestoneName, List&lt;Issue&gt; issues,
+            List&lt;CascadeBump&gt; upgrades) {
+<span class="pc bpc" id="L1103" title="1 of 2 branches missed.">        List&lt;CascadeBump&gt; ups = upgrades == null ? List.of() : upgrades;</span>
+<span class="fc" id="L1104">        List&lt;Issue&gt; fixes = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1105">        List&lt;Issue&gt; enhancements = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1106">        List&lt;Issue&gt; internal = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L1108" title="All 2 branches covered.">        for (Issue issue : issues) {</span>
+<span class="fc bfc" id="L1109" title="All 2 branches covered.">            if (issue.labels.contains(&quot;bug&quot;)) {</span>
+<span class="fc" id="L1110">                fixes.add(issue);</span>
+<span class="fc bfc" id="L1111" title="All 2 branches covered.">            } else if (issue.labels.contains(&quot;enhancement&quot;)) {</span>
+<span class="fc" id="L1112">                enhancements.add(issue);</span>
+            } else {
+<span class="fc" id="L1114">                internal.add(issue);</span>
+            }
+<span class="fc" id="L1116">        }</span>
+
+<span class="fc" id="L1118">        Comparator&lt;Issue&gt; noteworthy = Comparator</span>
+<span class="pc bnc" id="L1119" title="All 2 branches missed.">                .&lt;Issue, Boolean&gt;comparing(i -&gt; !i.labels.contains(&quot;release-notes&quot;))</span>
+<span class="pc" id="L1120">                .thenComparingInt(i -&gt; i.number);</span>
+
+<span class="fc" id="L1122">        fixes.sort(noteworthy);</span>
+<span class="fc" id="L1123">        enhancements.sort(noteworthy);</span>
+<span class="fc" id="L1124">        internal.sort(noteworthy);</span>
+
+<span class="fc" id="L1126">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L1127">        sb.append(&quot;## &quot;).append(milestoneName).append(&quot;\n\n&quot;);</span>
+
+<span class="fc" id="L1129">        appendSection(sb, &quot;Fixes&quot;, fixes);</span>
+<span class="fc" id="L1130">        appendSection(sb, &quot;Enhancements&quot;, enhancements);</span>
+<span class="fc" id="L1131">        appendSection(sb, &quot;Internal&quot;, internal);</span>
+<span class="fc" id="L1132">        appendFoundationUpgrades(sb, ups);</span>
+
+        // Only the genuinely-empty case prints the placeholder. A
+        // cascade-only rebuild has no closed issues but real foundation
+        // upgrades — that is &quot;what changed,&quot; not &quot;no changes&quot; (#706).
+<span class="fc bfc" id="L1137" title="All 4 branches covered.">        if (issues.isEmpty() &amp;&amp; ups.isEmpty()) {</span>
+<span class="fc" id="L1138">            sb.append(&quot;No closed issues in this milestone.\n&quot;);</span>
+        }
+
+<span class="fc" id="L1141">        return sb.toString();</span>
+    }
+
+    /**
+     * Appends a &quot;Foundation upgrades&quot; section announcing the upstream
+     * rebuild — a one-line &quot;Rebuilt against …&quot; summary plus the
+     * per-artifact old→new transitions (IKE-Network/ike-issues#706).
+     */
+    /**
+     * Whether a commit subject is release machinery (a cadence commit a
+     * release itself produces), and so should be filtered from a
+     * changelog.
+     *
+     * @param subject the commit subject line
+     * @return {@code true} for release/merge/post-release/bump machinery
+     */
+    public static boolean isMachineryCommit(String subject) {
+<span class="pc bpc" id="L1158" title="1 of 2 branches missed.">        return subject != null</span>
+<span class="fc bfc" id="L1159" title="All 2 branches covered.">                &amp;&amp; MACHINERY_SUBJECT_PATTERN.matcher(subject.strip()).matches();</span>
+    }
+
+    /**
+     * Extract every issue reference from a commit message's trailers, in
+     * display form, de-duplicated and in first-seen order.
+     *
+     * &lt;p&gt;The full {@code owner/repo#N} form is preserved verbatim
+     * (so a consumer — a Zulip linkifier, a GitHub release body — links
+     * it in whatever repo it lives, with no tracker assumed). A bare
+     * {@code #N} reference is returned as {@code #N}: its repository is
+     * ambiguous and is deliberately &lt;em&gt;not&lt;/em&gt; guessed.
+     *
+     * @param commitMessage the full commit message (subject + body)
+     * @return the referenced issues in display form, e.g.
+     *         {@code [&quot;IKE-Network/ike-issues#705&quot;, &quot;ikmdev/komet-desktop#12&quot;]}
+     */
+    public static List&lt;String&gt; parseIssueRefs(String commitMessage) {
+<span class="fc" id="L1177">        List&lt;String&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L1178" title="1 of 2 branches missed.">        if (commitMessage == null) {</span>
+<span class="nc" id="L1179">            return out;</span>
+        }
+<span class="fc" id="L1181">        Matcher m = ISSUE_REF_CAPTURE_PATTERN.matcher(commitMessage);</span>
+<span class="fc bfc" id="L1182" title="All 2 branches covered.">        while (m.find()) {</span>
+<span class="fc" id="L1183">            String owner = m.group(1);</span>
+<span class="fc" id="L1184">            String repo = m.group(2);</span>
+<span class="fc" id="L1185">            String number = m.group(3);</span>
+<span class="pc bpc" id="L1186" title="1 of 4 branches missed.">            String display = (owner != null &amp;&amp; repo != null)</span>
+<span class="fc" id="L1187">                    ? owner + &quot;/&quot; + repo + &quot;#&quot; + number</span>
+<span class="fc" id="L1188">                    : &quot;#&quot; + number;</span>
+<span class="fc bfc" id="L1189" title="All 2 branches covered.">            if (!out.contains(display)) {</span>
+<span class="fc" id="L1190">                out.add(display);</span>
+            }
+<span class="fc" id="L1192">        }</span>
+<span class="fc" id="L1193">        return out;</span>
+    }
+
+    /**
+     * Compose a &quot;What's changed&quot; changelog from a list of commit
+     * messages: one bullet per substantive commit (release machinery
+     * filtered out), each annotated with the full-form issue references
+     * parsed from its trailers.
+     *
+     * &lt;p&gt;Repo-agnostic: no issue tracker is assumed or hardcoded — each
+     * reference carries its own {@code owner/repo} from the commit
+     * trailer ({@code IKE-COMMITS.md} mandates the full form for exactly
+     * this cross-repo reason). A trailing bare-{@code #N} parenthetical
+     * on the subject is stripped so refs aren't shown twice.
+     *
+     * &lt;p&gt;Returns the empty string when nothing substantive remains —
+     * the caller omits the whole &quot;What's changed&quot; block in that case.
+     *
+     * @param commitMessages full commit messages (subject + body) in
+     *                       display order (typically newest-first from a
+     *                       {@code git log}/compare range)
+     * @return the Markdown bullet list, or {@code &quot;&quot;} if empty
+     */
+    public static String formatChangelog(List&lt;String&gt; commitMessages) {
+<span class="pc bpc" id="L1217" title="1 of 2 branches missed.">        if (commitMessages == null) {</span>
+<span class="nc" id="L1218">            return &quot;&quot;;</span>
+        }
+<span class="fc" id="L1220">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc bfc" id="L1221" title="All 2 branches covered.">        for (String message : commitMessages) {</span>
+<span class="pc bpc" id="L1222" title="2 of 4 branches missed.">            if (message == null || message.isBlank()) {</span>
+<span class="nc" id="L1223">                continue;</span>
+            }
+<span class="fc" id="L1225">            String subject = message.strip().split(&quot;\\R&quot;, 2)[0].strip();</span>
+<span class="pc bpc" id="L1226" title="1 of 4 branches missed.">            if (subject.isEmpty() || isMachineryCommit(subject)) {</span>
+<span class="fc" id="L1227">                continue;</span>
+            }
+<span class="fc" id="L1229">            List&lt;String&gt; refs = parseIssueRefs(message);</span>
+<span class="pc bpc" id="L1230" title="1 of 2 branches missed.">            if (!refs.isEmpty()) {</span>
+                // Drop a trailing &quot;(#705, #706)&quot; so the authoritative
+                // full-form refs aren't duplicated by ambiguous bare ones.
+<span class="fc" id="L1233">                subject = TRAILING_BARE_REFS_PATTERN.matcher(subject)</span>
+<span class="fc" id="L1234">                        .replaceFirst(&quot;&quot;);</span>
+            }
+<span class="fc" id="L1236">            sb.append(&quot;- &quot;).append(subject);</span>
+<span class="pc bpc" id="L1237" title="1 of 2 branches missed.">            if (!refs.isEmpty()) {</span>
+<span class="fc" id="L1238">                sb.append(&quot; (&quot;).append(String.join(&quot;, &quot;, refs)).append(&quot;)&quot;);</span>
+            }
+<span class="fc" id="L1240">            sb.append(&quot;\n&quot;);</span>
+<span class="fc" id="L1241">        }</span>
+<span class="fc" id="L1242">        return sb.toString();</span>
+    }
+
+    // ── Release-cascade Zulip topic grouping (#699) ─────────────────
+    //
+    // A whole cascade threads under ONE Zulip topic instead of scattering
+    // one post per release. Correlation is the topic itself, not a
+    // recomputed date: the first build creates the &quot;… — in progress&quot;
+    // topic; later builds (even across midnight) find that single open
+    // topic and post there; the terminal (ike-platform) renames it to
+    // carry the ike-parent version. The date is a human label stamped
+    // ONCE by the creator — in the release server's own zone, labelled —
+    // so there is no cross-build/cross-timezone date to disagree on.
+
+    /** Suffix marking the open (not-yet-complete) cascade topic. */
+    private static final String IN_PROGRESS_SUFFIX =
+            &quot; Release Cascade — in progress&quot;;
+
+<span class="fc" id="L1260">    private static final DateTimeFormatter CASCADE_LABEL_FORMAT =</span>
+<span class="fc" id="L1261">            DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd z&quot;, Locale.US);</span>
+
+    /**
+     * The human label for a cascade topic — the creating build's date in
+     * its own zone, with the zone abbreviation appended so it is
+     * unambiguous across the operators' time zones (e.g.
+     * {@code &quot;2026-06-19 PDT&quot;}).
+     *
+     * &lt;p&gt;Computed once, by the build that creates the topic; never
+     * recomputed by other builds (they find the open topic instead), so
+     * there is no need for a midnight-safe rollover.
+     *
+     * @param now  the creating build's instant
+     * @param zone the release server's zone (e.g. {@code ZoneId.systemDefault()})
+     * @return the label, e.g. {@code &quot;2026-06-19 PDT&quot;}
+     */
+    public static String cascadeTopicLabel(Instant now, ZoneId zone) {
+<span class="fc" id="L1278">        return CASCADE_LABEL_FORMAT.format(now.atZone(zone));</span>
+    }
+
+    /**
+     * The open-cascade topic name for a label, e.g.
+     * {@code &quot;2026-06-19 PDT Release Cascade — in progress&quot;}. The
+     * {@code &quot;— in progress&quot;} suffix is the correlation key: at most one
+     * such topic exists at a time (releases run serially and completion
+     * renames it away), so a build finds the cascade by matching it.
+     *
+     * @param label the {@link #cascadeTopicLabel} value
+     * @return the in-progress topic name
+     */
+    public static String inProgressCascadeTopic(String label) {
+<span class="fc" id="L1292">        return label + IN_PROGRESS_SUFFIX;</span>
+    }
+
+    /**
+     * The completed-cascade topic name, carrying the ike-parent version
+     * the terminal release establishes, e.g.
+     * {@code &quot;2026-06-19 PDT ike-parent Release Cascade v66&quot;}.
+     *
+     * @param label         the {@link #cascadeTopicLabel} value
+     * @param parentVersion the released ike-parent (ike-platform) version
+     * @return the completed topic name
+     */
+    public static String completedCascadeTopic(String label, String parentVersion) {
+<span class="fc" id="L1305">        return label + &quot; ike-parent Release Cascade v&quot; + parentVersion;</span>
+    }
+
+    /**
+     * Recover the {@link #cascadeTopicLabel} from an in-progress topic
+     * name, so the terminal build can derive the completed name from the
+     * topic it found, or {@code null} if {@code topic} is not an
+     * in-progress cascade topic.
+     *
+     * @param topic a Zulip topic name
+     * @return the label, or {@code null} if it isn't an in-progress cascade topic
+     */
+    public static String cascadeLabelOf(String topic) {
+<span class="fc bfc" id="L1318" title="All 4 branches covered.">        if (topic == null || !topic.endsWith(IN_PROGRESS_SUFFIX)) {</span>
+<span class="fc" id="L1319">            return null;</span>
+        }
+<span class="fc" id="L1321">        return topic.substring(0, topic.length() - IN_PROGRESS_SUFFIX.length());</span>
+    }
+
+    /**
+     * A shell-sourceable env snippet carrying the cascade label and
+     * in-progress topic name, so a notify step gets everything from one
+     * {@code ike:release-changelog} call without recomputing the date in
+     * shell. Values are single-quoted; safe because a label is only
+     * digits, hyphens, spaces, and a zone abbreviation — never a quote.
+     *
+     * &lt;pre&gt;
+     * CASCADE_LABEL='2026-06-19 PDT'
+     * CASCADE_TOPIC_INPROGRESS='2026-06-19 PDT Release Cascade — in progress'
+     * &lt;/pre&gt;
+     *
+     * @param label the {@link #cascadeTopicLabel} value
+     * @return the env-file content (newline-terminated)
+     */
+    public static String cascadeMetaEnv(String label) {
+<span class="fc" id="L1340">        return &quot;CASCADE_LABEL='&quot; + label + &quot;'\n&quot;</span>
+                + &quot;CASCADE_TOPIC_INPROGRESS='&quot;
+<span class="fc" id="L1342">                + inProgressCascadeTopic(label) + &quot;'\n&quot;;</span>
+    }
+
+    /**
+     * A repo released as part of a cascade — for the completion summary.
+     *
+     * @param artifact the released repo's artifactId (e.g. {@code ike-tooling})
+     * @param version  the released version (e.g. {@code 223})
+     */
+<span class="fc" id="L1351">    public record CascadeMember(String artifact, String version) {}</span>
+
+    /**
+     * The cascade-completion summary the terminal build posts, naming the
+     * ike-parent version and listing every repo released in the cascade.
+     *
+     * @param parentVersion the released ike-parent (ike-platform) version
+     * @param members       the repos released, in cascade order
+     * @return the Markdown summary
+     */
+    public static String formatCascadeSummary(String parentVersion,
+            List&lt;CascadeMember&gt; members) {
+<span class="fc" id="L1363">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L1364">        sb.append(&quot;**Release cascade complete — ike-parent v&quot;)</span>
+<span class="fc" id="L1365">                .append(parentVersion).append(&quot;** ✅\n\n&quot;);</span>
+<span class="pc bpc" id="L1366" title="1 of 2 branches missed.">        if (members != null) {</span>
+<span class="fc bfc" id="L1367" title="All 2 branches covered.">            for (CascadeMember m : members) {</span>
+<span class="fc" id="L1368">                sb.append(&quot;- &quot;).append(m.artifact())</span>
+<span class="fc" id="L1369">                        .append(&quot; v&quot;).append(m.version()).append('\n');</span>
+<span class="fc" id="L1370">            }</span>
+        }
+<span class="fc" id="L1372">        return sb.toString();</span>
+    }
+
+    private static void appendFoundationUpgrades(StringBuilder sb,
+            List&lt;CascadeBump&gt; upgrades) {
+<span class="fc bfc" id="L1377" title="All 2 branches covered.">        if (upgrades.isEmpty()) return;</span>
+
+<span class="fc" id="L1379">        sb.append(&quot;### Foundation upgrades\n\n&quot;);</span>
+<span class="fc" id="L1380">        String rebuiltAgainst = upgrades.stream()</span>
+<span class="fc" id="L1381">                .map(b -&gt; b.artifactId() + &quot; &quot; + b.latest())</span>
+<span class="fc" id="L1382">                .collect(java.util.stream.Collectors.joining(&quot;, &quot;));</span>
+<span class="fc" id="L1383">        sb.append(&quot;Rebuilt against &quot;).append(rebuiltAgainst).append(&quot;.\n\n&quot;);</span>
+<span class="fc bfc" id="L1384" title="All 2 branches covered.">        for (CascadeBump b : upgrades) {</span>
+<span class="fc" id="L1385">            sb.append(&quot;- `&quot;).append(b.ga()).append(&quot;` &quot;)</span>
+<span class="fc" id="L1386">                    .append(b.current()).append(&quot; → &quot;).append(b.latest())</span>
+<span class="fc" id="L1387">                    .append('\n');</span>
+<span class="fc" id="L1388">        }</span>
+<span class="fc" id="L1389">        sb.append(&quot;\n&quot;);</span>
+<span class="fc" id="L1390">    }</span>
+
+    private static void appendSection(StringBuilder sb, String heading,
+                                       List&lt;Issue&gt; issues) {
+<span class="fc bfc" id="L1394" title="All 2 branches covered.">        if (issues.isEmpty()) return;</span>
+
+<span class="fc" id="L1396">        sb.append(&quot;### &quot;).append(heading).append(&quot;\n\n&quot;);</span>
+<span class="fc bfc" id="L1397" title="All 2 branches covered.">        for (Issue issue : issues) {</span>
+<span class="fc" id="L1398">            sb.append(&quot;- &quot;).append(issue.title)</span>
+<span class="fc" id="L1399">                    .append(&quot; (#&quot;).append(issue.number).append(&quot;)\n&quot;);</span>
+<span class="fc" id="L1400">        }</span>
+<span class="fc" id="L1401">        sb.append(&quot;\n&quot;);</span>
+<span class="fc" id="L1402">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
