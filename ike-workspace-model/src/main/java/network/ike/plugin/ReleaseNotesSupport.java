@@ -1342,7 +1342,12 @@ public final class ReleaseNotesSupport {
                 + inProgressCascadeTopic(label) + "'\n";
     }
 
-    /** A repo released as part of a cascade — for the completion summary. */
+    /**
+     * A repo released as part of a cascade — for the completion summary.
+     *
+     * @param artifact the released repo's artifactId (e.g. {@code ike-tooling})
+     * @param version  the released version (e.g. {@code 223})
+     */
     public record CascadeMember(String artifact, String version) {}
 
     /**
