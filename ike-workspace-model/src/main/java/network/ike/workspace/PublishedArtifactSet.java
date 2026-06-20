@@ -48,6 +48,17 @@ public final class PublishedArtifactSet {
             Pattern.compile("<module>([^<]+)</module>");
     private static final Pattern PARENT_BLOCK =
             Pattern.compile("(?s)<parent>.*?</parent>");
+    /** Self-closing {@code <parent/>} — Maven 4.1.0's inferred parent (carries no groupId). */
+    private static final Pattern PARENT_SELF_CLOSING =
+            Pattern.compile("<parent\\s*/>");
+    /**
+     * Start of the first POM body section that may itself contain a {@code <groupId>}
+     * — a dependency, managed dependency, or plugin. The project's own coordinates are
+     * schema-ordered before these, so own-coordinate extraction stops here so a
+     * dependency's groupId is never mistaken for the project's (ike-issues#719).
+     */
+    private static final Pattern BODY_SECTION = Pattern.compile(
+            "<(dependencies|dependencyManagement|build|reporting|profiles|distributionManagement)\\b");
 
     /**
      * Scan a subproject root and return the complete set of published
@@ -100,28 +111,35 @@ public final class PublishedArtifactSet {
                                 Set<Artifact> artifacts) throws IOException {
         String content = Files.readString(pomPath, StandardCharsets.UTF_8);
 
-        // Extract groupId from parent block (for inheritance)
+        // groupId declared inside a paired <parent>…</parent> block, if any (used
+        // for inheritance). A self-closing <parent/> — Maven 4.1.0's inferred
+        // parent — carries none, so the groupId then comes from inheritGroupId.
         String parentGroupId = null;
         Matcher parentMatcher = PARENT_BLOCK.matcher(content);
         if (parentMatcher.find()) {
-            String parentBlock = parentMatcher.group();
-            Matcher gm = GROUP_ID_PATTERN.matcher(parentBlock);
+            Matcher gm = GROUP_ID_PATTERN.matcher(parentMatcher.group());
             if (gm.find()) {
                 parentGroupId = gm.group(1).trim();
             }
         }
 
-        // Strip parent block to find project's own coordinates
+        // Strip the parent block (paired or self-closing) so the parent's own
+        // groupId is never read as the project's.
         String stripped = PARENT_BLOCK.matcher(content).replaceFirst("");
+        stripped = PARENT_SELF_CLOSING.matcher(stripped).replaceFirst("");
 
-        // Extract project groupId (outside parent block)
-        String groupId = null;
-        Matcher gidMatcher = GROUP_ID_PATTERN.matcher(stripped);
-        if (gidMatcher.find()) {
-            groupId = gidMatcher.group(1).trim();
-        }
+        // The project's own <groupId>/<artifactId> are schema-ordered BEFORE any
+        // body section that can also carry a <groupId> (dependencies, managed
+        // dependencies, plugins). Restrict extraction to that header so a
+        // dependency's groupId is never mistaken for the project's — the bug that
+        // dropped komet's inter-subproject edges (ike-issues#719). A module that
+        // declares no own groupId (the Maven-4.1.0 norm under <parent/>) then
+        // correctly yields null here and inherits below.
+        String header = stripped.substring(0, bodySectionStart(stripped));
 
-        // Inherit groupId: prefer own, then parent block, then caller
+        // Inherit groupId: prefer own, then the parent block, then the reactor
+        // parent passed down the recursion.
+        String groupId = firstCapture(GROUP_ID_PATTERN, header);
         if (groupId == null) {
             groupId = parentGroupId;
         }
@@ -129,12 +147,7 @@ public final class PublishedArtifactSet {
             groupId = inheritGroupId;
         }
 
-        // Extract artifactId (outside parent block)
-        String artifactId = null;
-        Matcher aidMatcher = ARTIFACT_ID_PATTERN.matcher(stripped);
-        if (aidMatcher.find()) {
-            artifactId = aidMatcher.group(1).trim();
-        }
+        String artifactId = firstCapture(ARTIFACT_ID_PATTERN, header);
 
         if (groupId != null && artifactId != null) {
             artifacts.add(new Artifact(groupId, artifactId));
@@ -165,5 +178,21 @@ public final class PublishedArtifactSet {
                 scanPom(subprojectRoot, modPom, effectiveGroupId, artifacts);
             }
         }
+    }
+
+    /** First capture group of {@code pattern} in {@code text}, trimmed, or null. */
+    private static String firstCapture(Pattern pattern, String text) {
+        Matcher m = pattern.matcher(text);
+        return m.find() ? m.group(1).trim() : null;
+    }
+
+    /**
+     * Index where the first {@code <groupId>}-bearing body section starts, or the
+     * full length when there is none — bounding own-coordinate extraction so a
+     * dependency/plugin groupId is never read as the project's.
+     */
+    private static int bodySectionStart(String content) {
+        Matcher m = BODY_SECTION.matcher(content);
+        return m.find() ? m.start() : content.length();
     }
 }

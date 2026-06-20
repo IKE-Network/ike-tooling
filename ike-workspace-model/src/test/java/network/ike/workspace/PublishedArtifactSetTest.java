@@ -168,6 +168,64 @@ class PublishedArtifactSetTest {
                 "org.other", "lib")).isFalse();
     }
 
+    /**
+     * Regression for #719: a Maven-4.1.0 module that uses a self-closing
+     * {@code <parent/>} (inferred parent) and inherits its groupId must be
+     * published under the inherited groupId — NOT the groupId of its first
+     * dependency, and not the literal {@code ${project.groupId}}. This is the
+     * komet/framework shape (first dependency {@code dev.ikm.tinkar.ext.owl})
+     * that previously dropped komet's inter-subproject edges.
+     */
+    @Test
+    void moduleInheritsGroupIdUnderSelfClosingParent() throws IOException {
+        Path comp = tempDir.resolve("komet");
+        writePom(comp.resolve("pom.xml"), """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.1.0">
+                    <modelVersion>4.1.0</modelVersion>
+                    <parent>
+                        <groupId>network.ike.platform</groupId>
+                        <artifactId>ike-parent</artifactId>
+                    </parent>
+                    <groupId>dev.ikm.komet</groupId>
+                    <artifactId>komet</artifactId>
+                    <subprojects>
+                        <subproject>framework</subproject>
+                    </subprojects>
+                </project>
+                """);
+        writePom(comp.resolve("framework/pom.xml"), """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.1.0">
+                    <modelVersion>4.1.0</modelVersion>
+                    <parent/>
+                    <artifactId>framework</artifactId>
+                    <dependencies>
+                        <dependency>
+                            <groupId>dev.ikm.tinkar.ext.owl</groupId>
+                            <artifactId>owl-extension</artifactId>
+                        </dependency>
+                        <dependency>
+                            <groupId>${project.groupId}</groupId>
+                            <artifactId>preferences</artifactId>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """);
+
+        Set<PublishedArtifactSet.Artifact> artifacts =
+                PublishedArtifactSet.scan(comp);
+
+        assertThat(artifacts).containsExactlyInAnyOrder(
+                new PublishedArtifactSet.Artifact("dev.ikm.komet", "komet"),
+                new PublishedArtifactSet.Artifact("dev.ikm.komet", "framework"));
+        // The first dependency's groupId must NOT leak in as the module's own.
+        assertThat(PublishedArtifactSet.matches(artifacts,
+                "dev.ikm.tinkar.ext.owl", "framework")).isFalse();
+        assertThat(PublishedArtifactSet.matches(artifacts,
+                "${project.groupId}", "framework")).isFalse();
+    }
+
     private void writePom(Path path, String content) throws IOException {
         Files.createDirectories(path.getParent());
         Files.writeString(path, content, StandardCharsets.UTF_8);
