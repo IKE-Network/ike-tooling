@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FinalizePhase.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release.finalize</a> &gt; <span class="el_source">FinalizePhase.java</span></div><h1>FinalizePhase.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release.finalize;
+
+import network.ike.plugin.ReleaseNotesSupport;
+import network.ike.plugin.ReleaseSupport;
+import network.ike.plugin.release.ReleaseContext;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.File;
+import java.nio.file.Path;
+
+/**
+ * The finalize phase of the release pipeline — the last steps that
+ * make the release externally visible beyond the Nexus deploy.
+ *
+ * &lt;p&gt;Runs after the {@code WorktreeGuard} has restored the worktree
+ * to main and after the Nexus deploy (and best-effort Central deploy)
+ * have completed. Performs:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;B29 — pushes the release tag and main to origin
+ *   &lt;li&gt;B30 — creates the GitHub Release with milestone-based notes,
+ *       closes the milestone, removes pending-release labels from
+ *       resolved issues
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;The post-deploy log lines (&quot;Release v X complete&quot;, Nexus/Central
+ * outcome summary, GitHub Pages URLs) remain on the mojo for now —
+ * they consume outcomes from multiple phases (Nexus, Central, Site)
+ * and naturally land in {@code ReleaseExecution} when the orchestrator
+ * is wired up. The reporting helpers ({@code reportCascade},
+ * {@code buildReleaseReport}) also stay on the mojo because the draft
+ * path invokes them too; they extract together in Commit 6.
+ *
+ * &lt;p&gt;Carved out of {@code ReleaseDraftMojo} during the Phase 4
+ * Commit 1 (IKE-Network/ike-issues#489).
+ */
+public final class FinalizePhase {
+
+    private final ReleaseContext ctx;
+
+    /**
+     * Creates a new finalize phase bound to the given context.
+     *
+     * @param ctx the per-invocation release context
+     */
+<span class="nc" id="L46">    public FinalizePhase(ReleaseContext ctx) {</span>
+<span class="nc" id="L47">        this.ctx = ctx;</span>
+<span class="nc" id="L48">    }</span>
+
+    /**
+     * Executes the finalize phase.
+     *
+     * &lt;p&gt;If {@link FinalizeInput#hasOrigin()} is {@code false}, pushes
+     * and the GitHub Release step are skipped (with informational log
+     * messages) — appropriate for a local-only release where no
+     * remote is configured.
+     *
+     * @param input the inputs accumulated by {@code runGoal()} through the prior phases
+     * @return a {@link FinalizeOutcome} recording which steps ran
+     * @throws MojoException if either {@code git push} fails
+     */
+    public FinalizeOutcome execute(FinalizeInput input) throws MojoException {
+<span class="nc" id="L63">        boolean tagPushed = false;</span>
+<span class="nc" id="L64">        boolean mainPushed = false;</span>
+<span class="nc" id="L65">        boolean githubReleaseAttempted = false;</span>
+
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        if (input.hasOrigin()) {</span>
+<span class="nc" id="L68">            ReleaseSupport.exec(ctx.gitRoot(), ctx.log(),</span>
+<span class="nc" id="L69">                    &quot;git&quot;, &quot;push&quot;, &quot;origin&quot;, &quot;v&quot; + input.releaseVersion());</span>
+<span class="nc" id="L70">            tagPushed = true;</span>
+<span class="nc" id="L71">            ReleaseSupport.exec(ctx.gitRoot(), ctx.log(),</span>
+                    &quot;git&quot;, &quot;push&quot;, &quot;origin&quot;, &quot;main&quot;);
+<span class="nc" id="L73">            mainPushed = true;</span>
+
+<span class="nc" id="L75">            createGitHubRelease(input.projectId(), input.releaseVersion(),</span>
+<span class="nc" id="L76">                    input.foundationUpgrades());</span>
+<span class="nc" id="L77">            githubReleaseAttempted = true;</span>
+        } else {
+<span class="nc" id="L79">            ctx.log().info(&quot;No 'origin' remote — skipping push&quot;);</span>
+<span class="nc" id="L80">            ctx.log().info(&quot;No 'origin' remote — skipping GitHub Release&quot;);</span>
+        }
+
+<span class="nc" id="L83">        return new FinalizeOutcome(tagPushed, mainPushed, githubReleaseAttempted);</span>
+    }
+
+    /**
+     * Creates the GitHub Release for {@code v&lt;version&gt;} with
+     * milestone-based release notes, then closes the milestone and
+     * removes the {@code pending-release} label from any issues
+     * resolved in this release range.
+     *
+     * &lt;p&gt;Looks for a milestone named {@code &lt;projectId&gt; v&lt;version&gt;}
+     * in the configured issue repository ({@code ctx.request().issueRepo()}).
+     * If found, formats its closed issues as the GitHub Release body.
+     * Falls back to GitHub's auto-generated commit-based notes when no
+     * milestone exists.
+     *
+     * &lt;p&gt;All three steps (release create, milestone close, label
+     * cleanup) are best-effort once we reach this point: the Nexus
+     * deploy already shipped the artifact, so any failure here is
+     * logged as a warning with a manual-retry command rather than
+     * thrown as an exception.
+     *
+     * @param projectId the project's Maven artifact id
+     * @param version   the released version (no {@code -SNAPSHOT})
+     * @param foundationUpgrades the upstream-version bumps this release applied;
+     *                  rendered as a &quot;Foundation upgrades&quot; section so a
+     *                  cascade-only rebuild's notes are never empty (#706)
+     */
+    private void createGitHubRelease(String projectId, String version,
+            java.util.List&lt;network.ike.plugin.CascadeBump&gt; foundationUpgrades) {
+<span class="nc" id="L112">        File gitRoot = ctx.gitRoot();</span>
+<span class="nc" id="L113">        String issueRepo = ctx.request().issueRepo();</span>
+<span class="nc" id="L114">        String milestoneName = projectId + &quot; v&quot; + version;</span>
+
+        Path notesFile;
+        try {
+<span class="nc" id="L118">            notesFile = ReleaseNotesSupport.generateToFile(</span>
+<span class="nc" id="L119">                    issueRepo, milestoneName, foundationUpgrades, ctx.log());</span>
+<span class="nc" id="L120">        } catch (Exception e) {</span>
+            // A GitHub API failure here (rate limit, auth, network) must not
+            // fail a release whose artifacts have already shipped — fall back
+            // to GitHub's auto-generated notes (IKE-Network/ike-issues#572).
+<span class="nc" id="L124">            ctx.log().warn(&quot;Could not generate milestone notes for \&quot;&quot;</span>
+                    + milestoneName + &quot;\&quot; — falling back to auto-generated &quot;
+<span class="nc" id="L126">                    + &quot;notes: &quot; + e.getMessage());</span>
+<span class="nc" id="L127">            notesFile = null;</span>
+<span class="nc" id="L128">        }</span>
+
+        try {
+<span class="nc bnc" id="L131" title="All 2 branches missed.">            if (notesFile != null) {</span>
+<span class="nc" id="L132">                ctx.log().info(&quot;Release notes generated from milestone: &quot;</span>
+                        + milestoneName);
+<span class="nc" id="L134">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+                        &quot;gh&quot;, &quot;release&quot;, &quot;create&quot;, &quot;v&quot; + version,
+                        &quot;--title&quot;, version,
+<span class="nc" id="L137">                        &quot;--notes-file&quot;, notesFile.toString(),</span>
+                        &quot;--verify-tag&quot;);
+            } else {
+<span class="nc" id="L140">                ctx.log().info(&quot;No milestone \&quot;&quot; + milestoneName</span>
+                        + &quot;\&quot; found — using auto-generated notes&quot;);
+<span class="nc" id="L142">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+                        &quot;gh&quot;, &quot;release&quot;, &quot;create&quot;, &quot;v&quot; + version,
+                        &quot;--title&quot;, version,
+                        &quot;--generate-notes&quot;, &quot;--verify-tag&quot;);
+            }
+<span class="nc" id="L147">        } catch (Exception e) {</span>
+<span class="nc" id="L148">            ctx.log().warn(&quot;GitHub Release creation failed &quot;</span>
+<span class="nc" id="L149">                    + &quot;(gh CLI may not be installed): &quot; + e.getMessage());</span>
+<span class="nc" id="L150">            ctx.log().warn(&quot;Run manually: gh release create v&quot; + version</span>
+                    + &quot; --title &quot; + version + &quot; --generate-notes&quot;);
+<span class="nc" id="L152">        }</span>
+
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        if (notesFile != null) {</span>
+            try {
+<span class="nc" id="L156">                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, ctx.log());</span>
+<span class="nc" id="L157">            } catch (Exception e) {</span>
+<span class="nc" id="L158">                ctx.log().warn(&quot;Could not close milestone (release succeeded): &quot;</span>
+<span class="nc" id="L159">                        + e.getMessage());</span>
+<span class="nc" id="L160">                ctx.log().warn(&quot;Close manually: gh api repos/&quot; + issueRepo</span>
+                        + &quot;/milestones/1 -X PATCH -f state=closed&quot;);
+<span class="nc" id="L162">            }</span>
+        }
+
+        try {
+<span class="nc" id="L166">            ReleaseNotesSupport.removePendingReleaseLabels(</span>
+<span class="nc" id="L167">                    gitRoot, null, &quot;v&quot; + version, issueRepo, ctx.log());</span>
+<span class="nc" id="L168">        } catch (Exception e) {</span>
+<span class="nc" id="L169">            ctx.log().warn(&quot;Could not remove pending-release labels &quot;</span>
+<span class="nc" id="L170">                    + &quot;(release succeeded): &quot; + e.getMessage());</span>
+<span class="nc" id="L171">        }</span>
+<span class="nc" id="L172">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
