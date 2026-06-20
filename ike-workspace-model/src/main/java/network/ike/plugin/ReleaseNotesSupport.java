@@ -532,6 +532,33 @@ public final class ReleaseNotesSupport {
                     + "(?:[\\w.-]+/[\\w.-]+)?#\\d+\\b");
 
     /**
+     * Like {@link #ANY_ISSUE_TRAILER_PATTERN} but <em>capturing</em> the
+     * {@code (owner)?/(repo)?#(number)} groups, for rendering issue
+     * references into a changelog. Matches both closing keywords and
+     * {@code Refs}/{@code Ref}.
+     */
+    private static final Pattern ISSUE_REF_CAPTURE_PATTERN = Pattern.compile(
+            "(?im)^\\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?)"
+                    + "\\b\\s*:?\\s+"
+                    + "(?:([\\w.-]+)/([\\w.-]+))?#(\\d+)\\b");
+
+    /**
+     * Matches a trailing parenthetical of bare {@code #N} issue numbers
+     * on a subject line (e.g. {@code " (#705, #706)"}) — stripped from
+     * the changelog subject so the authoritative full-form refs from the
+     * trailers aren't duplicated alongside ambiguous bare ones.
+     */
+    private static final Pattern TRAILING_BARE_REFS_PATTERN = Pattern.compile(
+            "\\s*\\((?:#\\d+(?:\\s*,\\s*)?)+\\)\\s*$");
+
+    /**
+     * Release-machinery commit subjects, filtered out of a changelog —
+     * the cadence commits a release produces have no changelog value.
+     */
+    private static final Pattern MACHINERY_SUBJECT_PATTERN = Pattern.compile(
+            "(?i)^(?:release:|merge:|post-release:|workspace: pre-|bump |\\[maven-release).*");
+
+    /**
      * Remove the {@code pending-release} label from every issue
      * referenced by a release-closing trailer ({@code Fixes},
      * {@code Closes}, {@code Resolves} and grammatical variants) in
@@ -648,6 +675,40 @@ public final class ReleaseNotesSupport {
         } catch (Exception e) {
             return new LinkedHashSet<>();
         }
+    }
+
+    /**
+     * The full commit messages (subject + body) in
+     * {@code fromRef..toRef}, newest first — the input
+     * {@link #formatChangelog} consumes.
+     *
+     * <p>Reads via {@code git log}, so it works on the release worktree
+     * (a full checkout). Returns an empty list if the range can't be
+     * read (e.g. a shallow checkout, or no previous tag).
+     *
+     * @param gitDir  the git working tree
+     * @param fromRef the exclusive lower bound (e.g. the previous tag)
+     * @param toRef   the inclusive upper bound (e.g. {@code HEAD} or a tag)
+     * @return the commit messages, newest first
+     */
+    public static List<String> commitMessagesBetween(File gitDir,
+            String fromRef, String toRef) {
+        List<String> messages = new ArrayList<>();
+        try {
+            String sep = "--ike-commit-end--";
+            String out = ReleaseSupport.execCapture(gitDir, "git", "log",
+                    "--format=%B%n" + sep, fromRef + ".." + toRef);
+            for (String chunk : out.split(Pattern.quote(sep))) {
+                String message = chunk.strip();
+                if (!message.isEmpty()) {
+                    messages.add(message);
+                }
+            }
+        } catch (Exception e) {
+            // unreadable range (shallow checkout, missing ref) -> empty
+            return new ArrayList<>();
+        }
+        return messages;
     }
 
     /**
@@ -1081,6 +1142,102 @@ public final class ReleaseNotesSupport {
      * rebuild — a one-line "Rebuilt against …" summary plus the
      * per-artifact old→new transitions (IKE-Network/ike-issues#706).
      */
+    /**
+     * Whether a commit subject is release machinery (a cadence commit a
+     * release itself produces), and so should be filtered from a
+     * changelog.
+     *
+     * @param subject the commit subject line
+     * @return {@code true} for release/merge/post-release/bump machinery
+     */
+    public static boolean isMachineryCommit(String subject) {
+        return subject != null
+                && MACHINERY_SUBJECT_PATTERN.matcher(subject.strip()).matches();
+    }
+
+    /**
+     * Extract every issue reference from a commit message's trailers, in
+     * display form, de-duplicated and in first-seen order.
+     *
+     * <p>The full {@code owner/repo#N} form is preserved verbatim
+     * (so a consumer — a Zulip linkifier, a GitHub release body — links
+     * it in whatever repo it lives, with no tracker assumed). A bare
+     * {@code #N} reference is returned as {@code #N}: its repository is
+     * ambiguous and is deliberately <em>not</em> guessed.
+     *
+     * @param commitMessage the full commit message (subject + body)
+     * @return the referenced issues in display form, e.g.
+     *         {@code ["IKE-Network/ike-issues#705", "ikmdev/komet-desktop#12"]}
+     */
+    public static List<String> parseIssueRefs(String commitMessage) {
+        List<String> out = new ArrayList<>();
+        if (commitMessage == null) {
+            return out;
+        }
+        Matcher m = ISSUE_REF_CAPTURE_PATTERN.matcher(commitMessage);
+        while (m.find()) {
+            String owner = m.group(1);
+            String repo = m.group(2);
+            String number = m.group(3);
+            String display = (owner != null && repo != null)
+                    ? owner + "/" + repo + "#" + number
+                    : "#" + number;
+            if (!out.contains(display)) {
+                out.add(display);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Compose a "What's changed" changelog from a list of commit
+     * messages: one bullet per substantive commit (release machinery
+     * filtered out), each annotated with the full-form issue references
+     * parsed from its trailers.
+     *
+     * <p>Repo-agnostic: no issue tracker is assumed or hardcoded — each
+     * reference carries its own {@code owner/repo} from the commit
+     * trailer ({@code IKE-COMMITS.md} mandates the full form for exactly
+     * this cross-repo reason). A trailing bare-{@code #N} parenthetical
+     * on the subject is stripped so refs aren't shown twice.
+     *
+     * <p>Returns the empty string when nothing substantive remains —
+     * the caller omits the whole "What's changed" block in that case.
+     *
+     * @param commitMessages full commit messages (subject + body) in
+     *                       display order (typically newest-first from a
+     *                       {@code git log}/compare range)
+     * @return the Markdown bullet list, or {@code ""} if empty
+     */
+    public static String formatChangelog(List<String> commitMessages) {
+        if (commitMessages == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String message : commitMessages) {
+            if (message == null || message.isBlank()) {
+                continue;
+            }
+            String subject = message.strip().split("\\R", 2)[0].strip();
+            if (subject.isEmpty() || isMachineryCommit(subject)) {
+                continue;
+            }
+            List<String> refs = parseIssueRefs(message);
+            if (!refs.isEmpty()) {
+                // Drop a trailing "(#705, #706)" so the authoritative
+                // full-form refs aren't duplicated by ambiguous bare ones.
+                subject = TRAILING_BARE_REFS_PATTERN.matcher(subject)
+                        .replaceFirst("");
+            }
+            sb.append("- ").append(subject);
+            if (!refs.isEmpty()) {
+                sb.append(" (").append(String.join(", ", refs)).append(")");
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
     private static void appendFoundationUpgrades(StringBuilder sb,
             List<CascadeBump> upgrades) {
         if (upgrades.isEmpty()) return;

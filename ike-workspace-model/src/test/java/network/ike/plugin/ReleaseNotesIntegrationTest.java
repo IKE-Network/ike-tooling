@@ -3,7 +3,10 @@ package network.ike.plugin;
 import network.ike.plugin.ReleaseNotesSupport.Issue;
 import network.ike.plugin.ReleaseNotesSupport.TestingContext;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -130,6 +133,135 @@ class ReleaseNotesIntegrationTest {
         String md = context.toMarkdown();
 
         assertThat(md).contains("No issues in milestone.");
+    }
+
+    @Test
+    void parseIssueRefs_preserves_full_owner_repo_form() {
+        String msg = """
+                feat: do a thing (#705)
+
+                Body text.
+
+                Fixes IKE-Network/ike-issues#705
+                Refs ikmdev/komet-desktop#12
+                """;
+        assertThat(ReleaseNotesSupport.parseIssueRefs(msg))
+                .containsExactly("IKE-Network/ike-issues#705",
+                        "ikmdev/komet-desktop#12");
+    }
+
+    @Test
+    void parseIssueRefs_keeps_bare_refs_bare_and_dedupes() {
+        String msg = """
+                fix: something
+
+                Fixes #42
+                Closes #42
+                """;
+        // Bare #N stays bare (ambiguous repo, not guessed) and dedupes.
+        assertThat(ReleaseNotesSupport.parseIssueRefs(msg))
+                .containsExactly("#42");
+    }
+
+    @Test
+    void isMachineryCommit_filters_release_cadence() {
+        assertThat(ReleaseNotesSupport.isMachineryCommit("release: align upstream cascade")).isTrue();
+        assertThat(ReleaseNotesSupport.isMachineryCommit("merge: release/223 to main")).isTrue();
+        assertThat(ReleaseNotesSupport.isMachineryCommit("post-release: bump to 224-SNAPSHOT")).isTrue();
+        assertThat(ReleaseNotesSupport.isMachineryCommit("Bump ike-parent 1 -> 2")).isTrue();
+        assertThat(ReleaseNotesSupport.isMachineryCommit("feat: a real feature (#1)")).isFalse();
+        assertThat(ReleaseNotesSupport.isMachineryCommit("docs: update guide")).isFalse();
+    }
+
+    @Test
+    void formatChangelog_annotates_with_full_form_and_strips_bare_subject_refs() {
+        var commits = List.of(
+                """
+                feat: coherence gate + surfacing (#705, #706, #708)
+
+                Fixes IKE-Network/ike-issues#705
+                Fixes IKE-Network/ike-issues#706
+                Refs IKE-Network/ike-issues#708
+                """,
+                "release: align upstream cascade — ike-tooling 222->223",
+                """
+                docs: cross-repo note
+
+                Refs ikmdev/komet-desktop#12
+                """);
+
+        String log = ReleaseNotesSupport.formatChangelog(commits);
+
+        // Machinery filtered out.
+        assertThat(log).doesNotContain("align upstream cascade");
+        // Trailing bare "(#705, #706, #708)" stripped; full-form appended.
+        assertThat(log).contains(
+                "- feat: coherence gate + surfacing "
+                + "(IKE-Network/ike-issues#705, IKE-Network/ike-issues#706, "
+                + "IKE-Network/ike-issues#708)");
+        assertThat(log).doesNotContain("(#705, #706, #708)");
+        // Cross-repo ref preserved in its own repo.
+        assertThat(log).contains("- docs: cross-repo note (ikmdev/komet-desktop#12)");
+    }
+
+    @Test
+    void formatChangelog_empty_when_only_machinery() {
+        var commits = List.of(
+                "release: cut v1",
+                "post-release: bump",
+                "merge: release/1 to main");
+        assertThat(ReleaseNotesSupport.formatChangelog(commits)).isEmpty();
+    }
+
+    @Test
+    void commitMessagesBetween_reads_full_messages_then_changelog(@TempDir Path repo)
+            throws Exception {
+        // Real git, hermetic (no host config) — TESTING.md mock-last.
+        git(repo, "init", "-q", "-b", "main");
+        Files.writeString(repo.resolve("f"), "1");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m",
+                "feat: first thing (#1)\n\nFixes IKE-Network/ike-issues#1");
+        git(repo, "tag", "v1");
+        Files.writeString(repo.resolve("f"), "2");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m", "release: align upstream cascade");
+        Files.writeString(repo.resolve("f"), "3");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m",
+                "docs: cross-repo note\n\nRefs ikmdev/komet-desktop#9");
+        git(repo, "tag", "v2");
+
+        List<String> msgs = ReleaseNotesSupport.commitMessagesBetween(
+                repo.toFile(), "v1", "v2");
+        assertThat(msgs).hasSize(2);  // the machinery commit is still here…
+
+        String log = ReleaseNotesSupport.formatChangelog(msgs);
+        // …but formatChangelog filters it and links the cross-repo ref.
+        assertThat(log).doesNotContain("align upstream cascade");
+        assertThat(log).contains("- docs: cross-repo note (ikmdev/komet-desktop#9)");
+        assertThat(log).doesNotContain("(#1)");  // bare subject ref stripped
+    }
+
+    /** Run git in {@code dir} with a hermetic env (no host/global config). */
+    private static void git(Path dir, String... args) throws Exception {
+        String[] cmd = new String[args.length + 5];
+        cmd[0] = "git";
+        cmd[1] = "-c"; cmd[2] = "user.email=test@ike.example";
+        cmd[3] = "-c"; cmd[4] = "user.name=Test";
+        System.arraycopy(args, 0, cmd, 5, args.length);
+        ProcessBuilder pb = new ProcessBuilder(cmd).directory(dir.toFile());
+        pb.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        pb.environment().put("GIT_CONFIG_NOSYSTEM", "1");
+        pb.environment().put("GIT_CONFIG_SYSTEM", "/dev/null");
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        String out = new String(p.getInputStream().readAllBytes());
+        int code = p.waitFor();
+        if (code != 0) {
+            throw new IllegalStateException(
+                    "git " + String.join(" ", args) + " failed (" + code + "):\n" + out);
+        }
     }
 
     @Test

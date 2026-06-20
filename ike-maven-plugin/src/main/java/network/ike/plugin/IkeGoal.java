@@ -86,6 +86,12 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "and run ike:release-publish on every foundation "
                     + "repo that has unreleased changes, in topological "
                     + "order."),
+    /** {@code ike:release-changelog} — render a release changelog for CI notifications (#699). */
+    RELEASE_CHANGELOG(IkeGoal.NAME_RELEASE_CHANGELOG, IkeReleaseChangelogMojo.class,
+            "Render a 'What's changed' changelog from the commits in a "
+                    + "release range — machinery filtered, each entry "
+                    + "annotated with its full owner/repo#N issue refs — "
+                    + "for a CI release notification to consume."),
     /** {@code ike:rename} — rename output files to a canonical pattern. */
     RENAME(IkeGoal.NAME_RENAME, RenameMojo.class,
             "Rename output files to a canonical pattern."),
@@ -185,6 +191,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_RELEASE_PUBLISH = "release-publish";
     /** Mirror for {@link #RELEASE_CASCADE}. */
     public static final String NAME_RELEASE_CASCADE = "release-cascade";
+    /** Mirror for {@link #RELEASE_CHANGELOG}. */
+    public static final String NAME_RELEASE_CHANGELOG = "release-changelog";
     /** Mirror for {@link #RENAME}. */
     public static final String NAME_RENAME = "rename";
     /** Mirror for {@link #BUILT_WITH}. */
