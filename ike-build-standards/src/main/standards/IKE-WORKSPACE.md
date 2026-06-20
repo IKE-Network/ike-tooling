@@ -52,6 +52,35 @@ Never use `sed`, `awk`, or regex-based POM manipulation. Use:
 - **`PomRewriter`** (programmatic API in ike-workspace-maven-plugin) for
   AST-aware version updates that preserve formatting
 
+### VCS Operations — Use `ws:` Goals, Not Raw Git
+
+Never drive a workspace's version control with raw git. Every working-tree
+operation has a `ws:` goal that also maintains the bookkeeping raw git silently
+bypasses — the VCS-bridge state (`.ike/vcs-state`, written by
+`ws:commit-publish`/`ws:push` via `writeVcsState`), coordinated branch handling,
+and `depends-on` re-derivation (`PostMutationSync`). As with POM edits, the
+mutating goals are paired with a read-only `-draft` preview; run the draft first.
+
+- **Commit / push** — `ws:commit-publish -Dmessage="…" [-Dpush=true]` and
+  `ws:push`. Not `git add` / `git commit` / `git push`.
+- **Branch coherence** — when a subproject sits on a different branch than the
+  rest of the working set, realign it with `ws:switch-publish`. Not
+  `git checkout` + `git merge` / `merge --ff-only`.
+- **Feature lifecycle** — `ws:feature-start-publish`,
+  `ws:feature-finish-merge-publish` / `ws:feature-finish-squash-publish`. Not
+  `git branch` / `git merge`.
+- **Inspection is fine** — read-only git (`git status`, `git log`, `git diff`,
+  `git branch -a`) is expected for inspection; it is *mutation* that must go
+  through `ws:`.
+
+**The `sha:` pins are checkpoint snapshots, not live HEAD.** Each subproject's
+`sha:` in `workspace.yaml` is written **only** by `ws:checkpoint-publish` (and
+`ws:release`), and is what `ws:scaffold-init` resets a fresh clone to. A pin
+trailing the branch HEAD is therefore **normal** — it points at the last
+checkpoint, not at every commit. Do **not** read that lag as "staleness," and
+**never hand-edit the `sha` fields**; advance them by cutting a checkpoint with
+`ws:checkpoint-publish`.
+
 ## Prerequisites
 
 ### Maven Settings
