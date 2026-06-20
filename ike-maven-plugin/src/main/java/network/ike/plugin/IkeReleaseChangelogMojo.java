@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -38,7 +40,15 @@ import java.util.List;
  *   mvn ike:release-changelog                              # prev-tag..HEAD to the log
  *   mvn ike:release-changelog -DoutputFile=target/changelog.md
  *   mvn ike:release-changelog -Dfrom=v222 -Dto=v223
+ *   # changelog + the cascade topic env for the notify step, one call:
+ *   mvn ike:release-changelog -DoutputFile=target/changelog.md \
+ *       -DmetaFile=target/cascade.env
  * </pre>
+ *
+ * <p>With {@code metaFile}, the notify step gets the changelog plus the
+ * cascade Zulip-topic grouping from one invocation:
+ * {@code . target/cascade.env} sets {@code CASCADE_LABEL} and
+ * {@code CASCADE_TOPIC_INPROGRESS} (#699).
  *
  * <p>For clean capture into a shell variable, prefer
  * {@code -DoutputFile} and read the file — the build log carries
@@ -58,6 +68,18 @@ public class IkeReleaseChangelogMojo extends AbstractGoalMojo {
     /** File to write the changelog to. When unset, it is logged to stdout. */
     @Parameter(property = "outputFile")
     String outputFile;
+
+    /**
+     * Optional shell-sourceable env file to also write, carrying the
+     * cascade topic grouping for the notify step (#699):
+     * {@code CASCADE_LABEL} (this build's date in the server's zone) and
+     * {@code CASCADE_TOPIC_INPROGRESS}. Lets the notify step group a
+     * cascade under one Zulip topic from a single goal call, without
+     * recomputing the date in shell. See
+     * {@link network.ike.plugin.ReleaseNotesSupport#cascadeMetaEnv}.
+     */
+    @Parameter(property = "metaFile")
+    String metaFile;
 
     /** Override working directory for tests. If null, uses current directory. */
     File baseDir;
@@ -107,6 +129,28 @@ public class IkeReleaseChangelogMojo extends AbstractGoalMojo {
             getLog().info("Release changelog:");
             changelog.lines().forEach(getLog()::info);
             location = "printed to the build log";
+        }
+
+        // Cascade topic grouping for the notify step (#699): the date is
+        // stamped here, once, in the release server's own zone.
+        String cascadeLabel = null;
+        if (metaFile != null && !metaFile.isBlank()) {
+            cascadeLabel = ReleaseNotesSupport.cascadeTopicLabel(
+                    Instant.now(), ZoneId.systemDefault());
+            Path mf = Path.of(metaFile);
+            try {
+                if (mf.getParent() != null) {
+                    Files.createDirectories(mf.getParent());
+                }
+                Files.writeString(mf,
+                        ReleaseNotesSupport.cascadeMetaEnv(cascadeLabel),
+                        StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw new MojoException(
+                        "Could not write " + mf + ": " + e.getMessage(), e);
+            }
+            getLog().info("Cascade meta written to " + mf
+                    + " (CASCADE_LABEL=" + cascadeLabel + ")");
         }
 
         String report = new GoalReportBuilder()

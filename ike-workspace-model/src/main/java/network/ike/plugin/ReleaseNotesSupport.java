@@ -14,7 +14,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -1234,6 +1238,131 @@ public final class ReleaseNotesSupport {
                 sb.append(" (").append(String.join(", ", refs)).append(")");
             }
             sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    // ── Release-cascade Zulip topic grouping (#699) ─────────────────
+    //
+    // A whole cascade threads under ONE Zulip topic instead of scattering
+    // one post per release. Correlation is the topic itself, not a
+    // recomputed date: the first build creates the "… — in progress"
+    // topic; later builds (even across midnight) find that single open
+    // topic and post there; the terminal (ike-platform) renames it to
+    // carry the ike-parent version. The date is a human label stamped
+    // ONCE by the creator — in the release server's own zone, labelled —
+    // so there is no cross-build/cross-timezone date to disagree on.
+
+    /** Suffix marking the open (not-yet-complete) cascade topic. */
+    private static final String IN_PROGRESS_SUFFIX =
+            " Release Cascade — in progress";
+
+    private static final DateTimeFormatter CASCADE_LABEL_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd z", Locale.US);
+
+    /**
+     * The human label for a cascade topic — the creating build's date in
+     * its own zone, with the zone abbreviation appended so it is
+     * unambiguous across the operators' time zones (e.g.
+     * {@code "2026-06-19 PDT"}).
+     *
+     * <p>Computed once, by the build that creates the topic; never
+     * recomputed by other builds (they find the open topic instead), so
+     * there is no need for a midnight-safe rollover.
+     *
+     * @param now  the creating build's instant
+     * @param zone the release server's zone (e.g. {@code ZoneId.systemDefault()})
+     * @return the label, e.g. {@code "2026-06-19 PDT"}
+     */
+    public static String cascadeTopicLabel(Instant now, ZoneId zone) {
+        return CASCADE_LABEL_FORMAT.format(now.atZone(zone));
+    }
+
+    /**
+     * The open-cascade topic name for a label, e.g.
+     * {@code "2026-06-19 PDT Release Cascade — in progress"}. The
+     * {@code "— in progress"} suffix is the correlation key: at most one
+     * such topic exists at a time (releases run serially and completion
+     * renames it away), so a build finds the cascade by matching it.
+     *
+     * @param label the {@link #cascadeTopicLabel} value
+     * @return the in-progress topic name
+     */
+    public static String inProgressCascadeTopic(String label) {
+        return label + IN_PROGRESS_SUFFIX;
+    }
+
+    /**
+     * The completed-cascade topic name, carrying the ike-parent version
+     * the terminal release establishes, e.g.
+     * {@code "2026-06-19 PDT ike-parent Release Cascade v66"}.
+     *
+     * @param label         the {@link #cascadeTopicLabel} value
+     * @param parentVersion the released ike-parent (ike-platform) version
+     * @return the completed topic name
+     */
+    public static String completedCascadeTopic(String label, String parentVersion) {
+        return label + " ike-parent Release Cascade v" + parentVersion;
+    }
+
+    /**
+     * Recover the {@link #cascadeTopicLabel} from an in-progress topic
+     * name, so the terminal build can derive the completed name from the
+     * topic it found, or {@code null} if {@code topic} is not an
+     * in-progress cascade topic.
+     *
+     * @param topic a Zulip topic name
+     * @return the label, or {@code null} if it isn't an in-progress cascade topic
+     */
+    public static String cascadeLabelOf(String topic) {
+        if (topic == null || !topic.endsWith(IN_PROGRESS_SUFFIX)) {
+            return null;
+        }
+        return topic.substring(0, topic.length() - IN_PROGRESS_SUFFIX.length());
+    }
+
+    /**
+     * A shell-sourceable env snippet carrying the cascade label and
+     * in-progress topic name, so a notify step gets everything from one
+     * {@code ike:release-changelog} call without recomputing the date in
+     * shell. Values are single-quoted; safe because a label is only
+     * digits, hyphens, spaces, and a zone abbreviation — never a quote.
+     *
+     * <pre>
+     * CASCADE_LABEL='2026-06-19 PDT'
+     * CASCADE_TOPIC_INPROGRESS='2026-06-19 PDT Release Cascade — in progress'
+     * </pre>
+     *
+     * @param label the {@link #cascadeTopicLabel} value
+     * @return the env-file content (newline-terminated)
+     */
+    public static String cascadeMetaEnv(String label) {
+        return "CASCADE_LABEL='" + label + "'\n"
+                + "CASCADE_TOPIC_INPROGRESS='"
+                + inProgressCascadeTopic(label) + "'\n";
+    }
+
+    /** A repo released as part of a cascade — for the completion summary. */
+    public record CascadeMember(String artifact, String version) {}
+
+    /**
+     * The cascade-completion summary the terminal build posts, naming the
+     * ike-parent version and listing every repo released in the cascade.
+     *
+     * @param parentVersion the released ike-parent (ike-platform) version
+     * @param members       the repos released, in cascade order
+     * @return the Markdown summary
+     */
+    public static String formatCascadeSummary(String parentVersion,
+            List<CascadeMember> members) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("**Release cascade complete — ike-parent v")
+                .append(parentVersion).append("** ✅\n\n");
+        if (members != null) {
+            for (CascadeMember m : members) {
+                sb.append("- ").append(m.artifact())
+                        .append(" v").append(m.version()).append('\n');
+            }
         }
         return sb.toString();
     }

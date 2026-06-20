@@ -243,6 +243,65 @@ class ReleaseNotesIntegrationTest {
         assertThat(log).doesNotContain("(#1)");  // bare subject ref stripped
     }
 
+    @Test
+    void cascadeTopicLabel_uses_server_local_date_not_utc() {
+        // 2026-06-20 05:30 UTC == 2026-06-19 22:30 in Los Angeles (UTC-7 PDT).
+        // The label must reflect the release server's OWN day (the 19th),
+        // not UTC's (the 20th) — the cross-timezone point.
+        var instant = java.time.Instant.parse("2026-06-20T05:30:00Z");
+        var la = java.time.ZoneId.of("America/Los_Angeles");
+        String label = ReleaseNotesSupport.cascadeTopicLabel(instant, la);
+
+        assertThat(label).startsWith("2026-06-19 ");   // server-local day
+        assertThat(label).doesNotContain("2026-06-20"); // not UTC's day
+        assertThat(label.trim()).isNotEqualTo("2026-06-19"); // a zone label is appended
+    }
+
+    @Test
+    void cascadeTopic_names_round_trip() {
+        String label = "2026-06-19 PDT";
+
+        String inProgress = ReleaseNotesSupport.inProgressCascadeTopic(label);
+        assertThat(inProgress).isEqualTo("2026-06-19 PDT Release Cascade — in progress");
+
+        // The terminal recovers the label from the topic it found…
+        assertThat(ReleaseNotesSupport.cascadeLabelOf(inProgress)).isEqualTo(label);
+        // …and builds the completed name from it.
+        assertThat(ReleaseNotesSupport.completedCascadeTopic(label, "66"))
+                .isEqualTo("2026-06-19 PDT ike-parent Release Cascade v66");
+    }
+
+    @Test
+    void cascadeLabelOf_rejects_non_in_progress_topics() {
+        assertThat(ReleaseNotesSupport.cascadeLabelOf(
+                "2026-06-19 PDT ike-parent Release Cascade v66")).isNull();
+        assertThat(ReleaseNotesSupport.cascadeLabelOf("ike-tooling v223")).isNull();
+        assertThat(ReleaseNotesSupport.cascadeLabelOf(null)).isNull();
+    }
+
+    @Test
+    void cascadeMetaEnv_is_shell_sourceable() {
+        String env = ReleaseNotesSupport.cascadeMetaEnv("2026-06-19 PDT");
+        assertThat(env).contains("CASCADE_LABEL='2026-06-19 PDT'\n");
+        assertThat(env).contains(
+                "CASCADE_TOPIC_INPROGRESS='2026-06-19 PDT Release Cascade — in progress'\n");
+    }
+
+    @Test
+    void formatCascadeSummary_lists_members_under_parent_version() {
+        var members = List.of(
+                new ReleaseNotesSupport.CascadeMember("ike-tooling", "223"),
+                new ReleaseNotesSupport.CascadeMember("ike-docs", "77"),
+                new ReleaseNotesSupport.CascadeMember("ike-platform", "66"));
+
+        String summary = ReleaseNotesSupport.formatCascadeSummary("66", members);
+
+        assertThat(summary).contains("ike-parent v66");
+        assertThat(summary).contains("- ike-tooling v223");
+        assertThat(summary).contains("- ike-docs v77");
+        assertThat(summary).contains("- ike-platform v66");
+    }
+
     /** Run git in {@code dir} with a hermetic env (no host/global config). */
     private static void git(Path dir, String... args) throws Exception {
         String[] cmd = new String[args.length + 5];
