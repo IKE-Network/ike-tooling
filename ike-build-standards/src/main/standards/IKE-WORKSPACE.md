@@ -367,6 +367,16 @@ corresponding `-publish` goal, but still run the preview.
 changes to commit, preventing branch-switch conflicts. Warns at
 WARN level when skipping repos with unstaged changes.
 
+**Scope before you commit:** `ws:commit-publish` with the default
+`-DstagedOnly=false` runs `git add -A` in **every** subproject that has
+changes and commits them all under the single `-Dmessage` — including
+unrelated WIP in repos you did not touch. Run `ws:commit-draft` first to
+see the full set. To commit only specific work, stage just those files
+(`git add <paths>`) and pass `-DstagedOnly=true`, which skips `git add -A`
+and commits only what is staged (repos with nothing staged are skipped).
+A mislabeled message cannot be corrected after pushing to a force-push-
+protected branch.
+
 **`ws:push`:** warns about uncommitted changes after pushing, and
 automatically sets upstream tracking for new branches.
 
