@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class ScaffoldApplierTest {
 
@@ -38,6 +40,36 @@ class ScaffoldApplierTest {
         return new ManifestEntry(
                 dest, ScaffoldScope.PROJECT,
                 ScaffoldTier.TRACKED, dest, null, Map.of());
+    }
+
+    private static ManifestEntry toolOwnedMode(String dest, String mode) {
+        return new ManifestEntry(
+                dest, ScaffoldScope.PROJECT,
+                ScaffoldTier.TOOL_OWNED, dest, null,
+                Map.of("mode", mode));
+    }
+
+    /** Plan that installs/updates {@code entry} with {@code content}. */
+    private static ScaffoldPlan writePlan(
+            ManifestEntry entry, Path dest, byte[] content,
+            TierAction.Write.Kind kind) {
+        String sha = Sha256.of(content);
+        TierAction.Write w = new TierAction.Write(
+                entry, dest, content, sha, sha, kind,
+                kind.name().toLowerCase(java.util.Locale.ROOT));
+        return new ScaffoldPlan("7", List.of(
+                new PlannedEntry(entry, w, List.of())));
+    }
+
+    private static void assumePosix(Path anyDir) {
+        assumeTrue(anyDir.getFileSystem()
+                        .supportedFileAttributeViews().contains("posix"),
+                "POSIX permissions unsupported on this filesystem");
+    }
+
+    private static String modeOf(Path p) throws IOException {
+        return PosixFilePermissions.toString(
+                Files.getPosixFilePermissions(p));
     }
 
     @Test
@@ -306,6 +338,97 @@ class ScaffoldApplierTest {
 
         assertThat(result.files())
                 .doesNotContainKey("versions-upgrade-rules.yaml");
+    }
+
+    @Test
+    void executableModeInstallsAs0755(@TempDir Path project)
+            throws IOException {
+        assumePosix(project);
+        ManifestEntry e = toolOwnedMode("mvnw", "executable");
+        Path dest = project.resolve("mvnw");
+
+        applier.apply(
+                writePlan(e, dest, bytes("#!/bin/sh\n"),
+                        TierAction.Write.Kind.INSTALL),
+                ScaffoldLockfile.empty());
+
+        assertThat(modeOf(dest)).isEqualTo("rwxr-xr-x");
+        assertThat(Files.isExecutable(dest)).isTrue();
+    }
+
+    @Test
+    void privateModeInstallsAs0600(@TempDir Path home) throws IOException {
+        assumePosix(home);
+        ManifestEntry e = toolOwnedMode(
+                "~/.git-hooks/pre-commit", "private");
+        Path dest = home.resolve(".git-hooks/pre-commit");
+
+        applier.apply(
+                writePlan(e, dest, bytes("#!/bin/sh\nhook\n"),
+                        TierAction.Write.Kind.INSTALL),
+                ScaffoldLockfile.empty());
+
+        assertThat(modeOf(dest)).isEqualTo("rw-------");
+        assertThat(Files.isExecutable(dest)).isFalse();
+    }
+
+    @Test
+    void defaultModeInstallsAs0644(@TempDir Path project)
+            throws IOException {
+        assumePosix(project);
+        ManifestEntry e = toolOwned("mvnw.cmd");
+        Path dest = project.resolve("mvnw.cmd");
+
+        applier.apply(
+                writePlan(e, dest, bytes("@echo off\n"),
+                        TierAction.Write.Kind.INSTALL),
+                ScaffoldLockfile.empty());
+
+        assertThat(modeOf(dest)).isEqualTo("rw-r--r--");
+    }
+
+    @Test
+    void defaultModeUpdatePreservesExistingPerms(@TempDir Path home)
+            throws IOException {
+        assumePosix(home);
+        // A user's locked-down settings.xml (0600 with secrets) must
+        // not be loosened to 0644 by a default-mode refresh.
+        Path dest = home.resolve(".m2/settings.xml");
+        Files.createDirectories(dest.getParent());
+        Files.writeString(dest, "<settings/>");
+        Files.setPosixFilePermissions(dest,
+                PosixFilePermissions.fromString("rw-------"));
+
+        ManifestEntry e = toolOwned("~/.m2/settings.xml");
+        applier.apply(
+                writePlan(e, dest, bytes("<settings>new</settings>"),
+                        TierAction.Write.Kind.UPDATE),
+                ScaffoldLockfile.empty());
+
+        assertThat(Files.readString(dest))
+                .isEqualTo("<settings>new</settings>");
+        assertThat(modeOf(dest)).isEqualTo("rw-------");
+    }
+
+    @Test
+    void explicitModeIsEnforcedOnUpdate(@TempDir Path project)
+            throws IOException {
+        assumePosix(project);
+        // A drifted, non-executable mvnw already on disk must be
+        // brought to 0755 when the tool-owned entry is refreshed.
+        Path dest = project.resolve("mvnw");
+        Files.writeString(dest, "old\n");
+        Files.setPosixFilePermissions(dest,
+                PosixFilePermissions.fromString("rw-r--r--"));
+
+        ManifestEntry e = toolOwnedMode("mvnw", "executable");
+        applier.apply(
+                writePlan(e, dest, bytes("#!/bin/sh\nnew\n"),
+                        TierAction.Write.Kind.UPDATE),
+                ScaffoldLockfile.empty());
+
+        assertThat(modeOf(dest)).isEqualTo("rwxr-xr-x");
+        assertThat(Files.isExecutable(dest)).isTrue();
     }
 
     @Test

@@ -159,6 +159,46 @@ class ScaffoldMojoSupportTest {
     }
 
     @Test
+    void renderPlanReport_appendsActivationHintWhenDeclared() {
+        ManifestEntry e = new ManifestEntry(
+                "~/.git-hooks/post-commit", ScaffoldScope.USER,
+                ScaffoldTier.TOOL_OWNED, "tool-owned/hooks/post-commit",
+                null, Map.of(
+                        "mode", "private",
+                        "activation", "Activate with: chmod +x hook"));
+        byte[] tpl = "body".getBytes();
+        String sha = Sha256.of(tpl);
+        TierAction.Write install = new TierAction.Write(
+                e, Path.of("/tmp/post-commit"), tpl, sha, sha,
+                TierAction.Write.Kind.INSTALL, "install");
+        ScaffoldPlan plan = new ScaffoldPlan("7", List.of(
+                new PlannedEntry(e, install, List.of())));
+
+        String rep = ScaffoldMojoSupport.renderPlanReport(
+                plan, ScaffoldScope.USER);
+
+        assertThat(rep).contains("[INSTALL]");
+        assertThat(rep).contains("↳ Activate with: chmod +x hook");
+    }
+
+    @Test
+    void renderPlanReport_omitsActivationHintWhenAbsent() {
+        ManifestEntry e = toolOwned("mvnw");
+        byte[] tpl = "body".getBytes();
+        String sha = Sha256.of(tpl);
+        TierAction.Write install = new TierAction.Write(
+                e, Path.of("/tmp/mvnw"), tpl, sha, sha,
+                TierAction.Write.Kind.INSTALL, "install");
+        ScaffoldPlan plan = new ScaffoldPlan("7", List.of(
+                new PlannedEntry(e, install, List.of())));
+
+        String rep = ScaffoldMojoSupport.renderPlanReport(
+                plan, ScaffoldScope.PROJECT);
+
+        assertThat(rep).doesNotContain("↳");
+    }
+
+    @Test
     void renderPlanReport_handlesEmptyPlan() {
         ScaffoldPlan empty = new ScaffoldPlan("7", List.of());
         String rep = ScaffoldMojoSupport.renderPlanReport(

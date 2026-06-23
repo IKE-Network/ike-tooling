@@ -271,6 +271,15 @@ public final class ScaffoldMojoSupport {
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static String formatLine(PlannedEntry pe) {
+        String base = baseLine(pe);
+        Object activation = pe.manifest().extras().get("activation");
+        if (activation != null && !activation.toString().isBlank()) {
+            return base + "\n          ↳ " + activation;
+        }
+        return base;
+    }
+
+    private static String baseLine(PlannedEntry pe) {
         String dest = pe.manifest().dest();
         TierAction a = pe.action();
         if (a instanceof TierAction.Write w) {

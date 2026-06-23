@@ -2,13 +2,16 @@ package network.ike.plugin.scaffold;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Execute a {@link ScaffoldPlan}: write out Write-actions to disk and
@@ -123,7 +126,9 @@ public final class ScaffoldApplier {
     private LockfileEntry applyOne(PlannedEntry pe) {
         TierAction action = pe.action();
         if (action instanceof TierAction.Write w) {
-            writeBytes(w.resolvedDest(), w.newContent());
+            FileMode mode =
+                    FileMode.fromManifest(w.entry().extras().get("mode"));
+            writeBytes(w.resolvedDest(), w.newContent(), mode);
             return lockfileEntryFor(pe, w.templateSha(), w.appliedSha());
         }
         if (action instanceof TierAction.UpToDate u) {
@@ -154,12 +159,44 @@ public final class ScaffoldApplier {
         };
     }
 
-    private static void writeBytes(Path dest, byte[] content) {
+    /**
+     * Write {@code content} to {@code dest} atomically, then apply the
+     * file's {@link FileMode} on POSIX filesystems.
+     *
+     * <p>The write itself goes through a sibling temp file (created
+     * {@code 0600} by the JDK) + an atomic move, so the destination's
+     * permissions come from this method, not the moved temp file.
+     * Mode policy:
+     * <ul>
+     *   <li>an explicit mode ({@link FileMode#EXECUTABLE},
+     *       {@link FileMode#PRIVATE}) is always enforced — this is what
+     *       makes {@code mvnw} land {@code 0755} and the parked git
+     *       hooks land {@code 0600};</li>
+     *   <li>{@link FileMode#DEFAULT} applies {@code 0644} when the file
+     *       did not exist before (install), but <em>preserves</em> a
+     *       pre-existing file's permissions on update so the applier
+     *       never loosens, say, a locked-down {@code ~/.m2/settings.xml}
+     *       to {@code 0644}.</li>
+     * </ul>
+     *
+     * <p>On non-POSIX filesystems (e.g. Windows) the permission step is
+     * skipped silently — the bytes are still written.
+     *
+     * @param dest    destination path
+     * @param content bytes to write
+     * @param mode    declared file mode for this entry
+     */
+    private static void writeBytes(Path dest, byte[] content, FileMode mode) {
         try {
             Path parent = dest.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
+
+            boolean posix = supportsPosix(dest);
+            Set<PosixFilePermission> priorPerms =
+                    posix ? readPosixPermissions(dest) : null;
+
             Path tmp = Files.createTempFile(
                     parent == null ? dest.toAbsolutePath().getParent()
                             : parent,
@@ -177,9 +214,73 @@ public final class ScaffoldApplier {
                 }
                 throw e;
             }
+
+            if (posix) {
+                applyMode(dest, mode, priorPerms);
+            }
         } catch (IOException e) {
             throw new ScaffoldException(
                     "cannot write " + dest, e);
+        }
+    }
+
+    /**
+     * Whether the destination's filesystem supports POSIX permissions.
+     *
+     * @param dest the destination path (need not exist yet)
+     * @return {@code true} if the {@code posix} attribute view is
+     *         supported
+     */
+    private static boolean supportsPosix(Path dest) {
+        return dest.getFileSystem()
+                .supportedFileAttributeViews().contains("posix");
+    }
+
+    /**
+     * Read the existing POSIX permissions of {@code dest}, or
+     * {@code null} when it does not yet exist (a fresh install) or
+     * cannot be read.
+     *
+     * @param dest the destination path
+     * @return the current permission set, or {@code null}
+     */
+    private static Set<PosixFilePermission> readPosixPermissions(Path dest) {
+        if (!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) {
+            return null;
+        }
+        try {
+            return Files.getPosixFilePermissions(dest);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Apply the resolved file mode to {@code dest}. Best-effort: a
+     * permission failure is swallowed so the (already-written) content
+     * survives.
+     *
+     * @param dest       the freshly-written destination
+     * @param mode       declared mode for this entry
+     * @param priorPerms permissions the file carried before this write,
+     *                   or {@code null} if it was a fresh install
+     */
+    private static void applyMode(
+            Path dest,
+            FileMode mode,
+            Set<PosixFilePermission> priorPerms) {
+        Set<PosixFilePermission> target;
+        if (mode.isExplicit()) {
+            target = mode.toPosixPermissions();
+        } else if (priorPerms != null) {
+            target = priorPerms;
+        } else {
+            target = FileMode.DEFAULT.toPosixPermissions();
+        }
+        try {
+            Files.setPosixFilePermissions(dest, target);
+        } catch (IOException | UnsupportedOperationException e) {
+            // Best-effort: leave whatever the atomic move produced.
         }
     }
 }

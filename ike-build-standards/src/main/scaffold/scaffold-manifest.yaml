@@ -54,7 +54,8 @@ files:
   # for the blacklist source. The substitute lists `!pattern` entries
   # for every scaffold-tracked file that needs to escape the catch-all
   # ignore — keep this aligned with the entries below that have
-  # `scope: project` and `tier: tracked` / `tier: tracked-block`.
+  # `scope: project` and a file-based tier (`tracked`,
+  # `tracked-block`, or `tool-owned`, e.g. the Maven wrapper).
   - dest: .gitignore
     scope: project
     tier: tracked-block
@@ -68,6 +69,10 @@ files:
       !.mvn/
       !.mvn/extensions.xml
       !.mvn/maven.config
+      !.mvn/wrapper/
+      !.mvn/wrapper/maven-wrapper.properties
+      !mvnw
+      !mvnw.cmd
 
   # Maven build extensions — registered at startup so the Maven core
   # classpath has them. Currently provides wagon-ssh-external for
@@ -87,6 +92,19 @@ files:
     tier: tracked
     source: tracked/maven.config
 
+  # Maven wrapper — pins the Maven distribution every contributor and
+  # IntelliJ build uses (currently 4.0.0-rc-5 via the lightweight
+  # `only-script` wrapper, so no `maven-wrapper.jar` is shipped). Made
+  # tool-owned, not tracked, so the wrapper version stays consistent
+  # fleet-wide: the next scaffold-publish reproduces the shipped set
+  # and overwrites any drifted per-repo copy. The properties file and
+  # `mvnw.cmd` take the default file mode; `mvnw` is marked
+  # `executable` so `./mvnw` runs after publish.
+  - dest: .mvn/wrapper/maven-wrapper.properties
+    scope: project
+    tier: tool-owned
+    source: tool-owned/wrapper/maven-wrapper.properties
+
   # IKE Developer Setup link block — a tracked-block region in the
   # project README that points every contributor at the canonical
   # developer-environment guide (ike-issues#410). The
@@ -100,6 +118,23 @@ files:
     source: tracked/readme.developer-setup
     block-begin: "<!-- BEGIN ike-managed: developer-setup -->"
     block-end: "<!-- END ike-managed: developer-setup -->"
+
+  # Maven wrapper launcher (POSIX). `mode: executable` makes the
+  # applier publish it 0755 so `./mvnw` runs; without it the file
+  # would land non-executable like every other scaffold-written file.
+  - dest: mvnw
+    scope: project
+    tier: tool-owned
+    source: tool-owned/wrapper/mvnw
+    mode: executable
+
+  # Maven wrapper launcher (Windows batch). Default file mode — the
+  # executable bit is meaningless on Windows and the script is never
+  # invoked directly on POSIX.
+  - dest: mvnw.cmd
+    scope: project
+    tier: tool-owned
+    source: tool-owned/wrapper/mvnw.cmd
 
   # ── user scope ───────────────────────────────────────────────────
 
@@ -116,23 +151,31 @@ files:
       core:
         hooksPath: "~/.git-hooks"
 
-  # VCS Bridge hooks live under ~/.git-hooks/. Activated via the
-  # ~/.gitconfig entry above.
-
+  # VCS Bridge hooks live under ~/.git-hooks/. The ~/.gitconfig entry
+  # above points core.hooksPath here, but the hooks themselves ship
+  # parked: `mode: private` publishes them 0600 (non-executable), so
+  # git skips them until a user opts in. They are not yet ready for
+  # general use. scaffold-draft surfaces the one-line `chmod +x`
+  # activation command (the `activation` note below) so the step is
+  # discoverable without being automatic.
   - dest: ~/.git-hooks/post-commit
     scope: user
     tier: tool-owned
     source: tool-owned/hooks/post-commit
+    mode: private
+    activation: "VCS-bridge hooks are parked (mode 600, inert). Activate with: chmod +x ~/.git-hooks/pre-commit ~/.git-hooks/post-commit ~/.git-hooks/pre-push"
 
   - dest: ~/.git-hooks/pre-commit
     scope: user
     tier: tool-owned
     source: tool-owned/hooks/pre-commit
+    mode: private
 
   - dest: ~/.git-hooks/pre-push
     scope: user
     tier: tool-owned
     source: tool-owned/hooks/pre-push
+    mode: private
 
   # IKE plugin groups — lets the user run `mvn ike:…` and
   # `mvn ws:…` without fully-qualified coordinates. Existing
