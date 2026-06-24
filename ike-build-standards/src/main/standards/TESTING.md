@@ -67,6 +67,40 @@ class FooITestFX {
 - The starter zip (`tinkar-starter-data-reasoned-pb.zip`) is provisioned under
   `target/data/` by the build; reference it there.
 
+## Plugins outside the komet reactor — classpath integration tests
+
+A module parented directly on `ike-parent` (a standalone plugin such as
+`komet-claude-plugin` or `complex-clause-plugin`, **not** a komet-reactor module) runs its
+tests on the **classpath** (`useModulePath=false`), not the module path. The tinkar
+datastore providers declare their services only through `module-info provides`, with no
+`META-INF/services` entries, so a classpath `ServiceLoader` cannot discover them and the
+store fails to start (`No controller found with name: "Load Ephemeral Store"`,
+`No PathService found`).
+
+Such a module **MUST** declare the providers the legacy way — one
+`META-INF/services/<service-interface>` file per service under `src/test/resources/`:
+
+- `dev.ikm.tinkar.common.service.DataServiceController`
+- `dev.ikm.tinkar.common.service.ServiceLifecycle`
+- `dev.ikm.tinkar.common.service.ExecutorController`
+- `dev.ikm.tinkar.coordinate.PathService`
+
+Copy the implementation lines from `complex-clause-plugin/src/test/resources/META-INF/services/`
+— the impl classes are version-sensitive, so take them from a sibling plugin rather than
+freezing them here.
+
+Two rules go with this:
+
+- **Do not register `CachingService`, and do not call `CachingService.clearAll()` in
+  setup.** `clearAll()` drives `ExecutorProvider.reset()`, which looks up its *concrete*
+  `Controller` via `ServiceLoader` — a type no module provides — and throws. Each `*IT`
+  runs in its own fork (`reuseForks=false`), so no cross-class cache reset is needed.
+- Name these tests `*IT` and bind `maven-failsafe-plugin` (these plugins have no JavaFX
+  `*ITestFX` toolkit wiring); provision the starter zip under `target/data/` as above.
+
+Komet-reactor modules (framework, kview, …) need none of this: they run `*ITestFX` on the
+**module path**, where `module-info provides` is honored.
+
 ## High-blast-radius work
 
 Framework and coordinate code is high blast radius: write the test matrix as the
