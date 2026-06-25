@@ -3,8 +3,11 @@
 ## What is an IKE Workspace?
 
 An IKE Workspace is a multi-repository development environment managed
-through `workspace.yaml` — a YAML manifest that declares all subprojects
-and their inter-repository dependencies.
+through `workspace.yaml` — a YAML manifest that declares all subproject
+members and their inter-repository dependencies. A `ws:` goal acts on a
+*working set*: the co-located git working trees it operates on — the
+declared subproject members plus the workspace root (the *aggregator*),
+itself a first-class member.
 
 Workspace operations are implemented as Maven plugin goals in
 `ike-workspace-maven-plugin` (groupId `network.ike.platform`),
@@ -15,7 +18,7 @@ The per-repo build engine lives in `ike-maven-plugin` (groupId
 actual scaffold, release, and asciidoc work that `ws:` goals delegate to.
 
 The `ws:` console runs on a *working set of 1..N* (ike-issues#601 / #611 /
-#703): with a `workspace.yaml` it fans out across subprojects; in a single
+#703): with a `workspace.yaml` it fans out across the working set; in a single
 repository with none, the working-tree and lifecycle goals (`ws:commit`,
 `ws:push`, `ws:pull`, `ws:sync`, `ws:scaffold`, `ws:release`,
 `ws:feature-*`, `ws:sibling-create`) operate on that one repo — a working
@@ -24,6 +27,44 @@ breakdown.
 
 Both prefixes require the corresponding groupIds in
 `~/.m2/settings.xml` `<pluginGroups>` — see Prerequisites below.
+
+### Working Set vs Subproject
+
+The *working set* is the unit a `ws:` goal acts on — the co-located git
+working trees it operates on. It is **not** the same as the list of
+declared subprojects: the working set is the declared subproject members
+**plus** the workspace root. Mnemonic: ws = working set.
+
+Each entry in the working set is a *member*, and every member has a
+**kind**:
+
+- **subproject** — one of the repos declared under `subprojects:` in
+  `workspace.yaml`.
+- **aggregator** — the workspace root itself (the directory holding
+  `pom.xml` and `workspace.yaml`).
+
+The aggregator is a **first-class member**, not an orchestrator standing
+outside the set. It is branched, version-qualified, committed, and tagged
+exactly like every subproject member: `ws:feature-start-publish` qualifies
+its version, `ws:commit-publish` commits its working tree, `ws:switch-publish`
+realigns its branch, and `ws:checkpoint-publish` records its SHA. A goal that
+"acts on the working set" therefore reaches the aggregator too — preflight
+checks its tree for cleanliness, and a release/checkpoint records it
+alongside the subprojects.
+
+So "subproject" survives only as a member **kind**, never as the
+organizing noun for what a goal spans. Where this document says a goal
+acts across "the working set" or "every member," it includes the
+aggregator; where it says "subproject," it means specifically a member of
+that kind (and the schema key `subprojects:` and the naming rule
+"subproject key == directory name" are unchanged).
+
+**Report self-SHA caveat.** In a working-set report, each member row cites
+its **real HEAD** SHA — including the aggregator's. The one exception is a
+checkpoint manifest written by `ws:checkpoint-publish`: because the
+manifest is committed *in the aggregator* by the very commit it is
+describing, the aggregator's own row cites `n/a — this commit` for the
+not-yet-made SHA, while every subproject member still cites its real HEAD.
 
 ### Schema Migration (#150)
 
@@ -63,7 +104,7 @@ mutating goals are paired with a read-only `-draft` preview; run the draft first
 
 - **Commit / push** — `ws:commit-publish -Dmessage="…" [-Dpush=true]` and
   `ws:push`. Not `git add` / `git commit` / `git push`.
-- **Branch coherence** — when a subproject sits on a different branch than the
+- **Branch coherence** — when a member sits on a different branch than the
   rest of the working set, realign it with `ws:switch-publish`. Not
   `git checkout` + `git merge` / `merge --ff-only`.
 - **Feature lifecycle** — `ws:feature-start-publish`,
@@ -73,7 +114,7 @@ mutating goals are paired with a read-only `-draft` preview; run the draft first
   `git branch -a`) is expected for inspection; it is *mutation* that must go
   through `ws:`.
 
-**The `sha:` pins are checkpoint snapshots, not live HEAD.** Each subproject's
+**The `sha:` pins are checkpoint snapshots, not live HEAD.** Each member's
 `sha:` in `workspace.yaml` is written **only** by `ws:checkpoint-publish` (and
 `ws:release`), and is what `ws:scaffold-init` resets a fresh clone to. A pin
 trailing the branch HEAD is therefore **normal** — it points at the last
@@ -192,7 +233,7 @@ on the first run of `ws:align-publish`. See "Schema Migration" above.
 | Field | Required | Description |
 |-------|----------|-------------|
 | `schema-version` | Yes | Schema version for forward compatibility |
-| `defaults.branch` | Yes | Default branch for all subprojects |
+| `defaults.branch` | Yes | Default branch for every member of the working set |
 | `subprojects` | Yes | Map of subproject-name → subproject definition |
 
 ### Subproject Fields
@@ -235,7 +276,7 @@ rebuild; `content` dependencies may require only review.
 ### Version Cascade Mechanisms
 
 When `ws:feature-start-publish` creates a feature branch, it cascades
-branch-qualified SNAPSHOT versions to downstream subprojects via three
+branch-qualified SNAPSHOT versions to downstream members via three
 complementary mechanisms:
 
 1. **version-property** (workspace.yaml `depends-on` declaration):
@@ -257,7 +298,7 @@ complementary mechanisms:
 
 **Cascade gap detection:** `ws:feature-start-publish` reports cascade gaps when
 a dependency edge has *none* of the above mechanisms. This means the
-downstream subproject may resolve stale versions from external BOMs
+downstream member may resolve stale versions from external BOMs
 instead of the feature branch versions. The gap detection accounts for
 all three mechanisms — convention-based properties suppress false positives.
 
@@ -313,8 +354,8 @@ in a single pass. Each reconciler can be individually disabled.
 
 | Goal | Description |
 |------|-------------|
-| `ws:release-draft` / `-publish` | Release release-pending subprojects in dependency order |
-| `ws:checkpoint-draft` / `-publish` | Tag all subprojects, record SHAs |
+| `ws:release-draft` / `-publish` | Release release-pending members in dependency order |
+| `ws:checkpoint-draft` / `-publish` | Tag every member, record SHAs |
 | `ws:post-release` | Bump to next development version |
 | `ws:release-notes` | Generate notes from GitHub milestone |
 
@@ -324,7 +365,7 @@ in a single pass. Each reconciler can be individually disabled.
 |------|-------------|
 | `ws:commit-draft` | Preview what would be committed across repos (read-only) |
 | `ws:commit-publish` | Commit across repos (`-Dpush=true -Dmessage="..."`) |
-| `ws:push` | Push all subprojects (warns about uncommitted changes) |
+| `ws:push` | Push every member (warns about uncommitted changes) |
 | `ws:sync` | Reconcile state after machine switch |
 
 ### Common Options
@@ -350,10 +391,10 @@ in a single pass. Each reconciler can be individually disabled.
 
 ### Preflight Validation
 
-Multi-repo goals validate that all subproject working trees are clean
-before starting. If any subproject has uncommitted changes, the goal
-fails immediately with a list of affected repos and files, along with
-the specific `ws:commit-publish` command to resolve it. No partial
+Multi-repo goals validate that every member's working tree is clean
+before starting — the aggregator included. If any member has uncommitted
+changes, the goal fails immediately with a list of affected repos and files,
+along with the specific `ws:commit-publish` command to resolve it. No partial
 modifications occur.
 
 **Publish goals with hard preflight:** `release`, `align`,
@@ -368,7 +409,7 @@ changes to commit, preventing branch-switch conflicts. Warns at
 WARN level when skipping repos with unstaged changes.
 
 **Scope before you commit:** `ws:commit-publish` with the default
-`-DstagedOnly=false` runs `git add -A` in **every** subproject that has
+`-DstagedOnly=false` runs `git add -A` in **every** member that has
 changes and commits them all under the single `-Dmessage` — including
 unrelated WIP in repos you did not touch. Run `ws:commit-draft` first to
 see the full set. To commit only specific work, stage just those files
@@ -382,7 +423,7 @@ automatically sets upstream tracking for new branches.
 
 ### Report Generation Contract
 
-Every `ws:*` goal that assesses or mutates cross-subproject state **must**
+Every `ws:*` goal that assesses or mutates working-set state **must**
 call `AbstractWorkspaceMojo.writeReport(WsGoal goal, String markdownBody)`
 at the end of execution. The report is persisted under the workspace
 `session/` directory as `ws꞉<goal-name>.md` (using U+A789, not `:`, to
@@ -459,14 +500,14 @@ only cloned subprojects participate in the reactor. This supports:
 
 - **Incremental IntelliJ builds**: Open the workspace POM; only checked-out
   modules appear in the project tree.
-- **Selective `mvn -pl -am`**: Build a specific subproject and its
+- **Selective `mvn -pl -am`**: Build a specific member and its
   dependencies within the workspace.
 - **New developer onboarding**: Clone workspace, run `ws:scaffold-init`,
   build immediately with the set that has been checked out.
 
 ## Checkpoint Files
 
-`ws:checkpoint-publish` records per-subproject state to
+`ws:checkpoint-publish` records per-member state to
 `checkpoints/checkpoint-<name>.yaml`:
 
 ```yaml
@@ -488,22 +529,22 @@ tags in each subproject's repo.
 
 ## Workspace Release Orchestration (`ws:release-publish`)
 
-`ws:release-publish` automates multi-subproject release across a workspace.
-It replaces manual per-subproject release sequences with a single
+`ws:release-publish` automates multi-member release across a workspace.
+It replaces manual per-member release sequences with a single
 orchestrated workflow that respects inter-repository dependency order.
 
 ### The Self-Limiting Cascade
 
 The release is *self-limiting*: only checked-out repositories with
-commits since their last release tag are candidates. Subprojects that
+commits since their last release tag are candidates. Members that
 are not checked out or have no changes are silently skipped. This
 means the release scope is determined by the intersection of two sets:
 
-1. Subprojects physically present in the workspace (checked out)
-2. Subprojects with commits since their last release tag (release-pending)
+1. Members physically present in the workspace (checked out)
+2. Members with commits since their last release tag (release-pending)
 
-A workspace with three of ten subprojects checked out will release
-at most three subprojects — and only those with actual changes.
+A workspace with three of ten members checked out will release
+at most three members — and only those with actual changes.
 
 ### Workflow
 
@@ -513,7 +554,7 @@ The goal executes five phases:
 2. **Filter release-pending** — For each checked-out repo, compare HEAD
    against the last release tag. Only repos with new commits are candidates.
 3. **Topological sort** — Order candidates by dependency graph so that
-   upstream subprojects release before their dependents.
+   upstream members release before their dependents.
 4. **Release in order** — For each candidate (in topo order):
    - Strip `-SNAPSHOT` from the version
    - Build and verify
@@ -522,8 +563,8 @@ The goal executes five phases:
    - Bump to the next SNAPSHOT version
 5. **Update cross-references** — After each release, update parent
    version references in downstream POMs that depend on the just-released
-   subproject. This keeps the cascade self-consistent: when `ike-platform`
-   releases version 24, downstream subprojects that reference
+   member. This keeps the cascade self-consistent: when `ike-platform`
+   releases version 24, downstream members that reference
    `ike-platform` as a parent are updated to `<version>24</version>`
    before they build.
 
@@ -547,7 +588,7 @@ release to enable recovery. Use `-DskipCheckpoint=true` to bypass this.
 # Dry run — see what would be released and in what order
 mvn ws:release-draft
 
-# Release all release-pending subprojects, push results
+# Release all release-pending members, push results
 mvn ws:release-publish
 
 # Release only ike-platform and its release-pending dependents
@@ -699,7 +740,7 @@ mvn ws:feature-finish-squash-publish -Dfeature=new-renderer
 
 ### Release After Feature
 
-After merging a feature, release the affected subprojects:
+After merging a feature, release the affected members:
 
 ```bash
 # See what needs releasing
@@ -749,11 +790,11 @@ delete the subproject directory and let `ws:scaffold-init` re-clone.
 ### Recovery from Failed `ws-release`
 
 If `ws:release-publish` fails mid-cascade (e.g., build failure in the
-second subproject), the pre-release checkpoint file records the state
-of every subproject before the release started. Run `mvn ws:release-status`
-first — it's read-only and reports what state each subproject is in plus
+second member), the pre-release checkpoint file records the state
+of every member before the release started. Run `mvn ws:release-status`
+first — it's read-only and reports what state each member is in plus
 a recommended recovery step. Re-running `mvn ws:release-publish` skips
-subprojects that were already tagged and released — it resumes from
+members that were already tagged and released — it resumes from
 the point of failure.
 
 ```bash
@@ -775,7 +816,7 @@ cd <conflicting-subproject>
 git add <resolved-files>
 git commit
 
-# Re-run feature-finish — already-merged subprojects are skipped
+# Re-run feature-finish — already-merged members are skipped
 mvn ws:feature-finish-squash-publish -Dfeature=my-feature
 ```
 
@@ -807,7 +848,7 @@ If a goal reports "subproject not found" for a name you expect to exist:
 
 - Check spelling: subproject names in `workspace.yaml` are case-sensitive
   and must match directory names exactly.
-- Check checkout: some goals only operate on checked-out subprojects.
+- Check checkout: some goals only operate on checked-out members.
   Run `mvn ws:overview` to see which subprojects are present.
 
 ## Key Rules

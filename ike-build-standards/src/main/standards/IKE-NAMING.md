@@ -217,7 +217,7 @@ the migration plan updates them before closing #467's follow-on.
 |---|---|
 | Repo creation | Code reviewer rejects names that violate the policy. |
 | `ws:scaffold-init` | Aborts if the workspace.yaml subproject key doesn't match the repo name from the cloned URL. |
-| `ws:scaffold-draft` | Reports per-subproject drift between key, dir, and `<artifactId>`. |
+| `ws:scaffold-draft` | Reports drift between key, dir, and `<artifactId>` across the working set. |
 | Site rendering | The `OrgSiteSupport.FOUNDATION` map keys must match the repo names that produce the registered sites. |
 
 ## See also
