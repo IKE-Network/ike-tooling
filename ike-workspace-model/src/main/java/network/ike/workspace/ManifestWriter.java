@@ -74,6 +74,40 @@ public final class ManifestWriter {
     }
 
     /**
+     * Strip a branch qualifier from every {@code version:} field in the
+     * manifest, restoring the base {@code -SNAPSHOT} form. This is the inverse
+     * of the version qualification {@code ws:feature-start} applies;
+     * {@code ws:feature-finish} calls it so the manifest's recorded versions —
+     * each subproject's {@code version:} and, schema 1.1+, the
+     * {@code workspace-root:} {@code version:} — return to base when a feature
+     * lands, instead of being stranded on {@code X-<feature>-SNAPSHOT}
+     * (ike-issues#768/#763).
+     *
+     * <p>Only {@code version:} field values carrying the exact qualifier are
+     * touched: {@code maven-version:}, {@code branch:}, and unrelated fields
+     * are left alone, as are versions with a different (or no) qualifier. The
+     * operation is idempotent.
+     *
+     * @param manifestPath path to workspace.yaml
+     * @param qualifier    the branch qualifier to strip (e.g.
+     *                     {@code "view-options-popup"})
+     * @throws IOException if the file cannot be read or written
+     */
+    public static void stripVersionQualifiers(Path manifestPath, String qualifier)
+            throws IOException {
+        String content = Files.readString(manifestPath, StandardCharsets.UTF_8);
+        // A `version:` field line (any indent) whose value ends in
+        // `-<qualifier>-SNAPSHOT`, optionally quoted; drop just the qualifier.
+        // `\s*version:` will not match `maven-version:` (the `maven-` prefix is
+        // non-whitespace), so that field is safe.
+        Pattern p = Pattern.compile(
+                "(?m)^(\\s*version:\\s*\"?.*?)-"
+                        + Pattern.quote(qualifier) + "-SNAPSHOT(\"?\\s*)$");
+        content = p.matcher(content).replaceAll("$1-SNAPSHOT$2");
+        Files.writeString(manifestPath, content, StandardCharsets.UTF_8);
+    }
+
+    /**
      * Update the sha field for one or more subprojects. If the sha field
      * does not exist in the subproject block, it is inserted after the
      * branch field.

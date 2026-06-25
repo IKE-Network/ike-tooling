@@ -59,6 +59,62 @@ class ManifestWriterTest {
     }
 
     @Test
+    void stripVersionQualifiers_dequalifiesVersionFieldsOnly(@TempDir Path tmp)
+            throws IOException {
+        String yaml = """
+                schema-version: "1.1"
+                workspace-root:
+                  groupId: network.ike.komet
+                  artifactId: ike-komet-wsr
+                  version: "1-view-options-popup-SNAPSHOT"
+                defaults:
+                  branch: feature/view-options-popup
+                  maven-version: "4.0.0-rc-5"
+                subprojects:
+                  tinkar-core:
+                    type: software
+                    branch: feature/view-options-popup
+                    version: "1.127.2-view-options-popup-SNAPSHOT"
+                  komet:
+                    type: software
+                    branch: feature/view-options-popup
+                    version: 1.59.0-view-options-popup-SNAPSHOT
+                """;
+        Path manifest = tmp.resolve("workspace.yaml");
+        Files.writeString(manifest, yaml);
+
+        ManifestWriter.stripVersionQualifiers(manifest, "view-options-popup");
+
+        String result = Files.readString(manifest);
+        // Every version: field — quoted/unquoted, subproject and workspace-root.
+        assertThat(result).contains("version: \"1-SNAPSHOT\"");        // workspace-root
+        assertThat(result).contains("version: \"1.127.2-SNAPSHOT\""); // quoted subproject
+        assertThat(result).contains("version: 1.59.0-SNAPSHOT");       // unquoted subproject
+        assertThat(result).doesNotContain("view-options-popup-SNAPSHOT");
+        // Non-version fields sharing the token are untouched.
+        assertThat(result).contains("branch: feature/view-options-popup");
+        assertThat(result).contains("maven-version: \"4.0.0-rc-5\"");
+    }
+
+    @Test
+    void stripVersionQualifiers_idempotentAndIgnoresUnqualified(@TempDir Path tmp)
+            throws IOException {
+        String yaml = """
+                subprojects:
+                  lib-a:
+                    branch: main
+                    version: "1.0.0-SNAPSHOT"
+                """;
+        Path manifest = tmp.resolve("workspace.yaml");
+        Files.writeString(manifest, yaml);
+
+        ManifestWriter.stripVersionQualifiers(manifest, "view-options-popup");
+
+        assertThat(Files.readString(manifest))
+                .contains("version: \"1.0.0-SNAPSHOT\"");
+    }
+
+    @Test
     void preservesComments(@TempDir Path tmp) throws IOException {
         String yaml = """
                 # This is a comment
