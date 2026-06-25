@@ -393,7 +393,7 @@ class ReleaseSupportTest {
     void findPomFiles_findsRootPom(@TempDir Path tmpDir) throws Exception {
         writePom(tmpDir, "<project/>");
 
-        var poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
+        List<File> poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
 
         assertThat(poms).hasSize(1);
         assertThat(poms.get(0).getName()).isEqualTo("pom.xml");
@@ -407,7 +407,7 @@ class ReleaseSupportTest {
         Files.createDirectories(tmpDir.resolve("sub-b"));
         writePom(tmpDir.resolve("sub-b"), "<project/>");
 
-        var poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
+        List<File> poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
 
         assertThat(poms).hasSize(3);
     }
@@ -418,7 +418,7 @@ class ReleaseSupportTest {
         Files.createDirectories(tmpDir.resolve("target/classes"));
         writePom(tmpDir.resolve("target"), "<project/>");
 
-        var poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
+        List<File> poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
 
         assertThat(poms).hasSize(1);
     }
@@ -429,7 +429,7 @@ class ReleaseSupportTest {
         Files.createDirectories(tmpDir.resolve(".mvn/wrapper"));
         writePom(tmpDir.resolve(".mvn"), "<project/>");
 
-        var poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
+        List<File> poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
 
         assertThat(poms).hasSize(1);
     }
@@ -449,8 +449,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.replaceProjectVersionRefs(
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "2.0.0", log);
 
         assertThat(modified).hasSize(1);
@@ -464,7 +464,7 @@ class ReleaseSupportTest {
     void replaceProjectVersionRefs_createsBackup(@TempDir Path tmpDir) throws Exception {
         writePom(tmpDir, "<project><version>${project.version}</version></project>");
 
-        var log = new TestLog();
+        TestLog log = new TestLog();
         ReleaseSupport.replaceProjectVersionRefs(tmpDir.toFile(), "3.0", log);
 
         Path backup = tmpDir.resolve("pom.xml.ike-backup");
@@ -478,8 +478,8 @@ class ReleaseSupportTest {
             throws Exception {
         writePom(tmpDir, "<project><version>1.0.0</version></project>");
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.replaceProjectVersionRefs(
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "2.0.0", log);
 
         assertThat(modified).isEmpty();
@@ -490,11 +490,11 @@ class ReleaseSupportTest {
         String original = "<project><version>${project.version}</version></project>";
         writePom(tmpDir, original);
 
-        var log = new TestLog();
+        TestLog log = new TestLog();
         ReleaseSupport.replaceProjectVersionRefs(tmpDir.toFile(), "3.0", log);
 
         // Now restore
-        var restored = ReleaseSupport.restoreBackups(tmpDir.toFile(), log);
+        List<File> restored = ReleaseSupport.restoreBackups(tmpDir.toFile(), log);
 
         assertThat(restored).hasSize(1);
         String content = Files.readString(restored.get(0).toPath(), StandardCharsets.UTF_8);
@@ -509,8 +509,8 @@ class ReleaseSupportTest {
     void restoreBackups_noBackups_emptyResult(@TempDir Path tmpDir) throws Exception {
         writePom(tmpDir, "<project/>");
 
-        var log = new TestLog();
-        var restored = ReleaseSupport.restoreBackups(tmpDir.toFile(), log);
+        TestLog log = new TestLog();
+        List<File> restored = ReleaseSupport.restoreBackups(tmpDir.toFile(), log);
 
         assertThat(restored).isEmpty();
     }
@@ -534,8 +534,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
 
         assertThat(modified).hasSize(1);
         String content = Files.readString(modified.get(0).toPath(), StandardCharsets.UTF_8);
@@ -562,8 +562,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
 
         assertThat(modified).hasSize(1);
         String content = Files.readString(modified.get(0).toPath(), StandardCharsets.UTF_8);
@@ -588,8 +588,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
 
         assertThat(modified).isEmpty();
     }
@@ -614,8 +614,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
 
         assertThat(modified).isEmpty();
     }
@@ -639,13 +639,13 @@ class ReleaseSupportTest {
                 """;
         writePom(tmpDir, source);
 
-        var log = new TestLog();
+        TestLog log = new TestLog();
         ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
         Path pom = tmpDir.resolve("pom.xml");
         String afterBake = Files.readString(pom, StandardCharsets.UTF_8);
         assertThat(afterBake).contains("<ike-base-parent.version>");
 
-        var unbaked = ReleaseSupport.unbakeAliasIndirections(tmpDir.toFile(), log);
+        List<File> unbaked = ReleaseSupport.unbakeAliasIndirections(tmpDir.toFile(), log);
         assertThat(unbaked).hasSize(1);
         String afterUnbake = Files.readString(pom, StandardCharsets.UTF_8);
         assertThat(afterUnbake).doesNotContain("<ike-base-parent.version>");
@@ -675,8 +675,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.unbakeAliasIndirections(tmpDir.toFile(), log);
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.unbakeAliasIndirections(tmpDir.toFile(), log);
 
         // Value "14" doesn't match the expected canonical reference,
         // so unbake leaves it alone.
@@ -690,42 +690,42 @@ class ReleaseSupportTest {
 
     @Test
     void routeSubprocessLine_errorPrefix_routesToError() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "[ERROR] Something went wrong");
         assertThat(log.errors).containsExactly("Something went wrong");
     }
 
     @Test
     void routeSubprocessLine_warningPrefix_routesToWarn() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "[WARNING] Deprecated API");
         assertThat(log.warnings).containsExactly("Deprecated API");
     }
 
     @Test
     void routeSubprocessLine_infoPrefix_routesToInfo() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "[INFO] Building project");
         assertThat(log.infos).containsExactly("Building project");
     }
 
     @Test
     void routeSubprocessLine_debugPrefix_routesToDebug() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "[DEBUG] Classpath entry");
         assertThat(log.debugs).containsExactly("Classpath entry");
     }
 
     @Test
     void routeSubprocessLine_jvmWarning_routesToWarn() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "WARNING: sun.misc.Unsafe deprecated");
         assertThat(log.warnings).containsExactly("sun.misc.Unsafe deprecated");
     }
 
     @Test
     void routeSubprocessLine_jvmError_routesToError() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "ERROR: fatal JVM error");
         assertThat(log.errors).containsExactly("fatal JVM error");
     }
@@ -736,7 +736,7 @@ class ReleaseSupportTest {
         // routes to info so git/curl/scp output is visible in the
         // build log. Earlier behavior was log.debug — hid both
         // successes and unrecognized failures.
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "Just a plain line");
         assertThat(log.infos).containsExactly("Just a plain line");
         assertThat(log.debugs).isEmpty();
@@ -745,7 +745,7 @@ class ReleaseSupportTest {
     @Test
     void routeSubprocessLine_gitFatal_routesToError() {
         // ike-issues#329: git error patterns must be visible.
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log,
                 "fatal: Could not read from remote repository.");
         assertThat(log.errors).containsExactly(
@@ -755,7 +755,7 @@ class ReleaseSupportTest {
 
     @Test
     void routeSubprocessLine_gitError_routesToError() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "error: failed to push some refs");
         assertThat(log.errors).containsExactly(
                 "error: failed to push some refs");
@@ -763,7 +763,7 @@ class ReleaseSupportTest {
 
     @Test
     void routeSubprocessLine_gitRemoteError_routesToError() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log,
                 "remote: error: GH013: Repository rule violations found");
         assertThat(log.errors).containsExactly(
@@ -772,7 +772,7 @@ class ReleaseSupportTest {
 
     @Test
     void routeSubprocessLine_gitRejected_routesToError() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log,
                 "! [rejected] main -> main (fetch first)");
         assertThat(log.errors).containsExactly(
@@ -781,7 +781,7 @@ class ReleaseSupportTest {
 
     @Test
     void routeSubprocessLine_withPrefix_prependsLabel() {
-        var log = new CapturingLog();
+        CapturingLog log = new CapturingLog();
         ReleaseSupport.routeSubprocessLine(log, "[INFO] Building", "[nexus] ");
         assertThat(log.infos).containsExactly("[nexus] Building");
     }
@@ -790,7 +790,7 @@ class ReleaseSupportTest {
 
     @Test
     void exec_successfulCommand_noException(@TempDir Path tmpDir) {
-        var log = new TestLog();
+        TestLog log = new TestLog();
         assertThatCode(() ->
                 ReleaseSupport.exec(tmpDir.toFile(), log, "echo", "hello"))
                 .doesNotThrowAnyException();
@@ -798,7 +798,7 @@ class ReleaseSupportTest {
 
     @Test
     void exec_failingCommand_throwsWithExitCode(@TempDir Path tmpDir) {
-        var log = new TestLog();
+        TestLog log = new TestLog();
         assertThatThrownBy(() ->
                 ReleaseSupport.exec(tmpDir.toFile(), log, "false"))
                 .isInstanceOf(MojoException.class)
@@ -824,7 +824,7 @@ class ReleaseSupportTest {
 
     @Test
     void execParallel_twoSuccessfulTasks(@TempDir Path tmpDir) {
-        var log = new TestLog();
+        TestLog log = new TestLog();
         assertThatCode(() -> ReleaseSupport.execParallel(
                 tmpDir.toFile(), log,
                 new ReleaseSupport.LabeledTask("a", new String[]{"echo", "alpha"}),
@@ -834,7 +834,7 @@ class ReleaseSupportTest {
 
     @Test
     void execParallel_oneFailingTask_throwsWithLabel(@TempDir Path tmpDir) {
-        var log = new TestLog();
+        TestLog log = new TestLog();
         assertThatThrownBy(() -> ReleaseSupport.execParallel(
                 tmpDir.toFile(), log,
                 new ReleaseSupport.LabeledTask("good", new String[]{"echo", "ok"}),
@@ -846,7 +846,7 @@ class ReleaseSupportTest {
 
     @Test
     void execParallel_bothFailing_reportsAll(@TempDir Path tmpDir) {
-        var log = new TestLog();
+        TestLog log = new TestLog();
         assertThatThrownBy(() -> ReleaseSupport.execParallel(
                 tmpDir.toFile(), log,
                 new ReleaseSupport.LabeledTask("task1", new String[]{"false"}),
@@ -862,7 +862,7 @@ class ReleaseSupportTest {
     @Test
     void gitAddFiles_emptyList_noOp(@TempDir Path tmpDir) throws Exception {
         initGitRepo(tmpDir);
-        var log = new TestLog();
+        TestLog log = new TestLog();
 
         // Should not throw — empty list is a no-op
         assertThatCode(() ->
@@ -873,7 +873,7 @@ class ReleaseSupportTest {
     @Test
     void gitAddFiles_stagesFiles(@TempDir Path tmpDir) throws Exception {
         initGitRepo(tmpDir);
-        var log = new TestLog();
+        TestLog log = new TestLog();
 
         // Create a new file
         Path newFile = tmpDir.resolve("new.txt");
@@ -1343,7 +1343,7 @@ class ReleaseSupportTest {
         // Directory with no pom.xml files at all
         Files.writeString(tmpDir.resolve("README.txt"), "hello", StandardCharsets.UTF_8);
 
-        var poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
+        List<File> poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
         assertThat(poms).isEmpty();
     }
 
@@ -1355,7 +1355,7 @@ class ReleaseSupportTest {
         Files.createDirectories(deep);
         writePom(deep, "<project/>");
 
-        var poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
+        List<File> poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
         assertThat(poms).hasSize(1);  // only root pom
     }
 
@@ -1363,7 +1363,7 @@ class ReleaseSupportTest {
     void findPomFiles_singlePom_noSubmodules(@TempDir Path tmpDir) throws Exception {
         writePom(tmpDir, "<project><version>1.0</version></project>");
 
-        var poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
+        List<File> poms = ReleaseSupport.findPomFiles(tmpDir.toFile());
         assertThat(poms).hasSize(1);
         assertThat(poms.get(0).getParentFile().toPath()).isEqualTo(tmpDir);
     }
@@ -1390,8 +1390,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.replaceProjectVersionRefs(
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "2.0.0", log);
 
         assertThat(modified).hasSize(1);
@@ -1429,8 +1429,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.replaceProjectVersionRefs(
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "3.0.0", log);
 
         assertThat(modified).hasSize(2);
@@ -1450,8 +1450,8 @@ class ReleaseSupportTest {
                 </project>
                 """);
 
-        var log = new TestLog();
-        var modified = ReleaseSupport.replaceProjectVersionRefs(
+        TestLog log = new TestLog();
+        List<File> modified = ReleaseSupport.replaceProjectVersionRefs(
                 tmpDir.toFile(), "4.0.0", log);
 
         assertThat(modified).hasSize(1);

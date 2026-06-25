@@ -140,8 +140,8 @@ public final class BomAnalysis {
 
                 // Check if this BOM is published by a workspace subproject
                 String publishingSubproject = null;
-                for (var entry : workspaceArtifacts.entrySet()) {
-                    for (var artifact : entry.getValue()) {
+                for (Map.Entry<String, Set<PublishedArtifactSet.Artifact>> entry : workspaceArtifacts.entrySet()) {
+                    for (PublishedArtifactSet.Artifact artifact : entry.getValue()) {
                         if (artifact.groupId().equals(gid)
                                 && artifact.artifactId().equals(aid)) {
                             publishingSubproject = entry.getKey();
@@ -177,7 +177,7 @@ public final class BomAnalysis {
 
         List<CascadeIssue> issues = new ArrayList<>();
 
-        for (var entry : manifest.subprojects().entrySet()) {
+        for (Map.Entry<String, Subproject> entry : manifest.subprojects().entrySet()) {
             String subprojectName = entry.getKey();
             Subproject sub = entry.getValue();
 
@@ -317,7 +317,7 @@ public final class BomAnalysis {
 
     private static String resolve(String value, Map<String, String> properties) {
         if (value == null || !value.contains("${")) return value;
-        for (var entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             value = value.replace("${" + entry.getKey() + "}", entry.getValue());
         }
         return value;

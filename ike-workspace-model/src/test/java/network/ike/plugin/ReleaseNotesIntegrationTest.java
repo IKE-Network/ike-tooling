@@ -32,7 +32,7 @@ class ReleaseNotesIntegrationTest {
 
     @Test
     void formatNotes_produces_valid_markdown_for_gh_release() {
-        var issues = List.of(
+        List<Issue> issues = List.of(
                 new Issue(12, "Fix pluginGroups prerequisite docs", List.of("bug", "tooling")),
                 new Issue(16, "Implement ws:release-notes goal", List.of("enhancement", "tooling")),
                 new Issue(13, "Add bootstrap checklist", List.of("documentation", "tooling")));
@@ -65,7 +65,7 @@ class ReleaseNotesIntegrationTest {
     void formatNotes_renders_foundation_upgrades_section() {
         // #706 — a cascade-only rebuild (no issues) announces what it was
         // rebuilt against rather than "No closed issues".
-        var upgrades = List.of(
+        List<CascadeBump> upgrades = List.of(
                 new CascadeBump("network.ike.tooling", "ike-tooling", "221", "222"),
                 new CascadeBump("network.ike.docs", "ike-docs", "75", "76"));
 
@@ -92,13 +92,13 @@ class ReleaseNotesIntegrationTest {
 
     @Test
     void testingContext_toMarkdown_categorizes_issues() {
-        var closed = List.of(
+        List<Issue> closed = List.of(
                 new Issue(13, "Add bootstrap checklist", List.of("documentation")),
                 new Issue(16, "Implement ws:release-notes", List.of("enhancement")));
-        var open = List.of(
+        List<Issue> open = List.of(
                 new Issue(12, "Fix pluginGroups docs", List.of("bug")));
 
-        var context = new TestingContext("ike-tooling v57", closed, open);
+        TestingContext context = new TestingContext("ike-tooling v57", closed, open);
         String md = context.toMarkdown();
 
         assertThat(md).contains("## Testing Context: ike-tooling v57");
@@ -111,12 +111,12 @@ class ReleaseNotesIntegrationTest {
 
     @Test
     void testingContext_toYaml_produces_valid_yaml() {
-        var closed = List.of(
+        List<Issue> closed = List.of(
                 new Issue(13, "Add bootstrap checklist", List.of("documentation")));
-        var open = List.of(
+        List<Issue> open = List.of(
                 new Issue(12, "Fix pluginGroups docs", List.of("bug")));
 
-        var context = new TestingContext("ike-tooling v57", closed, open);
+        TestingContext context = new TestingContext("ike-tooling v57", closed, open);
         String yaml = context.toYaml("  ");
 
         assertThat(yaml).contains("testing-context:");
@@ -129,7 +129,7 @@ class ReleaseNotesIntegrationTest {
 
     @Test
     void testingContext_empty_produces_no_issues_message() {
-        var context = new TestingContext("test v1", List.of(), List.of());
+        TestingContext context = new TestingContext("test v1", List.of(), List.of());
         String md = context.toMarkdown();
 
         assertThat(md).contains("No issues in milestone.");
@@ -175,7 +175,7 @@ class ReleaseNotesIntegrationTest {
 
     @Test
     void formatChangelog_annotates_with_full_form_and_strips_bare_subject_refs() {
-        var commits = List.of(
+        List<String> commits = List.of(
                 """
                 feat: coherence gate + surfacing (#705, #706, #708)
 
@@ -206,7 +206,7 @@ class ReleaseNotesIntegrationTest {
 
     @Test
     void formatChangelog_empty_when_only_machinery() {
-        var commits = List.of(
+        List<String> commits = List.of(
                 "release: cut v1",
                 "post-release: bump",
                 "merge: release/1 to main");
@@ -248,8 +248,8 @@ class ReleaseNotesIntegrationTest {
         // 2026-06-20 05:30 UTC == 2026-06-19 22:30 in Los Angeles (UTC-7 PDT).
         // The label must reflect the release server's OWN day (the 19th),
         // not UTC's (the 20th) — the cross-timezone point.
-        var instant = java.time.Instant.parse("2026-06-20T05:30:00Z");
-        var la = java.time.ZoneId.of("America/Los_Angeles");
+        java.time.Instant instant = java.time.Instant.parse("2026-06-20T05:30:00Z");
+        java.time.ZoneId la = java.time.ZoneId.of("America/Los_Angeles");
         String label = ReleaseNotesSupport.cascadeTopicLabel(instant, la);
 
         assertThat(label).startsWith("2026-06-19 ");   // server-local day
@@ -289,7 +289,7 @@ class ReleaseNotesIntegrationTest {
 
     @Test
     void formatCascadeSummary_lists_members_under_parent_version() {
-        var members = List.of(
+        List<ReleaseNotesSupport.CascadeMember> members = List.of(
                 new ReleaseNotesSupport.CascadeMember("ike-tooling", "223"),
                 new ReleaseNotesSupport.CascadeMember("ike-docs", "77"),
                 new ReleaseNotesSupport.CascadeMember("ike-platform", "66"));

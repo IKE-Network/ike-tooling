@@ -111,7 +111,7 @@ public class ReleaseSupport {
             // Route subprocess output through Maven's logger, stripping
             // Maven log prefixes to avoid redundant [INFO] [stdout] [INFO].
             // Maps subprocess [WARNING]/[ERROR] to the correct parent level.
-            try (var reader = new java.io.BufferedReader(
+            try (BufferedReader reader = new java.io.BufferedReader(
                     new java.io.InputStreamReader(proc.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -325,7 +325,7 @@ public class ReleaseSupport {
                     .redirectErrorStream(true)
                     .start();
             StringBuilder captured = new StringBuilder();
-            try (var reader = new BufferedReader(
+            try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {

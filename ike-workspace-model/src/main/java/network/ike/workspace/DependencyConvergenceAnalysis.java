@@ -80,7 +80,7 @@ public final class DependencyConvergenceAnalysis {
         // Key: "groupId:artifactId" → inner map: "subprojectName" → "version"
         Map<String, Map<String, String>> artifactVersions = new LinkedHashMap<>();
 
-        for (var entry : subprojectTrees.entrySet()) {
+        for (Map.Entry<String, List<ResolvedDependency>> entry : subprojectTrees.entrySet()) {
             String subprojectName = entry.getKey();
             for (ResolvedDependency dep : entry.getValue()) {
                 // Skip root artifacts
@@ -97,7 +97,7 @@ public final class DependencyConvergenceAnalysis {
 
         // Find divergences
         List<Divergence> divergences = new ArrayList<>();
-        for (var entry : artifactVersions.entrySet()) {
+        for (Map.Entry<String, Map<String, String>> entry : artifactVersions.entrySet()) {
             Map<String, String> subprojectVersions = entry.getValue();
             if (subprojectVersions.size() < 2) continue;
 
@@ -167,7 +167,7 @@ public final class DependencyConvergenceAnalysis {
 
         for (Divergence d : divergences) {
             md.append("### `").append(d.coordinate()).append("`\n\n");
-            for (var vEntry : d.versionToSubprojects().entrySet()) {
+            for (Map.Entry<String, List<String>> vEntry : d.versionToSubprojects().entrySet()) {
                 md.append("**").append(vEntry.getKey()).append("**");
                 md.append(" — ");
                 md.append(String.join(", ", vEntry.getValue()));

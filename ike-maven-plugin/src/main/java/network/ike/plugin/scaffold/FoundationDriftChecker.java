@@ -100,21 +100,21 @@ public final class FoundationDriftChecker {
     static String extractParentVersionMatching(String pomContent,
                                                  String groupId,
                                                  String artifactId) {
-        var parentMatcher = java.util.regex.Pattern.compile(
+        java.util.regex.Matcher parentMatcher = java.util.regex.Pattern.compile(
                 "(?s)<parent\\b[^>]*>(.*?)</parent>").matcher(pomContent);
         if (!parentMatcher.find()) return null;
         String block = parentMatcher.group(1);
 
-        var gMatch = java.util.regex.Pattern.compile(
+        java.util.regex.Matcher gMatch = java.util.regex.Pattern.compile(
                 "<groupId>\\s*([^<]+?)\\s*</groupId>").matcher(block);
-        var aMatch = java.util.regex.Pattern.compile(
+        java.util.regex.Matcher aMatch = java.util.regex.Pattern.compile(
                 "<artifactId>\\s*([^<]+?)\\s*</artifactId>").matcher(block);
         if (!gMatch.find() || !aMatch.find()) return null;
         if (!gMatch.group(1).trim().equals(groupId)
                 || !aMatch.group(1).trim().equals(artifactId)) {
             return null;
         }
-        var vMatch = java.util.regex.Pattern.compile(
+        java.util.regex.Matcher vMatch = java.util.regex.Pattern.compile(
                 "<version>\\s*([^<]+?)\\s*</version>").matcher(block);
         return vMatch.find() ? vMatch.group(1).trim() : null;
     }
@@ -125,12 +125,12 @@ public final class FoundationDriftChecker {
      */
     static Map<String, String> extractProperties(String pomContent) {
         Map<String, String> result = new LinkedHashMap<>();
-        var blockMatcher = java.util.regex.Pattern.compile(
+        java.util.regex.Matcher blockMatcher = java.util.regex.Pattern.compile(
                 "(?s)<properties>\\s*(.*?)\\s*</properties>")
                 .matcher(pomContent);
         while (blockMatcher.find()) {
             String block = blockMatcher.group(1);
-            var entryMatcher = java.util.regex.Pattern.compile(
+            java.util.regex.Matcher entryMatcher = java.util.regex.Pattern.compile(
                     "(?s)<([\\w.-]+)>\\s*([^<]*?)\\s*</\\1>")
                     .matcher(block);
             while (entryMatcher.find()) {

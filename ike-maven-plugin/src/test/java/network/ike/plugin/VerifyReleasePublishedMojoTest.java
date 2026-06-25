@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -192,7 +193,7 @@ class VerifyReleasePublishedMojoTest {
                   ]
                 }
                 """;
-        var paths = VerifyReleasePublishedMojo.extractIndexHtmlPaths(body);
+        List<String> paths = VerifyReleasePublishedMojo.extractIndexHtmlPaths(body);
         org.assertj.core.api.Assertions.assertThat(paths)
                 .containsExactly("index.html",
                         "21/index.html",
@@ -251,7 +252,7 @@ class VerifyReleasePublishedMojoTest {
 
     @Test
     void shouldSkipPath_versionDirsOtherThanCurrent() {
-        var skip = java.util.List.<String>of();
+        List<String> skip = java.util.List.<String>of();
         // Numeric prefix that isn't current → skip
         org.assertj.core.api.Assertions.assertThat(
                 VerifyReleasePublishedMojo.shouldSkipPath(
@@ -269,7 +270,7 @@ class VerifyReleasePublishedMojoTest {
 
     @Test
     void shouldSkipPath_userPatterns_literal() {
-        var skip = java.util.List.of("apidocs/");
+        List<String> skip = java.util.List.of("apidocs/");
         org.assertj.core.api.Assertions.assertThat(
                 VerifyReleasePublishedMojo.shouldSkipPath(
                         "apidocs/network/ike", "21", skip)).isTrue();
@@ -283,7 +284,7 @@ class VerifyReleasePublishedMojoTest {
 
     @Test
     void shouldSkipPath_userPatterns_starWildcard() {
-        var skip = java.util.List.of("*/apidocs/");
+        List<String> skip = java.util.List.of("*/apidocs/");
         org.assertj.core.api.Assertions.assertThat(
                 VerifyReleasePublishedMojo.shouldSkipPath(
                         "ike-bom/apidocs/network", "21", skip)).isTrue();

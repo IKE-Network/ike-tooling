@@ -440,7 +440,7 @@ class ReleaseIntegrationTest {
     private static ReleaseDraftMojo createMojo() {
         ReleaseDraftMojo mojo = new ReleaseDraftMojo();
         try {
-            var field = AbstractGoalMojo.class.getDeclaredField("log");
+            java.lang.reflect.Field field = AbstractGoalMojo.class.getDeclaredField("log");
             field.setAccessible(true);
             field.set(mojo, new TestLog());
         } catch (ReflectiveOperationException e) {

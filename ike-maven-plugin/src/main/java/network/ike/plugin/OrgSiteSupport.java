@@ -229,7 +229,7 @@ public final class OrgSiteSupport {
         Deflater deflater = new Deflater(Deflater.BEST_COMPRESSION);
         deflater.setInput(raw);
         deflater.finish();
-        var baos = new ByteArrayOutputStream();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[1024];
         while (!deflater.finished()) {
             int n = deflater.deflate(buf);
@@ -280,7 +280,7 @@ public final class OrgSiteSupport {
         String githubLabel = githubUrl.replaceFirst("^https?://github\\.com/", "")
                 .replaceFirst("/$", "");
 
-        var sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
         sb.append("// IKE Project Registration Fragment\n");
         sb.append("// Managed by ").append(IkeGoal.SITE_PUBLISH.qualified())
                 .append(" — do not edit manually.\n");
@@ -401,7 +401,7 @@ public final class OrgSiteSupport {
             }
         }
 
-        var sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
         sb.append("= IKE Network\n");
         sb.append(":icons: font\n");
         sb.append('\n');
@@ -589,7 +589,7 @@ public final class OrgSiteSupport {
     static String renderSiteMenu(String name, List<String> ids,
                                  java.util.function.Function<String, String> hrefFn,
                                  java.util.function.Function<String, String> titleFn) {
-        var sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
         sb.append("        <menu name=\"").append(name).append("\">\n");
         for (String id : ids) {
             sb.append("            <item name=\"")
@@ -617,11 +617,11 @@ public final class OrgSiteSupport {
      */
     static String replaceMenu(String src, String menuName,
                               String replacement) {
-        var pattern = java.util.regex.Pattern.compile(
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
                 "[ \\t]*<menu name=\"" + java.util.regex.Pattern.quote(menuName)
                         + "\">[\\s\\S]*?</menu>",
                 java.util.regex.Pattern.MULTILINE);
-        var matcher = pattern.matcher(src);
+        java.util.regex.Matcher matcher = pattern.matcher(src);
         if (!matcher.find()) {
             return src;
         }
@@ -640,7 +640,7 @@ public final class OrgSiteSupport {
      */
     static String displayTitle(String artifactId) {
         String[] parts = artifactId.split("-");
-        var sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parts.length; i++) {
             if (i > 0) sb.append(' ');
             String word = parts[i];

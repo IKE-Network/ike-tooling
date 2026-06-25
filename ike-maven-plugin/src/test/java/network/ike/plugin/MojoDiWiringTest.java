@@ -97,7 +97,7 @@ class MojoDiWiringTest {
                         () -> {
                             for (Class<?> c = mojoClass; c != null && c != Object.class;
                                  c = c.getSuperclass()) {
-                                for (var field : c.getDeclaredFields()) {
+                                for (java.lang.reflect.Field field : c.getDeclaredFields()) {
                                     if (!field.isAnnotationPresent(
                                             org.apache.maven.api.di.Inject.class)) {
                                         continue;
@@ -135,10 +135,10 @@ class MojoDiWiringTest {
                 .toList();
 
         // Scan the compiled classes directory for @Mojo-annotated types
-        var classDir = java.nio.file.Path.of(
+        java.nio.file.Path classDir = java.nio.file.Path.of(
                 MojoDiWiringTest.class.getProtectionDomain()
                         .getCodeSource().getLocation().toURI());
-        var packageDir = classDir.resolve("network/ike/plugin");
+        java.nio.file.Path packageDir = classDir.resolve("network/ike/plugin");
 
         if (!java.nio.file.Files.isDirectory(packageDir)) {
             // Running from JAR or unusual layout — skip this cross-check
@@ -146,7 +146,7 @@ class MojoDiWiringTest {
         }
 
         List<String> annotatedClassNames;
-        try (var files = java.nio.file.Files.list(packageDir)) {
+        try (Stream<java.nio.file.Path> files = java.nio.file.Files.list(packageDir)) {
             annotatedClassNames = files
                     .filter(p -> p.toString().endsWith(".class"))
                     .map(p -> {

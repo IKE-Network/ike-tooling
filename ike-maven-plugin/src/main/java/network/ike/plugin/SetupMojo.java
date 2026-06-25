@@ -174,7 +174,7 @@ public class SetupMojo implements org.apache.maven.api.plugin.Mojo {
                     .redirectErrorStream(false)
                     .start();
             String output;
-            try (var reader = new java.io.BufferedReader(
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
                     new java.io.InputStreamReader(proc.getInputStream(),
                             StandardCharsets.UTF_8))) {
                 output = reader.lines()

@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 
 /**
  * The Maven Central deploy phase of the release pipeline (sync path).
@@ -152,7 +153,7 @@ public final class CentralPhase {
      * so the directory is walked recursively.
      */
     private void pruneBuildPoms(Path stagingDir) {
-        try (var paths = Files.walk(stagingDir)) {
+        try (Stream<Path> paths = Files.walk(stagingDir)) {
             List<Path> buildPoms = paths
                     .filter(Files::isRegularFile)
                     .filter(p -> p.getFileName().toString()

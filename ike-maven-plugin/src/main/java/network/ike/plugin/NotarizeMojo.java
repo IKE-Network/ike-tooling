@@ -503,7 +503,7 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
                     .directory(workDir)
                     .redirectErrorStream(true)
                     .start();
-            try (var reader = new BufferedReader(
+            try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {

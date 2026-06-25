@@ -47,7 +47,7 @@ class FoundationDriftCheckerTest {
                   </properties>
                 </project>
                 """;
-        var foundation = foundationAt("35", "151", "13", "35");
+        ScaffoldManifest.Foundation foundation = foundationAt("35", "151", "13", "35");
         List<FoundationDriftChecker.Entry> entries =
                 FoundationDriftChecker.check(pom, foundation);
 
@@ -72,7 +72,7 @@ class FoundationDriftCheckerTest {
                   </properties>
                 </project>
                 """;
-        var foundation = foundationAt("35", "151", "13", "35");
+        ScaffoldManifest.Foundation foundation = foundationAt("35", "151", "13", "35");
         List<FoundationDriftChecker.Entry> drifted =
                 FoundationDriftChecker.check(pom, foundation).stream()
                         .filter(FoundationDriftChecker.Entry::isDrifted)
@@ -102,7 +102,7 @@ class FoundationDriftCheckerTest {
                   </properties>
                 </project>
                 """;
-        var foundation = foundationAt("35", "151", "13", "35");
+        ScaffoldManifest.Foundation foundation = foundationAt("35", "151", "13", "35");
         List<FoundationDriftChecker.Entry> entries =
                 FoundationDriftChecker.check(pom, foundation);
 
@@ -129,7 +129,7 @@ class FoundationDriftCheckerTest {
                   </properties>
                 </project>
                 """;
-        var foundation = foundationAt("35", "151", "13", "35");
+        ScaffoldManifest.Foundation foundation = foundationAt("35", "151", "13", "35");
         FoundationDriftChecker.Entry parent =
                 FoundationDriftChecker.check(pom, foundation).stream()
                         .filter(e -> e.kind() == FoundationDriftChecker.Kind.PARENT)
@@ -155,7 +155,7 @@ class FoundationDriftCheckerTest {
                   </parent>
                 </project>
                 """;
-        var foundation = foundationAt("35", "151", "13", "35");
+        ScaffoldManifest.Foundation foundation = foundationAt("35", "151", "13", "35");
         FoundationDriftChecker.Entry parent =
                 FoundationDriftChecker.check(pom, foundation).stream()
                         .filter(e -> e.kind() == FoundationDriftChecker.Kind.PARENT)

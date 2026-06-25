@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -1199,7 +1200,7 @@ public final class ReleasePrep {
         if (pomFile.isFile() && projectId != null && !projectId.isBlank()) {
             try {
                 String pom = Files.readString(pomFile.toPath());
-                var m = PROJECT_URL_ELEMENT.matcher(pom);
+                Matcher m = PROJECT_URL_ELEMENT.matcher(pom);
                 if (m.find()) {
                     String actual = m.group(1).trim();
                     String expected = "https://ike.network/" + projectId + "/";

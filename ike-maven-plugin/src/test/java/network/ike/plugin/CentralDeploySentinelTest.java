@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -278,7 +279,7 @@ class CentralDeploySentinelTest {
                 .build()
                 .write();
 
-        try (var stream = Files.list(tempDir)) {
+        try (Stream<Path> stream = Files.list(tempDir)) {
             assertThat(stream.toList())
                     .extracting(p -> p.getFileName().toString())
                     .containsExactly("ike-tooling-196.properties");

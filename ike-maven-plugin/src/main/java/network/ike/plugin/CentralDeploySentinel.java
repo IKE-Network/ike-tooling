@@ -3,6 +3,8 @@ package network.ike.plugin;
 import org.apache.maven.api.plugin.MojoException;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -207,7 +209,7 @@ public final class CentralDeploySentinel {
             throw new MojoException("Sentinel not found: " + path);
         }
         Properties p = new Properties();
-        try (var in = Files.newInputStream(path)) {
+        try (InputStream in = Files.newInputStream(path)) {
             p.load(in);
         } catch (IOException e) {
             throw new MojoException("Could not read sentinel "
@@ -295,7 +297,7 @@ public final class CentralDeploySentinel {
             Files.createDirectories(path.getParent());
             Path tmp = path.resolveSibling(
                     path.getFileName() + ".tmp");
-            try (var out = Files.newOutputStream(tmp)) {
+            try (OutputStream out = Files.newOutputStream(tmp)) {
                 p.store(out,
                         "ike:release-publish Maven Central deploy "
                                 + "sentinel (IKE-Network/ike-issues#484)");

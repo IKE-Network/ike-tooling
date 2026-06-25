@@ -255,7 +255,7 @@ public final class PomRewriter {
                 if (groupId.equals(gid) && artifactId.equals(aid)
                         && t.getChild("version").isPresent()) {
                     // Filter out the <version> element from content
-                    var filtered = t.getContent().stream()
+                    List<? extends Content> filtered = t.getContent().stream()
                             .filter(c -> !(c instanceof Xml.Tag child
                                     && "version".equals(child.getName())))
                             .toList();
@@ -341,7 +341,7 @@ public final class PomRewriter {
             public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
                 Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);
                 if (propertiesMatcher.matches(getCursor())) {
-                    var filtered = t.getContent().stream()
+                    List<? extends Content> filtered = t.getContent().stream()
                             .filter(c -> !(c instanceof Xml.Tag child
                                     && propertyName.equals(child.getName())))
                             .toList();

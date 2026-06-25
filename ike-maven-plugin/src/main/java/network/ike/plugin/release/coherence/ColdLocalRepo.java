@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.stream.Stream;
 
 /**
  * A throwaway, empty Maven local repository and a {@link Session} bound
@@ -46,7 +47,7 @@ public final class ColdLocalRepo implements AutoCloseable {
     /** Removes the throwaway local repository (best-effort). */
     @Override
     public void close() {
-        try (var paths = Files.walk(dir)) {
+        try (Stream<Path> paths = Files.walk(dir)) {
             paths.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.deleteIfExists(p);
