@@ -21,7 +21,7 @@ The `ws:` console runs on a *working set of 1..N* (ike-issues#601 / #611 /
 #703): with a `workspace.yaml` it fans out across the working set; in a single
 repository with none, the working-tree and lifecycle goals (`ws:commit`,
 `ws:push`, `ws:pull`, `ws:sync`, `ws:scaffold`, `ws:release`,
-`ws:feature-*`, `ws:sibling-create`) operate on that one repo — a working
+`ws:feature-*`) operate on that one repo — a working
 set of one. Run `ws:help` for the per-goal single-repo vs. workspace
 breakdown.
 
