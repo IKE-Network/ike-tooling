@@ -25,9 +25,12 @@ class WorkingSetResolverTest {
         assertThat(ws.isSingleRepo()).isTrue();
         assertThat(ws.isWorkspace()).isFalse();
         assertThat(ws.manifest()).isNull();
+        assertThat(ws.baseName()).isEqualTo(tempDir.getFileName().toString());
         assertThat(ws.members()).singleElement().satisfies(m -> {
             assertThat(m.directory()).isEqualTo(ws.root());
             assertThat(m.name()).isEqualTo(tempDir.getFileName().toString());
+            // The lone member is the root of its own trivial set.
+            assertThat(m.kind()).isEqualTo(WorkingSet.Member.Kind.AGGREGATOR);
         });
     }
 
@@ -42,8 +45,16 @@ class WorkingSetResolverTest {
         assertThat(ws.manifest().getFileName().toString()).isEqualTo("workspace.yaml");
         assertThat(ws.members()).extracting(WorkingSet.Member::name)
                 .containsExactly("lib-a", "lib-b", tempDir.getFileName().toString());
+        // Subprojects first, then the aggregator (workspace root).
+        assertThat(ws.members()).extracting(WorkingSet.Member::kind)
+                .containsExactly(WorkingSet.Member.Kind.SUBPROJECT,
+                        WorkingSet.Member.Kind.SUBPROJECT,
+                        WorkingSet.Member.Kind.AGGREGATOR);
+        // A 1.0 manifest has no workspace-root: base name falls back to the dir.
+        assertThat(ws.baseName()).isEqualTo(tempDir.getFileName().toString());
         // The workspace root is the last member.
         assertThat(ws.members().getLast().directory()).isEqualTo(ws.root());
+        assertThat(ws.members().getLast().isAggregator()).isTrue();
         // A subproject member resolves under the root.
         assertThat(ws.members().getFirst().directory())
                 .isEqualTo(ws.root().resolve("lib-a"));
@@ -58,6 +69,32 @@ class WorkingSetResolverTest {
 
         assertThat(ws.isWorkspace()).isTrue();
         assertThat(ws.root().getFileName()).isEqualTo(tempDir.getFileName());
+    }
+
+    @Test
+    void workspace_baseNameFromWorkspaceRootArtifactId() throws Exception {
+        Files.writeString(tempDir.resolve("workspace.yaml"), """
+                schema-version: "1.1"
+                workspace-root:
+                  groupId: network.ike.komet
+                  artifactId: ike-komet-wsr
+                  version: "1-SNAPSHOT"
+                defaults:
+                  branch: main
+                subprojects:
+                  lib-a:
+                    repo: https://example.com/lib-a.git
+                    branch: main
+                """);
+
+        WorkingSet ws = WorkingSetResolver.resolve(tempDir);
+
+        // Base name comes from workspace-root:artifactId, not the temp dir name.
+        assertThat(ws.baseName()).isEqualTo("ike-komet-wsr");
+        assertThat(ws.members()).extracting(WorkingSet.Member::name)
+                .containsExactly("lib-a", tempDir.getFileName().toString());
+        assertThat(ws.members().getLast().kind())
+                .isEqualTo(WorkingSet.Member.Kind.AGGREGATOR);
     }
 
     private void writeManifest() throws Exception {

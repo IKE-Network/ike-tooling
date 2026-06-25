@@ -47,8 +47,9 @@ public final class WorkingSetResolver {
      */
     public static WorkingSet singleRepo(Path dir) {
         Path root = dir.toAbsolutePath().normalize();
-        return new WorkingSet(root, null,
-                List.of(new WorkingSet.Member(fileName(root), root)));
+        String name = fileName(root);
+        return new WorkingSet(root, null, name,
+                List.of(WorkingSet.Member.aggregator(name, root)));
     }
 
     private static WorkingSet workspace(Path manifest) {
@@ -56,10 +57,30 @@ public final class WorkingSetResolver {
         Manifest model = ManifestReader.read(manifest);
         List<WorkingSet.Member> members = new ArrayList<>();
         for (String name : model.subprojects().keySet()) {
-            members.add(new WorkingSet.Member(name, root.resolve(name)));
+            members.add(WorkingSet.Member.subproject(name, root.resolve(name)));
         }
-        members.add(new WorkingSet.Member(fileName(root), root));
-        return new WorkingSet(root, manifest, List.copyOf(members));
+        members.add(WorkingSet.Member.aggregator(fileName(root), root));
+        return new WorkingSet(root, manifest, baseName(model, root),
+                List.copyOf(members));
+    }
+
+    /**
+     * Resolve the working set's base name — the identity used for derived
+     * names such as sibling directories. Prefers the manifest
+     * {@code workspace-root:} {@code artifactId} (schema 1.1+); falls back to
+     * the root directory name when absent (legacy 1.0 manifests).
+     *
+     * @param model the parsed manifest
+     * @param root  the workspace root directory
+     * @return the workspace-root artifactId when present, else the directory
+     *         name
+     */
+    private static String baseName(Manifest model, Path root) {
+        WorkspaceRoot wr = model.workspaceRoot();
+        if (wr != null && wr.artifactId() != null && !wr.artifactId().isBlank()) {
+            return wr.artifactId();
+        }
+        return fileName(root);
     }
 
     /**
