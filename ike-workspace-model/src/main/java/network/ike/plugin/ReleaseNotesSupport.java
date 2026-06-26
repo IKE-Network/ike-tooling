@@ -145,7 +145,96 @@ public final class ReleaseNotesSupport {
             List<CascadeBump> upgrades, Log log) throws MojoException {
         String notes = generate(repo, milestone, upgrades, log);
         if (notes == null) return null;
+        return writeNotesFile(notes, log);
+    }
 
+    /**
+     * Like {@link #generateToFile(String, String, List, Log)}, but when
+     * the milestone and foundation upgrades yield nothing to report, falls
+     * back to the commit-message changelog for {@code previousTag..toRef}
+     * instead of returning {@code null} — so a standalone, un-milestoned
+     * release still describes itself from its own commits rather than
+     * degrading to GitHub's bare auto-generated notes
+     * (IKE-Network/ike-issues#775).
+     *
+     * <p>Curated milestone notes still take precedence: the changelog is
+     * consulted only when {@link #generate} reports nothing. Machinery
+     * commits ({@code release:}, {@code post-release:}, merges) are
+     * filtered by {@link #formatChangelog}. If the changelog is also empty
+     * (a genuine first release, or an unreadable shallow range) this
+     * returns {@code null} and the caller falls back to
+     * {@code gh --generate-notes} as before.
+     *
+     * @param repo      GitHub repository in owner/repo format
+     * @param milestone milestone title (also the changelog heading)
+     * @param upgrades  the upstream-version bumps the release applied (may be empty)
+     * @param gitDir    the release repo's git root, for the changelog fallback
+     * @param toRef     the release ref/tag the changelog runs up to (e.g. {@code v117})
+     * @param log       Maven logger (may be null)
+     * @return path to the notes temp file, or {@code null} if there is
+     *         genuinely nothing to report
+     * @throws MojoException if the GitHub API call fails
+     */
+    public static Path generateToFile(String repo, String milestone,
+            List<CascadeBump> upgrades, File gitDir, String toRef, Log log)
+            throws MojoException {
+        String notes = generate(repo, milestone, upgrades, log);
+        if (notes == null) {
+            notes = commitChangelogNotes(milestone, gitDir, toRef, log);
+        }
+        if (notes == null) return null;
+        return writeNotesFile(notes, log);
+    }
+
+    /**
+     * Build release-notes markdown from the commit-message changelog for
+     * {@code previousTag..toRef}, or {@code null} if the range is empty or
+     * unresolvable. Used as the fallback when no milestone or foundation
+     * upgrade supplies notes (#775).
+     *
+     * @param milestone the heading to title the notes with
+     * @param gitDir    the git root
+     * @param toRef     the ref the changelog runs up to
+     * @param log       Maven logger (may be null)
+     * @return notes markdown, or {@code null} if there is nothing to report
+     */
+    static String commitChangelogNotes(String milestone, File gitDir,
+            String toRef, Log log) {
+        if (gitDir == null || toRef == null || toRef.isBlank()) {
+            return null;
+        }
+        String fromRef = resolvePreviousTag(gitDir, toRef);
+        if (fromRef == null || fromRef.isBlank()) {
+            return null;
+        }
+        String changelog = formatChangelog(
+                commitMessagesBetween(gitDir, fromRef, toRef));
+        if (changelog.isBlank()) {
+            return null;
+        }
+        if (log != null) {
+            log.info("Release notes generated from commit changelog "
+                    + fromRef + ".." + toRef);
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("## ").append(milestone).append("\n\n");
+        sb.append("### Changes\n\n");
+        sb.append(changelog);
+        if (!changelog.endsWith("\n")) {
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Write release-notes markdown to a temp file suitable for
+     * {@code gh release create --notes-file}.
+     *
+     * @param notes the notes markdown
+     * @param log   Maven logger (may be null)
+     * @return the temp file path, or {@code null} if it could not be written
+     */
+    private static Path writeNotesFile(String notes, Log log) {
         try {
             Path tempFile = Files.createTempFile("release-notes-", ".md");
             Files.writeString(tempFile, notes, StandardCharsets.UTF_8);

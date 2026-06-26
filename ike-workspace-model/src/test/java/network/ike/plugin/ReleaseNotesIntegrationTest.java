@@ -243,6 +243,75 @@ class ReleaseNotesIntegrationTest {
         assertThat(log).doesNotContain("(#1)");  // bare subject ref stripped
     }
 
+    // ── #775: commit-changelog fallback for un-milestoned releases ──
+
+    @Test
+    void commitChangelogNotes_builds_notes_from_changelog(@TempDir Path repo)
+            throws Exception {
+        git(repo, "init", "-q", "-b", "main");
+        Files.writeString(repo.resolve("f"), "1");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m", "seed");
+        git(repo, "tag", "v116");
+        Files.writeString(repo.resolve("f"), "2");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m",
+                "ws: commit re-derived workspace.yaml\n\n"
+                        + "Fixes IKE-Network/ike-issues#774");
+        git(repo, "tag", "v117");
+
+        String notes = ReleaseNotesSupport.commitChangelogNotes(
+                "ike-platform v117", repo.toFile(), "v117", null);
+
+        assertThat(notes).isNotNull();
+        assertThat(notes).contains("## ike-platform v117");
+        assertThat(notes).contains("### Changes");
+        assertThat(notes).contains(
+                "- ws: commit re-derived workspace.yaml (IKE-Network/ike-issues#774)");
+    }
+
+    @Test
+    void commitChangelogNotes_null_when_only_machinery(@TempDir Path repo)
+            throws Exception {
+        git(repo, "init", "-q", "-b", "main");
+        Files.writeString(repo.resolve("f"), "1");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m", "seed");
+        git(repo, "tag", "v116");
+        Files.writeString(repo.resolve("f"), "2");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m", "release: set version to 117");
+        git(repo, "tag", "v117");
+
+        // Only a machinery commit in the range — nothing worth reporting.
+        assertThat(ReleaseNotesSupport.commitChangelogNotes(
+                "ike-platform v117", repo.toFile(), "v117", null)).isNull();
+    }
+
+    @Test
+    void commitChangelogNotes_null_when_no_previous_tag(@TempDir Path repo)
+            throws Exception {
+        git(repo, "init", "-q", "-b", "main");
+        Files.writeString(repo.resolve("f"), "1");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m", "feat: first");
+        git(repo, "tag", "v1");
+
+        // No tag before v1 — first release, nothing to diff against.
+        assertThat(ReleaseNotesSupport.commitChangelogNotes(
+                "proj v1", repo.toFile(), "v1", null)).isNull();
+    }
+
+    @Test
+    void commitChangelogNotes_null_for_missing_inputs(@TempDir Path repo) {
+        assertThat(ReleaseNotesSupport.commitChangelogNotes(
+                "p v1", null, "v1", null)).isNull();
+        assertThat(ReleaseNotesSupport.commitChangelogNotes(
+                "p v1", repo.toFile(), null, null)).isNull();
+        assertThat(ReleaseNotesSupport.commitChangelogNotes(
+                "p v1", repo.toFile(), "  ", null)).isNull();
+    }
+
     @Test
     void cascadeTopicLabel_uses_server_local_date_not_utc() {
         // 2026-06-20 05:30 UTC == 2026-06-19 22:30 in Los Angeles (UTC-7 PDT).

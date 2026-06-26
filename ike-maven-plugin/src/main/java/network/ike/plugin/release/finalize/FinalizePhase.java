@@ -115,8 +115,14 @@ public final class FinalizePhase {
 
         Path notesFile;
         try {
+            // When the milestone and foundation upgrades supply nothing,
+            // fall back to the commit-message changelog (v<version> against
+            // its previous tag) so a standalone, un-milestoned release still
+            // describes itself instead of degrading to GitHub's bare
+            // auto-notes (IKE-Network/ike-issues#775).
             notesFile = ReleaseNotesSupport.generateToFile(
-                    issueRepo, milestoneName, foundationUpgrades, ctx.log());
+                    issueRepo, milestoneName, foundationUpgrades,
+                    gitRoot, "v" + version, ctx.log());
         } catch (Exception e) {
             // A GitHub API failure here (rate limit, auth, network) must not
             // fail a release whose artifacts have already shipped — fall back
@@ -129,8 +135,9 @@ public final class FinalizePhase {
 
         try {
             if (notesFile != null) {
-                ctx.log().info("Release notes generated from milestone: "
-                        + milestoneName);
+                // Source (milestone / foundation upgrades / commit changelog)
+                // is logged by ReleaseNotesSupport; keep this generic.
+                ctx.log().info("Release notes generated for: " + milestoneName);
                 ReleaseSupport.exec(gitRoot, ctx.log(),
                         "gh", "release", "create", "v" + version,
                         "--title", version,
