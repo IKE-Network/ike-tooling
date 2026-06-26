@@ -115,60 +115,67 @@ public final class FinalizePhase {
 
         Path notesFile;
         try {
-<span class="nc" id="L118">            notesFile = ReleaseNotesSupport.generateToFile(</span>
-<span class="nc" id="L119">                    issueRepo, milestoneName, foundationUpgrades, ctx.log());</span>
-<span class="nc" id="L120">        } catch (Exception e) {</span>
+            // When the milestone and foundation upgrades supply nothing,
+            // fall back to the commit-message changelog (v&lt;version&gt; against
+            // its previous tag) so a standalone, un-milestoned release still
+            // describes itself instead of degrading to GitHub's bare
+            // auto-notes (IKE-Network/ike-issues#775).
+<span class="nc" id="L123">            notesFile = ReleaseNotesSupport.generateToFile(</span>
+                    issueRepo, milestoneName, foundationUpgrades,
+<span class="nc" id="L125">                    gitRoot, &quot;v&quot; + version, ctx.log());</span>
+<span class="nc" id="L126">        } catch (Exception e) {</span>
             // A GitHub API failure here (rate limit, auth, network) must not
             // fail a release whose artifacts have already shipped — fall back
             // to GitHub's auto-generated notes (IKE-Network/ike-issues#572).
-<span class="nc" id="L124">            ctx.log().warn(&quot;Could not generate milestone notes for \&quot;&quot;</span>
+<span class="nc" id="L130">            ctx.log().warn(&quot;Could not generate milestone notes for \&quot;&quot;</span>
                     + milestoneName + &quot;\&quot; — falling back to auto-generated &quot;
-<span class="nc" id="L126">                    + &quot;notes: &quot; + e.getMessage());</span>
-<span class="nc" id="L127">            notesFile = null;</span>
-<span class="nc" id="L128">        }</span>
+<span class="nc" id="L132">                    + &quot;notes: &quot; + e.getMessage());</span>
+<span class="nc" id="L133">            notesFile = null;</span>
+<span class="nc" id="L134">        }</span>
 
         try {
-<span class="nc bnc" id="L131" title="All 2 branches missed.">            if (notesFile != null) {</span>
-<span class="nc" id="L132">                ctx.log().info(&quot;Release notes generated from milestone: &quot;</span>
-                        + milestoneName);
-<span class="nc" id="L134">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">            if (notesFile != null) {</span>
+                // Source (milestone / foundation upgrades / commit changelog)
+                // is logged by ReleaseNotesSupport; keep this generic.
+<span class="nc" id="L140">                ctx.log().info(&quot;Release notes generated for: &quot; + milestoneName);</span>
+<span class="nc" id="L141">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                         &quot;gh&quot;, &quot;release&quot;, &quot;create&quot;, &quot;v&quot; + version,
                         &quot;--title&quot;, version,
-<span class="nc" id="L137">                        &quot;--notes-file&quot;, notesFile.toString(),</span>
+<span class="nc" id="L144">                        &quot;--notes-file&quot;, notesFile.toString(),</span>
                         &quot;--verify-tag&quot;);
             } else {
-<span class="nc" id="L140">                ctx.log().info(&quot;No milestone \&quot;&quot; + milestoneName</span>
+<span class="nc" id="L147">                ctx.log().info(&quot;No milestone \&quot;&quot; + milestoneName</span>
                         + &quot;\&quot; found — using auto-generated notes&quot;);
-<span class="nc" id="L142">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L149">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                         &quot;gh&quot;, &quot;release&quot;, &quot;create&quot;, &quot;v&quot; + version,
                         &quot;--title&quot;, version,
                         &quot;--generate-notes&quot;, &quot;--verify-tag&quot;);
             }
-<span class="nc" id="L147">        } catch (Exception e) {</span>
-<span class="nc" id="L148">            ctx.log().warn(&quot;GitHub Release creation failed &quot;</span>
-<span class="nc" id="L149">                    + &quot;(gh CLI may not be installed): &quot; + e.getMessage());</span>
-<span class="nc" id="L150">            ctx.log().warn(&quot;Run manually: gh release create v&quot; + version</span>
+<span class="nc" id="L154">        } catch (Exception e) {</span>
+<span class="nc" id="L155">            ctx.log().warn(&quot;GitHub Release creation failed &quot;</span>
+<span class="nc" id="L156">                    + &quot;(gh CLI may not be installed): &quot; + e.getMessage());</span>
+<span class="nc" id="L157">            ctx.log().warn(&quot;Run manually: gh release create v&quot; + version</span>
                     + &quot; --title &quot; + version + &quot; --generate-notes&quot;);
-<span class="nc" id="L152">        }</span>
+<span class="nc" id="L159">        }</span>
 
-<span class="nc bnc" id="L154" title="All 2 branches missed.">        if (notesFile != null) {</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (notesFile != null) {</span>
             try {
-<span class="nc" id="L156">                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, ctx.log());</span>
-<span class="nc" id="L157">            } catch (Exception e) {</span>
-<span class="nc" id="L158">                ctx.log().warn(&quot;Could not close milestone (release succeeded): &quot;</span>
-<span class="nc" id="L159">                        + e.getMessage());</span>
-<span class="nc" id="L160">                ctx.log().warn(&quot;Close manually: gh api repos/&quot; + issueRepo</span>
+<span class="nc" id="L163">                ReleaseNotesSupport.closeMilestone(issueRepo, milestoneName, ctx.log());</span>
+<span class="nc" id="L164">            } catch (Exception e) {</span>
+<span class="nc" id="L165">                ctx.log().warn(&quot;Could not close milestone (release succeeded): &quot;</span>
+<span class="nc" id="L166">                        + e.getMessage());</span>
+<span class="nc" id="L167">                ctx.log().warn(&quot;Close manually: gh api repos/&quot; + issueRepo</span>
                         + &quot;/milestones/1 -X PATCH -f state=closed&quot;);
-<span class="nc" id="L162">            }</span>
+<span class="nc" id="L169">            }</span>
         }
 
         try {
-<span class="nc" id="L166">            ReleaseNotesSupport.removePendingReleaseLabels(</span>
-<span class="nc" id="L167">                    gitRoot, null, &quot;v&quot; + version, issueRepo, ctx.log());</span>
-<span class="nc" id="L168">        } catch (Exception e) {</span>
-<span class="nc" id="L169">            ctx.log().warn(&quot;Could not remove pending-release labels &quot;</span>
-<span class="nc" id="L170">                    + &quot;(release succeeded): &quot; + e.getMessage());</span>
-<span class="nc" id="L171">        }</span>
-<span class="nc" id="L172">    }</span>
+<span class="nc" id="L173">            ReleaseNotesSupport.removePendingReleaseLabels(</span>
+<span class="nc" id="L174">                    gitRoot, null, &quot;v&quot; + version, issueRepo, ctx.log());</span>
+<span class="nc" id="L175">        } catch (Exception e) {</span>
+<span class="nc" id="L176">            ctx.log().warn(&quot;Could not remove pending-release labels &quot;</span>
+<span class="nc" id="L177">                    + &quot;(release succeeded): &quot; + e.getMessage());</span>
+<span class="nc" id="L178">        }</span>
+<span class="nc" id="L179">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
