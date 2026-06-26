@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CascadeReporter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">CascadeReporter.java</span></div><h1>CascadeReporter.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Formats the cascade-awareness messages that {@code ike:release-draft}
+ * and {@code ike:release-publish} print (IKE-Network/ike-issues#402,
+ * #420).
+ *
+ * &lt;p&gt;In the decentralized cascade model every project version-controls
+ * its own {@code src/main/cascade/release-cascade.yaml}, so the
+ * releasing repo's own {@link ProjectCascade} is all the reporter
+ * needs — no graph assembly, no sibling checkouts. The {@code downstream}
+ * edges of that file are exactly the foundation repos a release makes
+ * stale.
+ *
+ * &lt;p&gt;This reporter does not inspect git history: after a foundation
+ * repo is released, every downstream repo is definitionally stale.
+ * The point is visibility — the operator cannot finish a single-repo
+ * release without seeing what the cascade says comes next.
+ */
+public final class CascadeReporter {
+
+    private static final String RULE =
+            &quot;────────────────────────────────────────────────────────&quot;;
+
+    private CascadeReporter() {}
+
+    /**
+     * Builds the post-release cascade footer for
+     * {@code ike:release-publish}.
+     *
+     * @param local the releasing project's own parsed manifest
+     * @param repo  the releasing project's repo/directory name
+     * @return log lines naming the now-stale downstream repos and the
+     *         exact commands to continue the cascade
+     */
+    public static List&lt;String&gt; publishFooter(ProjectCascade local,
+                                             String repo) {
+<span class="fc" id="L41">        List&lt;String&gt; lines = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L42">        lines.add(RULE);</span>
+<span class="fc" id="L43">        lines.add(&quot; Foundation release cascade (release-cascade.yaml)&quot;);</span>
+<span class="fc" id="L44">        lines.add(RULE);</span>
+<span class="fc" id="L45">        lines.add(&quot;  ✓ &quot; + repo + &quot; released.&quot;);</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">        if (local.terminal()) {</span>
+<span class="fc" id="L47">            lines.add(&quot;  End of the foundation cascade — no&quot;</span>
+                    + &quot; downstream foundation repos.&quot;);
+<span class="fc" id="L49">            lines.add(RULE);</span>
+<span class="fc" id="L50">            return lines;</span>
+        }
+<span class="fc" id="L52">        lines.add(&quot;  Downstream repos now carry an unreleased upstream&quot;</span>
+                + &quot; bump:&quot;);
+<span class="fc bfc" id="L54" title="All 2 branches covered.">        for (CascadeEdge edge : local.downstream()) {</span>
+<span class="fc" id="L55">            lines.add(&quot;      &quot; + edge.repo());</span>
+<span class="fc" id="L56">        }</span>
+<span class="fc" id="L57">        CascadeEdge next = local.downstream().get(0);</span>
+<span class="fc" id="L58">        lines.add(&quot;  Continue the cascade with the next repo:&quot;);</span>
+<span class="fc" id="L59">        lines.add(&quot;      cd ../&quot; + next.repo()</span>
+                + &quot; &amp;&amp; mvn ike:release-publish&quot;);
+<span class="fc" id="L61">        lines.add(&quot;  Or release the whole foundation in order:&quot;);</span>
+<span class="fc" id="L62">        lines.add(&quot;      mvn ike:release-cascade&quot;);</span>
+<span class="fc" id="L63">        lines.add(RULE);</span>
+<span class="fc" id="L64">        return lines;</span>
+    }
+
+    /**
+     * Builds the cascade preview section for {@code ike:release-draft}.
+     *
+     * @param local the project's own parsed manifest
+     * @param repo  the project's repo/directory name
+     * @return log lines naming the downstream repos this release will
+     *         make stale; an end-of-cascade advisory when nothing is
+     *         downstream
+     */
+    public static List&lt;String&gt; draftPreview(ProjectCascade local,
+                                            String repo) {
+<span class="fc" id="L78">        List&lt;String&gt; lines = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L79">        lines.add(RULE);</span>
+<span class="fc" id="L80">        lines.add(&quot; Foundation release cascade (release-cascade.yaml)&quot;);</span>
+<span class="fc" id="L81">        lines.add(RULE);</span>
+<span class="pc bpc" id="L82" title="1 of 2 branches missed.">        if (local.terminal()) {</span>
+<span class="nc" id="L83">            lines.add(&quot;  &quot; + repo + &quot; is last in the foundation&quot;</span>
+                    + &quot; cascade — nothing downstream to release.&quot;);
+<span class="nc" id="L85">            lines.add(RULE);</span>
+<span class="nc" id="L86">            return lines;</span>
+        }
+<span class="fc" id="L88">        lines.add(&quot;  Publishing &quot; + repo + &quot; will make these&quot;</span>
+                + &quot; downstream repos stale:&quot;);
+<span class="fc bfc" id="L90" title="All 2 branches covered.">        for (CascadeEdge edge : local.downstream()) {</span>
+<span class="fc" id="L91">            lines.add(&quot;      &quot; + edge.repo());</span>
+<span class="fc" id="L92">        }</span>
+<span class="fc" id="L93">        lines.add(&quot;  After publishing, continue with&quot;</span>
+                + &quot; ike:release-cascade.&quot;);
+<span class="fc" id="L95">        lines.add(RULE);</span>
+<span class="fc" id="L96">        return lines;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -3,6 +3,8 @@
 import org.apache.maven.api.plugin.MojoException;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -32,18 +34,18 @@ import java.util.stream.Stream;
 public final class CentralDeploySentinel {
 
     /** Sentinel lifecycle states. */
-<span class="fc" id="L35">    public enum State {</span>
+<span class="fc" id="L37">    public enum State {</span>
         /** Subprocess spawned, still running. */
-<span class="fc" id="L37">        PENDING,</span>
+<span class="fc" id="L39">        PENDING,</span>
         /** Central deploy succeeded — bundle published. */
-<span class="fc" id="L39">        SUCCESS,</span>
+<span class="fc" id="L41">        SUCCESS,</span>
         /** All retry attempts exhausted; see {@link #lastError()}. */
-<span class="fc" id="L41">        FAILURE</span>
+<span class="fc" id="L43">        FAILURE</span>
     }
 
     /** Default sentinel directory: {@code ~/.cache/ike-release/}. */
-<span class="fc" id="L45">    public static final Path DEFAULT_DIR = Paths.get(</span>
-<span class="fc" id="L46">            System.getProperty(&quot;user.home&quot;), &quot;.cache&quot;, &quot;ike-release&quot;);</span>
+<span class="fc" id="L47">    public static final Path DEFAULT_DIR = Paths.get(</span>
+<span class="fc" id="L48">            System.getProperty(&quot;user.home&quot;), &quot;.cache&quot;, &quot;ike-release&quot;);</span>
 
     // ── Property keys ───────────────────────────────────────────
     static final String KEY_STATE = &quot;state&quot;;
@@ -71,48 +73,48 @@ public final class CentralDeploySentinel {
     private final String note;
     private final Path path;
 
-<span class="fc" id="L74">    private CentralDeploySentinel(Builder b) {</span>
-<span class="fc" id="L75">        this.state = b.state;</span>
-<span class="fc" id="L76">        this.artifactId = b.artifactId;</span>
-<span class="fc" id="L77">        this.version = b.version;</span>
-<span class="fc" id="L78">        this.started = b.started;</span>
-<span class="fc" id="L79">        this.finished = b.finished;</span>
-<span class="fc" id="L80">        this.attempts = b.attempts;</span>
-<span class="fc" id="L81">        this.maxAttempts = b.maxAttempts;</span>
-<span class="fc" id="L82">        this.lastError = b.lastError;</span>
-<span class="fc" id="L83">        this.logFile = b.logFile;</span>
-<span class="fc" id="L84">        this.pid = b.pid;</span>
-<span class="fc" id="L85">        this.note = b.note;</span>
-<span class="fc" id="L86">        this.path = b.path;</span>
-<span class="fc" id="L87">    }</span>
+<span class="fc" id="L76">    private CentralDeploySentinel(Builder b) {</span>
+<span class="fc" id="L77">        this.state = b.state;</span>
+<span class="fc" id="L78">        this.artifactId = b.artifactId;</span>
+<span class="fc" id="L79">        this.version = b.version;</span>
+<span class="fc" id="L80">        this.started = b.started;</span>
+<span class="fc" id="L81">        this.finished = b.finished;</span>
+<span class="fc" id="L82">        this.attempts = b.attempts;</span>
+<span class="fc" id="L83">        this.maxAttempts = b.maxAttempts;</span>
+<span class="fc" id="L84">        this.lastError = b.lastError;</span>
+<span class="fc" id="L85">        this.logFile = b.logFile;</span>
+<span class="fc" id="L86">        this.pid = b.pid;</span>
+<span class="fc" id="L87">        this.note = b.note;</span>
+<span class="fc" id="L88">        this.path = b.path;</span>
+<span class="fc" id="L89">    }</span>
 
     /**
      * Lifecycle state of this sentinel.
      *
      * @return the state
      */
-<span class="fc" id="L94">    public State state() { return state; }</span>
+<span class="fc" id="L96">    public State state() { return state; }</span>
 
     /**
      * Project artifactId the deploy belongs to.
      *
      * @return the artifactId
      */
-<span class="fc" id="L101">    public String artifactId() { return artifactId; }</span>
+<span class="fc" id="L103">    public String artifactId() { return artifactId; }</span>
 
     /**
      * Release version being deployed.
      *
      * @return the version
      */
-<span class="fc" id="L108">    public String version() { return version; }</span>
+<span class="fc" id="L110">    public String version() { return version; }</span>
 
     /**
      * When the deploy was spawned (UTC).
      *
      * @return the start instant
      */
-<span class="fc" id="L115">    public Instant started() { return started; }</span>
+<span class="fc" id="L117">    public Instant started() { return started; }</span>
 
     /**
      * When the deploy reached a terminal state, or {@code null}
@@ -120,7 +122,7 @@ public final class CentralDeploySentinel {
      *
      * @return the finish instant, or {@code null} when pending
      */
-<span class="fc" id="L123">    public Instant finished() { return finished; }</span>
+<span class="fc" id="L125">    public Instant finished() { return finished; }</span>
 
     /**
      * Number of attempts taken — refreshed by the subprocess
@@ -129,7 +131,7 @@ public final class CentralDeploySentinel {
      *
      * @return attempts taken so far
      */
-<span class="fc" id="L132">    public int attempts() { return attempts; }</span>
+<span class="fc" id="L134">    public int attempts() { return attempts; }</span>
 
     /**
      * Configured maximum attempts for the retry loop, recorded
@@ -138,7 +140,7 @@ public final class CentralDeploySentinel {
      *
      * @return the configured maximum
      */
-<span class="fc" id="L141">    public int maxAttempts() { return maxAttempts; }</span>
+<span class="fc" id="L143">    public int maxAttempts() { return maxAttempts; }</span>
 
     /**
      * Short failure summary captured by the subprocess when the
@@ -146,14 +148,14 @@ public final class CentralDeploySentinel {
      *
      * @return failure summary, or {@code null} when not failed
      */
-<span class="fc" id="L149">    public String lastError() { return lastError; }</span>
+<span class="fc" id="L151">    public String lastError() { return lastError; }</span>
 
     /**
      * Path the subprocess streams its deploy log to.
      *
      * @return the log-file path, or {@code null} if not recorded
      */
-<span class="fc" id="L156">    public Path logFile() { return logFile; }</span>
+<span class="fc" id="L158">    public Path logFile() { return logFile; }</span>
 
     /**
      * PID of the spawned subprocess. Written while {@link State#PENDING}
@@ -162,7 +164,7 @@ public final class CentralDeploySentinel {
      *
      * @return the PID, or 0 if not recorded
      */
-<span class="fc" id="L165">    public long pid() { return pid; }</span>
+<span class="fc" id="L167">    public long pid() { return pid; }</span>
 
     /**
      * Advisory note recorded alongside a non-failure outcome —
@@ -173,14 +175,14 @@ public final class CentralDeploySentinel {
      *
      * @return the note, or {@code null} if none was recorded
      */
-<span class="fc" id="L176">    public String note() { return note; }</span>
+<span class="fc" id="L178">    public String note() { return note; }</span>
 
     /**
      * Absolute path to this sentinel file on disk.
      *
      * @return the sentinel file path
      */
-<span class="nc" id="L183">    public Path path() { return path; }</span>
+<span class="nc" id="L185">    public Path path() { return path; }</span>
 
     /**
      * Resolve the canonical sentinel-file path for a project.
@@ -192,7 +194,7 @@ public final class CentralDeploySentinel {
      */
     public static Path resolvePath(Path dir, String artifactId,
                                     String version) {
-<span class="fc" id="L195">        return dir.resolve(artifactId + &quot;-&quot; + version + &quot;.properties&quot;);</span>
+<span class="fc" id="L197">        return dir.resolve(artifactId + &quot;-&quot; + version + &quot;.properties&quot;);</span>
     }
 
     /**
@@ -203,30 +205,30 @@ public final class CentralDeploySentinel {
      * @throws MojoException if the file is missing or malformed
      */
     public static CentralDeploySentinel read(Path path) {
-<span class="pc bpc" id="L206" title="1 of 2 branches missed.">        if (!Files.isRegularFile(path)) {</span>
-<span class="nc" id="L207">            throw new MojoException(&quot;Sentinel not found: &quot; + path);</span>
+<span class="pc bpc" id="L208" title="1 of 2 branches missed.">        if (!Files.isRegularFile(path)) {</span>
+<span class="nc" id="L209">            throw new MojoException(&quot;Sentinel not found: &quot; + path);</span>
         }
-<span class="fc" id="L209">        Properties p = new Properties();</span>
-<span class="fc" id="L210">        try (var in = Files.newInputStream(path)) {</span>
-<span class="fc" id="L211">            p.load(in);</span>
-<span class="nc" id="L212">        } catch (IOException e) {</span>
-<span class="nc" id="L213">            throw new MojoException(&quot;Could not read sentinel &quot;</span>
-<span class="nc" id="L214">                    + path + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="fc" id="L215">        }</span>
-<span class="fc" id="L216">        return new Builder()</span>
-<span class="fc" id="L217">                .path(path)</span>
-<span class="fc" id="L218">                .state(parseState(p, path))</span>
-<span class="fc" id="L219">                .artifactId(required(p, KEY_ARTIFACT_ID, path))</span>
-<span class="fc" id="L220">                .version(required(p, KEY_VERSION, path))</span>
-<span class="fc" id="L221">                .started(parseInstant(p, KEY_STARTED, true, path))</span>
-<span class="fc" id="L222">                .finished(parseInstant(p, KEY_FINISHED, false, path))</span>
-<span class="fc" id="L223">                .attempts(parseInt(p, KEY_ATTEMPTS, 0))</span>
-<span class="fc" id="L224">                .maxAttempts(parseInt(p, KEY_MAX_ATTEMPTS, 0))</span>
-<span class="fc" id="L225">                .lastError(p.getProperty(KEY_LAST_ERROR))</span>
-<span class="fc" id="L226">                .logFile(parseOptionalPath(p, KEY_LOG_FILE))</span>
-<span class="fc" id="L227">                .pid(parseLong(p, KEY_PID, 0L))</span>
-<span class="fc" id="L228">                .note(p.getProperty(KEY_NOTE))</span>
-<span class="fc" id="L229">                .build();</span>
+<span class="fc" id="L211">        Properties p = new Properties();</span>
+<span class="fc" id="L212">        try (InputStream in = Files.newInputStream(path)) {</span>
+<span class="fc" id="L213">            p.load(in);</span>
+<span class="nc" id="L214">        } catch (IOException e) {</span>
+<span class="nc" id="L215">            throw new MojoException(&quot;Could not read sentinel &quot;</span>
+<span class="nc" id="L216">                    + path + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L217">        }</span>
+<span class="fc" id="L218">        return new Builder()</span>
+<span class="fc" id="L219">                .path(path)</span>
+<span class="fc" id="L220">                .state(parseState(p, path))</span>
+<span class="fc" id="L221">                .artifactId(required(p, KEY_ARTIFACT_ID, path))</span>
+<span class="fc" id="L222">                .version(required(p, KEY_VERSION, path))</span>
+<span class="fc" id="L223">                .started(parseInstant(p, KEY_STARTED, true, path))</span>
+<span class="fc" id="L224">                .finished(parseInstant(p, KEY_FINISHED, false, path))</span>
+<span class="fc" id="L225">                .attempts(parseInt(p, KEY_ATTEMPTS, 0))</span>
+<span class="fc" id="L226">                .maxAttempts(parseInt(p, KEY_MAX_ATTEMPTS, 0))</span>
+<span class="fc" id="L227">                .lastError(p.getProperty(KEY_LAST_ERROR))</span>
+<span class="fc" id="L228">                .logFile(parseOptionalPath(p, KEY_LOG_FILE))</span>
+<span class="fc" id="L229">                .pid(parseLong(p, KEY_PID, 0L))</span>
+<span class="fc" id="L230">                .note(p.getProperty(KEY_NOTE))</span>
+<span class="fc" id="L231">                .build();</span>
     }
 
     /**
@@ -238,27 +240,27 @@ public final class CentralDeploySentinel {
      * @return parsed sentinels, ordered by {@code started} descending
      */
     public static List&lt;CentralDeploySentinel&gt; listAll(Path dir) {
-<span class="fc bfc" id="L241" title="All 2 branches covered.">        if (!Files.isDirectory(dir)) {</span>
-<span class="fc" id="L242">            return List.of();</span>
+<span class="fc bfc" id="L243" title="All 2 branches covered.">        if (!Files.isDirectory(dir)) {</span>
+<span class="fc" id="L244">            return List.of();</span>
         }
-<span class="fc" id="L244">        List&lt;CentralDeploySentinel&gt; out = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L245">        try (Stream&lt;Path&gt; stream = Files.list(dir)) {</span>
-<span class="fc" id="L246">            stream.filter(p -&gt; p.getFileName().toString()</span>
-<span class="fc" id="L247">                            .endsWith(&quot;.properties&quot;))</span>
-<span class="fc" id="L248">                    .forEach(p -&gt; {</span>
+<span class="fc" id="L246">        List&lt;CentralDeploySentinel&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L247">        try (Stream&lt;Path&gt; stream = Files.list(dir)) {</span>
+<span class="fc" id="L248">            stream.filter(p -&gt; p.getFileName().toString()</span>
+<span class="fc" id="L249">                            .endsWith(&quot;.properties&quot;))</span>
+<span class="fc" id="L250">                    .forEach(p -&gt; {</span>
                         try {
-<span class="fc" id="L250">                            out.add(read(p));</span>
-<span class="fc" id="L251">                        } catch (RuntimeException ignored) {</span>
+<span class="fc" id="L252">                            out.add(read(p));</span>
+<span class="fc" id="L253">                        } catch (RuntimeException ignored) {</span>
                             // Skip partially-written / malformed entries.
-<span class="fc" id="L253">                        }</span>
-<span class="fc" id="L254">                    });</span>
-<span class="nc" id="L255">        } catch (IOException e) {</span>
-<span class="nc" id="L256">            throw new MojoException(&quot;Could not list sentinel dir &quot;</span>
-<span class="nc" id="L257">                    + dir + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="fc" id="L258">        }</span>
-<span class="fc" id="L259">        out.sort(Comparator.comparing(CentralDeploySentinel::started)</span>
-<span class="fc" id="L260">                .reversed());</span>
-<span class="fc" id="L261">        return out;</span>
+<span class="fc" id="L255">                        }</span>
+<span class="fc" id="L256">                    });</span>
+<span class="nc" id="L257">        } catch (IOException e) {</span>
+<span class="nc" id="L258">            throw new MojoException(&quot;Could not list sentinel dir &quot;</span>
+<span class="nc" id="L259">                    + dir + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L260">        }</span>
+<span class="fc" id="L261">        out.sort(Comparator.comparing(CentralDeploySentinel::started)</span>
+<span class="fc" id="L262">                .reversed());</span>
+<span class="fc" id="L263">        return out;</span>
     }
 
     /**
@@ -269,52 +271,52 @@ public final class CentralDeploySentinel {
      * @throws MojoException on I/O failure
      */
     public void write() {
-<span class="fc" id="L272">        Properties p = new Properties();</span>
-<span class="fc" id="L273">        p.setProperty(KEY_STATE, state.name());</span>
-<span class="fc" id="L274">        p.setProperty(KEY_ARTIFACT_ID, artifactId);</span>
-<span class="fc" id="L275">        p.setProperty(KEY_VERSION, version);</span>
-<span class="fc" id="L276">        p.setProperty(KEY_STARTED, started.toString());</span>
-<span class="fc bfc" id="L277" title="All 2 branches covered.">        if (finished != null) {</span>
-<span class="fc" id="L278">            p.setProperty(KEY_FINISHED, finished.toString());</span>
+<span class="fc" id="L274">        Properties p = new Properties();</span>
+<span class="fc" id="L275">        p.setProperty(KEY_STATE, state.name());</span>
+<span class="fc" id="L276">        p.setProperty(KEY_ARTIFACT_ID, artifactId);</span>
+<span class="fc" id="L277">        p.setProperty(KEY_VERSION, version);</span>
+<span class="fc" id="L278">        p.setProperty(KEY_STARTED, started.toString());</span>
+<span class="fc bfc" id="L279" title="All 2 branches covered.">        if (finished != null) {</span>
+<span class="fc" id="L280">            p.setProperty(KEY_FINISHED, finished.toString());</span>
         }
-<span class="fc" id="L280">        p.setProperty(KEY_ATTEMPTS, Integer.toString(attempts));</span>
-<span class="fc" id="L281">        p.setProperty(KEY_MAX_ATTEMPTS, Integer.toString(maxAttempts));</span>
-<span class="fc bfc" id="L282" title="All 2 branches covered.">        if (lastError != null) {</span>
-<span class="fc" id="L283">            p.setProperty(KEY_LAST_ERROR, lastError);</span>
+<span class="fc" id="L282">        p.setProperty(KEY_ATTEMPTS, Integer.toString(attempts));</span>
+<span class="fc" id="L283">        p.setProperty(KEY_MAX_ATTEMPTS, Integer.toString(maxAttempts));</span>
+<span class="fc bfc" id="L284" title="All 2 branches covered.">        if (lastError != null) {</span>
+<span class="fc" id="L285">            p.setProperty(KEY_LAST_ERROR, lastError);</span>
         }
-<span class="fc bfc" id="L285" title="All 2 branches covered.">        if (logFile != null) {</span>
-<span class="fc" id="L286">            p.setProperty(KEY_LOG_FILE, logFile.toString());</span>
+<span class="fc bfc" id="L287" title="All 2 branches covered.">        if (logFile != null) {</span>
+<span class="fc" id="L288">            p.setProperty(KEY_LOG_FILE, logFile.toString());</span>
         }
-<span class="fc bfc" id="L288" title="All 2 branches covered.">        if (pid != 0L) {</span>
-<span class="fc" id="L289">            p.setProperty(KEY_PID, Long.toString(pid));</span>
+<span class="fc bfc" id="L290" title="All 2 branches covered.">        if (pid != 0L) {</span>
+<span class="fc" id="L291">            p.setProperty(KEY_PID, Long.toString(pid));</span>
         }
-<span class="fc bfc" id="L291" title="All 2 branches covered.">        if (note != null) {</span>
-<span class="fc" id="L292">            p.setProperty(KEY_NOTE, note);</span>
+<span class="fc bfc" id="L293" title="All 2 branches covered.">        if (note != null) {</span>
+<span class="fc" id="L294">            p.setProperty(KEY_NOTE, note);</span>
         }
         try {
-<span class="fc" id="L295">            Files.createDirectories(path.getParent());</span>
-<span class="fc" id="L296">            Path tmp = path.resolveSibling(</span>
-<span class="fc" id="L297">                    path.getFileName() + &quot;.tmp&quot;);</span>
-<span class="fc" id="L298">            try (var out = Files.newOutputStream(tmp)) {</span>
-<span class="fc" id="L299">                p.store(out,</span>
+<span class="fc" id="L297">            Files.createDirectories(path.getParent());</span>
+<span class="fc" id="L298">            Path tmp = path.resolveSibling(</span>
+<span class="fc" id="L299">                    path.getFileName() + &quot;.tmp&quot;);</span>
+<span class="fc" id="L300">            try (OutputStream out = Files.newOutputStream(tmp)) {</span>
+<span class="fc" id="L301">                p.store(out,</span>
                         &quot;ike:release-publish Maven Central deploy &quot;
                                 + &quot;sentinel (IKE-Network/ike-issues#484)&quot;);
             }
-<span class="fc" id="L303">            Files.move(tmp, path,</span>
+<span class="fc" id="L305">            Files.move(tmp, path,</span>
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING,
                     java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-<span class="nc" id="L306">        } catch (IOException e) {</span>
-<span class="nc" id="L307">            throw new MojoException(&quot;Could not write sentinel &quot;</span>
-<span class="nc" id="L308">                    + path + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="fc" id="L309">        }</span>
-<span class="fc" id="L310">    }</span>
+<span class="nc" id="L308">        } catch (IOException e) {</span>
+<span class="nc" id="L309">            throw new MojoException(&quot;Could not write sentinel &quot;</span>
+<span class="nc" id="L310">                    + path + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L311">        }</span>
+<span class="fc" id="L312">    }</span>
 
     /**
      * Start a new, empty builder.
      *
      * @return a fresh builder
      */
-<span class="fc" id="L317">    public static Builder builder() { return new Builder(); }</span>
+<span class="fc" id="L319">    public static Builder builder() { return new Builder(); }</span>
 
     /**
      * Start a builder pre-seeded with this sentinel's fields —
@@ -325,19 +327,19 @@ public final class CentralDeploySentinel {
      * @return a builder seeded from this sentinel
      */
     public Builder toBuilder() {
-<span class="fc" id="L328">        return new Builder()</span>
-<span class="fc" id="L329">                .state(state)</span>
-<span class="fc" id="L330">                .artifactId(artifactId)</span>
-<span class="fc" id="L331">                .version(version)</span>
-<span class="fc" id="L332">                .started(started)</span>
-<span class="fc" id="L333">                .finished(finished)</span>
-<span class="fc" id="L334">                .attempts(attempts)</span>
-<span class="fc" id="L335">                .maxAttempts(maxAttempts)</span>
-<span class="fc" id="L336">                .lastError(lastError)</span>
-<span class="fc" id="L337">                .logFile(logFile)</span>
-<span class="fc" id="L338">                .pid(pid)</span>
-<span class="fc" id="L339">                .note(note)</span>
-<span class="fc" id="L340">                .path(path);</span>
+<span class="fc" id="L330">        return new Builder()</span>
+<span class="fc" id="L331">                .state(state)</span>
+<span class="fc" id="L332">                .artifactId(artifactId)</span>
+<span class="fc" id="L333">                .version(version)</span>
+<span class="fc" id="L334">                .started(started)</span>
+<span class="fc" id="L335">                .finished(finished)</span>
+<span class="fc" id="L336">                .attempts(attempts)</span>
+<span class="fc" id="L337">                .maxAttempts(maxAttempts)</span>
+<span class="fc" id="L338">                .lastError(lastError)</span>
+<span class="fc" id="L339">                .logFile(logFile)</span>
+<span class="fc" id="L340">                .pid(pid)</span>
+<span class="fc" id="L341">                .note(note)</span>
+<span class="fc" id="L342">                .path(path);</span>
     }
 
     /**
@@ -361,7 +363,7 @@ public final class CentralDeploySentinel {
         private Path path;
 
         /** Creates an empty builder; use {@link #builder()}. */
-<span class="fc" id="L364">        Builder() {}</span>
+<span class="fc" id="L366">        Builder() {}</span>
 
         /**
          * Set the lifecycle state.
@@ -369,7 +371,7 @@ public final class CentralDeploySentinel {
          * @param v lifecycle state (must not be {@code null})
          * @return this builder for chaining
          */
-<span class="fc" id="L372">        public Builder state(State v) { this.state = v; return this; }</span>
+<span class="fc" id="L374">        public Builder state(State v) { this.state = v; return this; }</span>
 
         /**
          * Set the project artifactId.
@@ -377,7 +379,7 @@ public final class CentralDeploySentinel {
          * @param v project artifactId
          * @return this builder for chaining
          */
-<span class="fc" id="L380">        public Builder artifactId(String v) { this.artifactId = v; return this; }</span>
+<span class="fc" id="L382">        public Builder artifactId(String v) { this.artifactId = v; return this; }</span>
 
         /**
          * Set the release version.
@@ -385,7 +387,7 @@ public final class CentralDeploySentinel {
          * @param v release version
          * @return this builder for chaining
          */
-<span class="fc" id="L388">        public Builder version(String v) { this.version = v; return this; }</span>
+<span class="fc" id="L390">        public Builder version(String v) { this.version = v; return this; }</span>
 
         /**
          * Set the start instant.
@@ -393,7 +395,7 @@ public final class CentralDeploySentinel {
          * @param v start instant (UTC)
          * @return this builder for chaining
          */
-<span class="fc" id="L396">        public Builder started(Instant v) { this.started = v; return this; }</span>
+<span class="fc" id="L398">        public Builder started(Instant v) { this.started = v; return this; }</span>
 
         /**
          * Set the finish instant; pass {@code null} for a
@@ -402,7 +404,7 @@ public final class CentralDeploySentinel {
          * @param v finish instant, or {@code null} if pending
          * @return this builder for chaining
          */
-<span class="fc" id="L405">        public Builder finished(Instant v) { this.finished = v; return this; }</span>
+<span class="fc" id="L407">        public Builder finished(Instant v) { this.finished = v; return this; }</span>
 
         /**
          * Set the number of attempts taken.
@@ -410,7 +412,7 @@ public final class CentralDeploySentinel {
          * @param v attempts taken so far
          * @return this builder for chaining
          */
-<span class="fc" id="L413">        public Builder attempts(int v) { this.attempts = v; return this; }</span>
+<span class="fc" id="L415">        public Builder attempts(int v) { this.attempts = v; return this; }</span>
 
         /**
          * Set the configured maximum attempts.
@@ -418,7 +420,7 @@ public final class CentralDeploySentinel {
          * @param v configured max attempts
          * @return this builder for chaining
          */
-<span class="fc" id="L421">        public Builder maxAttempts(int v) { this.maxAttempts = v; return this; }</span>
+<span class="fc" id="L423">        public Builder maxAttempts(int v) { this.maxAttempts = v; return this; }</span>
 
         /**
          * Set the failure summary; pass {@code null} when not failed.
@@ -426,7 +428,7 @@ public final class CentralDeploySentinel {
          * @param v failure summary, or {@code null}
          * @return this builder for chaining
          */
-<span class="fc" id="L429">        public Builder lastError(String v) { this.lastError = v; return this; }</span>
+<span class="fc" id="L431">        public Builder lastError(String v) { this.lastError = v; return this; }</span>
 
         /**
          * Set the deploy-log file path.
@@ -434,7 +436,7 @@ public final class CentralDeploySentinel {
          * @param v deploy log file path
          * @return this builder for chaining
          */
-<span class="fc" id="L437">        public Builder logFile(Path v) { this.logFile = v; return this; }</span>
+<span class="fc" id="L439">        public Builder logFile(Path v) { this.logFile = v; return this; }</span>
 
         /**
          * Set the subprocess PID.
@@ -442,7 +444,7 @@ public final class CentralDeploySentinel {
          * @param v subprocess PID, or 0 if not recorded
          * @return this builder for chaining
          */
-<span class="fc" id="L445">        public Builder pid(long v) { this.pid = v; return this; }</span>
+<span class="fc" id="L447">        public Builder pid(long v) { this.pid = v; return this; }</span>
 
         /**
          * Set the advisory note; pass {@code null} when none.
@@ -450,7 +452,7 @@ public final class CentralDeploySentinel {
          * @param v advisory note, or {@code null}
          * @return this builder for chaining
          */
-<span class="fc" id="L453">        public Builder note(String v) { this.note = v; return this; }</span>
+<span class="fc" id="L455">        public Builder note(String v) { this.note = v; return this; }</span>
 
         /**
          * Set the sentinel-file path on disk. Required.
@@ -458,7 +460,7 @@ public final class CentralDeploySentinel {
          * @param v sentinel file path
          * @return this builder for chaining
          */
-<span class="fc" id="L461">        public Builder path(Path v) { this.path = v; return this; }</span>
+<span class="fc" id="L463">        public Builder path(Path v) { this.path = v; return this; }</span>
 
         /**
          * Validate required fields and build the immutable
@@ -470,86 +472,86 @@ public final class CentralDeploySentinel {
          *         path}) is unset
          */
         public CentralDeploySentinel build() {
-<span class="pc bpc" id="L473" title="5 of 10 branches missed.">            if (state == null || artifactId == null || version == null</span>
+<span class="pc bpc" id="L475" title="5 of 10 branches missed.">            if (state == null || artifactId == null || version == null</span>
                     || started == null || path == null) {
-<span class="nc" id="L475">                throw new IllegalStateException(</span>
+<span class="nc" id="L477">                throw new IllegalStateException(</span>
                         &quot;Required fields missing — state, artifactId, &quot;
                                 + &quot;version, started, and path must be set&quot;);
             }
-<span class="fc" id="L479">            return new CentralDeploySentinel(this);</span>
+<span class="fc" id="L481">            return new CentralDeploySentinel(this);</span>
         }
     }
 
     // ── Parse helpers ───────────────────────────────────────────
 
     private static State parseState(Properties p, Path path) {
-<span class="fc" id="L486">        String raw = required(p, KEY_STATE, path);</span>
+<span class="fc" id="L488">        String raw = required(p, KEY_STATE, path);</span>
         try {
-<span class="fc" id="L488">            return State.valueOf(raw);</span>
-<span class="fc" id="L489">        } catch (IllegalArgumentException e) {</span>
-<span class="fc" id="L490">            throw new MojoException(&quot;Invalid sentinel state '&quot;</span>
+<span class="fc" id="L490">            return State.valueOf(raw);</span>
+<span class="fc" id="L491">        } catch (IllegalArgumentException e) {</span>
+<span class="fc" id="L492">            throw new MojoException(&quot;Invalid sentinel state '&quot;</span>
                     + raw + &quot;' in &quot; + path
                     + &quot; (expected PENDING/SUCCESS/FAILURE)&quot;, e);
         }
     }
 
     private static String required(Properties p, String key, Path path) {
-<span class="fc" id="L497">        String value = p.getProperty(key);</span>
-<span class="pc bpc" id="L498" title="1 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
-<span class="fc" id="L499">            throw new MojoException(&quot;Sentinel &quot; + path</span>
+<span class="fc" id="L499">        String value = p.getProperty(key);</span>
+<span class="pc bpc" id="L500" title="1 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="fc" id="L501">            throw new MojoException(&quot;Sentinel &quot; + path</span>
                     + &quot; missing required property '&quot; + key + &quot;'&quot;);
         }
-<span class="fc" id="L502">        return value;</span>
+<span class="fc" id="L504">        return value;</span>
     }
 
     private static Instant parseInstant(Properties p, String key,
                                          boolean required, Path path) {
-<span class="fc" id="L507">        String raw = p.getProperty(key);</span>
-<span class="pc bpc" id="L508" title="1 of 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
-<span class="pc bpc" id="L509" title="1 of 2 branches missed.">            if (required) {</span>
-<span class="nc" id="L510">                throw new MojoException(&quot;Sentinel &quot; + path</span>
+<span class="fc" id="L509">        String raw = p.getProperty(key);</span>
+<span class="pc bpc" id="L510" title="1 of 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
+<span class="pc bpc" id="L511" title="1 of 2 branches missed.">            if (required) {</span>
+<span class="nc" id="L512">                throw new MojoException(&quot;Sentinel &quot; + path</span>
                         + &quot; missing required property '&quot; + key + &quot;'&quot;);
             }
-<span class="fc" id="L513">            return null;</span>
+<span class="fc" id="L515">            return null;</span>
         }
         try {
-<span class="fc" id="L516">            return Instant.parse(raw);</span>
-<span class="nc" id="L517">        } catch (RuntimeException e) {</span>
-<span class="nc" id="L518">            throw new MojoException(&quot;Invalid instant '&quot; + raw</span>
+<span class="fc" id="L518">            return Instant.parse(raw);</span>
+<span class="nc" id="L519">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L520">            throw new MojoException(&quot;Invalid instant '&quot; + raw</span>
                     + &quot;' for property '&quot; + key + &quot;' in &quot; + path, e);
         }
     }
 
     private static int parseInt(Properties p, String key, int dflt) {
-<span class="fc" id="L524">        String raw = p.getProperty(key);</span>
-<span class="pc bpc" id="L525" title="2 of 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
-<span class="nc" id="L526">            return dflt;</span>
+<span class="fc" id="L526">        String raw = p.getProperty(key);</span>
+<span class="pc bpc" id="L527" title="2 of 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
+<span class="nc" id="L528">            return dflt;</span>
         }
         try {
-<span class="fc" id="L529">            return Integer.parseInt(raw.trim());</span>
-<span class="nc" id="L530">        } catch (NumberFormatException e) {</span>
-<span class="nc" id="L531">            return dflt;</span>
+<span class="fc" id="L531">            return Integer.parseInt(raw.trim());</span>
+<span class="nc" id="L532">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L533">            return dflt;</span>
         }
     }
 
     private static long parseLong(Properties p, String key, long dflt) {
-<span class="fc" id="L536">        String raw = p.getProperty(key);</span>
-<span class="pc bpc" id="L537" title="1 of 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
-<span class="fc" id="L538">            return dflt;</span>
+<span class="fc" id="L538">        String raw = p.getProperty(key);</span>
+<span class="pc bpc" id="L539" title="1 of 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
+<span class="fc" id="L540">            return dflt;</span>
         }
         try {
-<span class="fc" id="L541">            return Long.parseLong(raw.trim());</span>
-<span class="nc" id="L542">        } catch (NumberFormatException e) {</span>
-<span class="nc" id="L543">            return dflt;</span>
+<span class="fc" id="L543">            return Long.parseLong(raw.trim());</span>
+<span class="nc" id="L544">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L545">            return dflt;</span>
         }
     }
 
     private static Path parseOptionalPath(Properties p, String key) {
-<span class="fc" id="L548">        String raw = p.getProperty(key);</span>
-<span class="pc bpc" id="L549" title="1 of 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
-<span class="fc" id="L550">            return null;</span>
+<span class="fc" id="L550">        String raw = p.getProperty(key);</span>
+<span class="pc bpc" id="L551" title="1 of 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
+<span class="fc" id="L552">            return null;</span>
         }
-<span class="fc" id="L552">        return Paths.get(raw);</span>
+<span class="fc" id="L554">        return Paths.get(raw);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

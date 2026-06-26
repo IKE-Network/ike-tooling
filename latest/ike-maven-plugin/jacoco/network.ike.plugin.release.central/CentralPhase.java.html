@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 
 /**
  * The Maven Central deploy phase of the release pipeline (sync path).
@@ -46,9 +47,9 @@ public final class CentralPhase {
      *
      * @param ctx the per-invocation release context
      */
-<span class="nc" id="L49">    public CentralPhase(ReleaseContext ctx) {</span>
-<span class="nc" id="L50">        this.ctx = ctx;</span>
-<span class="nc" id="L51">    }</span>
+<span class="nc" id="L50">    public CentralPhase(ReleaseContext ctx) {</span>
+<span class="nc" id="L51">        this.ctx = ctx;</span>
+<span class="nc" id="L52">    }</span>
 
     /**
      * Executes the Maven Central deploy with retry.
@@ -72,44 +73,44 @@ public final class CentralPhase {
      * @return a completed future carrying the {@link CentralOutcome}
      */
     public CompletableFuture&lt;CentralOutcome&gt; execute() {
-<span class="nc" id="L75">        CentralOutcome outcome = CentralOutcome.initial();</span>
-<span class="nc" id="L76">        int maxAttempts = ctx.request().centralDeployMaxAttempts();</span>
-<span class="nc" id="L77">        int[] backoff = RetrySchedule.parseSeconds(</span>
+<span class="nc" id="L76">        CentralOutcome outcome = CentralOutcome.initial();</span>
+<span class="nc" id="L77">        int maxAttempts = ctx.request().centralDeployMaxAttempts();</span>
+<span class="nc" id="L78">        int[] backoff = RetrySchedule.parseSeconds(</span>
                 &quot;ike.deploy.central.backoffSeconds&quot;,
-<span class="nc" id="L79">                ctx.request().centralDeployBackoffSeconds());</span>
-<span class="nc" id="L80">        Throwable last = null;</span>
-<span class="nc bnc" id="L81" title="All 2 branches missed.">        for (int attempt = 1; attempt &lt;= maxAttempts; attempt++) {</span>
-<span class="nc" id="L82">            outcome = outcome.withAttempts(attempt);</span>
-<span class="nc bnc" id="L83" title="All 2 branches missed.">            if (attempt &gt; 1) {</span>
-<span class="nc" id="L84">                int wait = backoff[Math.min(attempt - 2,</span>
+<span class="nc" id="L80">                ctx.request().centralDeployBackoffSeconds());</span>
+<span class="nc" id="L81">        Throwable last = null;</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        for (int attempt = 1; attempt &lt;= maxAttempts; attempt++) {</span>
+<span class="nc" id="L83">            outcome = outcome.withAttempts(attempt);</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">            if (attempt &gt; 1) {</span>
+<span class="nc" id="L85">                int wait = backoff[Math.min(attempt - 2,</span>
                         backoff.length - 1)];
-<span class="nc" id="L86">                RetrySchedule.sleepBefore(ctx.log(), wait, &quot;Maven Central deploy&quot;,</span>
+<span class="nc" id="L87">                RetrySchedule.sleepBefore(ctx.log(), wait, &quot;Maven Central deploy&quot;,</span>
                         attempt, maxAttempts);
             }
-<span class="nc" id="L89">            ctx.log().info(&quot;Publishing to Maven Central (cycle &quot;</span>
+<span class="nc" id="L90">            ctx.log().info(&quot;Publishing to Maven Central (cycle &quot;</span>
                     + attempt + &quot;/&quot; + maxAttempts + &quot;)...&quot;);
             try {
-<span class="nc" id="L92">                deployToMavenCentralCore();</span>
-<span class="nc" id="L93">                return CompletableFuture.completedFuture(outcome.withSucceeded(true));</span>
-<span class="nc" id="L94">            } catch (MojoException e) {</span>
-<span class="nc" id="L95">                last = e;</span>
-<span class="nc" id="L96">                ctx.log().warn(&quot;Maven Central cycle &quot; + attempt</span>
+<span class="nc" id="L93">                deployToMavenCentralCore();</span>
+<span class="nc" id="L94">                return CompletableFuture.completedFuture(outcome.withSucceeded(true));</span>
+<span class="nc" id="L95">            } catch (MojoException e) {</span>
+<span class="nc" id="L96">                last = e;</span>
+<span class="nc" id="L97">                ctx.log().warn(&quot;Maven Central cycle &quot; + attempt</span>
                         + &quot;/&quot; + maxAttempts
-<span class="nc" id="L98">                        + &quot; failed: &quot; + e.getMessage());</span>
+<span class="nc" id="L99">                        + &quot; failed: &quot; + e.getMessage());</span>
             }
         }
-<span class="nc" id="L101">        String releaseVersion = ctx.request().releaseVersion();</span>
-<span class="nc bnc" id="L102" title="All 2 branches missed.">        outcome = outcome.withFailureSummary(last == null</span>
-<span class="nc" id="L103">                ? &quot;unknown failure&quot;</span>
-<span class="nc" id="L104">                : last.getMessage());</span>
-<span class="nc" id="L105">        ctx.log().warn(&quot;Maven Central deploy did not succeed after &quot;</span>
+<span class="nc" id="L102">        String releaseVersion = ctx.request().releaseVersion();</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        outcome = outcome.withFailureSummary(last == null</span>
+<span class="nc" id="L104">                ? &quot;unknown failure&quot;</span>
+<span class="nc" id="L105">                : last.getMessage());</span>
+<span class="nc" id="L106">        ctx.log().warn(&quot;Maven Central deploy did not succeed after &quot;</span>
                 + maxAttempts + &quot; cycles. &quot;
                 + &quot;Nexus already has v&quot; + releaseVersion
                 + &quot;; tag and main will still publish. &quot;
                 + &quot;To retry Central later: check out v&quot;
                 + releaseVersion + &quot; and run &quot;
                 + &quot;`mvn jreleaser:deploy`.&quot;);
-<span class="nc" id="L112">        return CompletableFuture.completedFuture(outcome);</span>
+<span class="nc" id="L113">        return CompletableFuture.completedFuture(outcome);</span>
     }
 
     /**
@@ -123,25 +124,25 @@ public final class CentralPhase {
      * uploads the staged bundle to the Sonatype Central Portal.
      */
     private void deployToMavenCentralCore() {
-<span class="nc" id="L126">        File gitRoot = ctx.gitRoot();</span>
-<span class="nc" id="L127">        File mvnw = ctx.mvnw();</span>
-<span class="nc" id="L128">        Path stagingDir = gitRoot.toPath()</span>
-<span class="nc" id="L129">                .resolve(&quot;target&quot;).resolve(&quot;staging-deploy&quot;);</span>
-<span class="nc" id="L130">        ctx.log().info(&quot;Staging signed artifacts for Maven Central...&quot;);</span>
-<span class="nc" id="L131">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
-<span class="nc" id="L132">                mvnw.getAbsolutePath(), &quot;clean&quot;, &quot;deploy&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;,</span>
+<span class="nc" id="L127">        File gitRoot = ctx.gitRoot();</span>
+<span class="nc" id="L128">        File mvnw = ctx.mvnw();</span>
+<span class="nc" id="L129">        Path stagingDir = gitRoot.toPath()</span>
+<span class="nc" id="L130">                .resolve(&quot;target&quot;).resolve(&quot;staging-deploy&quot;);</span>
+<span class="nc" id="L131">        ctx.log().info(&quot;Staging signed artifacts for Maven Central...&quot;);</span>
+<span class="nc" id="L132">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L133">                mvnw.getAbsolutePath(), &quot;clean&quot;, &quot;deploy&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;,</span>
                 &quot;-P&quot;, &quot;release,signArtifacts&quot;,
                 &quot;-DaltDeploymentRepository=local::file://&quot;
-<span class="nc" id="L135">                        + stagingDir.toAbsolutePath());</span>
-<span class="nc" id="L136">        pruneBuildPoms(stagingDir);</span>
-<span class="nc" id="L137">        ctx.log().info(&quot;Uploading bundle via JReleaser...&quot;);</span>
+<span class="nc" id="L136">                        + stagingDir.toAbsolutePath());</span>
+<span class="nc" id="L137">        pruneBuildPoms(stagingDir);</span>
+<span class="nc" id="L138">        ctx.log().info(&quot;Uploading bundle via JReleaser...&quot;);</span>
         // -N (non-recursive): jreleaser:deploy runs once, at the reactor
         // root, uploading the whole staging directory as a single bundle.
         // Without it the goal runs per module — the first invocation
         // publishes everything, the rest fail &quot;artifacts already deployed&quot;.
-<span class="nc" id="L142">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
-<span class="nc" id="L143">                mvnw.getAbsolutePath(), &quot;jreleaser:deploy&quot;, &quot;-N&quot;, &quot;-B&quot;);</span>
-<span class="nc" id="L144">    }</span>
+<span class="nc" id="L143">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L144">                mvnw.getAbsolutePath(), &quot;jreleaser:deploy&quot;, &quot;-N&quot;, &quot;-B&quot;);</span>
+<span class="nc" id="L145">    }</span>
 
     /**
      * Deletes the Maven 4 {@code -build.pom} artifacts — and their
@@ -152,21 +153,21 @@ public final class CentralPhase {
      * so the directory is walked recursively.
      */
     private void pruneBuildPoms(Path stagingDir) {
-<span class="nc" id="L155">        try (var paths = Files.walk(stagingDir)) {</span>
-<span class="nc" id="L156">            List&lt;Path&gt; buildPoms = paths</span>
-<span class="nc" id="L157">                    .filter(Files::isRegularFile)</span>
-<span class="nc" id="L158">                    .filter(p -&gt; p.getFileName().toString()</span>
-<span class="nc" id="L159">                            .contains(&quot;-build.pom&quot;))</span>
-<span class="nc" id="L160">                    .toList();</span>
-<span class="nc bnc" id="L161" title="All 2 branches missed.">            for (Path p : buildPoms) {</span>
-<span class="nc" id="L162">                Files.delete(p);</span>
-<span class="nc" id="L163">                ctx.log().info(&quot;  pruned &quot; + stagingDir.relativize(p));</span>
-<span class="nc" id="L164">            }</span>
-<span class="nc" id="L165">        } catch (IOException e) {</span>
-<span class="nc" id="L166">            throw new MojoException(</span>
+<span class="nc" id="L156">        try (Stream&lt;Path&gt; paths = Files.walk(stagingDir)) {</span>
+<span class="nc" id="L157">            List&lt;Path&gt; buildPoms = paths</span>
+<span class="nc" id="L158">                    .filter(Files::isRegularFile)</span>
+<span class="nc" id="L159">                    .filter(p -&gt; p.getFileName().toString()</span>
+<span class="nc" id="L160">                            .contains(&quot;-build.pom&quot;))</span>
+<span class="nc" id="L161">                    .toList();</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            for (Path p : buildPoms) {</span>
+<span class="nc" id="L163">                Files.delete(p);</span>
+<span class="nc" id="L164">                ctx.log().info(&quot;  pruned &quot; + stagingDir.relativize(p));</span>
+<span class="nc" id="L165">            }</span>
+<span class="nc" id="L166">        } catch (IOException e) {</span>
+<span class="nc" id="L167">            throw new MojoException(</span>
                     &quot;Failed to prune -build.pom artifacts from &quot;
                             + stagingDir, e);
-<span class="nc" id="L169">        }</span>
-<span class="nc" id="L170">    }</span>
+<span class="nc" id="L170">        }</span>
+<span class="nc" id="L171">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

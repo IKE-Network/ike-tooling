@@ -47,19 +47,40 @@ public final class WorkingSetResolver {
      */
     public static WorkingSet singleRepo(Path dir) {
 <span class="fc" id="L49">        Path root = dir.toAbsolutePath().normalize();</span>
-<span class="fc" id="L50">        return new WorkingSet(root, null,</span>
-<span class="fc" id="L51">                List.of(new WorkingSet.Member(fileName(root), root)));</span>
+<span class="fc" id="L50">        String name = fileName(root);</span>
+<span class="fc" id="L51">        return new WorkingSet(root, null, name,</span>
+<span class="fc" id="L52">                List.of(WorkingSet.Member.aggregator(name, root)));</span>
     }
 
     private static WorkingSet workspace(Path manifest) {
-<span class="fc" id="L55">        Path root = manifest.getParent();</span>
-<span class="fc" id="L56">        Manifest model = ManifestReader.read(manifest);</span>
-<span class="fc" id="L57">        List&lt;WorkingSet.Member&gt; members = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L58" title="All 2 branches covered.">        for (String name : model.subprojects().keySet()) {</span>
-<span class="fc" id="L59">            members.add(new WorkingSet.Member(name, root.resolve(name)));</span>
-<span class="fc" id="L60">        }</span>
-<span class="fc" id="L61">        members.add(new WorkingSet.Member(fileName(root), root));</span>
-<span class="fc" id="L62">        return new WorkingSet(root, manifest, List.copyOf(members));</span>
+<span class="fc" id="L56">        Path root = manifest.getParent();</span>
+<span class="fc" id="L57">        Manifest model = ManifestReader.read(manifest);</span>
+<span class="fc" id="L58">        List&lt;WorkingSet.Member&gt; members = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L59" title="All 2 branches covered.">        for (String name : model.subprojects().keySet()) {</span>
+<span class="fc" id="L60">            members.add(WorkingSet.Member.subproject(name, root.resolve(name)));</span>
+<span class="fc" id="L61">        }</span>
+<span class="fc" id="L62">        members.add(WorkingSet.Member.aggregator(fileName(root), root));</span>
+<span class="fc" id="L63">        return new WorkingSet(root, manifest, baseName(model, root),</span>
+<span class="fc" id="L64">                List.copyOf(members));</span>
+    }
+
+    /**
+     * Resolve the working set's base name — the identity used for derived
+     * names such as sibling directories. Prefers the manifest
+     * {@code workspace-root:} {@code artifactId} (schema 1.1+); falls back to
+     * the root directory name when absent (legacy 1.0 manifests).
+     *
+     * @param model the parsed manifest
+     * @param root  the workspace root directory
+     * @return the workspace-root artifactId when present, else the directory
+     *         name
+     */
+    private static String baseName(Manifest model, Path root) {
+<span class="fc" id="L79">        WorkspaceRoot wr = model.workspaceRoot();</span>
+<span class="pc bpc" id="L80" title="2 of 6 branches missed.">        if (wr != null &amp;&amp; wr.artifactId() != null &amp;&amp; !wr.artifactId().isBlank()) {</span>
+<span class="fc" id="L81">            return wr.artifactId();</span>
+        }
+<span class="fc" id="L83">        return fileName(root);</span>
     }
 
     /**
@@ -69,20 +90,20 @@ public final class WorkingSetResolver {
      * @return the absolute manifest path, or {@code null} if none is found
      */
     static Path findManifest(Path startDir) {
-<span class="fc" id="L72">        Path dir = startDir.toAbsolutePath().normalize();</span>
-<span class="fc bfc" id="L73" title="All 2 branches covered.">        while (dir != null) {</span>
-<span class="fc" id="L74">            Path candidate = dir.resolve(MANIFEST_FILE);</span>
-<span class="fc bfc" id="L75" title="All 2 branches covered.">            if (candidate.toFile().exists()) {</span>
-<span class="fc" id="L76">                return candidate;</span>
+<span class="fc" id="L93">        Path dir = startDir.toAbsolutePath().normalize();</span>
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        while (dir != null) {</span>
+<span class="fc" id="L95">            Path candidate = dir.resolve(MANIFEST_FILE);</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">            if (candidate.toFile().exists()) {</span>
+<span class="fc" id="L97">                return candidate;</span>
             }
-<span class="fc" id="L78">            dir = dir.getParent();</span>
-<span class="fc" id="L79">        }</span>
-<span class="fc" id="L80">        return null;</span>
+<span class="fc" id="L99">            dir = dir.getParent();</span>
+<span class="fc" id="L100">        }</span>
+<span class="fc" id="L101">        return null;</span>
     }
 
     private static String fileName(Path dir) {
-<span class="fc" id="L84">        Path name = dir.getFileName();</span>
-<span class="pc bpc" id="L85" title="1 of 2 branches missed.">        return name == null ? dir.toString() : name.toString();</span>
+<span class="fc" id="L105">        Path name = dir.getFileName();</span>
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">        return name == null ? dir.toString() : name.toString();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
