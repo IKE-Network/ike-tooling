@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PublishedArtifactSet.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">PublishedArtifactSet.java</span></div><h1>PublishedArtifactSet.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Scans a Maven subproject root to determine the complete set of
+ * published artifacts (groupId:artifactId pairs).
+ *
+ * &lt;p&gt;This is the &quot;published artifact set&quot; from the handoff design:
+ * given a subproject root directory, recursively walk the POM hierarchy
+ * (root POM plus all subprojects/modules) and collect every
+ * groupId:artifactId pair that the subproject publishes.
+ *
+ * &lt;p&gt;POM parsing uses simple regex matching (consistent with the
+ * {@code ReleaseSupport} pattern) rather than a full XML parser.
+ * The {@code &lt;parent&gt;} block is stripped before extracting the
+ * project's own groupId and artifactId; if no groupId is declared
+ * outside the parent block, the parent's groupId is inherited.
+ */
+public final class PublishedArtifactSet {
+
+    private PublishedArtifactSet() {}
+
+    /**
+     * A published Maven artifact coordinate.
+     *
+     * @param groupId    the Maven groupId
+     * @param artifactId the Maven artifactId
+     */
+<span class="fc" id="L37">    public record Artifact(String groupId, String artifactId) {}</span>
+
+<span class="fc" id="L39">    private static final Pattern VERSION_PATTERN =</span>
+<span class="fc" id="L40">            Pattern.compile(&quot;&lt;version&gt;([^&lt;]+)&lt;/version&gt;&quot;);</span>
+<span class="fc" id="L41">    private static final Pattern GROUP_ID_PATTERN =</span>
+<span class="fc" id="L42">            Pattern.compile(&quot;&lt;groupId&gt;([^&lt;]+)&lt;/groupId&gt;&quot;);</span>
+<span class="fc" id="L43">    private static final Pattern ARTIFACT_ID_PATTERN =</span>
+<span class="fc" id="L44">            Pattern.compile(&quot;&lt;artifactId&gt;([^&lt;]+)&lt;/artifactId&gt;&quot;);</span>
+<span class="fc" id="L45">    private static final Pattern SUBPROJECTS_PATTERN =</span>
+<span class="fc" id="L46">            Pattern.compile(&quot;&lt;subproject&gt;([^&lt;]+)&lt;/subproject&gt;&quot;);</span>
+<span class="fc" id="L47">    private static final Pattern MODULES_PATTERN =</span>
+<span class="fc" id="L48">            Pattern.compile(&quot;&lt;module&gt;([^&lt;]+)&lt;/module&gt;&quot;);</span>
+<span class="fc" id="L49">    private static final Pattern PARENT_BLOCK =</span>
+<span class="fc" id="L50">            Pattern.compile(&quot;(?s)&lt;parent&gt;.*?&lt;/parent&gt;&quot;);</span>
+    /** Self-closing {@code &lt;parent/&gt;} — Maven 4.1.0's inferred parent (carries no groupId). */
+<span class="fc" id="L52">    private static final Pattern PARENT_SELF_CLOSING =</span>
+<span class="fc" id="L53">            Pattern.compile(&quot;&lt;parent\\s*/&gt;&quot;);</span>
+    /**
+     * Start of the first POM body section that may itself contain a {@code &lt;groupId&gt;}
+     * — a dependency, managed dependency, or plugin. The project's own coordinates are
+     * schema-ordered before these, so own-coordinate extraction stops here so a
+     * dependency's groupId is never mistaken for the project's (ike-issues#719).
+     */
+<span class="fc" id="L60">    private static final Pattern BODY_SECTION = Pattern.compile(</span>
+            &quot;&lt;(dependencies|dependencyManagement|build|reporting|profiles|distributionManagement)\\b&quot;);
+
+    /**
+     * Scan a subproject root and return the complete set of published
+     * artifacts (groupId:artifactId pairs).
+     *
+     * &lt;p&gt;Reads the root pom.xml, extracts its coordinates, then
+     * recursively descends into each subproject (or module) directory
+     * to collect all published artifacts.
+     *
+     * @param subprojectRoot the root directory of the Maven subproject
+     * @return the set of all published artifacts
+     * @throws IOException if a POM file cannot be read
+     */
+    public static Set&lt;Artifact&gt; scan(Path subprojectRoot) throws IOException {
+<span class="fc" id="L76">        Set&lt;Artifact&gt; artifacts = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc" id="L77">        Path rootPom = subprojectRoot.resolve(&quot;pom.xml&quot;);</span>
+
+<span class="pc bpc" id="L79" title="1 of 2 branches missed.">        if (!Files.exists(rootPom)) {</span>
+<span class="nc" id="L80">            return artifacts;</span>
+        }
+
+<span class="fc" id="L83">        scanPom(subprojectRoot, rootPom, null, artifacts);</span>
+<span class="fc" id="L84">        return artifacts;</span>
+    }
+
+    /**
+     * Check whether a groupId:artifactId pair is in the published set.
+     *
+     * @param artifacts  the set from {@link #scan(Path)}
+     * @param groupId    the groupId to check
+     * @param artifactId the artifactId to check
+     * @return true if the pair is in the set
+     */
+    public static boolean matches(Set&lt;Artifact&gt; artifacts,
+                                  String groupId, String artifactId) {
+<span class="fc" id="L97">        return artifacts.contains(new Artifact(groupId, artifactId));</span>
+    }
+
+    /**
+     * Parse a single POM, add its artifact to the set, then recurse
+     * into any declared subprojects or modules.
+     *
+     * @param subprojectRoot  the subproject root (for resolving relative paths)
+     * @param pomPath        the POM file to parse
+     * @param inheritGroupId the parent groupId to inherit if not declared
+     * @param artifacts      accumulator for discovered artifacts
+     */
+    private static void scanPom(Path subprojectRoot, Path pomPath,
+                                String inheritGroupId,
+                                Set&lt;Artifact&gt; artifacts) throws IOException {
+<span class="fc" id="L112">        String content = Files.readString(pomPath, StandardCharsets.UTF_8);</span>
+
+        // groupId declared inside a paired &lt;parent&gt;…&lt;/parent&gt; block, if any (used
+        // for inheritance). A self-closing &lt;parent/&gt; — Maven 4.1.0's inferred
+        // parent — carries none, so the groupId then comes from inheritGroupId.
+<span class="fc" id="L117">        String parentGroupId = null;</span>
+<span class="fc" id="L118">        Matcher parentMatcher = PARENT_BLOCK.matcher(content);</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">        if (parentMatcher.find()) {</span>
+<span class="fc" id="L120">            Matcher gm = GROUP_ID_PATTERN.matcher(parentMatcher.group());</span>
+<span class="pc bpc" id="L121" title="1 of 2 branches missed.">            if (gm.find()) {</span>
+<span class="fc" id="L122">                parentGroupId = gm.group(1).trim();</span>
+            }
+        }
+
+        // Strip the parent block (paired or self-closing) so the parent's own
+        // groupId is never read as the project's.
+<span class="fc" id="L128">        String stripped = PARENT_BLOCK.matcher(content).replaceFirst(&quot;&quot;);</span>
+<span class="fc" id="L129">        stripped = PARENT_SELF_CLOSING.matcher(stripped).replaceFirst(&quot;&quot;);</span>
+
+        // The project's own &lt;groupId&gt;/&lt;artifactId&gt; are schema-ordered BEFORE any
+        // body section that can also carry a &lt;groupId&gt; (dependencies, managed
+        // dependencies, plugins). Restrict extraction to that header so a
+        // dependency's groupId is never mistaken for the project's — the bug that
+        // dropped komet's inter-subproject edges (ike-issues#719). A module that
+        // declares no own groupId (the Maven-4.1.0 norm under &lt;parent/&gt;) then
+        // correctly yields null here and inherits below.
+<span class="fc" id="L138">        String header = stripped.substring(0, bodySectionStart(stripped));</span>
+
+        // Inherit groupId: prefer own, then the parent block, then the reactor
+        // parent passed down the recursion.
+<span class="fc" id="L142">        String groupId = firstCapture(GROUP_ID_PATTERN, header);</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">        if (groupId == null) {</span>
+<span class="fc" id="L144">            groupId = parentGroupId;</span>
+        }
+<span class="fc bfc" id="L146" title="All 2 branches covered.">        if (groupId == null) {</span>
+<span class="fc" id="L147">            groupId = inheritGroupId;</span>
+        }
+
+<span class="fc" id="L150">        String artifactId = firstCapture(ARTIFACT_ID_PATTERN, header);</span>
+
+<span class="pc bpc" id="L152" title="2 of 4 branches missed.">        if (groupId != null &amp;&amp; artifactId != null) {</span>
+<span class="fc" id="L153">            artifacts.add(new Artifact(groupId, artifactId));</span>
+        }
+
+        // The groupId to pass down for inheritance
+<span class="fc" id="L157">        String effectiveGroupId = groupId;</span>
+
+        // Find subprojects (POM 4.1.0) or modules (POM 4.0.0)
+<span class="fc" id="L160">        Path pomDir = pomPath.getParent();</span>
+
+        // Scan &lt;subproject&gt; entries first (newer model)
+<span class="fc" id="L163">        Matcher subMatcher = SUBPROJECTS_PATTERN.matcher(content);</span>
+<span class="fc bfc" id="L164" title="All 2 branches covered.">        while (subMatcher.find()) {</span>
+<span class="fc" id="L165">            String subproject = subMatcher.group(1).trim();</span>
+<span class="fc" id="L166">            Path subPom = pomDir.resolve(subproject).resolve(&quot;pom.xml&quot;);</span>
+<span class="pc bpc" id="L167" title="1 of 2 branches missed.">            if (Files.exists(subPom)) {</span>
+<span class="fc" id="L168">                scanPom(subprojectRoot, subPom, effectiveGroupId, artifacts);</span>
+            }
+<span class="fc" id="L170">        }</span>
+
+        // Scan &lt;module&gt; entries (classic model)
+<span class="fc" id="L173">        Matcher modMatcher = MODULES_PATTERN.matcher(content);</span>
+<span class="fc bfc" id="L174" title="All 2 branches covered.">        while (modMatcher.find()) {</span>
+<span class="fc" id="L175">            String module = modMatcher.group(1).trim();</span>
+<span class="fc" id="L176">            Path modPom = pomDir.resolve(module).resolve(&quot;pom.xml&quot;);</span>
+<span class="pc bpc" id="L177" title="1 of 2 branches missed.">            if (Files.exists(modPom)) {</span>
+<span class="fc" id="L178">                scanPom(subprojectRoot, modPom, effectiveGroupId, artifacts);</span>
+            }
+<span class="fc" id="L180">        }</span>
+<span class="fc" id="L181">    }</span>
+
+    /** First capture group of {@code pattern} in {@code text}, trimmed, or null. */
+    private static String firstCapture(Pattern pattern, String text) {
+<span class="fc" id="L185">        Matcher m = pattern.matcher(text);</span>
+<span class="fc bfc" id="L186" title="All 2 branches covered.">        return m.find() ? m.group(1).trim() : null;</span>
+    }
+
+    /**
+     * Index where the first {@code &lt;groupId&gt;}-bearing body section starts, or the
+     * full length when there is none — bounding own-coordinate extraction so a
+     * dependency/plugin groupId is never read as the project's.
+     */
+    private static int bodySectionStart(String content) {
+<span class="fc" id="L195">        Matcher m = BODY_SECTION.matcher(content);</span>
+<span class="fc bfc" id="L196" title="All 2 branches covered.">        return m.find() ? m.start() : content.length();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
