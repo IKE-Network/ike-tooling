@@ -81,10 +81,13 @@ class FeatureNameTest {
     // ── siblingDirectoryName ─────────────────────────────────────
 
     @Test
-    void siblingDirectoryName_concatenates_with_dash() {
+    void siblingDirectoryName_joins_with_modifier_colon() {
         FeatureName fn = FeatureName.of("reasoner");
+        // U+A789 MODIFIER LETTER COLON (꞉), not a hyphen — an unambiguous
+        // suffix boundary vs a hyphenated artifactId (ike-issues#779).
         assertThat(fn.siblingDirectoryName("ike-komet-wsr"))
-                .isEqualTo("ike-komet-wsr-reasoner");
+                .isEqualTo("ike-komet-wsr꞉reasoner")
+                .isEqualTo("ike-komet-wsr" + FeatureName.SIBLING_SEPARATOR + "reasoner");
     }
 
     @Test
