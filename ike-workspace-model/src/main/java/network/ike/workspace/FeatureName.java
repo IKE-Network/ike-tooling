@@ -39,6 +39,20 @@ public final class FeatureName {
     private static final Pattern VALID =
             Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
+    /**
+     * Separator between the primary workspace name and the feature in a
+     * sibling directory name: U+A789 MODIFIER LETTER COLON ({@code ꞉}), not a
+     * hyphen. A hyphen makes the suffix ambiguous against a hyphenated
+     * artifactId ({@code ike-komet-wsr-installer-logs} — is the base
+     * {@code ike-komet-wsr} or {@code ike-komet-wsr-installer}?); {@code ꞉} is
+     * an unambiguous boundary that never appears in an artifactId and renders
+     * as a colon-like glyph. It is filesystem-safe — it is <em>not</em> the
+     * reserved ASCII colon U+003A — and, having no NFC/NFD decomposition, it
+     * sidesteps the Syncthing cross-machine normalization hazard. Verified
+     * across APFS, git, Maven, and a live IntelliJ import (ike-issues#779).
+     */
+    public static final String SIBLING_SEPARATOR = "꞉";
+
     private final String value;
 
     private FeatureName(String value) {
@@ -83,7 +97,10 @@ public final class FeatureName {
      * the given primary workspace.
      *
      * <p>For {@code primaryWorkspaceName="ike-komet-wsr"} and feature
-     * {@code "reasoner"}, returns {@code "ike-komet-wsr-reasoner"}.
+     * {@code "reasoner"}, returns {@code "ike-komet-wsr꞉reasoner"} — the
+     * primary name and feature joined by {@link #SIBLING_SEPARATOR} (꞉,
+     * U+A789), not a hyphen, so the feature suffix is unambiguous against a
+     * hyphenated artifactId.
      *
      * <p>This is the single approved place to construct sibling
      * directory names — call sites must not concatenate strings
@@ -91,7 +108,7 @@ public final class FeatureName {
      *
      * @param primaryWorkspaceName the primary workspace's directory
      *                             name; must be non-null and non-empty
-     * @return {@code primaryWorkspaceName + "-" + value()}
+     * @return {@code primaryWorkspaceName + SIBLING_SEPARATOR + value()}
      * @throws IllegalArgumentException if {@code primaryWorkspaceName}
      *                                  is null or empty
      */
@@ -100,7 +117,7 @@ public final class FeatureName {
             throw new IllegalArgumentException(
                     "Primary workspace name must be non-empty.");
         }
-        return primaryWorkspaceName + "-" + value;
+        return primaryWorkspaceName + SIBLING_SEPARATOR + value;
     }
 
     @Override
