@@ -1,6 +1,6 @@
 ---
-date_published: 2026-06-26
-date_modified: 2026-06-26
+date_published: 2026-06-28
+date_modified: 2026-06-28
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/project-reports.html
 ---
 

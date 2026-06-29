@@ -928,15 +928,20 @@ public final class OrgSiteSupport {
             // second source for index.html and trips the site plugin's
             // duplicate-output check.
 <span class="nc" id="L930">            buildSite(srcRoot, log);</span>
-<span class="nc" id="L931">            commitAndPush(srcRoot,</span>
+            // Link inline goal references to their latest goal docs in the
+            // rendered org-landing HTML before it ships to the publish repo
+            // (IKE-Network/ike-issues#783).
+<span class="nc" id="L934">            GoalLinkRewriter.rewriteSiteHtml(</span>
+<span class="nc" id="L935">                    srcRoot.toPath().resolve(&quot;target&quot;).resolve(&quot;site&quot;), log);</span>
+<span class="nc" id="L936">            commitAndPush(srcRoot,</span>
                     &quot;site: register &quot; + artifactId + &quot; &quot; + version,
                     srcBranch, log);
-<span class="nc" id="L934">            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,</span>
+<span class="nc" id="L939">            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,</span>
                     artifactId, version, log);
         } finally {
-<span class="nc" id="L937">            ReleaseSupport.deleteDirectory(srcRoot.toPath());</span>
+<span class="nc" id="L942">            ReleaseSupport.deleteDirectory(srcRoot.toPath());</span>
         }
-<span class="nc" id="L939">    }</span>
+<span class="nc" id="L944">    }</span>
 
     /**
      * Run the full deregistration workflow against the two-repo
@@ -958,22 +963,22 @@ public final class OrgSiteSupport {
                                           String srcBranch, String pubBranch,
                                           String artifactId)
             throws MojoException {
-<span class="nc" id="L961">        File srcRoot = cloneOrgRepo(srcRepoUrl, srcBranch, log);</span>
+<span class="nc" id="L966">        File srcRoot = cloneOrgRepo(srcRepoUrl, srcBranch, log);</span>
         try {
-<span class="nc" id="L963">            deleteFragment(srcRoot, artifactId);</span>
-<span class="nc" id="L964">            regenerateIndex(srcRoot);</span>
-<span class="nc" id="L965">            regenerateSiteXml(srcRoot);</span>
+<span class="nc" id="L968">            deleteFragment(srcRoot, artifactId);</span>
+<span class="nc" id="L969">            regenerateIndex(srcRoot);</span>
+<span class="nc" id="L970">            regenerateSiteXml(srcRoot);</span>
             // No renderToXhtml — see registerProject for the rationale.
-<span class="nc" id="L967">            buildSite(srcRoot, log);</span>
-<span class="nc" id="L968">            commitAndPush(srcRoot,</span>
+<span class="nc" id="L972">            buildSite(srcRoot, log);</span>
+<span class="nc" id="L973">            commitAndPush(srcRoot,</span>
                     &quot;site: deregister &quot; + artifactId,
                     srcBranch, log);
-<span class="nc" id="L971">            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,</span>
+<span class="nc" id="L976">            publishToPubRepo(srcRoot, pubRepoUrl, pubBranch,</span>
                     artifactId, &quot;(deregister)&quot;, log);
         } finally {
-<span class="nc" id="L974">            ReleaseSupport.deleteDirectory(srcRoot.toPath());</span>
+<span class="nc" id="L979">            ReleaseSupport.deleteDirectory(srcRoot.toPath());</span>
         }
-<span class="nc" id="L976">    }</span>
+<span class="nc" id="L981">    }</span>
 
     /**
      * Publish the {@code target/site/} contents from a freshly-
@@ -1007,76 +1012,76 @@ public final class OrgSiteSupport {
                                          String artifactId, String version,
                                          Log log)
             throws MojoException {
-<span class="nc" id="L1010">        Path siteDir = srcRoot.toPath()</span>
-<span class="nc" id="L1011">                .resolve(&quot;target&quot;).resolve(&quot;site&quot;);</span>
-<span class="nc bnc" id="L1012" title="All 2 branches missed.">        if (!Files.isDirectory(siteDir)) {</span>
-<span class="nc" id="L1013">            throw new MojoException(</span>
+<span class="nc" id="L1015">        Path siteDir = srcRoot.toPath()</span>
+<span class="nc" id="L1016">                .resolve(&quot;target&quot;).resolve(&quot;site&quot;);</span>
+<span class="nc bnc" id="L1017" title="All 2 branches missed.">        if (!Files.isDirectory(siteDir)) {</span>
+<span class="nc" id="L1018">            throw new MojoException(</span>
                     &quot;Source repo's target/site/ does not exist: &quot;
                             + siteDir + &quot;. buildSite likely failed.&quot;);
         }
 
-<span class="nc" id="L1018">        File pubRoot = cloneOrgRepo(pubRepoUrl, pubBranch, log);</span>
+<span class="nc" id="L1023">        File pubRoot = cloneOrgRepo(pubRepoUrl, pubBranch, log);</span>
         try {
             // Wipe everything in pubRoot except .git/. The source
             // build's target/site/ contains .nojekyll and CNAME
             // (from src/site/resources/), so we don't need to
             // preserve anything pre-existing.
-<span class="nc" id="L1024">            try (Stream&lt;Path&gt; entries = Files.list(pubRoot.toPath())) {</span>
-<span class="nc bnc" id="L1025" title="All 2 branches missed.">                for (Path entry : entries.toList()) {</span>
-<span class="nc bnc" id="L1026" title="All 2 branches missed.">                    if (entry.getFileName().toString().equals(&quot;.git&quot;)) {</span>
-<span class="nc" id="L1027">                        continue;</span>
+<span class="nc" id="L1029">            try (Stream&lt;Path&gt; entries = Files.list(pubRoot.toPath())) {</span>
+<span class="nc bnc" id="L1030" title="All 2 branches missed.">                for (Path entry : entries.toList()) {</span>
+<span class="nc bnc" id="L1031" title="All 2 branches missed.">                    if (entry.getFileName().toString().equals(&quot;.git&quot;)) {</span>
+<span class="nc" id="L1032">                        continue;</span>
                     }
-<span class="nc bnc" id="L1029" title="All 2 branches missed.">                    if (Files.isDirectory(entry)) {</span>
-<span class="nc" id="L1030">                        ReleaseSupport.deleteDirectory(entry);</span>
+<span class="nc bnc" id="L1034" title="All 2 branches missed.">                    if (Files.isDirectory(entry)) {</span>
+<span class="nc" id="L1035">                        ReleaseSupport.deleteDirectory(entry);</span>
                     } else {
-<span class="nc" id="L1032">                        Files.delete(entry);</span>
+<span class="nc" id="L1037">                        Files.delete(entry);</span>
                     }
-<span class="nc" id="L1034">                }</span>
-<span class="nc" id="L1035">            } catch (IOException e) {</span>
-<span class="nc" id="L1036">                throw new MojoException(</span>
+<span class="nc" id="L1039">                }</span>
+<span class="nc" id="L1040">            } catch (IOException e) {</span>
+<span class="nc" id="L1041">                throw new MojoException(</span>
                         &quot;Failed to clear publish repo before copy: &quot;
-<span class="nc" id="L1038">                                + e.getMessage(), e);</span>
-<span class="nc" id="L1039">            }</span>
+<span class="nc" id="L1043">                                + e.getMessage(), e);</span>
+<span class="nc" id="L1044">            }</span>
 
             try {
-<span class="nc" id="L1042">                ReleaseSupport.copyDirectory(siteDir, pubRoot.toPath());</span>
-<span class="nc" id="L1043">            } catch (IOException e) {</span>
-<span class="nc" id="L1044">                throw new MojoException(</span>
+<span class="nc" id="L1047">                ReleaseSupport.copyDirectory(siteDir, pubRoot.toPath());</span>
+<span class="nc" id="L1048">            } catch (IOException e) {</span>
+<span class="nc" id="L1049">                throw new MojoException(</span>
                         &quot;Failed to copy target/site to publish repo: &quot;
-<span class="nc" id="L1046">                                + e.getMessage(), e);</span>
-<span class="nc" id="L1047">            }</span>
+<span class="nc" id="L1051">                                + e.getMessage(), e);</span>
+<span class="nc" id="L1052">            }</span>
 
             // Commit + push. If the rendered output happens to be
             // byte-identical to the previous publish (rare —
             // outputTimestamp moves), `git commit` will fail with
             // 'nothing to commit'; tolerate that as a no-op
             // publish.
-<span class="nc" id="L1054">            ReleaseSupport.exec(pubRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
+<span class="nc" id="L1059">            ReleaseSupport.exec(pubRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
             String status;
             try {
-<span class="nc" id="L1057">                status = ReleaseSupport.execCapture(pubRoot,</span>
-<span class="nc" id="L1058">                        &quot;git&quot;, &quot;status&quot;, &quot;--porcelain&quot;).trim();</span>
-<span class="nc" id="L1059">            } catch (MojoException e) {</span>
-<span class="nc" id="L1060">                status = &quot;&quot;;</span>
-<span class="nc" id="L1061">            }</span>
-<span class="nc bnc" id="L1062" title="All 2 branches missed.">            if (status.isEmpty()) {</span>
-<span class="nc" id="L1063">                log.info(&quot;  Publish repo unchanged after rebuild — &quot;</span>
+<span class="nc" id="L1062">                status = ReleaseSupport.execCapture(pubRoot,</span>
+<span class="nc" id="L1063">                        &quot;git&quot;, &quot;status&quot;, &quot;--porcelain&quot;).trim();</span>
+<span class="nc" id="L1064">            } catch (MojoException e) {</span>
+<span class="nc" id="L1065">                status = &quot;&quot;;</span>
+<span class="nc" id="L1066">            }</span>
+<span class="nc bnc" id="L1067" title="All 2 branches missed.">            if (status.isEmpty()) {</span>
+<span class="nc" id="L1068">                log.info(&quot;  Publish repo unchanged after rebuild — &quot;</span>
                         + &quot;nothing to push.&quot;);
-<span class="nc" id="L1065">                return;</span>
+<span class="nc" id="L1070">                return;</span>
             }
-<span class="nc" id="L1067">            String message = &quot;site: publish &quot;</span>
+<span class="nc" id="L1072">            String message = &quot;site: publish &quot;</span>
                     + artifactId + &quot; &quot; + version
                     + &quot; (auto-register, #367)&quot;;
-<span class="nc" id="L1070">            ReleaseSupport.exec(pubRoot, log,</span>
+<span class="nc" id="L1075">            ReleaseSupport.exec(pubRoot, log,</span>
                     &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;, message);
-<span class="nc" id="L1072">            ReleaseSupport.exec(pubRoot, log,</span>
+<span class="nc" id="L1077">            ReleaseSupport.exec(pubRoot, log,</span>
                     &quot;git&quot;, &quot;push&quot;, &quot;origin&quot;, pubBranch);
-<span class="nc" id="L1074">            log.info(&quot;  Org-site updated: &quot;</span>
+<span class="nc" id="L1079">            log.info(&quot;  Org-site updated: &quot;</span>
                     + artifactId + &quot; &quot; + version);
         } finally {
-<span class="nc" id="L1077">            ReleaseSupport.deleteDirectory(pubRoot.toPath());</span>
+<span class="nc" id="L1082">            ReleaseSupport.deleteDirectory(pubRoot.toPath());</span>
         }
-<span class="nc" id="L1079">    }</span>
+<span class="nc" id="L1084">    }</span>
 
     // ── Internal helpers ─────────────────────────────────────────────
 
@@ -1086,16 +1091,16 @@ public final class OrgSiteSupport {
      */
     private static File resolveMaven(File repoRoot, Log log)
             throws MojoException {
-<span class="nc" id="L1089">        File mvnw = new File(repoRoot, &quot;mvnw&quot;);</span>
-<span class="nc bnc" id="L1090" title="All 4 branches missed.">        if (mvnw.isFile() &amp;&amp; mvnw.canExecute()) {</span>
-<span class="nc" id="L1091">            return mvnw;</span>
+<span class="nc" id="L1094">        File mvnw = new File(repoRoot, &quot;mvnw&quot;);</span>
+<span class="nc bnc" id="L1095" title="All 4 branches missed.">        if (mvnw.isFile() &amp;&amp; mvnw.canExecute()) {</span>
+<span class="nc" id="L1096">            return mvnw;</span>
         }
         // Fall back to system Maven
         try {
-<span class="nc" id="L1095">            String path = ReleaseSupport.execCapture(repoRoot, &quot;which&quot;, &quot;mvn&quot;);</span>
-<span class="nc" id="L1096">            return new File(path.trim());</span>
-<span class="nc" id="L1097">        } catch (Exception e) {</span>
-<span class="nc" id="L1098">            throw new MojoException(</span>
+<span class="nc" id="L1100">            String path = ReleaseSupport.execCapture(repoRoot, &quot;which&quot;, &quot;mvn&quot;);</span>
+<span class="nc" id="L1101">            return new File(path.trim());</span>
+<span class="nc" id="L1102">        } catch (Exception e) {</span>
+<span class="nc" id="L1103">            throw new MojoException(</span>
                     &quot;No Maven wrapper or system 'mvn' found&quot;, e);
         }
     }
