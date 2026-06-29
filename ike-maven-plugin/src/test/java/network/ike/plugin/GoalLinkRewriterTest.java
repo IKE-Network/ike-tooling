@@ -50,6 +50,27 @@ class GoalLinkRewriterTest {
     }
 
     @Test
+    void mapsAnchorlessGoalToItsDocumentingSection() {
+        // ws:checkpoint-draft has no #checkpoint-draft anchor — documented
+        // under its publish sibling.
+        GoalLinkRewriter.Result draft = GoalLinkRewriter.rewriteHtml(
+                "<code>ws:checkpoint-draft</code>");
+        assertEquals(1, draft.count());
+        assertTrue(draft.html().contains(
+                GoalLinkRewriter.WS_GOALS_BASE + "checkpoint-publish\">"),
+                draft.html());
+        assertFalse(draft.html().contains("#checkpoint-draft\">"));
+
+        // ike:release-changelog is covered within the release-goals section.
+        GoalLinkRewriter.Result changelog = GoalLinkRewriter.rewriteHtml(
+                "<code>ike:release-changelog</code>");
+        assertEquals(1, changelog.count());
+        assertTrue(changelog.html().contains(
+                GoalLinkRewriter.IKE_GOALS_BASE + "release-goals\">"),
+                changelog.html());
+    }
+
+    @Test
     void doesNotLinkGoalInsideCodeListing() {
         String html = "<pre class=\"source\"><code>mvn ws:push\nmvn ws:checkpoint-publish</code></pre>";
         GoalLinkRewriter.Result r = GoalLinkRewriter.rewriteHtml(html);

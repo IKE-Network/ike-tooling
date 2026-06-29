@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -53,6 +54,19 @@ public final class GoalLinkRewriter {
     /** Base URL (latest) of the {@code ike} plugin goal reference, anchor-ready. */
     static final String IKE_GOALS_BASE =
             "https://ike.network/ike-tooling/latest/ike-maven-plugin/index.html#";
+
+    /**
+     * Overrides for goals whose documentation anchor differs from the goal
+     * name. On the handwritten goal-reference pages a few goals have no
+     * dedicated anchor — a draft variant documented under its publish
+     * sibling, or a goal covered only within a section — so without an
+     * override the link would land at the top of the page. Keyed by
+     * {@code prefix:goal}; goals not listed use their own name as the
+     * anchor. Extend as new gaps surface (IKE-Network/ike-issues#783).
+     */
+    private static final Map<String, String> ANCHOR_ALIASES = Map.of(
+            "ws:checkpoint-draft", "checkpoint-publish",
+            "ike:release-changelog", "release-goals");
 
     /**
      * An inline monospaced goal token: a {@code <code>} element (optionally
@@ -150,8 +164,9 @@ public final class GoalLinkRewriter {
             String prefix = matcher.group(1);
             String goal = matcher.group(2);
             String base = "ws".equals(prefix) ? WS_GOALS_BASE : IKE_GOALS_BASE;
+            String anchor = ANCHOR_ALIASES.getOrDefault(prefix + ":" + goal, goal);
             out.append(html, last, matcher.start());
-            out.append("<a href=\"").append(base).append(goal).append("\">")
+            out.append("<a href=\"").append(base).append(anchor).append("\">")
                .append(matcher.group()).append("</a>");
             last = matcher.end();
             count++;
