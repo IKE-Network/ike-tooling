@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -55,11 +56,24 @@ public final class GoalLinkRewriter {
             &quot;https://ike.network/ike-tooling/latest/ike-maven-plugin/index.html#&quot;;
 
     /**
+     * Overrides for goals whose documentation anchor differs from the goal
+     * name. On the handwritten goal-reference pages a few goals have no
+     * dedicated anchor — a draft variant documented under its publish
+     * sibling, or a goal covered only within a section — so without an
+     * override the link would land at the top of the page. Keyed by
+     * {@code prefix:goal}; goals not listed use their own name as the
+     * anchor. Extend as new gaps surface (IKE-Network/ike-issues#783).
+     */
+<span class="fc" id="L67">    private static final Map&lt;String, String&gt; ANCHOR_ALIASES = Map.of(</span>
+            &quot;ws:checkpoint-draft&quot;, &quot;checkpoint-publish&quot;,
+            &quot;ike:release-changelog&quot;, &quot;release-goals&quot;);
+
+    /**
      * An inline monospaced goal token: a {@code &lt;code&gt;} element (optionally
      * carrying attributes) whose entire content is {@code ws:&lt;goal&gt;} or
      * {@code ike:&lt;goal&gt;}. Group 1 is the prefix, group 2 the goal name.
      */
-<span class="fc" id="L62">    private static final Pattern CODE_GOAL = Pattern.compile(</span>
+<span class="fc" id="L76">    private static final Pattern CODE_GOAL = Pattern.compile(</span>
             &quot;&lt;code(?:\\s[^&gt;]*)?&gt;(ws|ike):([a-z][a-z0-9-]*)&lt;/code&gt;&quot;);
 
     /**
@@ -68,7 +82,7 @@ public final class GoalLinkRewriter {
      * Reluctant quantifiers are safe because neither element nests in
      * valid HTML output.
      */
-<span class="fc" id="L71">    private static final Pattern SKIP_REGION = Pattern.compile(</span>
+<span class="fc" id="L85">    private static final Pattern SKIP_REGION = Pattern.compile(</span>
             &quot;&lt;pre\\b[^&gt;]*&gt;.*?&lt;/pre&gt;|&lt;a\\b[^&gt;]*&gt;.*?&lt;/a&gt;&quot;,
             Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
@@ -87,36 +101,36 @@ public final class GoalLinkRewriter {
      * @return the total number of goal references linked
      */
     public static int rewriteSiteHtml(Path siteDir, Log log) {
-<span class="fc bfc" id="L90" title="All 4 branches covered.">        if (siteDir == null || !Files.isDirectory(siteDir)) {</span>
-<span class="fc" id="L91">            return 0;</span>
+<span class="fc bfc" id="L104" title="All 4 branches covered.">        if (siteDir == null || !Files.isDirectory(siteDir)) {</span>
+<span class="fc" id="L105">            return 0;</span>
         }
-<span class="fc" id="L93">        int[] totalLinks = {0};</span>
-<span class="fc" id="L94">        int[] touchedFiles = {0};</span>
-<span class="fc" id="L95">        try (Stream&lt;Path&gt; walk = Files.walk(siteDir)) {</span>
-<span class="fc" id="L96">            walk.filter(Files::isRegularFile)</span>
-<span class="fc" id="L97">                .filter(path -&gt; path.getFileName().toString().endsWith(&quot;.html&quot;))</span>
-<span class="fc" id="L98">                .forEach(path -&gt; {</span>
+<span class="fc" id="L107">        int[] totalLinks = {0};</span>
+<span class="fc" id="L108">        int[] touchedFiles = {0};</span>
+<span class="fc" id="L109">        try (Stream&lt;Path&gt; walk = Files.walk(siteDir)) {</span>
+<span class="fc" id="L110">            walk.filter(Files::isRegularFile)</span>
+<span class="fc" id="L111">                .filter(path -&gt; path.getFileName().toString().endsWith(&quot;.html&quot;))</span>
+<span class="fc" id="L112">                .forEach(path -&gt; {</span>
                     try {
-<span class="fc" id="L100">                        String html = Files.readString(path, StandardCharsets.UTF_8);</span>
-<span class="fc" id="L101">                        Result result = rewriteHtml(html);</span>
-<span class="fc bfc" id="L102" title="All 2 branches covered.">                        if (result.count() &gt; 0) {</span>
-<span class="fc" id="L103">                            Files.writeString(path, result.html(), StandardCharsets.UTF_8);</span>
-<span class="fc" id="L104">                            totalLinks[0] += result.count();</span>
-<span class="fc" id="L105">                            touchedFiles[0]++;</span>
+<span class="fc" id="L114">                        String html = Files.readString(path, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L115">                        Result result = rewriteHtml(html);</span>
+<span class="fc bfc" id="L116" title="All 2 branches covered.">                        if (result.count() &gt; 0) {</span>
+<span class="fc" id="L117">                            Files.writeString(path, result.html(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L118">                            totalLinks[0] += result.count();</span>
+<span class="fc" id="L119">                            touchedFiles[0]++;</span>
                         }
-<span class="nc" id="L107">                    } catch (IOException e) {</span>
-<span class="nc" id="L108">                        throw new UncheckedIOException(e);</span>
-<span class="fc" id="L109">                    }</span>
-<span class="fc" id="L110">                });</span>
-<span class="nc" id="L111">        } catch (IOException | UncheckedIOException e) {</span>
-<span class="nc" id="L112">            log.warn(&quot;  ⚠ Goal auto-link: skipped (non-fatal): &quot; + e.getMessage());</span>
-<span class="nc" id="L113">            return totalLinks[0];</span>
-<span class="fc" id="L114">        }</span>
-<span class="pc bpc" id="L115" title="1 of 2 branches missed.">        if (totalLinks[0] &gt; 0) {</span>
-<span class="fc" id="L116">            log.info(&quot;  Goal auto-link: linked &quot; + totalLinks[0]</span>
+<span class="nc" id="L121">                    } catch (IOException e) {</span>
+<span class="nc" id="L122">                        throw new UncheckedIOException(e);</span>
+<span class="fc" id="L123">                    }</span>
+<span class="fc" id="L124">                });</span>
+<span class="nc" id="L125">        } catch (IOException | UncheckedIOException e) {</span>
+<span class="nc" id="L126">            log.warn(&quot;  ⚠ Goal auto-link: skipped (non-fatal): &quot; + e.getMessage());</span>
+<span class="nc" id="L127">            return totalLinks[0];</span>
+<span class="fc" id="L128">        }</span>
+<span class="pc bpc" id="L129" title="1 of 2 branches missed.">        if (totalLinks[0] &gt; 0) {</span>
+<span class="fc" id="L130">            log.info(&quot;  Goal auto-link: linked &quot; + totalLinks[0]</span>
                     + &quot; goal reference(s) across &quot; + touchedFiles[0] + &quot; page(s)&quot;);
         }
-<span class="fc" id="L119">        return totalLinks[0];</span>
+<span class="fc" id="L133">        return totalLinks[0];</span>
     }
 
     /**
@@ -125,7 +139,7 @@ public final class GoalLinkRewriter {
      * @param html  the rewritten HTML (unchanged when {@code count == 0})
      * @param count the number of goal references linked
      */
-<span class="fc" id="L128">    record Result(String html, int count) {}</span>
+<span class="fc" id="L142">    record Result(String html, int count) {}</span>
 
     /**
      * Link inline goal references in a single HTML document.
@@ -135,52 +149,53 @@ public final class GoalLinkRewriter {
      *         there is nothing to link
      */
     static Result rewriteHtml(String html) {
-<span class="fc bfc" id="L138" title="All 4 branches covered.">        if (html == null || html.isEmpty()) {</span>
-<span class="fc" id="L139">            return new Result(html, 0);</span>
+<span class="fc bfc" id="L152" title="All 4 branches covered.">        if (html == null || html.isEmpty()) {</span>
+<span class="fc" id="L153">            return new Result(html, 0);</span>
         }
-<span class="fc" id="L141">        List&lt;int[]&gt; skip = skipRanges(html);</span>
-<span class="fc" id="L142">        Matcher matcher = CODE_GOAL.matcher(html);</span>
-<span class="fc" id="L143">        StringBuilder out = new StringBuilder(html.length() + 256);</span>
-<span class="fc" id="L144">        int last = 0;</span>
-<span class="fc" id="L145">        int count = 0;</span>
-<span class="fc bfc" id="L146" title="All 2 branches covered.">        while (matcher.find()) {</span>
-<span class="fc bfc" id="L147" title="All 2 branches covered.">            if (inSkippedRange(matcher.start(), skip)) {</span>
-<span class="fc" id="L148">                continue;</span>
+<span class="fc" id="L155">        List&lt;int[]&gt; skip = skipRanges(html);</span>
+<span class="fc" id="L156">        Matcher matcher = CODE_GOAL.matcher(html);</span>
+<span class="fc" id="L157">        StringBuilder out = new StringBuilder(html.length() + 256);</span>
+<span class="fc" id="L158">        int last = 0;</span>
+<span class="fc" id="L159">        int count = 0;</span>
+<span class="fc bfc" id="L160" title="All 2 branches covered.">        while (matcher.find()) {</span>
+<span class="fc bfc" id="L161" title="All 2 branches covered.">            if (inSkippedRange(matcher.start(), skip)) {</span>
+<span class="fc" id="L162">                continue;</span>
             }
-<span class="fc" id="L150">            String prefix = matcher.group(1);</span>
-<span class="fc" id="L151">            String goal = matcher.group(2);</span>
-<span class="fc bfc" id="L152" title="All 2 branches covered.">            String base = &quot;ws&quot;.equals(prefix) ? WS_GOALS_BASE : IKE_GOALS_BASE;</span>
-<span class="fc" id="L153">            out.append(html, last, matcher.start());</span>
-<span class="fc" id="L154">            out.append(&quot;&lt;a href=\&quot;&quot;).append(base).append(goal).append(&quot;\&quot;&gt;&quot;)</span>
-<span class="fc" id="L155">               .append(matcher.group()).append(&quot;&lt;/a&gt;&quot;);</span>
-<span class="fc" id="L156">            last = matcher.end();</span>
-<span class="fc" id="L157">            count++;</span>
-<span class="fc" id="L158">        }</span>
-<span class="fc bfc" id="L159" title="All 2 branches covered.">        if (count == 0) {</span>
-<span class="fc" id="L160">            return new Result(html, 0);</span>
+<span class="fc" id="L164">            String prefix = matcher.group(1);</span>
+<span class="fc" id="L165">            String goal = matcher.group(2);</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">            String base = &quot;ws&quot;.equals(prefix) ? WS_GOALS_BASE : IKE_GOALS_BASE;</span>
+<span class="fc" id="L167">            String anchor = ANCHOR_ALIASES.getOrDefault(prefix + &quot;:&quot; + goal, goal);</span>
+<span class="fc" id="L168">            out.append(html, last, matcher.start());</span>
+<span class="fc" id="L169">            out.append(&quot;&lt;a href=\&quot;&quot;).append(base).append(anchor).append(&quot;\&quot;&gt;&quot;)</span>
+<span class="fc" id="L170">               .append(matcher.group()).append(&quot;&lt;/a&gt;&quot;);</span>
+<span class="fc" id="L171">            last = matcher.end();</span>
+<span class="fc" id="L172">            count++;</span>
+<span class="fc" id="L173">        }</span>
+<span class="fc bfc" id="L174" title="All 2 branches covered.">        if (count == 0) {</span>
+<span class="fc" id="L175">            return new Result(html, 0);</span>
         }
-<span class="fc" id="L162">        out.append(html, last, html.length());</span>
-<span class="fc" id="L163">        return new Result(out.toString(), count);</span>
+<span class="fc" id="L177">        out.append(html, last, html.length());</span>
+<span class="fc" id="L178">        return new Result(out.toString(), count);</span>
     }
 
     /** Collect {@code [start, end)} ranges of skipped regions, in order. */
     private static List&lt;int[]&gt; skipRanges(String html) {
-<span class="fc" id="L168">        List&lt;int[]&gt; ranges = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L169">        Matcher matcher = SKIP_REGION.matcher(html);</span>
-<span class="fc bfc" id="L170" title="All 2 branches covered.">        while (matcher.find()) {</span>
-<span class="fc" id="L171">            ranges.add(new int[] {matcher.start(), matcher.end()});</span>
+<span class="fc" id="L183">        List&lt;int[]&gt; ranges = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L184">        Matcher matcher = SKIP_REGION.matcher(html);</span>
+<span class="fc bfc" id="L185" title="All 2 branches covered.">        while (matcher.find()) {</span>
+<span class="fc" id="L186">            ranges.add(new int[] {matcher.start(), matcher.end()});</span>
         }
-<span class="fc" id="L173">        return ranges;</span>
+<span class="fc" id="L188">        return ranges;</span>
     }
 
     /** True when {@code pos} falls inside any skipped region. */
     private static boolean inSkippedRange(int pos, List&lt;int[]&gt; ranges) {
-<span class="fc bfc" id="L178" title="All 2 branches covered.">        for (int[] range : ranges) {</span>
-<span class="fc bfc" id="L179" title="All 4 branches covered.">            if (pos &gt;= range[0] &amp;&amp; pos &lt; range[1]) {</span>
-<span class="fc" id="L180">                return true;</span>
+<span class="fc bfc" id="L193" title="All 2 branches covered.">        for (int[] range : ranges) {</span>
+<span class="fc bfc" id="L194" title="All 4 branches covered.">            if (pos &gt;= range[0] &amp;&amp; pos &lt; range[1]) {</span>
+<span class="fc" id="L195">                return true;</span>
             }
-<span class="fc" id="L182">        }</span>
-<span class="fc" id="L183">        return false;</span>
+<span class="fc" id="L197">        }</span>
+<span class="fc" id="L198">        return false;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

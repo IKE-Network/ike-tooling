@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TierAction.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">TierAction.java</span></div><h1>TierAction.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.nio.file.Path;
+import java.util.Objects;
+
+/**
+ * A plan-time decision about what to do with a single scaffold
+ * entry. Produced by a {@link TierHandler} from a (manifest entry,
+ * current disk state, template bytes, lockfile entry) tuple and
+ * consumed by the scaffold applier.
+ *
+ * &lt;p&gt;The sealed hierarchy gives the applier exhaustive pattern
+ * matching and keeps the planner pure — no tier handler touches
+ * disk during planning.
+ */
+public sealed interface TierAction
+        permits TierAction.Write,
+                TierAction.Skip,
+                TierAction.UpToDate,
+                TierAction.UserManaged {
+
+    /**
+     * The manifest entry this action relates to.
+     *
+     * @return the originating manifest entry
+     */
+    ManifestEntry entry();
+
+    /**
+     * The absolute destination path on disk, with any {@code ~/}
+     * or {@code {project.root}/} placeholders already expanded.
+     *
+     * @return the fully-resolved destination path
+     */
+    Path resolvedDest();
+
+    /**
+     * Human-readable summary rendered in {@code scaffold-draft}
+     * output. One line per entry; may include counts or diff hints.
+     *
+     * @return the draft-output summary line for this action
+     */
+    String reason();
+
+    // ── Subtypes ────────────────────────────────────────────────────
+
+    /**
+     * Publish should write {@code newContent} to {@link #resolvedDest()}.
+     *
+     * @param entry        the manifest entry
+     * @param resolvedDest absolute destination path
+     * @param newContent   bytes to write (full file content — for
+     *                     tracked-block this is the fully-rendered
+     *                     combined file, not just the managed block)
+     * @param appliedSha   hash of {@code newContent} (for the lockfile
+     *                     update; for tracked-block this is the hash
+     *                     of just the managed block)
+     * @param templateSha  hash of the unbounded template source (used
+     *                     for drift telemetry in the new lockfile
+     *                     entry)
+     * @param kind         whether the file existed before this write
+     * @param reason       draft-output summary
+     */
+    record Write(
+            ManifestEntry entry,
+            Path resolvedDest,
+            byte[] newContent,
+            String appliedSha,
+            String templateSha,
+            Kind kind,
+            String reason) implements TierAction {
+
+        /** Compact constructor validating required fields. */
+<span class="fc" id="L74">        public Write {</span>
+<span class="fc" id="L75">            Objects.requireNonNull(entry, &quot;entry&quot;);</span>
+<span class="fc" id="L76">            Objects.requireNonNull(resolvedDest, &quot;resolvedDest&quot;);</span>
+<span class="fc" id="L77">            Objects.requireNonNull(newContent, &quot;newContent&quot;);</span>
+<span class="fc" id="L78">            Objects.requireNonNull(appliedSha, &quot;appliedSha&quot;);</span>
+<span class="fc" id="L79">            Objects.requireNonNull(templateSha, &quot;templateSha&quot;);</span>
+<span class="fc" id="L80">            Objects.requireNonNull(kind, &quot;kind&quot;);</span>
+<span class="fc" id="L81">            Objects.requireNonNull(reason, &quot;reason&quot;);</span>
+<span class="fc" id="L82">            newContent = newContent.clone();</span>
+<span class="fc" id="L83">        }</span>
+
+        /**
+         * Accessor that returns a defensive copy of the content
+         * bytes so callers cannot mutate the record's state.
+         *
+         * @return a fresh clone of the bytes to write
+         */
+        @Override
+        public byte[] newContent() {
+<span class="fc" id="L93">            return newContent.clone();</span>
+        }
+
+        /** Category of write, for draft output and ordering. */
+<span class="fc" id="L97">        public enum Kind {</span>
+            /** Target did not exist before this write. */
+<span class="fc" id="L99">            INSTALL,</span>
+            /** Target existed and was safe to update. */
+<span class="fc" id="L101">            UPDATE,</span>
+            /** Target is being restored by {@code scaffold-revert}. */
+<span class="fc" id="L103">            REVERT</span>
+        }
+    }
+
+    /**
+     * Publish must not touch {@link #resolvedDest()} because the user
+     * has diverged from the last-applied version. Draft output carries
+     * a textual diff so the user can decide.
+     *
+     * @param entry        the manifest entry
+     * @param resolvedDest absolute destination path
+     * @param reason       short summary (e.g. &quot;user-edited; +3/-1&quot;)
+     * @param diff         multi-line textual diff for draft output;
+     *                     may be empty for tiers that don't render
+     *                     diffs
+     */
+    record Skip(
+            ManifestEntry entry,
+            Path resolvedDest,
+            String reason,
+            String diff) implements TierAction {
+
+        /** Compact constructor validating required fields. */
+<span class="fc" id="L126">        public Skip {</span>
+<span class="fc" id="L127">            Objects.requireNonNull(entry, &quot;entry&quot;);</span>
+<span class="fc" id="L128">            Objects.requireNonNull(resolvedDest, &quot;resolvedDest&quot;);</span>
+<span class="fc" id="L129">            Objects.requireNonNull(reason, &quot;reason&quot;);</span>
+<span class="fc bfc" id="L130" title="All 2 branches covered.">            diff = diff == null ? &quot;&quot; : diff;</span>
+<span class="fc" id="L131">        }</span>
+    }
+
+    /**
+     * Nothing to write — target already matches the current template.
+     * The scaffold applier may still refresh the lockfile entry so
+     * telemetry stays current with the new {@code standards-version}.
+     *
+     * @param entry        the manifest entry
+     * @param resolvedDest absolute destination path
+     * @param templateSha  hash of the current template (for lockfile
+     *                     metadata refresh)
+     * @param appliedSha   hash currently on disk — typically equal to
+     *                     {@code templateSha} for tool-owned and
+     *                     tracked, or the hash of the managed block
+     *                     for tracked-block
+     * @param reason       draft-output summary
+     */
+    record UpToDate(
+            ManifestEntry entry,
+            Path resolvedDest,
+            String templateSha,
+            String appliedSha,
+            String reason) implements TierAction {
+
+        /** Compact constructor validating required fields. */
+<span class="fc" id="L157">        public UpToDate {</span>
+<span class="fc" id="L158">            Objects.requireNonNull(entry, &quot;entry&quot;);</span>
+<span class="fc" id="L159">            Objects.requireNonNull(resolvedDest, &quot;resolvedDest&quot;);</span>
+<span class="fc" id="L160">            Objects.requireNonNull(templateSha, &quot;templateSha&quot;);</span>
+<span class="fc" id="L161">            Objects.requireNonNull(appliedSha, &quot;appliedSha&quot;);</span>
+<span class="fc" id="L162">            Objects.requireNonNull(reason, &quot;reason&quot;);</span>
+<span class="fc" id="L163">        }</span>
+    }
+
+    /**
+     * Publish must not touch {@link #resolvedDest()} because at least
+     * one managed element already exists with a value the user has
+     * chosen, and policy is to defer to the user's value rather than
+     * overwrite it.
+     *
+     * &lt;p&gt;Distinct from {@link UpToDate}: the file does &lt;em&gt;not&lt;/em&gt;
+     * match the manifest's desired value — we simply refuse to
+     * overwrite what the user already set. A model adapter emits this
+     * state when every ensured element is already present on disk and
+     * at least one present value diverges from the manifest's value;
+     * if the whole set matches, {@link UpToDate} is used instead.
+     *
+     * &lt;p&gt;Lockfile semantics mirror {@link UpToDate}: model-managed
+     * provenance is refreshed but no bytes are written.
+     *
+     * @param entry        the manifest entry
+     * @param resolvedDest absolute destination path
+     * @param templateSha  hash of the current on-disk content (for
+     *                     lockfile metadata refresh; the file is not
+     *                     rewritten so this equals {@code appliedSha})
+     * @param appliedSha   hash of the current on-disk content
+     * @param reason       one-line summary — should name which
+     *                     element(s) were deferred
+     */
+    record UserManaged(
+            ManifestEntry entry,
+            Path resolvedDest,
+            String templateSha,
+            String appliedSha,
+            String reason) implements TierAction {
+
+        /** Compact constructor validating required fields. */
+<span class="fc" id="L199">        public UserManaged {</span>
+<span class="fc" id="L200">            Objects.requireNonNull(entry, &quot;entry&quot;);</span>
+<span class="fc" id="L201">            Objects.requireNonNull(resolvedDest, &quot;resolvedDest&quot;);</span>
+<span class="fc" id="L202">            Objects.requireNonNull(templateSha, &quot;templateSha&quot;);</span>
+<span class="fc" id="L203">            Objects.requireNonNull(appliedSha, &quot;appliedSha&quot;);</span>
+<span class="fc" id="L204">            Objects.requireNonNull(reason, &quot;reason&quot;);</span>
+<span class="fc" id="L205">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
