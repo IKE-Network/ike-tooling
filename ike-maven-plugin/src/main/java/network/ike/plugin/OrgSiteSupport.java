@@ -928,6 +928,11 @@ public final class OrgSiteSupport {
             // second source for index.html and trips the site plugin's
             // duplicate-output check.
             buildSite(srcRoot, log);
+            // Link inline goal references to their latest goal docs in the
+            // rendered org-landing HTML before it ships to the publish repo
+            // (IKE-Network/ike-issues#783).
+            GoalLinkRewriter.rewriteSiteHtml(
+                    srcRoot.toPath().resolve("target").resolve("site"), log);
             commitAndPush(srcRoot,
                     "site: register " + artifactId + " " + version,
                     srcBranch, log);

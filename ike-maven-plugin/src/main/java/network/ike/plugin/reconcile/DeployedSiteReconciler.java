@@ -1,5 +1,6 @@
 package network.ike.plugin.reconcile;
 
+import network.ike.plugin.GoalLinkRewriter;
 import network.ike.plugin.IkeGoal;
 import network.ike.plugin.ReleaseSupport;
 import org.apache.maven.api.plugin.MojoException;
@@ -136,6 +137,11 @@ public class DeployedSiteReconciler implements SiteReconciler {
 
         Path stagingDir = gitRoot.toPath()
                 .resolve("target").resolve("staging");
+
+        // Link inline goal references to their latest goal docs before
+        // the rendered HTML ships to gh-pages (IKE-Network/ike-issues#783).
+        GoalLinkRewriter.rewriteSiteHtml(stagingDir, ctx.log());
+
         try {
             ReleaseSupport.publishProjectSiteToGhPages(
                     stagingDir, remoteUrl, ctx.log(),
