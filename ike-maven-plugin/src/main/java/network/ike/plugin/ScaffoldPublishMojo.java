@@ -1,5 +1,6 @@
 package network.ike.plugin;
 
+import network.ike.plugin.ReleaseSupport;
 import network.ike.plugin.scaffold.DirectoryTemplateSource;
 import network.ike.plugin.scaffold.FoundationBaker;
 import network.ike.plugin.scaffold.FoundationDriftChecker;
@@ -28,12 +29,15 @@ import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Apply the scaffold manifest to disk and update the lockfiles.
@@ -155,6 +159,20 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
                defaultValue = "false")
     boolean skipParent;
 
+    /**
+     * When {@code true}, skip the clean-tree preflight and author the scaffold
+     * output onto a project tree with uncommitted changes without committing
+     * (#780). Default {@code false}: {@code ike:scaffold-publish} is
+     * COORDINATING in its own project repo — it refuses to run against a
+     * modified tree, then commits ONLY its own authored output in isolation.
+     * The per-repo walk driven by {@code ws:scaffold-publish} thus commits
+     * every repo, replacing the #431 report-uncommitted workaround. No effect
+     * on a non-git project (fresh bootstrap), where the output is left
+     * uncommitted as before.
+     */
+    @Parameter(property = "allow-uncommitted", defaultValue = "false")
+    boolean allowUncommitted;
+
     /** Creates this goal instance. */
     public ScaffoldPublishMojo() {}
 
@@ -213,6 +231,15 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
         // Project scope (only if we have a project)
         Counts projectCounts = null;
         if (projRoot != null) {
+            // COORDINATING preflight (#780): refuse to author onto a project
+            // repo with uncommitted changes (escapable via -Dallow-uncommitted)
+            // so the scaffold commit below is attributable solely to this goal.
+            // Uses porcelain (untracked included) to match the commit's capture.
+            // Skipped for a non-git project (fresh bootstrap stays uncommitted).
+            if (!allowUncommitted
+                    && new File(projRoot.toFile(), ".git").exists()) {
+                requireProjectTreeClean(projRoot.toFile());
+            }
             Path projLock =
                     ScaffoldMojoSupport.projectLockfilePath(projRoot);
             ScaffoldLockfile projLockfile =
@@ -278,10 +305,105 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
             applyFoundationDrift(projRoot, manifest.foundation());
         }
 
+        // COORDINATING commit (#780, IN_ISOLATION): commit this goal's authored
+        // PROJECT-scope output (lockfile + applied templates + foundation POM +
+        // orphan removals). The preflight guaranteed the tree was clean before,
+        // so every change now present is this goal's own. USER scope (~/.ike) is
+        // a different location and never enters the project repo's status.
+        // Skipped under -Dallow-uncommitted (and on a non-git project): there
+        // the caller deliberately layered onto a modified tree, so committing
+        // would sweep their pre-existing changes — leave everything uncommitted.
+        if (projRoot != null && !allowUncommitted
+                && new File(projRoot.toFile(), ".git").exists()) {
+            commitScaffoldOutput(projRoot.toFile());
+        }
+
         return new GoalReportSpec(IkeGoal.SCAFFOLD_PUBLISH,
                 projRoot != null ? projRoot : home,
                 buildReport(manifest, userCounts, projectCounts,
                         orphans));
+    }
+
+    /**
+     * A {@code git status --porcelain} entry: a 1–2 character status code (a
+     * leading status space may be trimmed off the first line by execCapture)
+     * followed by a space and the path (group 1).
+     */
+    private static final Pattern PORCELAIN_ENTRY =
+            Pattern.compile("^\\s?\\S{1,2}\\s+(.*)$");
+
+    /**
+     * Refuse if the project repo has any uncommitted changes (#780). Uses
+     * {@code git status --porcelain} so UNTRACKED files count too — scaffold
+     * writes new files, and the commit below stages whatever porcelain reports,
+     * so the preflight must reject a pre-existing untracked file that would
+     * otherwise be swept into the scaffold commit.
+     *
+     * @param projRoot the project repo root
+     */
+    private void requireProjectTreeClean(File projRoot) {
+        String status = ReleaseSupport.execCapture(projRoot,
+                "git", "status", "--porcelain");
+        if (!status.isBlank()) {
+            throw new MojoException(IkeGoal.SCAFFOLD_PUBLISH.qualified()
+                    + ": the project repo has uncommitted changes:\n" + status
+                    + "\nCommit or stash them, or pass -Dallow-uncommitted to "
+                    + "scaffold onto the modified tree without committing.");
+        }
+    }
+
+    /**
+     * Commit this goal's authored PROJECT-scope output in isolation (#780). The
+     * preflight guaranteed the project repo was unmodified before this run, so
+     * every path {@code git status --porcelain} now reports is this goal's own
+     * output — the project lockfile, applied template files, the foundation
+     * POM, and orphan removals. Each path is staged BY NAME (never
+     * {@code git add -A}) and committed. A no-op when nothing was authored.
+     *
+     * @param projRoot the project repo root
+     */
+    private void commitScaffoldOutput(File projRoot) {
+        String status = ReleaseSupport.execCapture(projRoot,
+                "git", "status", "--porcelain");
+        if (status.isBlank()) {
+            return;
+        }
+        // Scaffold authors only simple-named config files (mvnw, pom.xml,
+        // .gitignore, .mvn/…) and never renames, so the porcelain paths are
+        // unquoted and arrow-free; the rename/quote handling below is
+        // defensive for paths that scaffold does not actually produce.
+        List<String> addCommand = new ArrayList<>(List.of("git", "add", "--"));
+        for (String line : status.split("\n")) {
+            // The path follows the 1–2 char status code + a space. execCapture
+            // trims the captured output, which can strip a leading status space
+            // (e.g. " M") from the FIRST line, so match the status run flexibly
+            // rather than assuming a fixed 3-char prefix.
+            Matcher m = PORCELAIN_ENTRY.matcher(line);
+            if (!m.matches()) {
+                continue;
+            }
+            String path = m.group(1);
+            int arrow = path.indexOf(" -> ");
+            if (arrow >= 0) {
+                path = path.substring(arrow + 4);  // rename: stage the dest
+            }
+            if (path.length() > 1 && path.charAt(0) == '"'
+                    && path.charAt(path.length() - 1) == '"') {
+                path = path.substring(1, path.length() - 1);  // unquote
+            }
+            addCommand.add(path);
+        }
+        if (addCommand.size() <= 3) {
+            return;
+        }
+        ReleaseSupport.exec(projRoot, getLog(),
+                addCommand.toArray(new String[0]));
+        ReleaseSupport.exec(projRoot, getLog(), "git", "commit", "-m",
+                "scaffold: apply IKE standards"
+                + (applyFoundation ? " + foundation drift" : "")
+                + "\n\nRefs: IKE-Network/ike-issues#780");
+        getLog().info("  ✓ committed scaffold output in "
+                + projRoot.getName());
     }
 
     /**

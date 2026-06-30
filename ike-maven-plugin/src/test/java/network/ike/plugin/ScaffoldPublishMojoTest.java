@@ -448,4 +448,216 @@ class ScaffoldPublishMojoTest {
         assertThat(log.infos)
                 .noneMatch(s -> s.contains("IKE Foundation"));
     }
+
+    // ─── #780 COORDINATING: preflight + IN_ISOLATION commit ───────
+
+    @Test
+    void gitProject_commitsScaffoldOutputInIsolation(@TempDir Path tmp)
+            throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(userHome);
+        Files.writeString(scaffold.resolve("mvnw"), "#!/bin/sh\nmvnw body\n");
+        Files.writeString(scaffold.resolve("scaffold-manifest.yaml"), """
+                schema: 1
+                standards-version: "7"
+                files:
+                  - dest: mvnw
+                    scope: project
+                    tier: tool-owned
+                    source: mvnw
+                """);
+        cleanGitProject(project);
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        inject(mojo, "log", new RecordingLog());
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+
+        mojo.execute();
+
+        // The scaffold output is committed in isolation...
+        assertThat(gitOut(project, "log", "--oneline", "-1"))
+                .contains("scaffold: apply IKE standards");
+        // ...covering the applied (non-ignored) template file...
+        assertThat(gitOut(project, "show", "--name-only", "--format=", "HEAD"))
+                .contains("mvnw");
+        // ...so mvnw is no longer uncommitted (the #431 report-uncommitted
+        // gap is closed). (.ike/scaffold.lock is globally gitignored local
+        // state; a fresh repo's first commit may also pick up a .gitignore from
+        // the IKE vcs-bridge — both are incidental to the scaffold commit.)
+        assertThat(gitOut(project, "status", "--porcelain"))
+                .doesNotContain("mvnw")
+                .doesNotContain(".ike/scaffold.lock");
+    }
+
+    @Test
+    void gitProject_modifiedTree_refuses(@TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(userHome);
+        Files.writeString(scaffold.resolve("scaffold-manifest.yaml"), """
+                schema: 1
+                standards-version: "7"
+                files: []
+                """);
+        cleanGitProject(project);
+        Files.writeString(project.resolve("wip.txt"), "in flight");
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        inject(mojo, "log", new RecordingLog());
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+
+        assertThatThrownBy(mojo::execute)
+                .isInstanceOf(
+                        org.apache.maven.api.plugin.MojoException.class)
+                .hasMessageContaining("uncommitted");
+    }
+
+    @Test
+    void gitProject_modifiedTree_allowUncommitted_authorsWithoutCommitting(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(userHome);
+        Files.writeString(scaffold.resolve("mvnw"), "#!/bin/sh\nmvnw body\n");
+        Files.writeString(scaffold.resolve("scaffold-manifest.yaml"), """
+                schema: 1
+                standards-version: "7"
+                files:
+                  - dest: mvnw
+                    scope: project
+                    tier: tool-owned
+                    source: mvnw
+                """);
+        cleanGitProject(project);
+        Files.writeString(project.resolve("wip.txt"), "in flight");
+        String headBefore = gitOut(project, "rev-parse", "HEAD");
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        inject(mojo, "log", new RecordingLog());
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+        inject(mojo, "allowUncommitted", true);
+
+        mojo.execute(); // no throw — preflight skipped
+
+        // The escape scaffolds onto the modified tree but commits nothing —
+        // the caller reviews and commits, with their pre-existing WIP intact.
+        assertThat(project.resolve("mvnw")).exists();
+        assertThat(gitOut(project, "rev-parse", "HEAD")).isEqualTo(headBefore);
+        assertThat(gitOut(project, "status", "--porcelain"))
+                .contains("wip.txt");
+    }
+
+    @Test
+    void gitProject_foundationApply_commitsTemplateAndPomTogether(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(userHome);
+        Files.writeString(scaffold.resolve("mvnw"), "#!/bin/sh\nmvnw body\n");
+        Files.writeString(scaffold.resolve("scaffold-manifest.yaml"), """
+                schema: 1
+                standards-version: "7"
+                files:
+                  - dest: mvnw
+                    scope: project
+                    tier: tool-owned
+                    source: mvnw
+                foundation:
+                  parent:
+                    groupId: network.ike.platform
+                    artifactId: ike-parent
+                    version: "36"
+                  properties: {}
+                """);
+        cleanGitProject(project);
+        // Replace the placeholder pom with one whose parent foundation drifts.
+        Files.writeString(project.resolve("pom.xml"), """
+                <?xml version="1.0"?>
+                <project>
+                    <parent>
+                        <groupId>network.ike.platform</groupId>
+                        <artifactId>ike-parent</artifactId>
+                        <version>35</version>
+                    </parent>
+                    <artifactId>x</artifactId>
+                    <version>1-SNAPSHOT</version>
+                </project>
+                """);
+        git(project, "commit", "-am", "pom"); // commit so the tree is unmodified
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        inject(mojo, "log", new RecordingLog());
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+        inject(mojo, "applyFoundation", true);
+
+        mojo.execute();
+
+        // The applied template AND the foundation-drifted pom are committed
+        // together in the one isolation commit; neither is left uncommitted.
+        String committed = gitOut(project,
+                "show", "--name-only", "--format=", "HEAD");
+        assertThat(committed).contains("mvnw").contains("pom.xml");
+        assertThat(gitOut(project, "show", "HEAD:pom.xml"))
+                .contains("<version>36</version>");
+        assertThat(gitOut(project, "status", "--porcelain"))
+                .doesNotContain("mvnw").doesNotContain("pom.xml");
+    }
+
+    private static void cleanGitProject(Path project) throws Exception {
+        Files.createDirectories(project);
+        git(project, "init", "-b", "main");
+        git(project, "config", "user.email", "t@example.com");
+        git(project, "config", "user.name", "Test");
+        // Isolate from the machine's global IKE git hooks: the vcs-bridge
+        // post-commit hook rewrites .gitignore, which a fresh test repo would
+        // surface as untracked. Real repos already commit .gitignore, so this
+        // only affects the test fixture. Disable hooks so the test exercises
+        // only the scaffold commit logic.
+        git(project, "config", "core.hooksPath", ".git/disabled-hooks");
+        Files.writeString(project.resolve("pom.xml"),
+                "<project><artifactId>x</artifactId></project>");
+        git(project, "add", ".");
+        git(project, "commit", "-m", "initial");
+    }
+
+    private static void git(Path dir, String... args) throws Exception {
+        String[] cmd = new String[args.length + 1];
+        cmd[0] = "git";
+        System.arraycopy(args, 0, cmd, 1, args.length);
+        Process p = new ProcessBuilder(cmd).directory(dir.toFile())
+                .redirectErrorStream(true).start();
+        p.getInputStream().readAllBytes();
+        if (p.waitFor() != 0) {
+            throw new RuntimeException("git " + String.join(" ", args) + " failed");
+        }
+    }
+
+    private static String gitOut(Path dir, String... args) throws Exception {
+        String[] cmd = new String[args.length + 1];
+        cmd[0] = "git";
+        System.arraycopy(args, 0, cmd, 1, args.length);
+        Process p = new ProcessBuilder(cmd).directory(dir.toFile())
+                .redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes(),
+                java.nio.charset.StandardCharsets.UTF_8).trim();
+        p.waitFor();
+        return out;
+    }
 }
