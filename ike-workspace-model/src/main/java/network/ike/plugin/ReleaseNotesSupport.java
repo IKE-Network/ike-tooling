@@ -1346,6 +1346,8 @@ public final class ReleaseNotesSupport {
     @FunctionalInterface
     public interface SubprojectCommits {
         /**
+         * Return one subproject's commit messages for its pin advance.
+         *
          * @param name    the subproject name ({@code workspace.yaml} key)
          * @param subproject the subproject as pinned in the {@code to} manifest
          * @param fromSha the previous-checkpoint pin, or {@code null} when the
