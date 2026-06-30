@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CandidateVersionResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin Support</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.support.version</a> &gt; <span class="el_source">CandidateVersionResolver.java</span></div><h1>CandidateVersionResolver.java</h1><pre class="source lang-java linenums">package network.ike.plugin.support.version;
+
+import java.util.List;
+
+/**
+ * Resolves the available released versions of a Maven coordinate.
+ *
+ * &lt;p&gt;Pure interface so {@code FoundationBaker} can be unit tested
+ * with a fake (no Maven session, no network). The
+ * {@link SessionCandidateVersionResolver} implementation queries the
+ * Maven 4 {@code VersionRangeResolver} service against the configured
+ * remote and local repositories.
+ *
+ * &lt;p&gt;Implementations MUST:
+ * &lt;ul&gt;
+ *   &lt;li&gt;Filter out SNAPSHOT versions — foundation resolution only
+ *       ever proposes released versions.&lt;/li&gt;
+ *   &lt;li&gt;Return versions in ascending order, with the highest at the
+ *       end of the list.&lt;/li&gt;
+ *   &lt;li&gt;Return an empty list (not null) when nothing is available or
+ *       the coordinate cannot be resolved.&lt;/li&gt;
+ * &lt;/ul&gt;
+ */
+public interface CandidateVersionResolver {
+
+    /**
+     * Look up all known released versions of {@code groupId:artifactId}.
+     *
+     * &lt;p&gt;Implementations may use {@code currentVersion} as a hint —
+     * e.g. to construct a Maven version range like
+     * {@code &quot;(currentVersion,)&quot;} that only returns strictly newer
+     * versions. Callers must not depend on that filtering: they should
+     * still compare returned versions against the current version
+     * themselves.
+     *
+     * @param groupId        the coordinate's groupId
+     * @param artifactId     the coordinate's artifactId
+     * @param currentVersion the currently-declared version, used as a
+     *                       hint for range-based resolvers; may be null
+     * @return ascending list of released versions; empty if none
+     */
+    List&lt;String&gt; resolveCandidates(String groupId, String artifactId,
+                                   String currentVersion);
+
+    /**
+     * Convenience: return the highest released candidate strictly newer
+     * than {@code currentVersion}, or null if there isn't one. Compares
+     * versions with {@link MavenVersionComparator#INSTANCE}.
+     *
+     * @param groupId        the coordinate's groupId
+     * @param artifactId     the coordinate's artifactId
+     * @param currentVersion the currently-declared version
+     * @return the highest strictly-newer candidate, or null
+     */
+    default String resolveHighestCandidate(String groupId, String artifactId,
+                                           String currentVersion) {
+<span class="fc" id="L57">        List&lt;String&gt; candidates = resolveCandidates(groupId, artifactId,</span>
+                currentVersion);
+<span class="fc" id="L59">        String best = null;</span>
+<span class="fc bfc" id="L60" title="All 2 branches covered.">        for (String candidate : candidates) {</span>
+<span class="fc bfc" id="L61" title="All 2 branches covered.">            if (currentVersion != null</span>
+<span class="fc bfc" id="L62" title="All 2 branches covered.">                    &amp;&amp; MavenVersionComparator.INSTANCE.compare(</span>
+                            candidate, currentVersion) &lt;= 0) {
+<span class="fc" id="L64">                continue;</span>
+            }
+<span class="fc bfc" id="L66" title="All 2 branches covered.">            if (best == null</span>
+<span class="fc bfc" id="L67" title="All 2 branches covered.">                    || MavenVersionComparator.INSTANCE.compare(</span>
+                            candidate, best) &gt; 0) {
+<span class="fc" id="L69">                best = candidate;</span>
+            }
+<span class="fc" id="L71">        }</span>
+<span class="fc" id="L72">        return best;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

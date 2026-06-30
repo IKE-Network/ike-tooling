@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WorkingSetResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">WorkingSetResolver.java</span></div><h1>WorkingSetResolver.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Resolves the {@link WorkingSet} a working-tree workspace operation acts
+ * on, from a starting directory (IKE-Network/ike-issues#609, under #601).
+ *
+ * &lt;p&gt;Searches upward from the start directory for a {@code workspace.yaml}.
+ * When one is found, the working set is that workspace — its declared
+ * subprojects plus the workspace root. When none is found, the working set
+ * is the single repository at the start directory: a working set of one.
+ *
+ * &lt;p&gt;This is the single home for the &quot;am I in a workspace, or a lone repo?&quot;
+ * decision that working-tree goals otherwise each make for themselves — the
+ * scattered {@code isWorkspaceMode()} + bare-mode branches the migration in
+ * ike-issues#611 retires.
+ */
+public final class WorkingSetResolver {
+
+    /** The manifest file name searched for when walking up from a directory. */
+    public static final String MANIFEST_FILE = &quot;workspace.yaml&quot;;
+
+    private WorkingSetResolver() {}
+
+    /**
+     * Resolve the working set from a starting directory.
+     *
+     * @param startDir the directory to resolve from (typically the CWD)
+     * @return a workspace working set when a {@code workspace.yaml} is found
+     *         at or above {@code startDir}; otherwise the single-repository
+     *         working set rooted at {@code startDir}
+     */
+    public static WorkingSet resolve(Path startDir) {
+<span class="fc" id="L37">        Path manifest = findManifest(startDir);</span>
+<span class="fc bfc" id="L38" title="All 2 branches covered.">        return manifest == null ? singleRepo(startDir) : workspace(manifest);</span>
+    }
+
+    /**
+     * Build a single-repository working set rooted at {@code dir}, without
+     * searching for a manifest — a working set of one.
+     *
+     * @param dir the repository directory
+     * @return the single-repository working set
+     */
+    public static WorkingSet singleRepo(Path dir) {
+<span class="fc" id="L49">        Path root = dir.toAbsolutePath().normalize();</span>
+<span class="fc" id="L50">        String name = fileName(root);</span>
+<span class="fc" id="L51">        return new WorkingSet(root, null, name,</span>
+<span class="fc" id="L52">                List.of(WorkingSet.Member.aggregator(name, root)));</span>
+    }
+
+    private static WorkingSet workspace(Path manifest) {
+<span class="fc" id="L56">        Path root = manifest.getParent();</span>
+<span class="fc" id="L57">        Manifest model = ManifestReader.read(manifest);</span>
+<span class="fc" id="L58">        List&lt;WorkingSet.Member&gt; members = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L59" title="All 2 branches covered.">        for (String name : model.subprojects().keySet()) {</span>
+<span class="fc" id="L60">            members.add(WorkingSet.Member.subproject(name, root.resolve(name)));</span>
+<span class="fc" id="L61">        }</span>
+<span class="fc" id="L62">        members.add(WorkingSet.Member.aggregator(fileName(root), root));</span>
+<span class="fc" id="L63">        return new WorkingSet(root, manifest, baseName(model, root),</span>
+<span class="fc" id="L64">                List.copyOf(members));</span>
+    }
+
+    /**
+     * Resolve the working set's base name — the identity used for derived
+     * names such as sibling directories. Prefers the manifest
+     * {@code workspace-root:} {@code artifactId} (schema 1.1+); falls back to
+     * the root directory name when absent (legacy 1.0 manifests).
+     *
+     * @param model the parsed manifest
+     * @param root  the workspace root directory
+     * @return the workspace-root artifactId when present, else the directory
+     *         name
+     */
+    private static String baseName(Manifest model, Path root) {
+<span class="fc" id="L79">        WorkspaceRoot wr = model.workspaceRoot();</span>
+<span class="pc bpc" id="L80" title="2 of 6 branches missed.">        if (wr != null &amp;&amp; wr.artifactId() != null &amp;&amp; !wr.artifactId().isBlank()) {</span>
+<span class="fc" id="L81">            return wr.artifactId();</span>
+        }
+<span class="fc" id="L83">        return fileName(root);</span>
+    }
+
+    /**
+     * Search upward from {@code startDir} for a {@code workspace.yaml}.
+     *
+     * @param startDir the directory to start the upward search from
+     * @return the absolute manifest path, or {@code null} if none is found
+     */
+    static Path findManifest(Path startDir) {
+<span class="fc" id="L93">        Path dir = startDir.toAbsolutePath().normalize();</span>
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        while (dir != null) {</span>
+<span class="fc" id="L95">            Path candidate = dir.resolve(MANIFEST_FILE);</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">            if (candidate.toFile().exists()) {</span>
+<span class="fc" id="L97">                return candidate;</span>
+            }
+<span class="fc" id="L99">            dir = dir.getParent();</span>
+<span class="fc" id="L100">        }</span>
+<span class="fc" id="L101">        return null;</span>
+    }
+
+    private static String fileName(Path dir) {
+<span class="fc" id="L105">        Path name = dir.getFileName();</span>
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">        return name == null ? dir.toString() : name.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

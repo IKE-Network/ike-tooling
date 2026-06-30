@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FoundationDriftChecker.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">FoundationDriftChecker.java</span></div><h1>FoundationDriftChecker.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Compare a project's POM against the IKE-foundation pins captured
+ * in a scaffold manifest's {@code foundation:} section (#345).
+ *
+ * &lt;p&gt;The scaffold zip embeds the parent + property values that
+ * {@code ike-tooling N} saw as the latest-released at its release
+ * moment. Picking up a newer scaffold means picking up that
+ * tested-together compatibility snapshot. This class identifies the
+ * deltas: where the consumer's POM lags behind, where it's ahead
+ * (operator manually bumped), and where it's already in sync.
+ *
+ * &lt;p&gt;Pure-function — no I/O once a {@code pomContent} string is
+ * provided. The {@link #checkPomFile} convenience reads from disk
+ * for callers who want path-based access.
+ *
+ * @see ScaffoldManifest.Foundation
+ */
+public final class FoundationDriftChecker {
+
+    private FoundationDriftChecker() {}
+
+    /**
+     * Compute the drift between a POM file's parent + properties
+     * and the scaffold manifest's {@code foundation:} pins.
+     *
+     * @param pomFile    path to the project's pom.xml
+     * @param foundation the scaffold manifest's foundation pins; if
+     *                   {@code null}, returns an empty drift list
+     * @return ordered list of {@link Entry} records, one per
+     *         drifted or aligned property/parent comparison
+     * @throws IOException if the POM cannot be read
+     */
+    public static List&lt;Entry&gt; checkPomFile(
+            Path pomFile,
+            ScaffoldManifest.Foundation foundation) throws IOException {
+<span class="pc bpc" id="L47" title="2 of 4 branches missed.">        if (foundation == null || !Files.isRegularFile(pomFile)) {</span>
+<span class="nc" id="L48">            return List.of();</span>
+        }
+<span class="fc" id="L50">        String content = Files.readString(pomFile, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L51">        return check(content, foundation);</span>
+    }
+
+    /**
+     * Compute the drift between POM content and foundation pins.
+     *
+     * @param pomContent the POM XML as a string
+     * @param foundation the foundation pins (non-null)
+     * @return ordered drift entries
+     */
+    public static List&lt;Entry&gt; check(String pomContent,
+                                     ScaffoldManifest.Foundation foundation) {
+<span class="pc bpc" id="L63" title="1 of 4 branches missed.">        if (pomContent == null || foundation == null) return List.of();</span>
+
+<span class="fc" id="L65">        List&lt;Entry&gt; entries = new ArrayList&lt;&gt;();</span>
+
+        // Parent comparison
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">        if (foundation.parent() != null) {</span>
+<span class="fc" id="L69">            String actualVersion = extractParentVersionMatching(</span>
+                    pomContent,
+<span class="fc" id="L71">                    foundation.parent().groupId(),</span>
+<span class="fc" id="L72">                    foundation.parent().artifactId());</span>
+<span class="fc" id="L73">            entries.add(new Entry(</span>
+                    Kind.PARENT,
+<span class="fc" id="L75">                    foundation.parent().groupId() + &quot;:&quot;</span>
+<span class="fc" id="L76">                            + foundation.parent().artifactId(),</span>
+                    actualVersion,
+<span class="fc" id="L78">                    foundation.parent().version()));</span>
+        }
+
+        // Property comparisons
+<span class="fc" id="L82">        Map&lt;String, String&gt; projectProps = extractProperties(pomContent);</span>
+        for (Map.Entry&lt;String, String&gt; expected
+<span class="fc bfc" id="L84" title="All 2 branches covered.">                : foundation.properties().entrySet()) {</span>
+<span class="fc" id="L85">            entries.add(new Entry(</span>
+                    Kind.PROPERTY,
+<span class="fc" id="L87">                    expected.getKey(),</span>
+<span class="fc" id="L88">                    projectProps.get(expected.getKey()),</span>
+<span class="fc" id="L89">                    expected.getValue()));</span>
+<span class="fc" id="L90">        }</span>
+
+<span class="fc" id="L92">        return entries;</span>
+    }
+
+    /**
+     * Extract the {@code &lt;parent&gt;&lt;version&gt;} when the parent's GA
+     * matches the given coordinates; otherwise return {@code null}
+     * (parent absent OR different GA).
+     */
+    static String extractParentVersionMatching(String pomContent,
+                                                 String groupId,
+                                                 String artifactId) {
+<span class="fc" id="L103">        java.util.regex.Matcher parentMatcher = java.util.regex.Pattern.compile(</span>
+<span class="fc" id="L104">                &quot;(?s)&lt;parent\\b[^&gt;]*&gt;(.*?)&lt;/parent&gt;&quot;).matcher(pomContent);</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">        if (!parentMatcher.find()) return null;</span>
+<span class="fc" id="L106">        String block = parentMatcher.group(1);</span>
+
+<span class="fc" id="L108">        java.util.regex.Matcher gMatch = java.util.regex.Pattern.compile(</span>
+<span class="fc" id="L109">                &quot;&lt;groupId&gt;\\s*([^&lt;]+?)\\s*&lt;/groupId&gt;&quot;).matcher(block);</span>
+<span class="fc" id="L110">        java.util.regex.Matcher aMatch = java.util.regex.Pattern.compile(</span>
+<span class="fc" id="L111">                &quot;&lt;artifactId&gt;\\s*([^&lt;]+?)\\s*&lt;/artifactId&gt;&quot;).matcher(block);</span>
+<span class="pc bpc" id="L112" title="2 of 4 branches missed.">        if (!gMatch.find() || !aMatch.find()) return null;</span>
+<span class="fc bfc" id="L113" title="All 2 branches covered.">        if (!gMatch.group(1).trim().equals(groupId)</span>
+<span class="pc bpc" id="L114" title="1 of 2 branches missed.">                || !aMatch.group(1).trim().equals(artifactId)) {</span>
+<span class="fc" id="L115">            return null;</span>
+        }
+<span class="fc" id="L117">        java.util.regex.Matcher vMatch = java.util.regex.Pattern.compile(</span>
+<span class="fc" id="L118">                &quot;&lt;version&gt;\\s*([^&lt;]+?)\\s*&lt;/version&gt;&quot;).matcher(block);</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">        return vMatch.find() ? vMatch.group(1).trim() : null;</span>
+    }
+
+    /**
+     * Extract project-level {@code &lt;properties&gt;} as a map. Repeated
+     * declarations: the last one wins (matches Maven model semantics).
+     */
+    static Map&lt;String, String&gt; extractProperties(String pomContent) {
+<span class="fc" id="L127">        Map&lt;String, String&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L128">        java.util.regex.Matcher blockMatcher = java.util.regex.Pattern.compile(</span>
+                &quot;(?s)&lt;properties&gt;\\s*(.*?)\\s*&lt;/properties&gt;&quot;)
+<span class="fc" id="L130">                .matcher(pomContent);</span>
+<span class="fc bfc" id="L131" title="All 2 branches covered.">        while (blockMatcher.find()) {</span>
+<span class="fc" id="L132">            String block = blockMatcher.group(1);</span>
+<span class="fc" id="L133">            java.util.regex.Matcher entryMatcher = java.util.regex.Pattern.compile(</span>
+                    &quot;(?s)&lt;([\\w.-]+)&gt;\\s*([^&lt;]*?)\\s*&lt;/\\1&gt;&quot;)
+<span class="fc" id="L135">                    .matcher(block);</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">            while (entryMatcher.find()) {</span>
+<span class="fc" id="L137">                result.put(entryMatcher.group(1),</span>
+<span class="fc" id="L138">                        entryMatcher.group(2).trim());</span>
+            }
+<span class="fc" id="L140">        }</span>
+<span class="fc" id="L141">        return result;</span>
+    }
+
+    /** Classification of a drift entry. */
+<span class="fc" id="L145">    public enum Kind {</span>
+        /** Workspace-level {@code &lt;parent&gt;} declaration. */
+<span class="fc" id="L147">        PARENT,</span>
+        /** Project-level {@code &lt;properties&gt;} declaration. */
+<span class="fc" id="L149">        PROPERTY</span>
+    }
+
+    /** Classification of a drift entry's state. */
+<span class="fc" id="L153">    public enum State {</span>
+        /** Project's value equals the foundation's. */
+<span class="fc" id="L155">        ALIGNED,</span>
+        /** Project's value is absent (foundation knows it; project doesn't). */
+<span class="fc" id="L157">        ABSENT,</span>
+        /** Project's value differs from the foundation's. */
+<span class="fc" id="L159">        DIFFERS</span>
+    }
+
+    /**
+     * One drift comparison result.
+     *
+     * @param kind     parent or property
+     * @param name     the parent coordinates ({@code groupId:artifactId})
+     *                 for {@link Kind#PARENT}, or the property name
+     *                 for {@link Kind#PROPERTY}
+     * @param actual   the value found in the project's POM, or
+     *                 {@code null} when absent
+     * @param expected the value the foundation pins to
+     */
+<span class="fc" id="L173">    public record Entry(Kind kind,</span>
+                         String name,
+                         String actual,
+                         String expected) {
+
+        /**
+         * Classify this comparison.
+         *
+         * @return whether the project is aligned, missing the value,
+         *         or differs from the foundation
+         */
+        public State state() {
+<span class="fc bfc" id="L185" title="All 2 branches covered.">            if (actual == null) return State.ABSENT;</span>
+<span class="fc bfc" id="L186" title="All 2 branches covered.">            if (actual.equals(expected)) return State.ALIGNED;</span>
+<span class="fc" id="L187">            return State.DIFFERS;</span>
+        }
+
+        /**
+         * True when this entry indicates real drift the operator
+         * should act on (DIFFERS or ABSENT).
+         *
+         * @return true when not aligned
+         */
+        public boolean isDrifted() {
+<span class="fc bfc" id="L197" title="All 2 branches covered.">            return state() != State.ALIGNED;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

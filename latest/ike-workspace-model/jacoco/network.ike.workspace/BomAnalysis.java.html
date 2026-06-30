@@ -12,9 +12,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Analyzes BOM imports in workspace subproject POMs to detect
@@ -28,8 +30,11 @@ import java.util.Set;
  *   &lt;li&gt;&lt;strong&gt;External BOM:&lt;/strong&gt; a BOM not published by any
  *       workspace subproject&lt;/li&gt;
  *   &lt;li&gt;&lt;strong&gt;Cascade gap:&lt;/strong&gt; when subproject A depends on
- *       subproject B, but A has no version-property or workspace-internal
- *       BOM import that tracks B's version&lt;/li&gt;
+ *       subproject B, but A has neither a version-property nor a
+ *       workspace-internal BOM import that tracks B's version. A
+ *       workspace BOM tracks B when it &lt;em&gt;is&lt;/em&gt; B's own BOM, or when
+ *       its {@code &lt;dependencyManagement&gt;} &lt;em&gt;manages&lt;/em&gt; one of B's
+ *       published artifacts (ike-issues#794)&lt;/li&gt;
  *   &lt;li&gt;&lt;strong&gt;External pin:&lt;/strong&gt; an external BOM manages
  *       artifacts published by a workspace subproject, potentially
  *       overriding the workspace version&lt;/li&gt;
@@ -51,7 +56,7 @@ public final class BomAnalysis {
      * @param orderIndex position in the import list (0-based, for
      *                   precedence analysis)
      */
-<span class="nc" id="L54">    public record BomImport(String groupId, String artifactId, String version,</span>
+<span class="fc" id="L59">    public record BomImport(String groupId, String artifactId, String version,</span>
                             boolean isWorkspaceInternal,
                             String publishingSubproject,
                             int orderIndex) {}
@@ -62,10 +67,13 @@ public final class BomAnalysis {
      * @param subprojectName   the subproject with the issue
      * @param dependsOn        the upstream subproject it depends on
      * @param hasVersionProperty whether a version-property tracks upstream
-     * @param hasWorkspaceBom  whether a workspace-internal BOM import exists
+     * @param hasWorkspaceBom  whether a workspace-internal BOM import covers
+     *                         the edge — either it is the upstream's own BOM,
+     *                         or it manages one of the upstream's published
+     *                         artifacts (ike-issues#794)
      * @param externalBomPins  external BOMs that manage upstream's artifacts
      */
-<span class="nc" id="L68">    public record CascadeIssue(String subprojectName, String dependsOn,</span>
+<span class="fc" id="L76">    public record CascadeIssue(String subprojectName, String dependsOn,</span>
                                 boolean hasVersionProperty,
                                 boolean hasWorkspaceBom,
                                 List&lt;BomImport&gt; externalBomPins) {
@@ -76,19 +84,19 @@ public final class BomAnalysis {
          * @return true if a version-property or workspace BOM exists
          */
         public boolean canCascade() {
-<span class="nc bnc" id="L79" title="All 4 branches missed.">            return hasVersionProperty || hasWorkspaceBom;</span>
+<span class="nc bnc" id="L87" title="All 4 branches missed.">            return hasVersionProperty || hasWorkspaceBom;</span>
         }
     }
 
     private static final DocumentBuilderFactory DBF;
     static {
-<span class="nc" id="L85">        DBF = DocumentBuilderFactory.newInstance();</span>
+<span class="fc" id="L93">        DBF = DocumentBuilderFactory.newInstance();</span>
         try {
-<span class="nc" id="L87">            DBF.setFeature(&quot;http://apache.org/xml/features/nonvalidating/load-external-dtd&quot;, false);</span>
-<span class="nc" id="L88">            DBF.setFeature(&quot;http://xml.org/sax/features/external-general-entities&quot;, false);</span>
-<span class="nc" id="L89">            DBF.setFeature(&quot;http://xml.org/sax/features/external-parameter-entities&quot;, false);</span>
-<span class="nc" id="L90">        } catch (Exception e) { /* non-fatal */ }</span>
-<span class="nc" id="L91">    }</span>
+<span class="fc" id="L95">            DBF.setFeature(&quot;http://apache.org/xml/features/nonvalidating/load-external-dtd&quot;, false);</span>
+<span class="fc" id="L96">            DBF.setFeature(&quot;http://xml.org/sax/features/external-general-entities&quot;, false);</span>
+<span class="fc" id="L97">            DBF.setFeature(&quot;http://xml.org/sax/features/external-parameter-entities&quot;, false);</span>
+<span class="pc" id="L98">        } catch (Exception e) { /* non-fatal */ }</span>
+<span class="fc" id="L99">    }</span>
 
     /**
      * Extract all BOM imports from a subproject's root POM's
@@ -104,61 +112,61 @@ public final class BomAnalysis {
             Path pomFile,
             Map&lt;String, Set&lt;PublishedArtifactSet.Artifact&gt;&gt; workspaceArtifacts)
             throws IOException {
-<span class="nc" id="L107">        List&lt;BomImport&gt; imports = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (!Files.exists(pomFile)) return imports;</span>
+<span class="fc" id="L115">        List&lt;BomImport&gt; imports = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L116" title="1 of 2 branches missed.">        if (!Files.exists(pomFile)) return imports;</span>
 
         Document doc;
         try {
-<span class="nc" id="L112">            DocumentBuilder db = DBF.newDocumentBuilder();</span>
-<span class="nc" id="L113">            doc = db.parse(pomFile.toFile());</span>
-<span class="nc" id="L114">        } catch (Exception e) {</span>
-<span class="nc" id="L115">            return imports;</span>
-<span class="nc" id="L116">        }</span>
+<span class="fc" id="L120">            DocumentBuilder db = DBF.newDocumentBuilder();</span>
+<span class="fc" id="L121">            doc = db.parse(pomFile.toFile());</span>
+<span class="nc" id="L122">        } catch (Exception e) {</span>
+<span class="nc" id="L123">            return imports;</span>
+<span class="fc" id="L124">        }</span>
 
-<span class="nc" id="L118">        Element project = doc.getDocumentElement();</span>
+<span class="fc" id="L126">        Element project = doc.getDocumentElement();</span>
 
         // Read properties for ${...} resolution
-<span class="nc" id="L121">        Map&lt;String, String&gt; properties = readProperties(project);</span>
+<span class="fc" id="L129">        Map&lt;String, String&gt; properties = readProperties(project);</span>
 
-<span class="nc" id="L123">        Element depMgmt = firstChild(project, &quot;dependencyManagement&quot;);</span>
-<span class="nc bnc" id="L124" title="All 2 branches missed.">        if (depMgmt == null) return imports;</span>
+<span class="fc" id="L131">        Element depMgmt = firstChild(project, &quot;dependencyManagement&quot;);</span>
+<span class="fc bfc" id="L132" title="All 2 branches covered.">        if (depMgmt == null) return imports;</span>
 
-<span class="nc" id="L126">        Element deps = firstChild(depMgmt, &quot;dependencies&quot;);</span>
-<span class="nc bnc" id="L127" title="All 2 branches missed.">        if (deps == null) return imports;</span>
+<span class="fc" id="L134">        Element deps = firstChild(depMgmt, &quot;dependencies&quot;);</span>
+<span class="pc bpc" id="L135" title="1 of 2 branches missed.">        if (deps == null) return imports;</span>
 
-<span class="nc" id="L129">        int index = 0;</span>
-<span class="nc bnc" id="L130" title="All 2 branches missed.">        for (Element dep : children(deps, &quot;dependency&quot;)) {</span>
-<span class="nc" id="L131">            String type = childText(dep, &quot;type&quot;);</span>
-<span class="nc" id="L132">            String scope = childText(dep, &quot;scope&quot;);</span>
+<span class="fc" id="L137">        int index = 0;</span>
+<span class="fc bfc" id="L138" title="All 2 branches covered.">        for (Element dep : children(deps, &quot;dependency&quot;)) {</span>
+<span class="fc" id="L139">            String type = childText(dep, &quot;type&quot;);</span>
+<span class="fc" id="L140">            String scope = childText(dep, &quot;scope&quot;);</span>
 
-<span class="nc bnc" id="L134" title="All 4 branches missed.">            if (&quot;pom&quot;.equals(type) &amp;&amp; &quot;import&quot;.equals(scope)) {</span>
-<span class="nc" id="L135">                String gid = resolve(childText(dep, &quot;groupId&quot;), properties);</span>
-<span class="nc" id="L136">                String aid = resolve(childText(dep, &quot;artifactId&quot;), properties);</span>
-<span class="nc" id="L137">                String ver = resolve(childText(dep, &quot;version&quot;), properties);</span>
+<span class="pc bpc" id="L142" title="2 of 4 branches missed.">            if (&quot;pom&quot;.equals(type) &amp;&amp; &quot;import&quot;.equals(scope)) {</span>
+<span class="fc" id="L143">                String gid = resolve(childText(dep, &quot;groupId&quot;), properties);</span>
+<span class="fc" id="L144">                String aid = resolve(childText(dep, &quot;artifactId&quot;), properties);</span>
+<span class="fc" id="L145">                String ver = resolve(childText(dep, &quot;version&quot;), properties);</span>
 
-<span class="nc bnc" id="L139" title="All 4 branches missed.">                if (gid == null || aid == null) continue;</span>
+<span class="pc bpc" id="L147" title="2 of 4 branches missed.">                if (gid == null || aid == null) continue;</span>
 
                 // Check if this BOM is published by a workspace subproject
-<span class="nc" id="L142">                String publishingSubproject = null;</span>
-<span class="nc bnc" id="L143" title="All 2 branches missed.">                for (Map.Entry&lt;String, Set&lt;PublishedArtifactSet.Artifact&gt;&gt; entry : workspaceArtifacts.entrySet()) {</span>
-<span class="nc bnc" id="L144" title="All 2 branches missed.">                    for (PublishedArtifactSet.Artifact artifact : entry.getValue()) {</span>
-<span class="nc bnc" id="L145" title="All 2 branches missed.">                        if (artifact.groupId().equals(gid)</span>
-<span class="nc bnc" id="L146" title="All 2 branches missed.">                                &amp;&amp; artifact.artifactId().equals(aid)) {</span>
-<span class="nc" id="L147">                            publishingSubproject = entry.getKey();</span>
-<span class="nc" id="L148">                            break;</span>
+<span class="fc" id="L150">                String publishingSubproject = null;</span>
+<span class="pc bpc" id="L151" title="1 of 2 branches missed.">                for (Map.Entry&lt;String, Set&lt;PublishedArtifactSet.Artifact&gt;&gt; entry : workspaceArtifacts.entrySet()) {</span>
+<span class="pc bpc" id="L152" title="1 of 2 branches missed.">                    for (PublishedArtifactSet.Artifact artifact : entry.getValue()) {</span>
+<span class="pc bpc" id="L153" title="1 of 2 branches missed.">                        if (artifact.groupId().equals(gid)</span>
+<span class="pc bpc" id="L154" title="1 of 2 branches missed.">                                &amp;&amp; artifact.artifactId().equals(aid)) {</span>
+<span class="fc" id="L155">                            publishingSubproject = entry.getKey();</span>
+<span class="fc" id="L156">                            break;</span>
                         }
-<span class="nc" id="L150">                    }</span>
-<span class="nc bnc" id="L151" title="All 2 branches missed.">                    if (publishingSubproject != null) break;</span>
-<span class="nc" id="L152">                }</span>
+<span class="nc" id="L158">                    }</span>
+<span class="pc bpc" id="L159" title="1 of 2 branches missed.">                    if (publishingSubproject != null) break;</span>
+<span class="nc" id="L160">                }</span>
 
-<span class="nc bnc" id="L154" title="All 2 branches missed.">                imports.add(new BomImport(gid, aid, ver,</span>
+<span class="pc bpc" id="L162" title="1 of 2 branches missed.">                imports.add(new BomImport(gid, aid, ver,</span>
                         publishingSubproject != null,
                         publishingSubproject, index));
-<span class="nc" id="L157">                index++;</span>
+<span class="fc" id="L165">                index++;</span>
             }
-<span class="nc" id="L159">        }</span>
+<span class="fc" id="L167">        }</span>
 
-<span class="nc" id="L161">        return imports;</span>
+<span class="fc" id="L169">        return imports;</span>
     }
 
     /**
@@ -175,52 +183,236 @@ public final class BomAnalysis {
             Map&lt;String, Set&lt;PublishedArtifactSet.Artifact&gt;&gt; workspaceArtifacts)
             throws IOException {
 
-<span class="nc" id="L178">        List&lt;CascadeIssue&gt; issues = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L186">        List&lt;CascadeIssue&gt; issues = new ArrayList&lt;&gt;();</span>
 
-<span class="nc bnc" id="L180" title="All 2 branches missed.">        for (Map.Entry&lt;String, Subproject&gt; entry : manifest.subprojects().entrySet()) {</span>
-<span class="nc" id="L181">            String subprojectName = entry.getKey();</span>
-<span class="nc" id="L182">            Subproject sub = entry.getValue();</span>
+        // Per-call cache of a workspace-internal BOM's managed artifact set,
+        // keyed by the BOM's groupId:artifactId. A single shared BOM (e.g.
+        // komet-bom) is imported by most subprojects, so resolving its
+        // managed set once avoids re-walking and re-parsing it per edge.
+<span class="fc" id="L192">        Map&lt;String, Set&lt;PublishedArtifactSet.Artifact&gt;&gt; managedCache =</span>
+                new LinkedHashMap&lt;&gt;();
 
-<span class="nc bnc" id="L184" title="All 4 branches missed.">            if (sub.dependsOn() == null || sub.dependsOn().isEmpty()) continue;</span>
+<span class="fc bfc" id="L195" title="All 2 branches covered.">        for (Map.Entry&lt;String, Subproject&gt; entry : manifest.subprojects().entrySet()) {</span>
+<span class="fc" id="L196">            String subprojectName = entry.getKey();</span>
+<span class="fc" id="L197">            Subproject sub = entry.getValue();</span>
 
-<span class="nc" id="L186">            Path pomFile = wsDir.resolve(subprojectName).resolve(&quot;pom.xml&quot;);</span>
-<span class="nc" id="L187">            List&lt;BomImport&gt; bomImports = extractBomImports(</span>
+<span class="pc bpc" id="L199" title="1 of 4 branches missed.">            if (sub.dependsOn() == null || sub.dependsOn().isEmpty()) continue;</span>
+
+<span class="fc" id="L201">            Path pomFile = wsDir.resolve(subprojectName).resolve(&quot;pom.xml&quot;);</span>
+<span class="fc" id="L202">            List&lt;BomImport&gt; bomImports = extractBomImports(</span>
                     pomFile, workspaceArtifacts);
 
-<span class="nc bnc" id="L190" title="All 2 branches missed.">            for (Dependency dep : sub.dependsOn()) {</span>
-<span class="nc" id="L191">                String upstream = dep.subproject();</span>
-<span class="nc bnc" id="L192" title="All 2 branches missed.">                boolean hasVersionProp = dep.versionProperty() != null;</span>
+<span class="fc bfc" id="L205" title="All 2 branches covered.">            for (Dependency dep : sub.dependsOn()) {</span>
+<span class="fc" id="L206">                String upstream = dep.subproject();</span>
+<span class="fc bfc" id="L207" title="All 2 branches covered.">                boolean hasVersionProp = dep.versionProperty() != null;</span>
 
-                // Check if any workspace-internal BOM import tracks upstream
-<span class="nc" id="L195">                boolean hasWorkspaceBom = bomImports.stream()</span>
-<span class="nc bnc" id="L196" title="All 2 branches missed.">                        .anyMatch(b -&gt; b.isWorkspaceInternal</span>
-<span class="nc bnc" id="L197" title="All 2 branches missed.">                                &amp;&amp; upstream.equals(b.publishingSubproject));</span>
+<span class="fc" id="L209">                Set&lt;PublishedArtifactSet.Artifact&gt; upstreamArtifacts =</span>
+<span class="fc" id="L210">                        workspaceArtifacts.getOrDefault(upstream, Set.of());</span>
 
-                // Find external BOMs that manage upstream's artifacts
-<span class="nc" id="L200">                Set&lt;PublishedArtifactSet.Artifact&gt; upstreamArtifacts =</span>
-<span class="nc" id="L201">                        workspaceArtifacts.getOrDefault(upstream, Set.of());</span>
-<span class="nc" id="L202">                List&lt;BomImport&gt; externalPins = new ArrayList&lt;&gt;();</span>
+                // A workspace-internal BOM covers this edge when it either
+                // IS the upstream's own BOM, or it MANAGES one of the
+                // upstream's published artifacts (ike-issues#794). The
+                // latter is the common shape: a single shared BOM governs
+                // every upstream's version and no per-edge version-property
+                // is declared, so the structural &quot;BOM GA == upstream GA&quot;
+                // test alone would report a false-positive gap.
+<span class="fc" id="L219">                boolean hasWorkspaceBom = false;</span>
+<span class="fc bfc" id="L220" title="All 2 branches covered.">                for (BomImport bom : bomImports) {</span>
+<span class="pc bpc" id="L221" title="1 of 2 branches missed.">                    if (!bom.isWorkspaceInternal) continue;</span>
+<span class="fc bfc" id="L222" title="All 2 branches covered.">                    if (upstream.equals(bom.publishingSubproject)</span>
+<span class="fc bfc" id="L223" title="All 2 branches covered.">                            || bomManagesAny(wsDir, bom, upstreamArtifacts,</span>
+                                    managedCache)) {
+<span class="fc" id="L225">                        hasWorkspaceBom = true;</span>
+<span class="fc" id="L226">                        break;</span>
+                    }
+<span class="fc" id="L228">                }</span>
 
-<span class="nc bnc" id="L204" title="All 2 branches missed.">                for (BomImport bom : bomImports) {</span>
-<span class="nc bnc" id="L205" title="All 2 branches missed.">                    if (bom.isWorkspaceInternal) continue;</span>
+                // Find external BOMs that may pin upstream's artifacts from
+                // outside the workspace. Precisely confirming the pin would
+                // require resolving the external BOM's effective
+                // dependencyManagement — see the ike-issues#794 follow-up.
+<span class="fc" id="L234">                List&lt;BomImport&gt; externalPins = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L235" title="All 2 branches covered.">                for (BomImport bom : bomImports) {</span>
+<span class="pc bpc" id="L236" title="1 of 2 branches missed.">                    if (bom.isWorkspaceInternal) continue;</span>
+<span class="nc" id="L237">                    externalPins.add(bom);</span>
+<span class="nc" id="L238">                }</span>
 
-                    // We can't resolve the BOM's managed deps without
-                    // downloading it. But we can flag external BOMs that
-                    // share a groupId prefix with upstream artifacts as
-                    // potential pins.
-                    // For a more precise check, we'd need the BOM's
-                    // effective dependencyManagement — future enhancement.
-<span class="nc" id="L213">                    externalPins.add(bom);</span>
-<span class="nc" id="L214">                }</span>
-
-<span class="nc bnc" id="L216" title="All 4 branches missed.">                if (!hasVersionProp &amp;&amp; !hasWorkspaceBom) {</span>
-<span class="nc" id="L217">                    issues.add(new CascadeIssue(subprojectName, upstream,</span>
+<span class="fc bfc" id="L240" title="All 4 branches covered.">                if (!hasVersionProp &amp;&amp; !hasWorkspaceBom) {</span>
+<span class="fc" id="L241">                    issues.add(new CascadeIssue(subprojectName, upstream,</span>
                             hasVersionProp, hasWorkspaceBom, externalPins));
                 }
-<span class="nc" id="L220">            }</span>
-<span class="nc" id="L221">        }</span>
+<span class="fc" id="L244">            }</span>
+<span class="fc" id="L245">        }</span>
 
-<span class="nc" id="L223">        return issues;</span>
+<span class="fc" id="L247">        return issues;</span>
+    }
+
+    /**
+     * Extract the set of artifact coordinates managed by a BOM POM's
+     * {@code &lt;dependencyManagement&gt;} section.
+     *
+     * &lt;p&gt;Returns every {@code groupId:artifactId} pair declared under
+     * {@code &lt;dependencyManagement&gt;&lt;dependencies&gt;}, with {@code ${property}}
+     * references in the groupId and artifactId resolved against the POM's own
+     * {@code &lt;properties&gt;}. Versions are ignored — this set answers &quot;which
+     * artifacts does this BOM govern&quot;, not &quot;at what version&quot;.
+     *
+     * &lt;p&gt;Nested BOM imports (a {@code &lt;dependency&gt;} with {@code &lt;type&gt;pom&lt;/type&gt;}
+     * and {@code &lt;scope&gt;import&lt;/scope&gt;}) are reported as their own coordinate
+     * but are NOT transitively expanded into the artifacts they manage. See
+     * the IKE-Network/ike-issues#794 follow-up for transitive resolution.
+     *
+     * @param bomPom the BOM POM file to read
+     * @return the managed {@code groupId:artifactId} set; empty if the file is
+     *         absent, unparseable, or declares no {@code &lt;dependencyManagement&gt;}
+     * @throws IOException if the POM cannot be read
+     */
+    public static Set&lt;PublishedArtifactSet.Artifact&gt; extractManagedArtifacts(
+            Path bomPom) throws IOException {
+<span class="fc" id="L272">        Set&lt;PublishedArtifactSet.Artifact&gt; managed = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L273" title="All 2 branches covered.">        if (!Files.exists(bomPom)) return managed;</span>
+
+        Document doc;
+        try {
+<span class="fc" id="L277">            DocumentBuilder db = DBF.newDocumentBuilder();</span>
+<span class="fc" id="L278">            doc = db.parse(bomPom.toFile());</span>
+<span class="nc" id="L279">        } catch (Exception e) {</span>
+<span class="nc" id="L280">            return managed;</span>
+<span class="fc" id="L281">        }</span>
+
+<span class="fc" id="L283">        Element project = doc.getDocumentElement();</span>
+<span class="fc" id="L284">        Map&lt;String, String&gt; properties = readProperties(project);</span>
+
+<span class="fc" id="L286">        Element depMgmt = firstChild(project, &quot;dependencyManagement&quot;);</span>
+<span class="fc bfc" id="L287" title="All 2 branches covered.">        if (depMgmt == null) return managed;</span>
+<span class="fc" id="L288">        Element deps = firstChild(depMgmt, &quot;dependencies&quot;);</span>
+<span class="pc bpc" id="L289" title="1 of 2 branches missed.">        if (deps == null) return managed;</span>
+
+<span class="fc bfc" id="L291" title="All 2 branches covered.">        for (Element dep : children(deps, &quot;dependency&quot;)) {</span>
+<span class="fc" id="L292">            String gid = resolve(childText(dep, &quot;groupId&quot;), properties);</span>
+<span class="fc" id="L293">            String aid = resolve(childText(dep, &quot;artifactId&quot;), properties);</span>
+<span class="pc bpc" id="L294" title="2 of 4 branches missed.">            if (gid == null || aid == null) continue;</span>
+<span class="fc" id="L295">            managed.add(new PublishedArtifactSet.Artifact(gid, aid));</span>
+<span class="fc" id="L296">        }</span>
+<span class="fc" id="L297">        return managed;</span>
+    }
+
+    /**
+     * Whether a workspace-internal BOM import manages any of the upstream
+     * subproject's published artifacts.
+     *
+     * @param wsDir             workspace root directory
+     * @param bom               the workspace-internal BOM import to inspect
+     * @param upstreamArtifacts the upstream subproject's published artifact set
+     * @param cache             per-call cache of managed artifact sets keyed by
+     *                          the BOM's {@code groupId:artifactId}
+     * @return true if the BOM's managed set intersects the upstream's artifacts
+     * @throws IOException if a POM cannot be read
+     */
+    private static boolean bomManagesAny(Path wsDir, BomImport bom,
+            Set&lt;PublishedArtifactSet.Artifact&gt; upstreamArtifacts,
+            Map&lt;String, Set&lt;PublishedArtifactSet.Artifact&gt;&gt; cache)
+            throws IOException {
+<span class="pc bpc" id="L316" title="1 of 2 branches missed.">        if (upstreamArtifacts.isEmpty()) return false;</span>
+<span class="fc" id="L317">        Set&lt;PublishedArtifactSet.Artifact&gt; managed =</span>
+<span class="fc" id="L318">                managedArtifactsOf(wsDir, bom, cache);</span>
+<span class="fc bfc" id="L319" title="All 2 branches covered.">        for (PublishedArtifactSet.Artifact artifact : upstreamArtifacts) {</span>
+<span class="fc bfc" id="L320" title="All 2 branches covered.">            if (managed.contains(artifact)) return true;</span>
+<span class="fc" id="L321">        }</span>
+<span class="fc" id="L322">        return false;</span>
+    }
+
+    /**
+     * Resolve the managed artifact set of a workspace-internal BOM, caching
+     * the result by the BOM's {@code groupId:artifactId}.
+     *
+     * &lt;p&gt;The BOM is published by {@link BomImport#publishingSubproject()}; its
+     * declaring POM is located by walking that subproject's POM tree for the
+     * file whose own coordinates equal the BOM's {@code groupId:artifactId}.
+     * This is fully offline — workspace-internal BOMs are already on disk.
+     *
+     * @param wsDir workspace root directory
+     * @param bom   the workspace-internal BOM import
+     * @param cache per-call cache of managed sets keyed by BOM coordinate
+     * @return the BOM's managed {@code groupId:artifactId} set (possibly empty)
+     * @throws IOException if a POM cannot be read
+     */
+    private static Set&lt;PublishedArtifactSet.Artifact&gt; managedArtifactsOf(
+            Path wsDir, BomImport bom,
+            Map&lt;String, Set&lt;PublishedArtifactSet.Artifact&gt;&gt; cache)
+            throws IOException {
+<span class="fc" id="L344">        String key = bom.groupId() + &quot;:&quot; + bom.artifactId();</span>
+<span class="fc" id="L345">        Set&lt;PublishedArtifactSet.Artifact&gt; cached = cache.get(key);</span>
+<span class="fc bfc" id="L346" title="All 2 branches covered.">        if (cached != null) return cached;</span>
+
+<span class="fc" id="L348">        Set&lt;PublishedArtifactSet.Artifact&gt; managed = new LinkedHashSet&lt;&gt;();</span>
+<span class="pc bpc" id="L349" title="1 of 2 branches missed.">        if (bom.publishingSubproject() != null) {</span>
+<span class="fc" id="L350">            Path subDir = wsDir.resolve(bom.publishingSubproject());</span>
+<span class="pc bpc" id="L351" title="1 of 2 branches missed.">            if (Files.exists(subDir)) {</span>
+<span class="fc bfc" id="L352" title="All 2 branches covered.">                for (Path pom : findPomFiles(subDir)) {</span>
+<span class="pc bpc" id="L353" title="1 of 2 branches missed.">                    if (projectGaMatches(pom, bom.groupId(), bom.artifactId())) {</span>
+<span class="fc" id="L354">                        managed.addAll(extractManagedArtifacts(pom));</span>
+                    }
+<span class="fc" id="L356">                }</span>
+            }
+        }
+<span class="fc" id="L359">        cache.put(key, managed);</span>
+<span class="fc" id="L360">        return managed;</span>
+    }
+
+    /**
+     * Recursively collect {@code pom.xml} files under a directory, skipping
+     * any {@code target/} build-output subtree.
+     *
+     * @param dir the directory to walk
+     * @return the POM files found (empty if the directory does not exist)
+     * @throws IOException if the directory cannot be walked
+     */
+    private static List&lt;Path&gt; findPomFiles(Path dir) throws IOException {
+<span class="pc bpc" id="L372" title="1 of 2 branches missed.">        if (!Files.exists(dir)) return List.of();</span>
+<span class="fc" id="L373">        try (Stream&lt;Path&gt; walk = Files.walk(dir)) {</span>
+<span class="fc" id="L374">            return walk.filter(Files::isRegularFile)</span>
+<span class="fc" id="L375">                    .filter(p -&gt; &quot;pom.xml&quot;.equals(p.getFileName().toString()))</span>
+<span class="pc bpc" id="L376" title="1 of 2 branches missed.">                    .filter(p -&gt; !hasTargetSegment(p))</span>
+<span class="fc" id="L377">                    .toList();</span>
+        }
+    }
+
+    private static boolean hasTargetSegment(Path path) {
+<span class="fc bfc" id="L382" title="All 2 branches covered.">        for (Path segment : path) {</span>
+<span class="pc bpc" id="L383" title="1 of 2 branches missed.">            if (&quot;target&quot;.equals(segment.toString())) return true;</span>
+<span class="fc" id="L384">        }</span>
+<span class="fc" id="L385">        return false;</span>
+    }
+
+    /**
+     * Whether a POM's own project coordinates equal the given
+     * {@code groupId:artifactId}. The groupId falls back to the parent's
+     * groupId when not declared on the project itself.
+     *
+     * @param pomFile    the POM to inspect
+     * @param groupId    the groupId to match
+     * @param artifactId the artifactId to match
+     * @return true if the POM declares (or inherits) the given coordinates
+     */
+    private static boolean projectGaMatches(Path pomFile, String groupId,
+                                            String artifactId) {
+        Document doc;
+        try {
+<span class="fc" id="L402">            DocumentBuilder db = DBF.newDocumentBuilder();</span>
+<span class="fc" id="L403">            doc = db.parse(pomFile.toFile());</span>
+<span class="nc" id="L404">        } catch (Exception e) {</span>
+<span class="nc" id="L405">            return false;</span>
+<span class="fc" id="L406">        }</span>
+<span class="fc" id="L407">        Element project = doc.getDocumentElement();</span>
+<span class="pc bpc" id="L408" title="1 of 2 branches missed.">        if (!artifactId.equals(childText(project, &quot;artifactId&quot;))) return false;</span>
+
+<span class="fc" id="L410">        String gid = childText(project, &quot;groupId&quot;);</span>
+<span class="pc bpc" id="L411" title="1 of 2 branches missed.">        if (gid == null) {</span>
+<span class="nc" id="L412">            Element parent = firstChild(project, &quot;parent&quot;);</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">            if (parent != null) gid = childText(parent, &quot;groupId&quot;);</span>
+        }
+<span class="fc" id="L415">        return groupId.equals(gid);</span>
     }
 
     /**
@@ -241,8 +433,8 @@ public final class BomAnalysis {
                                                   String artifactId,
                                                   String newVersion)
             throws IOException {
-<span class="nc" id="L244">        String content = Files.readString(pomFile);</span>
-<span class="nc" id="L245">        String original = content;</span>
+<span class="nc" id="L436">        String content = Files.readString(pomFile);</span>
+<span class="nc" id="L437">        String original = content;</span>
 
         // Find the BOM import block and update its version.
         // This uses text manipulation (not DOM) because we need to
@@ -251,108 +443,108 @@ public final class BomAnalysis {
         // Strategy: find &lt;dependency&gt; blocks inside &lt;dependencyManagement&gt;
         // that match groupId, artifactId, type=pom, scope=import,
         // then rewrite the &lt;version&gt; element.
-<span class="nc" id="L254">        String depMgmtBlock = extractBlock(content,</span>
+<span class="nc" id="L446">        String depMgmtBlock = extractBlock(content,</span>
                 &quot;&lt;dependencyManagement&gt;&quot;, &quot;&lt;/dependencyManagement&gt;&quot;);
-<span class="nc bnc" id="L256" title="All 2 branches missed.">        if (depMgmtBlock == null) return false;</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">        if (depMgmtBlock == null) return false;</span>
 
-<span class="nc" id="L258">        String searchGid = &quot;&lt;groupId&gt;&quot; + groupId + &quot;&lt;/groupId&gt;&quot;;</span>
-<span class="nc" id="L259">        String searchAid = &quot;&lt;artifactId&gt;&quot; + artifactId + &quot;&lt;/artifactId&gt;&quot;;</span>
+<span class="nc" id="L450">        String searchGid = &quot;&lt;groupId&gt;&quot; + groupId + &quot;&lt;/groupId&gt;&quot;;</span>
+<span class="nc" id="L451">        String searchAid = &quot;&lt;artifactId&gt;&quot; + artifactId + &quot;&lt;/artifactId&gt;&quot;;</span>
 
-<span class="nc" id="L261">        int searchFrom = 0;</span>
+<span class="nc" id="L453">        int searchFrom = 0;</span>
         while (true) {
-<span class="nc" id="L263">            int depStart = depMgmtBlock.indexOf(&quot;&lt;dependency&gt;&quot;, searchFrom);</span>
-<span class="nc bnc" id="L264" title="All 2 branches missed.">            if (depStart &lt; 0) break;</span>
-<span class="nc" id="L265">            int depEnd = depMgmtBlock.indexOf(&quot;&lt;/dependency&gt;&quot;, depStart);</span>
-<span class="nc bnc" id="L266" title="All 2 branches missed.">            if (depEnd &lt; 0) break;</span>
+<span class="nc" id="L455">            int depStart = depMgmtBlock.indexOf(&quot;&lt;dependency&gt;&quot;, searchFrom);</span>
+<span class="nc bnc" id="L456" title="All 2 branches missed.">            if (depStart &lt; 0) break;</span>
+<span class="nc" id="L457">            int depEnd = depMgmtBlock.indexOf(&quot;&lt;/dependency&gt;&quot;, depStart);</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">            if (depEnd &lt; 0) break;</span>
 
-<span class="nc" id="L268">            String depBlock = depMgmtBlock.substring(depStart, depEnd + &quot;&lt;/dependency&gt;&quot;.length());</span>
-<span class="nc" id="L269">            searchFrom = depEnd + 1;</span>
+<span class="nc" id="L460">            String depBlock = depMgmtBlock.substring(depStart, depEnd + &quot;&lt;/dependency&gt;&quot;.length());</span>
+<span class="nc" id="L461">            searchFrom = depEnd + 1;</span>
 
-<span class="nc bnc" id="L271" title="All 4 branches missed.">            if (!depBlock.contains(searchGid) || !depBlock.contains(searchAid)) continue;</span>
-<span class="nc bnc" id="L272" title="All 2 branches missed.">            if (!depBlock.contains(&quot;&lt;type&gt;pom&lt;/type&gt;&quot;)) continue;</span>
-<span class="nc bnc" id="L273" title="All 2 branches missed.">            if (!depBlock.contains(&quot;&lt;scope&gt;import&lt;/scope&gt;&quot;)) continue;</span>
+<span class="nc bnc" id="L463" title="All 4 branches missed.">            if (!depBlock.contains(searchGid) || !depBlock.contains(searchAid)) continue;</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">            if (!depBlock.contains(&quot;&lt;type&gt;pom&lt;/type&gt;&quot;)) continue;</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">            if (!depBlock.contains(&quot;&lt;scope&gt;import&lt;/scope&gt;&quot;)) continue;</span>
 
             // Found the matching BOM import — update its version
-<span class="nc" id="L276">            String versionPattern = &quot;&lt;version&gt;[^&lt;]+&lt;/version&gt;&quot;;</span>
-<span class="nc" id="L277">            String updatedBlock = depBlock.replaceFirst(</span>
+<span class="nc" id="L468">            String versionPattern = &quot;&lt;version&gt;[^&lt;]+&lt;/version&gt;&quot;;</span>
+<span class="nc" id="L469">            String updatedBlock = depBlock.replaceFirst(</span>
                     versionPattern, &quot;&lt;version&gt;&quot; + newVersion + &quot;&lt;/version&gt;&quot;);
 
-<span class="nc bnc" id="L280" title="All 2 branches missed.">            if (!updatedBlock.equals(depBlock)) {</span>
-<span class="nc" id="L281">                content = content.replace(depBlock, updatedBlock);</span>
-<span class="nc" id="L282">                Files.writeString(pomFile, content);</span>
-<span class="nc" id="L283">                return true;</span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">            if (!updatedBlock.equals(depBlock)) {</span>
+<span class="nc" id="L473">                content = content.replace(depBlock, updatedBlock);</span>
+<span class="nc" id="L474">                Files.writeString(pomFile, content);</span>
+<span class="nc" id="L475">                return true;</span>
             }
-<span class="nc" id="L285">        }</span>
+<span class="nc" id="L477">        }</span>
 
-<span class="nc" id="L287">        return false;</span>
+<span class="nc" id="L479">        return false;</span>
     }
 
     // ── DOM helpers (same pattern as PublishedArtifactSet) ──────
 
     private static String extractBlock(String content, String startTag, String endTag) {
-<span class="nc" id="L293">        int start = content.indexOf(startTag);</span>
-<span class="nc bnc" id="L294" title="All 2 branches missed.">        if (start &lt; 0) return null;</span>
-<span class="nc" id="L295">        int end = content.indexOf(endTag, start);</span>
-<span class="nc bnc" id="L296" title="All 2 branches missed.">        if (end &lt; 0) return null;</span>
-<span class="nc" id="L297">        return content.substring(start, end + endTag.length());</span>
+<span class="nc" id="L485">        int start = content.indexOf(startTag);</span>
+<span class="nc bnc" id="L486" title="All 2 branches missed.">        if (start &lt; 0) return null;</span>
+<span class="nc" id="L487">        int end = content.indexOf(endTag, start);</span>
+<span class="nc bnc" id="L488" title="All 2 branches missed.">        if (end &lt; 0) return null;</span>
+<span class="nc" id="L489">        return content.substring(start, end + endTag.length());</span>
     }
 
     private static Map&lt;String, String&gt; readProperties(Element project) {
-<span class="nc" id="L301">        Map&lt;String, String&gt; props = new LinkedHashMap&lt;&gt;();</span>
-<span class="nc" id="L302">        Element propsEl = firstChild(project, &quot;properties&quot;);</span>
-<span class="nc bnc" id="L303" title="All 2 branches missed.">        if (propsEl != null) {</span>
-<span class="nc" id="L304">            NodeList children = propsEl.getChildNodes();</span>
-<span class="nc bnc" id="L305" title="All 2 branches missed.">            for (int i = 0; i &lt; children.getLength(); i++) {</span>
-<span class="nc" id="L306">                Node node = children.item(i);</span>
-<span class="nc bnc" id="L307" title="All 2 branches missed.">                if (node.getNodeType() == Node.ELEMENT_NODE) {</span>
-<span class="nc" id="L308">                    String value = node.getTextContent().trim();</span>
-<span class="nc bnc" id="L309" title="All 2 branches missed.">                    if (!value.isEmpty()) {</span>
-<span class="nc" id="L310">                        props.put(node.getNodeName(), value);</span>
+<span class="fc" id="L493">        Map&lt;String, String&gt; props = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L494">        Element propsEl = firstChild(project, &quot;properties&quot;);</span>
+<span class="fc bfc" id="L495" title="All 2 branches covered.">        if (propsEl != null) {</span>
+<span class="fc" id="L496">            NodeList children = propsEl.getChildNodes();</span>
+<span class="fc bfc" id="L497" title="All 2 branches covered.">            for (int i = 0; i &lt; children.getLength(); i++) {</span>
+<span class="fc" id="L498">                Node node = children.item(i);</span>
+<span class="fc bfc" id="L499" title="All 2 branches covered.">                if (node.getNodeType() == Node.ELEMENT_NODE) {</span>
+<span class="fc" id="L500">                    String value = node.getTextContent().trim();</span>
+<span class="pc bpc" id="L501" title="1 of 2 branches missed.">                    if (!value.isEmpty()) {</span>
+<span class="fc" id="L502">                        props.put(node.getNodeName(), value);</span>
                     }
                 }
             }
         }
-<span class="nc" id="L315">        return props;</span>
+<span class="fc" id="L507">        return props;</span>
     }
 
     private static String resolve(String value, Map&lt;String, String&gt; properties) {
-<span class="nc bnc" id="L319" title="All 4 branches missed.">        if (value == null || !value.contains(&quot;${&quot;)) return value;</span>
-<span class="nc bnc" id="L320" title="All 2 branches missed.">        for (Map.Entry&lt;String, String&gt; entry : properties.entrySet()) {</span>
-<span class="nc" id="L321">            value = value.replace(&quot;${&quot; + entry.getKey() + &quot;}&quot;, entry.getValue());</span>
-<span class="nc" id="L322">        }</span>
-<span class="nc" id="L323">        return value;</span>
+<span class="pc bpc" id="L511" title="1 of 4 branches missed.">        if (value == null || !value.contains(&quot;${&quot;)) return value;</span>
+<span class="fc bfc" id="L512" title="All 2 branches covered.">        for (Map.Entry&lt;String, String&gt; entry : properties.entrySet()) {</span>
+<span class="fc" id="L513">            value = value.replace(&quot;${&quot; + entry.getKey() + &quot;}&quot;, entry.getValue());</span>
+<span class="fc" id="L514">        }</span>
+<span class="fc" id="L515">        return value;</span>
     }
 
     private static String childText(Element parent, String tagName) {
-<span class="nc" id="L327">        Element child = firstChild(parent, tagName);</span>
-<span class="nc bnc" id="L328" title="All 2 branches missed.">        if (child == null) return null;</span>
-<span class="nc" id="L329">        String text = child.getTextContent().trim();</span>
-<span class="nc bnc" id="L330" title="All 2 branches missed.">        return text.isEmpty() ? null : text;</span>
+<span class="fc" id="L519">        Element child = firstChild(parent, tagName);</span>
+<span class="pc bpc" id="L520" title="1 of 2 branches missed.">        if (child == null) return null;</span>
+<span class="fc" id="L521">        String text = child.getTextContent().trim();</span>
+<span class="pc bpc" id="L522" title="1 of 2 branches missed.">        return text.isEmpty() ? null : text;</span>
     }
 
     private static Element firstChild(Element parent, String tagName) {
-<span class="nc" id="L334">        NodeList children = parent.getChildNodes();</span>
-<span class="nc bnc" id="L335" title="All 2 branches missed.">        for (int i = 0; i &lt; children.getLength(); i++) {</span>
-<span class="nc" id="L336">            Node node = children.item(i);</span>
-<span class="nc bnc" id="L337" title="All 2 branches missed.">            if (node.getNodeType() == Node.ELEMENT_NODE</span>
-<span class="nc bnc" id="L338" title="All 2 branches missed.">                    &amp;&amp; tagName.equals(node.getNodeName())) {</span>
-<span class="nc" id="L339">                return (Element) node;</span>
+<span class="fc" id="L526">        NodeList children = parent.getChildNodes();</span>
+<span class="fc bfc" id="L527" title="All 2 branches covered.">        for (int i = 0; i &lt; children.getLength(); i++) {</span>
+<span class="fc" id="L528">            Node node = children.item(i);</span>
+<span class="fc bfc" id="L529" title="All 2 branches covered.">            if (node.getNodeType() == Node.ELEMENT_NODE</span>
+<span class="fc bfc" id="L530" title="All 2 branches covered.">                    &amp;&amp; tagName.equals(node.getNodeName())) {</span>
+<span class="fc" id="L531">                return (Element) node;</span>
             }
         }
-<span class="nc" id="L342">        return null;</span>
+<span class="fc" id="L534">        return null;</span>
     }
 
     private static List&lt;Element&gt; children(Element parent, String tagName) {
-<span class="nc" id="L346">        List&lt;Element&gt; result = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L347">        NodeList children = parent.getChildNodes();</span>
-<span class="nc bnc" id="L348" title="All 2 branches missed.">        for (int i = 0; i &lt; children.getLength(); i++) {</span>
-<span class="nc" id="L349">            Node node = children.item(i);</span>
-<span class="nc bnc" id="L350" title="All 2 branches missed.">            if (node.getNodeType() == Node.ELEMENT_NODE</span>
-<span class="nc bnc" id="L351" title="All 2 branches missed.">                    &amp;&amp; tagName.equals(node.getNodeName())) {</span>
-<span class="nc" id="L352">                result.add((Element) node);</span>
+<span class="fc" id="L538">        List&lt;Element&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L539">        NodeList children = parent.getChildNodes();</span>
+<span class="fc bfc" id="L540" title="All 2 branches covered.">        for (int i = 0; i &lt; children.getLength(); i++) {</span>
+<span class="fc" id="L541">            Node node = children.item(i);</span>
+<span class="fc bfc" id="L542" title="All 2 branches covered.">            if (node.getNodeType() == Node.ELEMENT_NODE</span>
+<span class="pc bpc" id="L543" title="1 of 2 branches missed.">                    &amp;&amp; tagName.equals(node.getNodeName())) {</span>
+<span class="fc" id="L544">                result.add((Element) node);</span>
             }
         }
-<span class="nc" id="L355">        return result;</span>
+<span class="fc" id="L547">        return result;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
