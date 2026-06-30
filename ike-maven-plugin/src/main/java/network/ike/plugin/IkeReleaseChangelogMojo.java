@@ -102,6 +102,22 @@ public class IkeReleaseChangelogMojo extends AbstractGoalMojo {
             getLog().info("No previous release tag reachable from " + to
                     + "; changelog is empty.");
             changelog = "";
+        } else if (new File(gitRoot, "workspace.yaml").isFile()) {
+            // Workspace aggregator: fan out across subprojects by pin diff so
+            // the changelog reflects every subproject's code change, not just
+            // the aggregator's own workspace.yaml/merge commits — the gap that
+            // left subproject changes out of the checkpoint Zulip note
+            // (IKE-Network/ike-issues#792).
+            changelog = ReleaseNotesSupport.formatWorkspaceChangelog(
+                    gitRoot, fromRef, to);
+            if (changelog.isBlank()) {
+                // No subproject pin advanced (or no readable history) — fall
+                // back to the aggregator's own commits so the output is never
+                // silently empty.
+                changelog = ReleaseNotesSupport.formatChangelog(
+                        ReleaseNotesSupport.commitMessagesBetween(
+                                gitRoot, fromRef, to));
+            }
         } else {
             List<String> commits = ReleaseNotesSupport.commitMessagesBetween(
                     gitRoot, fromRef, to);

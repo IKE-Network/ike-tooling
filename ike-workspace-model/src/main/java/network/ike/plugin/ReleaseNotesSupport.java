@@ -4,8 +4,13 @@ import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.Log;
 import org.yaml.snakeyaml.Yaml;
 
+import network.ike.workspace.Manifest;
+import network.ike.workspace.ManifestReader;
+import network.ike.workspace.Subproject;
+
 import java.io.File;
 import java.io.IOException;
+import java.io.StringReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -1329,6 +1334,172 @@ public final class ReleaseNotesSupport {
             sb.append("\n");
         }
         return sb.toString();
+    }
+
+    // ── Workspace (per-subproject) changelog (#792) ─────────────────
+
+    /**
+     * Supplies the commit messages for one subproject's pin advance, so
+     * {@link #formatWorkspaceChangelog(Manifest, Manifest, SubprojectCommits)}
+     * is unit-testable without a git checkout.
+     */
+    @FunctionalInterface
+    public interface SubprojectCommits {
+        /**
+         * @param name    the subproject name ({@code workspace.yaml} key)
+         * @param subproject the subproject as pinned in the {@code to} manifest
+         * @param fromSha the previous-checkpoint pin, or {@code null} when the
+         *                subproject is new since the previous checkpoint
+         * @param toSha   the current-checkpoint pin
+         * @return the subproject's commit messages in {@code fromSha..toSha},
+         *         newest first (empty when none or unavailable)
+         */
+        List<String> messagesFor(String name, Subproject subproject,
+                String fromSha, String toSha);
+    }
+
+    /**
+     * Compose a per-subproject "What's changed" changelog for a workspace
+     * checkpoint by diffing each subproject's {@code workspace.yaml} pin
+     * between two checkpoints (IKE-Network/ike-issues#792).
+     *
+     * <p>This is the workspace-aware counterpart to the single-repo
+     * {@link #formatChangelog} path. Run at an aggregator checkpoint it sees
+     * every subproject's code change, not just the aggregator's own
+     * {@code workspace.yaml}/merge commits — the gap that made the checkpoint
+     * Zulip note omit subproject changes while the GitHub release body
+     * (computed per-subproject from the pins) showed them.
+     *
+     * <p>For each subproject in {@code to} whose pinned {@code sha} differs
+     * from its {@code from} pin, the supplied {@link SubprojectCommits} yields
+     * that subproject's commit messages, which {@link #formatChangelog}
+     * filters and formats into a {@code ### <name>} section with a GitHub
+     * compare link. Subprojects with an unchanged pin, no prior pin needed
+     * for a link, or no substantive commits are handled gracefully; a
+     * subproject contributing no substantive commits is omitted entirely.
+     *
+     * @param from    the previous checkpoint's manifest, or {@code null} to
+     *                treat every subproject as new
+     * @param to      the current checkpoint's manifest
+     * @param commits supplies each changed subproject's commit messages
+     * @return the per-subproject Markdown (subprojects in manifest order), or
+     *         {@code ""} when nothing substantive changed
+     */
+    public static String formatWorkspaceChangelog(Manifest from, Manifest to,
+            SubprojectCommits commits) {
+        if (to == null) {
+            return "";
+        }
+        Map<String, Subproject> fromSubs =
+                (from != null) ? from.subprojects() : Map.of();
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Subproject> entry : to.subprojects().entrySet()) {
+            String name = entry.getKey();
+            Subproject sp = entry.getValue();
+            String toSha = sp.sha();
+            if (toSha == null || toSha.isBlank()) {
+                continue;
+            }
+            Subproject prev = fromSubs.get(name);
+            String fromSha = (prev != null) ? prev.sha() : null;
+            if (toSha.equals(fromSha)) {
+                continue; // pin unchanged — nothing new for this subproject
+            }
+            String section = formatChangelog(
+                    commits.messagesFor(name, sp, fromSha, toSha));
+            if (section.isBlank()) {
+                continue; // only release machinery, or no readable history
+            }
+            sb.append("### ").append(name);
+            String url = compareUrl(sp.repo(), fromSha, toSha);
+            if (url != null) {
+                sb.append(" — [`").append(shortSha(fromSha))
+                  .append("` → `").append(shortSha(toSha)).append("`](")
+                  .append(url).append(")");
+            }
+            sb.append("\n").append(section).append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Git-backed {@link #formatWorkspaceChangelog(Manifest, Manifest, SubprojectCommits)}:
+     * reads {@code workspace.yaml} from the aggregator at {@code fromRef} and
+     * {@code toRef}, and reads each changed subproject's commits from its
+     * worktree under the aggregator root. A subproject with no present
+     * worktree (or no prior pin) contributes no bullets and is therefore
+     * omitted.
+     *
+     * <p>Returns {@code ""} when {@code toRef} has no {@code workspace.yaml}
+     * (not an aggregator), so the caller can fall back to the single-repo
+     * changelog.
+     *
+     * @param aggregatorGitDir the workspace aggregator git working tree
+     * @param fromRef          the previous checkpoint ref/tag
+     * @param toRef            the current ref (a checkpoint tag or {@code HEAD})
+     * @return the per-subproject Markdown, or {@code ""} when unavailable
+     */
+    public static String formatWorkspaceChangelog(File aggregatorGitDir,
+            String fromRef, String toRef) {
+        Manifest toManifest = readManifestAtRef(aggregatorGitDir, toRef);
+        if (toManifest == null) {
+            return "";
+        }
+        Manifest fromManifest = readManifestAtRef(aggregatorGitDir, fromRef);
+        return formatWorkspaceChangelog(fromManifest, toManifest,
+                (name, sp, fromSha, toSha) -> {
+                    File subDir = new File(aggregatorGitDir, name);
+                    if (fromSha == null || !subDir.isDirectory()) {
+                        return List.of();
+                    }
+                    return commitMessagesBetween(subDir, fromSha, toSha);
+                });
+    }
+
+    /**
+     * Parse the {@code workspace.yaml} recorded at a git ref, or {@code null}
+     * when the ref has none (not an aggregator) or it cannot be read/parsed.
+     */
+    private static Manifest readManifestAtRef(File gitDir, String ref) {
+        if (ref == null || ref.isBlank()) {
+            return null;
+        }
+        try {
+            String yaml = ReleaseSupport.execCapture(gitDir, "git", "show",
+                    ref + ":workspace.yaml");
+            return ManifestReader.read(new StringReader(yaml));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * The GitHub {@code .../compare/<from>...<to>} URL for a subproject's
+     * {@code repo} pin advance, or {@code null} when either pin is absent
+     * (a new subproject has no prior pin to compare against) or the repo URL
+     * is unknown.
+     *
+     * @param repoUrl the subproject's git remote URL (a {@code .git} suffix
+     *                is stripped)
+     * @param fromSha the previous pin
+     * @param toSha   the current pin
+     * @return the compare URL, or {@code null}
+     */
+    static String compareUrl(String repoUrl, String fromSha, String toSha) {
+        if (repoUrl == null || repoUrl.isBlank()
+                || fromSha == null || toSha == null) {
+            return null;
+        }
+        String base = repoUrl.replaceFirst("(?i)\\.git$", "");
+        return base + "/compare/" + fromSha + "..." + toSha;
+    }
+
+    /** First 7 chars of a SHA (the input unchanged if shorter; "" if null). */
+    static String shortSha(String sha) {
+        if (sha == null) {
+            return "";
+        }
+        return sha.length() > 7 ? sha.substring(0, 7) : sha;
     }
 
     // ── Release-cascade Zulip topic grouping (#699) ─────────────────
