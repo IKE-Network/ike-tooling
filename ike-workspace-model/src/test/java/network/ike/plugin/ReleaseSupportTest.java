@@ -1478,10 +1478,14 @@ class ReleaseSupportTest {
     }
 
     private void exec(Path workDir, String... command) throws Exception {
-        Process process = new ProcessBuilder(command)
+        ProcessBuilder pb = new ProcessBuilder(command)
                 .directory(workDir.toFile())
-                .redirectErrorStream(true)
-                .start();
+                .redirectErrorStream(true);
+        // Isolate throwaway repos from the agent's global/system git config
+        // (IKE-Network/ike-issues#793).
+        pb.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        pb.environment().put("GIT_CONFIG_SYSTEM", "/dev/null");
+        Process process = pb.start();
         process.getInputStream().readAllBytes();
         int exitCode = process.waitFor();
         if (exitCode != 0) {
@@ -2133,10 +2137,14 @@ class ReleaseSupportTest {
     }
 
     private String execCapture(Path workDir, String... command) throws Exception {
-        Process process = new ProcessBuilder(command)
+        ProcessBuilder pb = new ProcessBuilder(command)
                 .directory(workDir.toFile())
-                .redirectErrorStream(true)
-                .start();
+                .redirectErrorStream(true);
+        // Isolate throwaway repos from the agent's global/system git config
+        // (IKE-Network/ike-issues#793).
+        pb.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        pb.environment().put("GIT_CONFIG_SYSTEM", "/dev/null");
+        Process process = pb.start();
         String output = new String(process.getInputStream().readAllBytes(),
                 StandardCharsets.UTF_8).trim();
         int exitCode = process.waitFor();

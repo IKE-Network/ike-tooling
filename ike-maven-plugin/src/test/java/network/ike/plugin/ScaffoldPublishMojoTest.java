@@ -641,8 +641,13 @@ class ScaffoldPublishMojoTest {
         String[] cmd = new String[args.length + 1];
         cmd[0] = "git";
         System.arraycopy(args, 0, cmd, 1, args.length);
-        Process p = new ProcessBuilder(cmd).directory(dir.toFile())
-                .redirectErrorStream(true).start();
+        ProcessBuilder pb = new ProcessBuilder(cmd).directory(dir.toFile())
+                .redirectErrorStream(true);
+        // Isolate throwaway repos from the agent's global/system git config
+        // (IKE-Network/ike-issues#793).
+        pb.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        pb.environment().put("GIT_CONFIG_SYSTEM", "/dev/null");
+        Process p = pb.start();
         p.getInputStream().readAllBytes();
         if (p.waitFor() != 0) {
             throw new RuntimeException("git " + String.join(" ", args) + " failed");
@@ -653,8 +658,13 @@ class ScaffoldPublishMojoTest {
         String[] cmd = new String[args.length + 1];
         cmd[0] = "git";
         System.arraycopy(args, 0, cmd, 1, args.length);
-        Process p = new ProcessBuilder(cmd).directory(dir.toFile())
-                .redirectErrorStream(true).start();
+        ProcessBuilder pb = new ProcessBuilder(cmd).directory(dir.toFile())
+                .redirectErrorStream(true);
+        // Isolate throwaway repos from the agent's global/system git config
+        // (IKE-Network/ike-issues#793).
+        pb.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        pb.environment().put("GIT_CONFIG_SYSTEM", "/dev/null");
+        Process p = pb.start();
         String out = new String(p.getInputStream().readAllBytes(),
                 java.nio.charset.StandardCharsets.UTF_8).trim();
         p.waitFor();

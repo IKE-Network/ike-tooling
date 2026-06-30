@@ -421,8 +421,13 @@ class IkeReleaseCascadeMojoTest {
         for (String a : args) {
             cmd.add(a);
         }
-        Process p = new ProcessBuilder(cmd)
-                .redirectErrorStream(true).start();
+        ProcessBuilder pb = new ProcessBuilder(cmd)
+                .redirectErrorStream(true);
+        // Isolate throwaway repos from the agent's global/system git config
+        // (IKE-Network/ike-issues#793).
+        pb.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        pb.environment().put("GIT_CONFIG_SYSTEM", "/dev/null");
+        Process p = pb.start();
         int rc = p.waitFor();
         if (rc != 0) {
             throw new RuntimeException("git " + String.join(" ", cmd)

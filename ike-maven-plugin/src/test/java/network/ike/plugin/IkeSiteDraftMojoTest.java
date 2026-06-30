@@ -117,6 +117,10 @@ class IkeSiteDraftMojoTest {
         ProcessBuilder pb = new ProcessBuilder(cmd)
                 .directory(cwd.toFile())
                 .redirectErrorStream(true);
+        // Isolate throwaway repos from the agent's global/system git config
+        // (IKE-Network/ike-issues#793).
+        pb.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        pb.environment().put("GIT_CONFIG_SYSTEM", "/dev/null");
         Process p = pb.start();
         String output = new String(p.getInputStream().readAllBytes());
         int rc = p.waitFor();
