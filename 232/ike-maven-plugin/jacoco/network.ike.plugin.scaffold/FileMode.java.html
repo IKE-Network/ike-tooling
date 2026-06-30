@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FileMode.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">FileMode.java</span></div><h1>FileMode.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
+import java.util.Set;
+
+/**
+ * Filesystem mode a scaffold-written file should carry on disk.
+ *
+ * &lt;p&gt;Declared per manifest entry via the optional {@code mode} key and
+ * applied by {@link ScaffoldApplier} on POSIX filesystems. Three named
+ * modes cover every scaffold file the manifest ships:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@link #DEFAULT} (0644) — ordinary tracked / tool-owned files;
+ *       the implicit mode when {@code mode} is absent.&lt;/li&gt;
+ *   &lt;li&gt;{@link #EXECUTABLE} (0755) — scripts that must run, e.g.
+ *       {@code mvnw}. Without this the applier would publish them
+ *       non-executable (every write goes through a 0600 temp file) and
+ *       {@code ./mvnw} would fail.&lt;/li&gt;
+ *   &lt;li&gt;{@link #PRIVATE} (0600) — owner-only, intentionally
+ *       non-executable files, e.g. the parked VCS-bridge git hooks.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;The string values are the {@code mode:} tokens authors write in
+ * {@code scaffold-manifest.yaml}; {@link #fromManifest(Object)} parses
+ * them once at apply time, turning the YAML string into this enum so
+ * the rest of the applier reasons over a type rather than a raw mode.
+ */
+<span class="fc" id="L30">public enum FileMode {</span>
+
+    /** 0644 — owner read/write, group/other read. The implicit default. */
+<span class="fc" id="L33">    DEFAULT(&quot;default&quot;, 0644),</span>
+
+    /** 0755 — adds the executable bit for all; for runnable scripts. */
+<span class="fc" id="L36">    EXECUTABLE(&quot;executable&quot;, 0755),</span>
+
+    /** 0600 — owner read/write only; non-executable and owner-private. */
+<span class="fc" id="L39">    PRIVATE(&quot;private&quot;, 0600);</span>
+
+    private final String manifestValue;
+    private final int octal;
+
+<span class="fc" id="L44">    FileMode(String manifestValue, int octal) {</span>
+<span class="fc" id="L45">        this.manifestValue = manifestValue;</span>
+<span class="fc" id="L46">        this.octal = octal;</span>
+<span class="fc" id="L47">    }</span>
+
+    /**
+     * The token used in a manifest entry's {@code mode} field.
+     *
+     * @return the lowercase manifest token (e.g. {@code &quot;executable&quot;})
+     */
+    public String manifestValue() {
+<span class="nc" id="L55">        return manifestValue;</span>
+    }
+
+    /**
+     * The POSIX mode bits this mode maps to.
+     *
+     * @return octal permission bits (e.g. {@code 0755})
+     */
+    public int octal() {
+<span class="fc" id="L64">        return octal;</span>
+    }
+
+    /**
+     * Whether this mode was explicitly requested (anything other than
+     * {@link #DEFAULT}). Explicit modes are enforced on every write;
+     * {@code DEFAULT} preserves a pre-existing file's permissions on
+     * update so the applier never loosens, say, a locked-down
+     * {@code ~/.m2/settings.xml}.
+     *
+     * @return {@code true} for {@link #EXECUTABLE} and {@link #PRIVATE}
+     */
+    public boolean isExplicit() {
+<span class="fc bfc" id="L77" title="All 2 branches covered.">        return this != DEFAULT;</span>
+    }
+
+    /**
+     * Resolve a manifest {@code mode} value to a {@link FileMode}.
+     *
+     * @param raw the raw YAML value of the entry's {@code mode} key;
+     *            {@code null} or blank yields {@link #DEFAULT}
+     * @return the matching mode
+     * @throws ScaffoldException if {@code raw} is a non-blank value that
+     *                           names no known mode
+     */
+    public static FileMode fromManifest(Object raw) {
+<span class="fc bfc" id="L90" title="All 2 branches covered.">        if (raw == null) {</span>
+<span class="fc" id="L91">            return DEFAULT;</span>
+        }
+<span class="fc" id="L93">        String token = raw.toString().trim();</span>
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        if (token.isEmpty()) {</span>
+<span class="fc" id="L95">            return DEFAULT;</span>
+        }
+<span class="fc bfc" id="L97" title="All 2 branches covered.">        for (FileMode mode : values()) {</span>
+<span class="fc bfc" id="L98" title="All 2 branches covered.">            if (mode.manifestValue.equalsIgnoreCase(token)) {</span>
+<span class="fc" id="L99">                return mode;</span>
+            }
+        }
+<span class="fc" id="L102">        throw new ScaffoldException(</span>
+                &quot;unknown file mode '&quot; + token
+                        + &quot;' (expected one of: default, executable, &quot;
+                        + &quot;private)&quot;);
+    }
+
+    /**
+     * Expand this mode's octal bits into a {@link PosixFilePermission}
+     * set suitable for {@link java.nio.file.Files#setPosixFilePermissions}.
+     *
+     * @return a fresh, mutable permission set
+     */
+    public Set&lt;PosixFilePermission&gt; toPosixPermissions() {
+<span class="fc" id="L115">        Set&lt;PosixFilePermission&gt; perms =</span>
+<span class="fc" id="L116">                EnumSet.noneOf(PosixFilePermission.class);</span>
+<span class="pc bpc" id="L117" title="1 of 2 branches missed.">        if ((octal &amp; 0400) != 0) perms.add(PosixFilePermission.OWNER_READ);</span>
+<span class="pc bpc" id="L118" title="1 of 2 branches missed.">        if ((octal &amp; 0200) != 0) perms.add(PosixFilePermission.OWNER_WRITE);</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">        if ((octal &amp; 0100) != 0) perms.add(PosixFilePermission.OWNER_EXECUTE);</span>
+<span class="fc bfc" id="L120" title="All 2 branches covered.">        if ((octal &amp; 0040) != 0) perms.add(PosixFilePermission.GROUP_READ);</span>
+<span class="pc bpc" id="L121" title="1 of 2 branches missed.">        if ((octal &amp; 0020) != 0) perms.add(PosixFilePermission.GROUP_WRITE);</span>
+<span class="fc bfc" id="L122" title="All 2 branches covered.">        if ((octal &amp; 0010) != 0) perms.add(PosixFilePermission.GROUP_EXECUTE);</span>
+<span class="fc bfc" id="L123" title="All 2 branches covered.">        if ((octal &amp; 0004) != 0) perms.add(PosixFilePermission.OTHERS_READ);</span>
+<span class="pc bpc" id="L124" title="1 of 2 branches missed.">        if ((octal &amp; 0002) != 0) perms.add(PosixFilePermission.OTHERS_WRITE);</span>
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        if ((octal &amp; 0001) != 0) perms.add(PosixFilePermission.OTHERS_EXECUTE);</span>
+<span class="fc" id="L126">        return perms;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

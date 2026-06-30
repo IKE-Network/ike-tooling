@@ -102,67 +102,83 @@ public class IkeReleaseChangelogMojo extends AbstractGoalMojo {
 <span class="nc" id="L102">            getLog().info(&quot;No previous release tag reachable from &quot; + to</span>
                     + &quot;; changelog is empty.&quot;);
 <span class="nc" id="L104">            changelog = &quot;&quot;;</span>
-        } else {
-<span class="nc" id="L106">            List&lt;String&gt; commits = ReleaseNotesSupport.commitMessagesBetween(</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        } else if (new File(gitRoot, &quot;workspace.yaml&quot;).isFile()) {</span>
+            // Workspace aggregator: fan out across subprojects by pin diff so
+            // the changelog reflects every subproject's code change, not just
+            // the aggregator's own workspace.yaml/merge commits — the gap that
+            // left subproject changes out of the checkpoint Zulip note
+            // (IKE-Network/ike-issues#792).
+<span class="nc" id="L111">            changelog = ReleaseNotesSupport.formatWorkspaceChangelog(</span>
                     gitRoot, fromRef, to);
-<span class="nc" id="L108">            changelog = ReleaseNotesSupport.formatChangelog(commits);</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">            if (changelog.isBlank()) {</span>
+                // No subproject pin advanced (or no readable history) — fall
+                // back to the aggregator's own commits so the output is never
+                // silently empty.
+<span class="nc" id="L117">                changelog = ReleaseNotesSupport.formatChangelog(</span>
+<span class="nc" id="L118">                        ReleaseNotesSupport.commitMessagesBetween(</span>
+                                gitRoot, fromRef, to));
+            }
+        } else {
+<span class="nc" id="L122">            List&lt;String&gt; commits = ReleaseNotesSupport.commitMessagesBetween(</span>
+                    gitRoot, fromRef, to);
+<span class="nc" id="L124">            changelog = ReleaseNotesSupport.formatChangelog(commits);</span>
         }
 
         String location;
-<span class="nc bnc" id="L112" title="All 4 branches missed.">        if (outputFile != null &amp;&amp; !outputFile.isBlank()) {</span>
-<span class="nc" id="L113">            Path out = Path.of(outputFile);</span>
+<span class="nc bnc" id="L128" title="All 4 branches missed.">        if (outputFile != null &amp;&amp; !outputFile.isBlank()) {</span>
+<span class="nc" id="L129">            Path out = Path.of(outputFile);</span>
             try {
-<span class="nc bnc" id="L115" title="All 2 branches missed.">                if (out.getParent() != null) {</span>
-<span class="nc" id="L116">                    Files.createDirectories(out.getParent());</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">                if (out.getParent() != null) {</span>
+<span class="nc" id="L132">                    Files.createDirectories(out.getParent());</span>
                 }
-<span class="nc" id="L118">                Files.writeString(out, changelog, StandardCharsets.UTF_8);</span>
-<span class="nc" id="L119">            } catch (IOException e) {</span>
-<span class="nc" id="L120">                throw new MojoException(</span>
-<span class="nc" id="L121">                        &quot;Could not write &quot; + out + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L122">            }</span>
-<span class="nc" id="L123">            getLog().info(&quot;Release changelog written to &quot; + out);</span>
-<span class="nc" id="L124">            location = &quot;written to `&quot; + out + &quot;`&quot;;</span>
-<span class="nc bnc" id="L125" title="All 2 branches missed.">        } else if (changelog.isEmpty()) {</span>
-<span class="nc" id="L126">            getLog().info(&quot;Release changelog: (empty)&quot;);</span>
-<span class="nc" id="L127">            location = &quot;empty&quot;;</span>
+<span class="nc" id="L134">                Files.writeString(out, changelog, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L135">            } catch (IOException e) {</span>
+<span class="nc" id="L136">                throw new MojoException(</span>
+<span class="nc" id="L137">                        &quot;Could not write &quot; + out + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L138">            }</span>
+<span class="nc" id="L139">            getLog().info(&quot;Release changelog written to &quot; + out);</span>
+<span class="nc" id="L140">            location = &quot;written to `&quot; + out + &quot;`&quot;;</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        } else if (changelog.isEmpty()) {</span>
+<span class="nc" id="L142">            getLog().info(&quot;Release changelog: (empty)&quot;);</span>
+<span class="nc" id="L143">            location = &quot;empty&quot;;</span>
         } else {
-<span class="nc" id="L129">            getLog().info(&quot;Release changelog:&quot;);</span>
-<span class="nc" id="L130">            changelog.lines().forEach(getLog()::info);</span>
-<span class="nc" id="L131">            location = &quot;printed to the build log&quot;;</span>
+<span class="nc" id="L145">            getLog().info(&quot;Release changelog:&quot;);</span>
+<span class="nc" id="L146">            changelog.lines().forEach(getLog()::info);</span>
+<span class="nc" id="L147">            location = &quot;printed to the build log&quot;;</span>
         }
 
         // Cascade topic grouping for the notify step (#699): the date is
         // stamped here, once, in the release server's own zone.
-<span class="nc" id="L136">        String cascadeLabel = null;</span>
-<span class="nc bnc" id="L137" title="All 4 branches missed.">        if (metaFile != null &amp;&amp; !metaFile.isBlank()) {</span>
-<span class="nc" id="L138">            cascadeLabel = ReleaseNotesSupport.cascadeTopicLabel(</span>
-<span class="nc" id="L139">                    Instant.now(), ZoneId.systemDefault());</span>
-<span class="nc" id="L140">            Path mf = Path.of(metaFile);</span>
+<span class="nc" id="L152">        String cascadeLabel = null;</span>
+<span class="nc bnc" id="L153" title="All 4 branches missed.">        if (metaFile != null &amp;&amp; !metaFile.isBlank()) {</span>
+<span class="nc" id="L154">            cascadeLabel = ReleaseNotesSupport.cascadeTopicLabel(</span>
+<span class="nc" id="L155">                    Instant.now(), ZoneId.systemDefault());</span>
+<span class="nc" id="L156">            Path mf = Path.of(metaFile);</span>
             try {
-<span class="nc bnc" id="L142" title="All 2 branches missed.">                if (mf.getParent() != null) {</span>
-<span class="nc" id="L143">                    Files.createDirectories(mf.getParent());</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">                if (mf.getParent() != null) {</span>
+<span class="nc" id="L159">                    Files.createDirectories(mf.getParent());</span>
                 }
-<span class="nc" id="L145">                Files.writeString(mf,</span>
-<span class="nc" id="L146">                        ReleaseNotesSupport.cascadeMetaEnv(cascadeLabel),</span>
+<span class="nc" id="L161">                Files.writeString(mf,</span>
+<span class="nc" id="L162">                        ReleaseNotesSupport.cascadeMetaEnv(cascadeLabel),</span>
                         StandardCharsets.UTF_8);
-<span class="nc" id="L148">            } catch (IOException e) {</span>
-<span class="nc" id="L149">                throw new MojoException(</span>
-<span class="nc" id="L150">                        &quot;Could not write &quot; + mf + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L151">            }</span>
-<span class="nc" id="L152">            getLog().info(&quot;Cascade meta written to &quot; + mf</span>
+<span class="nc" id="L164">            } catch (IOException e) {</span>
+<span class="nc" id="L165">                throw new MojoException(</span>
+<span class="nc" id="L166">                        &quot;Could not write &quot; + mf + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L167">            }</span>
+<span class="nc" id="L168">            getLog().info(&quot;Cascade meta written to &quot; + mf</span>
                     + &quot; (CASCADE_LABEL=&quot; + cascadeLabel + &quot;)&quot;);
         }
 
-<span class="nc" id="L156">        String report = new GoalReportBuilder()</span>
-<span class="nc" id="L157">                .section(&quot;Release changelog&quot;)</span>
-<span class="nc" id="L158">                .paragraph(&quot;Rendered the changelog for `&quot;</span>
-<span class="nc bnc" id="L159" title="All 2 branches missed.">                        + (fromRef == null ? &quot;(first release)&quot; : fromRef)</span>
+<span class="nc" id="L172">        String report = new GoalReportBuilder()</span>
+<span class="nc" id="L173">                .section(&quot;Release changelog&quot;)</span>
+<span class="nc" id="L174">                .paragraph(&quot;Rendered the changelog for `&quot;</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">                        + (fromRef == null ? &quot;(first release)&quot; : fromRef)</span>
                         + &quot;..&quot; + to + &quot;`, &quot; + location + &quot;.&quot;)
-<span class="nc" id="L161">                .codeBlock(&quot;markdown&quot;,</span>
-<span class="nc bnc" id="L162" title="All 2 branches missed.">                        changelog.isEmpty() ? &quot;(empty)&quot; : changelog)</span>
-<span class="nc" id="L163">                .build();</span>
-<span class="nc" id="L164">        return new GoalReportSpec(IkeGoal.RELEASE_CHANGELOG,</span>
-<span class="nc" id="L165">                startDir.toPath(), report);</span>
+<span class="nc" id="L177">                .codeBlock(&quot;markdown&quot;,</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">                        changelog.isEmpty() ? &quot;(empty)&quot; : changelog)</span>
+<span class="nc" id="L179">                .build();</span>
+<span class="nc" id="L180">        return new GoalReportSpec(IkeGoal.RELEASE_CHANGELOG,</span>
+<span class="nc" id="L181">                startDir.toPath(), report);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
