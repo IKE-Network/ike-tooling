@@ -92,14 +92,22 @@ class UrlCascadeResolverTest {
         String[] command = new String[args.length + 1];
         command[0] = "git";
         System.arraycopy(args, 0, command, 1, args.length);
-        Process process = new ProcessBuilder(command)
+        ProcessBuilder pb = new ProcessBuilder(command)
                 .directory(dir.toFile())
-                .redirectErrorStream(true)
-                .start();
-        process.getInputStream().readAllBytes();
+                .redirectErrorStream(true);
+        // Isolate from the ambient git config so the throwaway repo never
+        // depends on a CI agent's global/system settings (e.g. commit.gpgsign
+        // without a usable key, or a global core.hooksPath) — these made
+        // `git commit` fail only on the release agent. Mirrors
+        // ReleaseNotesIntegrationTest. IKE-Network/ike-issues#793.
+        pb.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
+        pb.environment().put("GIT_CONFIG_SYSTEM", "/dev/null");
+        Process process = pb.start();
+        byte[] output = process.getInputStream().readAllBytes();
         if (process.waitFor() != 0) {
-            throw new IllegalStateException(
-                    "git " + String.join(" ", args) + " failed");
+            throw new IllegalStateException("git " + String.join(" ", args)
+                    + " failed: "
+                    + new String(output, java.nio.charset.StandardCharsets.UTF_8).strip());
         }
     }
 }
