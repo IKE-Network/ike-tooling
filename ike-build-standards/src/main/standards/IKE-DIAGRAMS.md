@@ -3,11 +3,67 @@
 ## Purpose
 
 This document defines when and how to use generated diagrams (PlantUML,
-GraphViz) in IKE topic files. The build pipeline renders all diagrams
-server-side via Kroki — no local CLI tools are needed. This standard
-covers editorial judgment (when a diagram earns its place), tool
-selection (which engine for which communication task), and authoring
-mechanics (syntax, format, renderer compatibility).
+GraphViz) across IKE content. It covers editorial judgment (when a
+diagram earns its place), tool selection (which engine for which
+communication task), and authoring mechanics (syntax, format, renderer
+compatibility).
+
+How a diagram is *rendered* depends on where it lives. Read **Rendering
+contexts** first — the authoring mechanics differ between documentation
+topics and Maven site pages, and getting this wrong is the difference
+between a rendered diagram and a broken one.
+
+## Rendering contexts
+
+IKE renders AsciiDoc through two different pipelines, and only one of
+them executes AsciidoctorJ diagram extensions.
+
+### Documentation / topic pipeline
+
+Topic fragments and assembled documents are rendered by the
+`asciidoctor-maven-plugin` (the `idoc:*` / doc-pipeline path), which
+loads the `asciidoctor-diagram` extension. Here you author diagrams as
+**inline blocks** (`[plantuml]`, `[graphviz]`) — the extension renders
+them to **static SVG at build time** and embeds the result, so the
+output is self-contained with no runtime dependency on a diagram
+service. This is the context the "Authoring Mechanics" section below
+describes.
+
+### Maven site pages (`src/site/asciidoc/`)
+
+Project web pages under `src/site/asciidoc/` (what publishes to
+`ike.network/<project>/`) are rendered by `maven-site-plugin` via
+`asciidoctor-parser-doxia-module`. **The Doxia parser does not run
+AsciidoctorJ extensions** — so `asciidoctor-diagram` never fires. Two
+failure modes follow, both of which have shipped to production:
+
+- An inline `[plantuml]`/`[graphviz]` block renders as **raw
+  `@startuml`/`digraph` source text** in a `<pre>` element — the diagram
+  never becomes a picture (`IKE-Network/ike-issues#796`).
+- A live `image::https://kroki.komet.sh/…[]` URL "works" but makes
+  **every page view depend on the Kroki server** being reachable — a
+  permanent runtime failure point baked into a published page.
+
+**Rule for site pages — pre-render to committed static SVG:**
+
+1. Author the diagram source in PlantUML or GraphViz as usual.
+2. Render it **once** to SVG — locally (`plantuml -tsvg`, `dot -Tsvg`)
+   or via Kroki used as a one-time generator — and **commit the `.svg`**
+   under `src/site/resources/images/` (the directory `maven-site-plugin`
+   copies to the published site; non-`.adoc` files under
+   `src/site/asciidoc/` are **not** copied).
+3. Reference it with a plain image macro:
+   `image::images/<name>.svg[Descriptive alt text]`. The Doxia parser
+   passes `image::` through as a plain `<img>`, so no extension is
+   needed and the published page has **no build-time or view-time**
+   dependency on any diagram service.
+4. Keep the diagram source regenerable — retain the `[graphviz]`/
+   `[plantuml]` source in a sibling `*.gv`/`*.puml` file (or in the
+   commit that generated the SVG). Quote `image::` alt text that
+   contains commas, or AsciiDoc truncates it at the first comma.
+
+Do **not** place inline diagram blocks or live Kroki URLs on a
+`src/site` page. See `IKE-SITE-XML.md` for the site descriptor itself.
 
 ## The Diagram Test
 
@@ -138,6 +194,11 @@ Is it a subsumption lattice or type hierarchy?
 
 ### Block Syntax
 
+NOTE: Inline diagram blocks apply to the **documentation / topic
+pipeline** only (see *Rendering contexts*). On Maven site pages
+(`src/site/asciidoc/`) they render as raw source — use a pre-rendered
+`image::images/*.svg[]` reference instead.
+
 All diagram blocks follow the standard Asciidoctor Diagram pattern:
 
 ```asciidoc
@@ -230,10 +291,13 @@ GraphViz dependency graph where layout precision is critical).
 
 ## Renderer Compatibility
 
-The IKE pipeline renders diagrams via Kroki and produces SVG by
-default. Both PlantUML and GraphViz emit clean SVG using standard
-`<text>` and `<path>` elements, so diagrams render correctly across
-all PDF backends without format workarounds.
+In the documentation / topic pipeline, `asciidoctor-diagram` renders
+diagrams to SVG at build time (Kroki backend) and embeds the result. On
+Maven site pages the diagram is a pre-rendered committed SVG (see
+*Rendering contexts*). Either way the shipped page carries plain SVG:
+both PlantUML and GraphViz emit clean SVG using standard `<text>` and
+`<path>` elements, so diagrams render correctly across all PDF backends
+without format workarounds.
 
 | Renderer | SVG Support | Notes |
 |----------|-------------|-------|

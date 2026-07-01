@@ -113,42 +113,29 @@ class OrgSiteSupportTest {
         String index = Files.readString(orgRoot.toPath()
                 .resolve("src/site/asciidoc/index.adoc"));
 
-        // The diagram is emitted as an image:: macro pointing at a
-        // Kroki-rendered SVG; the artifact IDs live inside the
-        // base64-encoded GraphViz source, not in the index text.
+        // The diagram is emitted as an image:: macro pointing at the
+        // committed static SVG in the org repo's site resources — no
+        // Kroki URL, no runtime diagram-service dependency (see
+        // IKE-DIAGRAMS.md site pages, IKE-Network/ike-issues#797).
         assertThat(index)
                 .contains(".Build/release dependency order")
-                .contains("image::" + OrgSiteSupport.KROKI_BASE
-                        + "/graphviz/svg/")
+                .contains("image::" + OrgSiteSupport.FOUNDATION_DIAGRAM_SVG)
+                .doesNotContain("kroki")
                 .contains("[Build/release dependency order]")
                 // The prose that frames the diagram is unchanged.
                 .contains("can release in either order or in parallel");
     }
 
     @Test
-    void foundation_diagram_source_names_every_member() {
-        // The diagram's GraphViz source must mention every foundation
-        // member by artifactId — otherwise the rendered SVG silently
-        // drops a node and the published landing page disagrees with
-        // the FOUNDATION map (the source of truth).
-        for (String id : OrgSiteSupport.FOUNDATION.keySet()) {
-            assertThat(OrgSiteSupport.FOUNDATION_DIAGRAM)
-                    .as("diagram source references " + id)
-                    .contains(id);
-        }
-    }
-
-    @Test
-    void krokiUrl_produces_a_kroki_https_path() {
-        // The URL must start with the configured base, name the diagram
-        // type, declare svg output, and end with a non-empty base64url
-        // segment. We don't pin the exact encoded value because zlib
-        // output differs across JDK builds at the byte level.
-        String url = OrgSiteSupport.krokiUrl("graphviz", "digraph G { a -> b }");
-
-        assertThat(url)
-                .startsWith(OrgSiteSupport.KROKI_BASE + "/graphviz/svg/")
-                .matches(".*/svg/[A-Za-z0-9_=-]+$");
+    void foundation_diagram_svg_reference_is_a_site_relative_path() {
+        // The foundation diagram is a committed static SVG under the
+        // org repo's src/site/resources/images/ — the reference must be
+        // a plain site-relative image path (served as images/...), never
+        // an absolute URL or a diagram-service (Kroki) URL.
+        assertThat(OrgSiteSupport.FOUNDATION_DIAGRAM_SVG)
+                .isEqualTo("images/foundation-dependency.svg")
+                .doesNotContain("http")
+                .doesNotContain("kroki");
     }
 
     @Test
