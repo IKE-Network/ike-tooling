@@ -58,12 +58,15 @@ lives in the commit's own repo. Reasons:
 
 ### Verb choice
 
-- **`Fixes`** / **`Closes`** — the commit completes the issue. GitHub
-  auto-closes the issue when the trailer references the commit's own
-  repo. For cross-org trailers, close manually after the consuming
-  repo's release lands.
+- **`Fixes`** / **`Closes`** — the commit completes the issue.
+  `ike:release-publish` closes the referenced issue when the release
+  ships (IKE-Network/ike-issues#799). Do **not** rely on GitHub's native
+  `Fixes #N` auto-close: it only fires when the issue is in the commit's
+  **own repository**, and IKE keeps every issue in a separate tracker
+  repo — so a cross-repo trailer is a link GitHub records but never acts
+  on. The release closes it for you; there is no manual close step.
 - **`Refs`** — partial progress, related work, or cross-repo links
-  that must not auto-close on this commit.
+  that must not close the issue on release.
 
 One trailer per line. Multiple trailers are allowed when one commit
 spans multiple issues.
@@ -77,11 +80,19 @@ shipped:
 2. The issue receives the `pending-release` label.
 
 The trailer is the durable, queryable record of the link; the label
-is the live state. `ike:release-publish` closes the milestone when one
-matches and (per #390) removes `pending-release` from every issue
-referenced by a closing trailer in the release range — including
-cross-org references. GitHub auto-closes within-org issues; cross-org
-issues need a manual close once the consuming repo's release lands.
+is the live state. When the release ships, `ike:release-publish`:
+
+1. **Closes** every issue referenced by a closing trailer in the
+   release range (full `<owner>/<repo>#N`, cross-repo included),
+   posting an audit comment that links the release
+   (IKE-Network/ike-issues#799). This stands in for GitHub's native
+   auto-close, which never fires here because the issue and the commit
+   live in different repositories.
+2. Closes the matching milestone.
+3. Removes `pending-release` from those issues (per #390).
+
+There is no manual close step — the closing trailer is the whole
+contract.
 
 See [IKE-RELEASE.md](IKE-RELEASE.md) for the full release workflow.
 

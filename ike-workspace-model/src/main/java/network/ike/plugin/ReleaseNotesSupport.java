@@ -897,6 +897,134 @@ public final class ReleaseNotesSupport {
         }
     }
 
+    // ── Fixes-trailer issue closing (IKE-Network/ike-issues#799) ────
+
+    /**
+     * Close every open issue referenced by a release-closing trailer
+     * ({@code Fixes}, {@code Closes}, {@code Resolves} and grammatical
+     * variants) in commits between {@code previousTag} and
+     * {@code headRef}.
+     *
+     * <p>GitHub's native {@code Fixes #N} auto-close only fires when the
+     * issue lives in the commit's own repository. IKE centralizes issues
+     * in a separate tracker repo, so cross-repo trailers never auto-close
+     * — this redeems that trailer contract at release time so fixed
+     * issues don't dangle open (IKE-Network/ike-issues#799). Call it
+     * before milestone-notes generation so the notes reflect what
+     * shipped.
+     *
+     * <p>Idempotent (issues already closed are skipped) and non-fatal:
+     * the artifact has already deployed at this point, so any failure is
+     * logged and the remaining references are still processed. Trailer
+     * references use the full {@code <owner>/<repo>#N} form; bare
+     * {@code #N} references resolve against {@code fallbackRepo}.
+     *
+     * @param gitDir       the git working tree
+     * @param previousTag  the previous release tag, or null to auto-derive
+     * @param headRef      the new release commit or tag (e.g., "v57")
+     * @param fallbackRepo {@code owner/repo} for bare {@code #N} refs, or null
+     * @param log          Maven logger (may be null)
+     * @return number of issues actually closed
+     */
+    public static int closeReferencedIssues(File gitDir,
+                                            String previousTag,
+                                            String headRef,
+                                            String fallbackRepo,
+                                            Log log) {
+        try {
+            String prev = previousTag != null ? previousTag
+                    : resolvePreviousTag(gitDir, headRef);
+            if (prev == null || prev.isBlank()) {
+                if (log != null) {
+                    log.info("No previous release tag found; "
+                            + "skipping Fixes-trailer issue close");
+                }
+                return 0;
+            }
+            Set<IssueRef> refs = collectClosingTrailerRefs(
+                    gitDir, prev, headRef, fallbackRepo);
+            if (refs.isEmpty()) {
+                if (log != null) {
+                    log.info("No release-closing trailers found in "
+                            + prev + ".." + headRef);
+                }
+                return 0;
+            }
+            if (log != null) {
+                log.info("Closing " + refs.size()
+                        + " issue(s) referenced by Fixes trailers...");
+            }
+            int closed = 0;
+            for (IssueRef ref : refs) {
+                if (closeReferencedIssueIfOpen(ref, headRef, log)) {
+                    closed++;
+                }
+            }
+            if (log != null) {
+                log.info("Closed " + closed + " of " + refs.size()
+                        + " referenced issue(s)");
+            }
+            return closed;
+        } catch (Exception e) {
+            if (log != null) {
+                log.warn("Could not close referenced issues: "
+                        + e.getMessage());
+            }
+            return 0;
+        }
+    }
+
+    /**
+     * Close a single referenced issue when it is currently open, first
+     * posting an audit comment that links the release. Already-closed
+     * issues are skipped (idempotent); any API failure is swallowed so
+     * one bad reference never blocks the rest.
+     *
+     * @param ref     the issue reference
+     * @param headRef the release tag/commit that closes it
+     * @param log     Maven logger (may be null)
+     * @return {@code true} if the issue was open and is now closed
+     */
+    private static boolean closeReferencedIssueIfOpen(IssueRef ref,
+                                                      String headRef,
+                                                      Log log) {
+        try {
+            String state = ReleaseSupport.execCapture(new File("."),
+                    "gh", "api",
+                    "/repos/" + ref.repo() + "/issues/" + ref.number(),
+                    "--jq", ".state").strip();
+            if (!"open".equalsIgnoreCase(state)) {
+                if (log != null) {
+                    log.debug("  " + ref.repo() + "#" + ref.number()
+                            + " already " + state + "; skipping");
+                }
+                return false;
+            }
+            ReleaseSupport.execCapture(new File("."),
+                    "gh", "api", "-X", "POST",
+                    "/repos/" + ref.repo() + "/issues/" + ref.number()
+                            + "/comments",
+                    "-f", "body=Closed by release " + headRef
+                            + " — resolved via a Fixes/Closes commit trailer "
+                            + "(automated cross-repo close, "
+                            + "IKE-Network/ike-issues#799).");
+            ReleaseSupport.execCapture(new File("."),
+                    "gh", "api", "-X", "PATCH",
+                    "/repos/" + ref.repo() + "/issues/" + ref.number(),
+                    "-f", "state=closed", "-f", "state_reason=completed");
+            if (log != null) {
+                log.info("  Closed " + ref.repo() + "#" + ref.number());
+            }
+            return true;
+        } catch (Exception e) {
+            if (log != null) {
+                log.warn("  Could not close " + ref.repo() + "#"
+                        + ref.number() + ": " + e.getMessage());
+            }
+            return false;
+        }
+    }
+
     /**
      * Generate a full release history page as AsciiDoc, covering all
      * closed milestones and any closed issues without a milestone.

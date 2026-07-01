@@ -113,6 +113,20 @@ public final class FinalizePhase {
         String issueRepo = ctx.request().issueRepo();
         String milestoneName = projectId + " v" + version;
 
+        // Close the issues this release's commits resolved (Fixes/Closes/
+        // Resolves trailers) BEFORE notes generation, so milestone notes
+        // reflect what shipped. GitHub can't auto-close cross-repo
+        // trailers, and IKE issues live in a separate tracker repo — this
+        // redeems the trailer contract so fixed issues don't dangle open
+        // (IKE-Network/ike-issues#799). Best-effort like the steps below.
+        try {
+            ReleaseNotesSupport.closeReferencedIssues(
+                    gitRoot, null, "v" + version, issueRepo, ctx.log());
+        } catch (Exception e) {
+            ctx.log().warn("Could not close referenced issues "
+                    + "(release succeeded): " + e.getMessage());
+        }
+
         Path notesFile;
         try {
             // When the milestone and foundation upgrades supply nothing,
