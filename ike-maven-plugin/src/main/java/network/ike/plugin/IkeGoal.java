@@ -70,6 +70,13 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     /** {@code ike:jpackage-props} — emit jpackage properties from reactor config. */
     JPACKAGE_PROPS(IkeGoal.NAME_JPACKAGE_PROPS, JpackagePropsMojo.class,
             "Emit jpackage properties files from reactor configuration."),
+    /** {@code ike:knowledge-bindings} — generate a knowledge set's bindings class. */
+    KNOWLEDGE_BINDINGS(IkeGoal.NAME_KNOWLEDGE_BINDINGS, KnowledgeBindingsMojo.class,
+            "Generate the bindings class for a ledger-form knowledge set: "
+                    + "discovers the project's KnowledgeSource on its dependency "
+                    + "classpath, composes it, writes the TinkarTerm-idiom "
+                    + "constants class into generated-sources, and registers "
+                    + "the source root (ike-issues#824)."),
     /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
     NOTARIZE(IkeGoal.NAME_NOTARIZE, NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
@@ -183,6 +190,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_INJECT_JAVADOC_THEME = "inject-javadoc-theme";
     /** Mirror for {@link #JPACKAGE_PROPS}. */
     public static final String NAME_JPACKAGE_PROPS = "jpackage-props";
+    /** Mirror for {@link #KNOWLEDGE_BINDINGS}. */
+    public static final String NAME_KNOWLEDGE_BINDINGS = "knowledge-bindings";
     /** Mirror for {@link #NOTARIZE}. */
     public static final String NAME_NOTARIZE = "notarize";
     /** Mirror for {@link #RELEASE_DRAFT}. */
