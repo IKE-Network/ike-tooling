@@ -49,7 +49,7 @@ import java.util.List;
  * (the foundation boundary). This goal builds a classloader over the project's
  * {@code MAIN_RUNTIME} dependency classpath and invokes that one stable entry point
  * reflectively, in-process. The project's ledger dependency provides a
- * {@code KnowledgeSource} via {@code META-INF/services}; composition is store-free, so
+ * {@code KnowledgeSetSource} via {@code META-INF/services}; composition is store-free, so
  * no datastore or providers are needed on the classpath.
  *
  * <p>Typical use — a {@code *-bindings} module depending on its {@code *-terms} ledger
@@ -111,7 +111,7 @@ public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {
     String className;
 
     /**
-     * Fully qualified name of the {@code KnowledgeSource} implementation to compose.
+     * Fully qualified name of the {@code KnowledgeSetSource} implementation to compose.
      * Optional: when absent, exactly one implementation must be discoverable via
      * {@code META-INF/services} on the project's dependency classpath.
      */

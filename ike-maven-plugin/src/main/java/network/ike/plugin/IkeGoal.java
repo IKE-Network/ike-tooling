@@ -73,7 +73,7 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     /** {@code ike:knowledge-bindings} — generate a knowledge set's bindings class. */
     KNOWLEDGE_BINDINGS(IkeGoal.NAME_KNOWLEDGE_BINDINGS, KnowledgeBindingsMojo.class,
             "Generate the bindings class for a ledger-form knowledge set: "
-                    + "discovers the project's KnowledgeSource on its dependency "
+                    + "discovers the project's KnowledgeSetSource on its dependency "
                     + "classpath, composes it, writes the TinkarTerm-idiom "
                     + "constants class into generated-sources, and registers "
                     + "the source root (ike-issues#824)."),
