@@ -77,6 +77,13 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "classpath, composes it, writes the TinkarTerm-idiom "
                     + "constants class into generated-sources, and registers "
                     + "the source root (ike-issues#824)."),
+    /** {@code ike:knowledge-export} — export a knowledge set's protobuf change set. */
+    KNOWLEDGE_EXPORT(IkeGoal.NAME_KNOWLEDGE_EXPORT, KnowledgeExportMojo.class,
+            "Export a ledger-form knowledge set as its protobuf change-set "
+                    + "artifact: composes the project's KnowledgeSetSource, "
+                    + "replays into a fresh ephemeral store, exports the store, "
+                    + "and attaches the file as the changeset classifier "
+                    + "(ike-issues#824)."),
     /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
     NOTARIZE(IkeGoal.NAME_NOTARIZE, NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
@@ -192,6 +199,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_JPACKAGE_PROPS = "jpackage-props";
     /** Mirror for {@link #KNOWLEDGE_BINDINGS}. */
     public static final String NAME_KNOWLEDGE_BINDINGS = "knowledge-bindings";
+    /** Mirror for {@link #KNOWLEDGE_EXPORT}. */
+    public static final String NAME_KNOWLEDGE_EXPORT = "knowledge-export";
     /** Mirror for {@link #NOTARIZE}. */
     public static final String NAME_NOTARIZE = "notarize";
     /** Mirror for {@link #RELEASE_DRAFT}. */
