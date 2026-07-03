@@ -32,7 +32,8 @@ class TrackedTierHandlerTest {
     @Test
     void missingFileBecomesInstall() {
         byte[] tpl = bytes("-T1C\n");
-        TierAction a = handler.plan(entry, dest, null, tpl, null);
+        TierAction a = handler.plan(
+                entry, dest, null, tpl, null, null);
         assertThat(a).isInstanceOfSatisfying(TierAction.Write.class,
                 w -> {
                     assertThat(w.kind())
@@ -46,7 +47,7 @@ class TrackedTierHandlerTest {
     @Test
     void matchingFileBecomesUpToDate() {
         byte[] tpl = bytes("-T1C\n");
-        TierAction a = handler.plan(entry, dest, tpl, tpl,
+        TierAction a = handler.plan(entry, dest, tpl, tpl, null,
                 LockfileEntry.tracked(
                         ScaffoldTier.TRACKED,
                         Sha256.of(tpl), Sha256.of(tpl)));
@@ -57,7 +58,7 @@ class TrackedTierHandlerTest {
     void matchingPriorAppliedBecomesUpdate() {
         byte[] prior = bytes("-T1C\n");
         byte[] tpl = bytes("-T2C\n");
-        TierAction a = handler.plan(entry, dest, prior, tpl,
+        TierAction a = handler.plan(entry, dest, prior, tpl, null,
                 LockfileEntry.tracked(
                         ScaffoldTier.TRACKED,
                         Sha256.of(prior), Sha256.of(prior)));
@@ -74,7 +75,7 @@ class TrackedTierHandlerTest {
     void divergedFromPriorBecomesSkip() {
         byte[] tpl = bytes("-T2C\n");
         byte[] onDisk = bytes("-T1C -U\n");
-        TierAction a = handler.plan(entry, dest, onDisk, tpl,
+        TierAction a = handler.plan(entry, dest, onDisk, tpl, null,
                 LockfileEntry.tracked(
                         ScaffoldTier.TRACKED,
                         Sha256.of(bytes("-T1C\n")),
@@ -91,7 +92,8 @@ class TrackedTierHandlerTest {
     void presentWithoutPriorBecomesSkip() {
         byte[] tpl = bytes("-T2C\n");
         byte[] onDisk = bytes("-T1C\n");
-        TierAction a = handler.plan(entry, dest, onDisk, tpl, null);
+        TierAction a = handler.plan(
+                entry, dest, onDisk, tpl, null, null);
         assertThat(a).isInstanceOfSatisfying(TierAction.Skip.class,
                 s -> assertThat(s.reason())
                         .contains("no prior lockfile entry"));
@@ -100,7 +102,7 @@ class TrackedTierHandlerTest {
     @Test
     void nullTemplateRejected() {
         assertThatThrownBy(() ->
-                handler.plan(entry, dest, null, null, null))
+                handler.plan(entry, dest, null, null, null, null))
                 .isInstanceOf(ScaffoldException.class)
                 .hasMessageContaining("tracked");
     }

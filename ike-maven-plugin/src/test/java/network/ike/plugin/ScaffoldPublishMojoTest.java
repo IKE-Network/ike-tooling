@@ -69,6 +69,102 @@ class ScaffoldPublishMojoTest {
                 s -> s.contains("Publish summary"));
     }
 
+    // ─── #825 .gitignore create-case seeding ──────────────────────
+
+    @Test
+    void gitignoreCreateCaseSeedsCanonicalTemplateAndBlock(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold.resolve("tracked"));
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("tracked/gitignore.ike-block"),
+                ".ike/vcs-state\n");
+        Files.writeString(
+                scaffold.resolve("tracked/gitignore.project-template"),
+                "# Maven\ntarget/\n\n# IDE\n.idea/\n");
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files:
+                          - dest: .gitignore
+                            scope: project
+                            tier: tracked-block
+                            source: tracked/gitignore.ike-block
+                            create-source: tracked/gitignore.project-template
+                            block-begin: "# BEGIN ike-managed"
+                            block-end: "# END ike-managed"
+                        """);
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        inject(mojo, "log", new RecordingLog());
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+
+        mojo.execute();
+
+        assertThat(Files.readString(project.resolve(".gitignore")))
+                .isEqualTo("# Maven\ntarget/\n\n# IDE\n.idea/\n"
+                        + "# BEGIN ike-managed\n"
+                        + ".ike/vcs-state\n"
+                        + "# END ike-managed\n");
+    }
+
+    @Test
+    void gitignoreAppendCaseManagesOnlyBlockInExistingFile(
+            @TempDir Path tmp) throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold.resolve("tracked"));
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("tracked/gitignore.ike-block"),
+                ".ike/vcs-state\n");
+        Files.writeString(
+                scaffold.resolve("tracked/gitignore.project-template"),
+                "# Maven\ntarget/\n");
+        Files.writeString(project.resolve(".gitignore"),
+                "target/\n");
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files:
+                          - dest: .gitignore
+                            scope: project
+                            tier: tracked-block
+                            source: tracked/gitignore.ike-block
+                            create-source: tracked/gitignore.project-template
+                            block-begin: "# BEGIN ike-managed"
+                            block-end: "# END ike-managed"
+                        """);
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        inject(mojo, "log", new RecordingLog());
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+
+        mojo.execute();
+
+        // #245 semantics preserved: no canonical patterns duplicated
+        // into an existing file — only the managed block appended.
+        assertThat(Files.readString(project.resolve(".gitignore")))
+                .isEqualTo("target/\n"
+                        + "# BEGIN ike-managed\n"
+                        + ".ike/vcs-state\n"
+                        + "# END ike-managed\n");
+    }
+
     @Test
     void freshMachineWithoutProjectRootOnlyTouchesUserScope(
             @TempDir Path tmp) throws Exception {

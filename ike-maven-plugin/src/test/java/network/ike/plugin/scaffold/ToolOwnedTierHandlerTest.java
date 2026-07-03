@@ -32,7 +32,8 @@ class ToolOwnedTierHandlerTest {
     @Test
     void missingFileBecomesInstall() {
         byte[] tpl = bytes("#!/bin/sh\nmvnw body\n");
-        TierAction a = handler.plan(entry, dest, null, tpl, null);
+        TierAction a = handler.plan(
+                entry, dest, null, tpl, null, null);
         assertThat(a).isInstanceOfSatisfying(TierAction.Write.class,
                 w -> {
                     assertThat(w.kind())
@@ -46,7 +47,7 @@ class ToolOwnedTierHandlerTest {
     @Test
     void matchingFileBecomesUpToDate() {
         byte[] tpl = bytes("same\n");
-        TierAction a = handler.plan(entry, dest, tpl, tpl,
+        TierAction a = handler.plan(entry, dest, tpl, tpl, null,
                 LockfileEntry.toolOwned(Sha256.of(tpl)));
         assertThat(a).isInstanceOfSatisfying(TierAction.UpToDate.class,
                 u -> {
@@ -59,7 +60,7 @@ class ToolOwnedTierHandlerTest {
     void divergedFileBecomesUpdateNotSkip() {
         byte[] tpl = bytes("new body\n");
         byte[] onDisk = bytes("user edited\n");
-        TierAction a = handler.plan(entry, dest, onDisk, tpl,
+        TierAction a = handler.plan(entry, dest, onDisk, tpl, null,
                 LockfileEntry.toolOwned(Sha256.of(bytes("old body\n"))));
         assertThat(a).isInstanceOfSatisfying(TierAction.Write.class,
                 w -> {
@@ -75,7 +76,7 @@ class ToolOwnedTierHandlerTest {
     void matchingPriorAppliedBecomesSimpleRefresh() {
         byte[] tpl = bytes("new body\n");
         byte[] onDisk = bytes("old body\n");
-        TierAction a = handler.plan(entry, dest, onDisk, tpl,
+        TierAction a = handler.plan(entry, dest, onDisk, tpl, null,
                 LockfileEntry.toolOwned(Sha256.of(onDisk)));
         assertThat(a).isInstanceOfSatisfying(TierAction.Write.class,
                 w -> {
@@ -88,7 +89,7 @@ class ToolOwnedTierHandlerTest {
     @Test
     void nullTemplateRejected() {
         assertThatThrownBy(() ->
-                handler.plan(entry, dest, null, null, null))
+                handler.plan(entry, dest, null, null, null, null))
                 .isInstanceOf(ScaffoldException.class)
                 .hasMessageContaining("tool-owned");
     }

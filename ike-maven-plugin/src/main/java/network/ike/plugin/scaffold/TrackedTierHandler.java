@@ -45,6 +45,7 @@ public final class TrackedTierHandler implements TierHandler {
             Path resolvedDest,
             byte[] currentContent,
             byte[] templateContent,
+            byte[] createContent,
             LockfileEntry priorEntry) {
         if (templateContent == null) {
             throw new ScaffoldException(

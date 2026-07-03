@@ -159,6 +159,36 @@ class ScaffoldMojoSupportTest {
     }
 
     @Test
+    void renderPlanReport_showsSeededGitignoreInstallReason() {
+        // #825: scaffold-draft must preview the create case — the
+        // [INSTALL] line carries the handler's seeded-install reason.
+        ManifestEntry e = new ManifestEntry(
+                ".gitignore", ScaffoldScope.PROJECT,
+                ScaffoldTier.TRACKED_BLOCK,
+                "tracked/gitignore.ike-block", null, Map.of(
+                        "block-begin", "# BEGIN ike-managed",
+                        "block-end", "# END ike-managed",
+                        "create-source",
+                                "tracked/gitignore.project-template"));
+        byte[] content = "target/\n".getBytes();
+        String sha = Sha256.of(".ike/vcs-state\n");
+        TierAction.Write install = new TierAction.Write(
+                e, Path.of("/tmp/.gitignore"), content, sha, sha,
+                TierAction.Write.Kind.INSTALL,
+                "install new file: seed canonical template"
+                        + " + managed block");
+        ScaffoldPlan plan = new ScaffoldPlan("7", List.of(
+                new PlannedEntry(e, install, List.of())));
+
+        String rep = ScaffoldMojoSupport.renderPlanReport(
+                plan, ScaffoldScope.PROJECT);
+
+        assertThat(rep).contains("[INSTALL]");
+        assertThat(rep).contains(".gitignore");
+        assertThat(rep).contains("seed canonical template");
+    }
+
+    @Test
     void renderPlanReport_appendsActivationHintWhenDeclared() {
         ManifestEntry e = new ManifestEntry(
                 "~/.git-hooks/post-commit", ScaffoldScope.USER,

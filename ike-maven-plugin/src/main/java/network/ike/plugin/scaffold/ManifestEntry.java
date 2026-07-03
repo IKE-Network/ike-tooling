@@ -38,7 +38,8 @@ import java.util.Objects;
  *                 file-based tiers
  * @param extras   adapter-specific raw configuration (e.g.
  *                 {@code ensure}, {@code never-touch},
- *                 {@code block-begin}, {@code block-end}); never
+ *                 {@code block-begin}, {@code block-end},
+ *                 {@code create-source}); never
  *                 {@code null} (use empty map). Stored map is
  *                 unmodifiable.
  */

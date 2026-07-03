@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ScaffoldPlannerTest {
 
@@ -185,6 +186,102 @@ class ScaffoldPlannerTest {
         assertThat(plan.entries()).isEmpty();
         assertThat(plan.hasWrites()).isFalse();
         assertThat(plan.hasSkips()).isFalse();
+    }
+
+    // ── create-source resolution (#825) ───────────────────────────
+
+    private static ManifestEntry gitignoreWithCreateSource() {
+        Map<String, Object> extras = new LinkedHashMap<>();
+        extras.put("block-begin", "# BEGIN ike-managed");
+        extras.put("block-end", "# END ike-managed");
+        extras.put("create-source",
+                "tracked/gitignore.project-template");
+        return new ManifestEntry(
+                ".gitignore", ScaffoldScope.PROJECT,
+                ScaffoldTier.TRACKED_BLOCK,
+                "tracked/gitignore.ike-block", null, extras);
+    }
+
+    @Test
+    void createSourceSeedsMissingTrackedBlockDest(
+            @TempDir Path project) throws IOException {
+        Files.createDirectories(project);
+        ScaffoldManifest manifest = new ScaffoldManifest(
+                1, "7", List.of(gitignoreWithCreateSource()));
+        MapTemplateSource templates = MapTemplateSource.ofStrings(
+                Map.of("tracked/gitignore.ike-block",
+                                ".ike/vcs-state\n",
+                        "tracked/gitignore.project-template",
+                                "# Maven\ntarget/\n"));
+        PathResolver resolver = new PathResolver(
+                Path.of("/home/nobody"), project);
+
+        ScaffoldPlan plan = planner.plan(
+                manifest, ScaffoldLockfile.empty(),
+                ScaffoldScope.PROJECT, resolver, templates);
+
+        TierAction.Write w = (TierAction.Write) plan.entries()
+                .get(0).action();
+        assertThat(w.kind())
+                .isEqualTo(TierAction.Write.Kind.INSTALL);
+        String produced = new String(
+                w.newContent(), StandardCharsets.UTF_8);
+        assertThat(produced).isEqualTo(
+                "# Maven\ntarget/\n"
+                        + "# BEGIN ike-managed\n"
+                        + ".ike/vcs-state\n"
+                        + "# END ike-managed\n");
+        assertThat(w.reason()).contains("seed canonical template");
+    }
+
+    @Test
+    void createSourceLeavesExistingDestUnseeded(
+            @TempDir Path project) throws IOException {
+        Files.createDirectories(project);
+        Files.write(project.resolve(".gitignore"), bytes("mine/\n"));
+        ScaffoldManifest manifest = new ScaffoldManifest(
+                1, "7", List.of(gitignoreWithCreateSource()));
+        MapTemplateSource templates = MapTemplateSource.ofStrings(
+                Map.of("tracked/gitignore.ike-block",
+                                ".ike/vcs-state\n",
+                        "tracked/gitignore.project-template",
+                                "# Maven\ntarget/\n"));
+        PathResolver resolver = new PathResolver(
+                Path.of("/home/nobody"), project);
+
+        ScaffoldPlan plan = planner.plan(
+                manifest, ScaffoldLockfile.empty(),
+                ScaffoldScope.PROJECT, resolver, templates);
+
+        TierAction.Write w = (TierAction.Write) plan.entries()
+                .get(0).action();
+        String produced = new String(
+                w.newContent(), StandardCharsets.UTF_8);
+        assertThat(produced).isEqualTo(
+                "mine/\n"
+                        + "# BEGIN ike-managed\n"
+                        + ".ike/vcs-state\n"
+                        + "# END ike-managed\n");
+    }
+
+    @Test
+    void missingCreateSourceTemplateThrows(@TempDir Path project)
+            throws IOException {
+        Files.createDirectories(project);
+        ScaffoldManifest manifest = new ScaffoldManifest(
+                1, "7", List.of(gitignoreWithCreateSource()));
+        MapTemplateSource templates = MapTemplateSource.ofStrings(
+                Map.of("tracked/gitignore.ike-block",
+                        ".ike/vcs-state\n"));
+        PathResolver resolver = new PathResolver(
+                Path.of("/home/nobody"), project);
+
+        assertThatThrownBy(() -> planner.plan(
+                manifest, ScaffoldLockfile.empty(),
+                ScaffoldScope.PROJECT, resolver, templates))
+                .isInstanceOf(ScaffoldException.class)
+                .hasMessageContaining(
+                        "tracked/gitignore.project-template");
     }
 
     @Test

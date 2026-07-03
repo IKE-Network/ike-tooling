@@ -72,6 +72,55 @@ class ScaffoldDraftMojoTest {
     }
 
     @Test
+    void previewsGitignoreCreateCaseWithSeededTemplate(
+            @TempDir Path tmp) throws Exception {
+        // #825: with no .gitignore on disk and a create-source in the
+        // manifest, the draft preview must announce the seeded install
+        // — and still write nothing.
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold.resolve("tracked"));
+        Files.createDirectories(project);
+        Files.createDirectories(userHome);
+        Files.writeString(
+                scaffold.resolve("tracked/gitignore.ike-block"),
+                ".ike/vcs-state\n");
+        Files.writeString(
+                scaffold.resolve("tracked/gitignore.project-template"),
+                "# Maven\ntarget/\n");
+        Files.writeString(
+                scaffold.resolve("scaffold-manifest.yaml"),
+                """
+                        schema: 1
+                        standards-version: "7"
+                        files:
+                          - dest: .gitignore
+                            scope: project
+                            tier: tracked-block
+                            source: tracked/gitignore.ike-block
+                            create-source: tracked/gitignore.project-template
+                            block-begin: "# BEGIN ike-managed"
+                            block-end: "# END ike-managed"
+                        """);
+
+        ScaffoldDraftMojo mojo = new ScaffoldDraftMojo();
+        RecordingLog log = new RecordingLog();
+        inject(mojo, "log", log);
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+
+        mojo.execute();
+
+        assertThat(project.resolve(".gitignore")).doesNotExist();
+        assertThat(log.infos).anyMatch(
+                s -> s.contains("[INSTALL]")
+                        && s.contains(".gitignore")
+                        && s.contains("seed canonical template"));
+    }
+
+    @Test
     void runsOnFreshMachineWithoutProjectRoot(@TempDir Path tmp)
             throws Exception {
         Path scaffold = tmp.resolve("scaffold");

@@ -38,6 +38,19 @@ import java.util.List;
  * but no {@code whitelist-block-content} is supplied, the entry is
  * reported as user-managed (no write) so the publish run does not
  * pollute the user's whitelist.
+ *
+ * <h2>Create-case seeding</h2>
+ *
+ * <p>When the destination file does not exist yet and the caller
+ * supplies {@code createContent} (resolved from the manifest entry's
+ * {@code create-source} extra), the new file is seeded with that
+ * content followed by the managed block. This gives a brand-new repo
+ * bootstrapped via {@code ike:scaffold-publish} the full canonical
+ * template on day one (ike-issues#825) while keeping the #245 dedup
+ * semantics for existing files: the seed is written exactly once, is
+ * the user's from then on, and only the marker-delimited block is
+ * managed on subsequent runs. The lockfile hashes cover only the
+ * block content, so the seed never registers as drift.
  */
 public final class TrackedBlockTierHandler implements TierHandler {
 
@@ -60,6 +73,7 @@ public final class TrackedBlockTierHandler implements TierHandler {
             Path resolvedDest,
             byte[] currentContent,
             byte[] templateContent,
+            byte[] createContent,
             LockfileEntry priorEntry) {
         if (templateContent == null) {
             throw new ScaffoldException(
@@ -107,17 +121,33 @@ public final class TrackedBlockTierHandler implements TierHandler {
                 : str(templateContent);
         String templateBlockSha = Sha256.of(templateBlock);
 
-        // Case 1: file does not exist yet — create it with just the
-        // managed block.
+        // Case 1: file does not exist yet — create it. With
+        // createContent supplied, seed the canonical template above
+        // the managed block (write-once; the seed belongs to the user
+        // afterwards and only the block stays managed — #825).
+        // Without it, the file holds just the managed block.
         if (currentContent == null) {
-            String newFile = renderBlock(
-                    beginMarker, templateBlock, endMarker);
+            String seed = str(createContent);
+            String newFile;
+            String reason;
+            if (seed.isBlank()) {
+                newFile = renderBlock(
+                        beginMarker, templateBlock, endMarker);
+                reason = "install new file with managed block";
+            } else {
+                newFile = seed
+                        + (seed.endsWith("\n") ? "" : "\n")
+                        + renderBlock(
+                                beginMarker, templateBlock, endMarker);
+                reason = "install new file: seed canonical template"
+                        + " + managed block";
+            }
             byte[] out = newFile.getBytes(StandardCharsets.UTF_8);
             return new TierAction.Write(
                     entry, resolvedDest, out,
                     templateBlockSha, templateBlockSha,
                     TierAction.Write.Kind.INSTALL,
-                    "install new file with managed block");
+                    reason);
         }
         BlockSlice slice =
                 locate(currentStr, beginMarker, endMarker, entry);

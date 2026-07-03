@@ -38,6 +38,17 @@ public interface TierHandler {
      * @param templateContent  bytes loaded from the scaffold zip at
      *                         {@code entry.source()}; never
      *                         {@code null} for file-based tiers
+     * @param createContent    bytes loaded from the scaffold zip at
+     *                         the entry's {@code create-source} extra,
+     *                         or {@code null} when the entry declares
+     *                         none. Only consulted when
+     *                         {@code currentContent} is {@code null} —
+     *                         tiers that support create-case seeding
+     *                         (currently
+     *                         {@link ScaffoldTier#TRACKED_BLOCK}) seed
+     *                         this content into the newly created file
+     *                         ahead of their managed region; other
+     *                         tiers ignore it
      * @param priorEntry       lockfile entry from the last publish, or
      *                         {@code null} if this entry has never been
      *                         applied
@@ -50,5 +61,6 @@ public interface TierHandler {
             Path resolvedDest,
             byte[] currentContent,
             byte[] templateContent,
+            byte[] createContent,
             LockfileEntry priorEntry);
 }

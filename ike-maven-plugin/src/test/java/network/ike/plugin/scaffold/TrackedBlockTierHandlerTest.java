@@ -49,7 +49,8 @@ class TrackedBlockTierHandlerTest {
     @Test
     void missingFileCreatesFileWithBlock() {
         byte[] tpl = bytes(".idea/\n.DS_Store\n");
-        TierAction a = handler.plan(entry, dest, null, tpl, null);
+        TierAction a = handler.plan(
+                entry, dest, null, tpl, null, null);
         TierAction.Write w = (TierAction.Write) a;
         assertThat(w.kind())
                 .isEqualTo(TierAction.Write.Kind.INSTALL);
@@ -64,7 +65,8 @@ class TrackedBlockTierHandlerTest {
     void fileWithoutBlockGetsBlockAppended() {
         byte[] current = bytes("target/\n*.class\n");
         byte[] tpl = bytes(".idea/\n");
-        TierAction a = handler.plan(entry, dest, current, tpl, null);
+        TierAction a = handler.plan(
+                entry, dest, current, tpl, null, null);
         TierAction.Write w = (TierAction.Write) a;
         assertThat(w.kind())
                 .isEqualTo(TierAction.Write.Kind.INSTALL);
@@ -77,7 +79,8 @@ class TrackedBlockTierHandlerTest {
     void fileWithoutTrailingNewlineGetsOneBeforeBlock() {
         byte[] current = bytes("target/");
         byte[] tpl = bytes(".idea/\n");
-        TierAction a = handler.plan(entry, dest, current, tpl, null);
+        TierAction a = handler.plan(
+                entry, dest, current, tpl, null, null);
         TierAction.Write w = (TierAction.Write) a;
         assertThat(str(w.newContent())).isEqualTo(
                 "target/\n"
@@ -93,7 +96,7 @@ class TrackedBlockTierHandlerTest {
                         + ".idea/\n.DS_Store\n"
                         + END + "\n"
                         + "tmp/\n");
-        TierAction a = handler.plan(entry, dest, current, tpl,
+        TierAction a = handler.plan(entry, dest, current, tpl, null,
                 LockfileEntry.tracked(
                         ScaffoldTier.TRACKED_BLOCK,
                         Sha256.of(".idea/\n.DS_Store\n"),
@@ -111,7 +114,7 @@ class TrackedBlockTierHandlerTest {
                         + priorBlock
                         + END + "\n"
                         + "tmp/\n");
-        TierAction a = handler.plan(entry, dest, current, tpl,
+        TierAction a = handler.plan(entry, dest, current, tpl, null,
                 LockfileEntry.tracked(
                         ScaffoldTier.TRACKED_BLOCK,
                         Sha256.of(priorBlock),
@@ -136,7 +139,7 @@ class TrackedBlockTierHandlerTest {
                         + BEGIN + "\n"
                         + ".idea/\nMY_OWN_FILE\n"
                         + END + "\n");
-        TierAction a = handler.plan(entry, dest, current, tpl,
+        TierAction a = handler.plan(entry, dest, current, tpl, null,
                 LockfileEntry.tracked(
                         ScaffoldTier.TRACKED_BLOCK,
                         Sha256.of(".idea/\n"),
@@ -151,7 +154,8 @@ class TrackedBlockTierHandlerTest {
         byte[] tpl = bytes(".idea/\n");
         byte[] current = bytes(
                 BEGIN + "\n.idea/\nother/\n" + END + "\n");
-        TierAction a = handler.plan(entry, dest, current, tpl, null);
+        TierAction a = handler.plan(
+                entry, dest, current, tpl, null, null);
         assertThat(a).isInstanceOfSatisfying(TierAction.Skip.class,
                 s -> assertThat(s.reason())
                         .contains("no prior lockfile entry"));
@@ -162,7 +166,7 @@ class TrackedBlockTierHandlerTest {
         byte[] tpl = bytes(".idea/\n");
         byte[] current = bytes(BEGIN + "\n.idea/\n");
         assertThatThrownBy(() ->
-                handler.plan(entry, dest, current, tpl, null))
+                handler.plan(entry, dest, current, tpl, null, null))
                 .isInstanceOf(ScaffoldException.class)
                 .hasMessageContaining(END);
     }
@@ -174,7 +178,7 @@ class TrackedBlockTierHandlerTest {
                 BEGIN + "\n.idea/\n" + END + "\n"
                         + BEGIN + "\nother/\n" + END + "\n");
         assertThatThrownBy(() ->
-                handler.plan(entry, dest, current, tpl, null))
+                handler.plan(entry, dest, current, tpl, null, null))
                 .isInstanceOf(ScaffoldException.class)
                 .hasMessageContaining("multiple");
     }
@@ -184,7 +188,7 @@ class TrackedBlockTierHandlerTest {
         ManifestEntry bad = entry(Map.of("block-end", END));
         byte[] tpl = bytes("x\n");
         assertThatThrownBy(() ->
-                handler.plan(bad, dest, null, tpl, null))
+                handler.plan(bad, dest, null, tpl, null, null))
                 .isInstanceOf(ScaffoldException.class)
                 .hasMessageContaining("block-begin");
     }
@@ -196,7 +200,8 @@ class TrackedBlockTierHandlerTest {
         byte[] tpl = bytes(".idea/\n.DS_Store\n");
         byte[] current = bytes(
                 "*\n!pom.xml\n!workspace.yaml\n");
-        TierAction a = handler.plan(entry, dest, current, tpl, null);
+        TierAction a = handler.plan(
+                entry, dest, current, tpl, null, null);
         assertThat(a).isInstanceOfSatisfying(
                 TierAction.Skip.class,
                 s -> assertThat(s.reason()).contains("whitelist"));
@@ -213,7 +218,7 @@ class TrackedBlockTierHandlerTest {
         byte[] current = bytes(
                 "*\n!pom.xml\n!workspace.yaml\n");
         TierAction a = handler.plan(
-                whitelistAware, dest, current, tpl, null);
+                whitelistAware, dest, current, tpl, null, null);
         TierAction.Write w = (TierAction.Write) a;
         // The block content is the WHITELIST substitute, not the
         // blacklist `tpl` bytes.
@@ -237,7 +242,7 @@ class TrackedBlockTierHandlerTest {
         byte[] tpl = bytes(".idea/\n.DS_Store\n");
         byte[] current = bytes("target/\n*.iml\n");
         TierAction a = handler.plan(
-                whitelistAware, dest, current, tpl, null);
+                whitelistAware, dest, current, tpl, null, null);
         TierAction.Write w = (TierAction.Write) a;
         String produced = str(w.newContent());
         assertThat(produced).contains(".idea/");
@@ -266,4 +271,84 @@ class TrackedBlockTierHandlerTest {
         assertThat(TrackedBlockTierHandler
                 .isWhitelistIgnoreFile("*.iml\n*.log\n")).isFalse();
     }
+
+    // ── Create-case seeding (#825) ────────────────────────────────
+
+    @Test
+    void missingFileWithCreateContentSeedsTemplateAboveBlock() {
+        byte[] tpl = bytes(".ike/vcs-state\n");
+        byte[] seed = bytes("# Maven\ntarget/\n\n# IDE\n.idea/\n");
+        TierAction a = handler.plan(
+                entry, dest, null, tpl, seed, null);
+        TierAction.Write w = (TierAction.Write) a;
+        assertThat(w.kind())
+                .isEqualTo(TierAction.Write.Kind.INSTALL);
+        assertThat(str(w.newContent())).isEqualTo(
+                "# Maven\ntarget/\n\n# IDE\n.idea/\n"
+                        + BEGIN + "\n.ike/vcs-state\n" + END + "\n");
+        assertThat(w.reason()).contains("seed canonical template");
+    }
+
+    @Test
+    void seededInstallLockfileHashesCoverOnlyTheBlock() {
+        // The seed belongs to the user after the install; only the
+        // managed block may register as drift on later publishes.
+        byte[] tpl = bytes(".ike/vcs-state\n");
+        byte[] seed = bytes("target/\n");
+        TierAction.Write w = (TierAction.Write) handler.plan(
+                entry, dest, null, tpl, seed, null);
+        assertThat(w.appliedSha())
+                .isEqualTo(Sha256.of(".ike/vcs-state\n"));
+        assertThat(w.templateSha()).isEqualTo(w.appliedSha());
+    }
+
+    @Test
+    void seedWithoutTrailingNewlineGetsOneBeforeBlock() {
+        byte[] tpl = bytes(".ike/vcs-state\n");
+        byte[] seed = bytes("target/");
+        TierAction.Write w = (TierAction.Write) handler.plan(
+                entry, dest, null, tpl, seed, null);
+        assertThat(str(w.newContent())).isEqualTo(
+                "target/\n"
+                        + BEGIN + "\n.ike/vcs-state\n" + END + "\n");
+    }
+
+    @Test
+    void blankCreateContentInstallsBlockOnly() {
+        byte[] tpl = bytes(".ike/vcs-state\n");
+        TierAction.Write w = (TierAction.Write) handler.plan(
+                entry, dest, null, tpl, bytes("  \n"), null);
+        assertThat(str(w.newContent())).isEqualTo(
+                BEGIN + "\n.ike/vcs-state\n" + END + "\n");
+        assertThat(w.reason()).doesNotContain("seed");
+    }
+
+    @Test
+    void existingFileWithoutBlockIgnoresCreateContent() {
+        // Present file → #245 semantics: append only the managed
+        // block, never duplicate canonical patterns into it.
+        byte[] current = bytes("my-own/\n");
+        byte[] tpl = bytes(".ike/vcs-state\n");
+        byte[] seed = bytes("target/\n.idea/\n");
+        TierAction.Write w = (TierAction.Write) handler.plan(
+                entry, dest, current, tpl, seed, null);
+        assertThat(str(w.newContent())).isEqualTo(
+                "my-own/\n"
+                        + BEGIN + "\n.ike/vcs-state\n" + END + "\n");
+    }
+
+    @Test
+    void existingUpToDateFileIgnoresCreateContent() {
+        byte[] tpl = bytes(".ike/vcs-state\n");
+        byte[] current = bytes(
+                BEGIN + "\n.ike/vcs-state\n" + END + "\n");
+        TierAction a = handler.plan(entry, dest, current, tpl,
+                bytes("target/\n"),
+                LockfileEntry.tracked(
+                        ScaffoldTier.TRACKED_BLOCK,
+                        Sha256.of(".ike/vcs-state\n"),
+                        Sha256.of(".ike/vcs-state\n")));
+        assertThat(a).isInstanceOf(TierAction.UpToDate.class);
+    }
+
 }

@@ -86,15 +86,41 @@ public final class ScaffoldPlanner {
             } else {
                 TierHandler handler = tierHandlers.require(entry.tier());
                 byte[] templateBytes = templates.read(entry.source());
+                byte[] createBytes = readCreateSource(entry, templates);
                 TierAction action = handler.plan(
                         entry, dest, current,
-                        templateBytes, prior);
+                        templateBytes, createBytes, prior);
                 entries.add(new PlannedEntry(entry, action, List.of()));
             }
         }
 
         return new ScaffoldPlan(
                 manifest.standardsVersion(), entries);
+    }
+
+    /**
+     * Resolve an entry's optional {@code create-source} extra to
+     * template bytes. The extra names a second template inside the
+     * scaffold zip that seeding-capable tier handlers write into a
+     * brand-new destination file ahead of their managed region
+     * (currently only {@link ScaffoldTier#TRACKED_BLOCK} — see the
+     * {@code .gitignore} create case, ike-issues#825).
+     *
+     * @param entry     the manifest entry being planned
+     * @param templates source of template bytes
+     * @return the create-source template bytes, or {@code null} when
+     *         the entry declares no {@code create-source}
+     * @throws ScaffoldException if the declared {@code create-source}
+     *                           does not exist in the scaffold zip
+     */
+    private static byte[] readCreateSource(
+            ManifestEntry entry, TemplateSource templates) {
+        Object createSource = entry.extras().get("create-source");
+        if (createSource == null
+                || createSource.toString().isBlank()) {
+            return null;
+        }
+        return templates.read(createSource.toString());
     }
 
     private static byte[] readIfExists(Path p) {
