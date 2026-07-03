@@ -86,25 +86,51 @@ public final class ScaffoldPlanner {
 <span class="fc" id="L86">            } else {</span>
 <span class="fc" id="L87">                TierHandler handler = tierHandlers.require(entry.tier());</span>
 <span class="fc" id="L88">                byte[] templateBytes = templates.read(entry.source());</span>
-<span class="fc" id="L89">                TierAction action = handler.plan(</span>
+<span class="fc" id="L89">                byte[] createBytes = readCreateSource(entry, templates);</span>
+<span class="fc" id="L90">                TierAction action = handler.plan(</span>
                         entry, dest, current,
-                        templateBytes, prior);
-<span class="fc" id="L92">                entries.add(new PlannedEntry(entry, action, List.of()));</span>
+                        templateBytes, createBytes, prior);
+<span class="fc" id="L93">                entries.add(new PlannedEntry(entry, action, List.of()));</span>
             }
-<span class="fc" id="L94">        }</span>
+<span class="fc" id="L95">        }</span>
 
-<span class="fc" id="L96">        return new ScaffoldPlan(</span>
-<span class="fc" id="L97">                manifest.standardsVersion(), entries);</span>
+<span class="fc" id="L97">        return new ScaffoldPlan(</span>
+<span class="fc" id="L98">                manifest.standardsVersion(), entries);</span>
+    }
+
+    /**
+     * Resolve an entry's optional {@code create-source} extra to
+     * template bytes. The extra names a second template inside the
+     * scaffold zip that seeding-capable tier handlers write into a
+     * brand-new destination file ahead of their managed region
+     * (currently only {@link ScaffoldTier#TRACKED_BLOCK} — see the
+     * {@code .gitignore} create case, ike-issues#825).
+     *
+     * @param entry     the manifest entry being planned
+     * @param templates source of template bytes
+     * @return the create-source template bytes, or {@code null} when
+     *         the entry declares no {@code create-source}
+     * @throws ScaffoldException if the declared {@code create-source}
+     *                           does not exist in the scaffold zip
+     */
+    private static byte[] readCreateSource(
+            ManifestEntry entry, TemplateSource templates) {
+<span class="fc" id="L118">        Object createSource = entry.extras().get(&quot;create-source&quot;);</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">        if (createSource == null</span>
+<span class="pc bpc" id="L120" title="1 of 2 branches missed.">                || createSource.toString().isBlank()) {</span>
+<span class="fc" id="L121">            return null;</span>
+        }
+<span class="fc" id="L123">        return templates.read(createSource.toString());</span>
     }
 
     private static byte[] readIfExists(Path p) {
-<span class="fc bfc" id="L101" title="All 2 branches covered.">        if (!Files.isRegularFile(p)) {</span>
-<span class="fc" id="L102">            return null;</span>
+<span class="fc bfc" id="L127" title="All 2 branches covered.">        if (!Files.isRegularFile(p)) {</span>
+<span class="fc" id="L128">            return null;</span>
         }
         try {
-<span class="fc" id="L105">            return Files.readAllBytes(p);</span>
-<span class="nc" id="L106">        } catch (IOException e) {</span>
-<span class="nc" id="L107">            throw new ScaffoldException(</span>
+<span class="fc" id="L131">            return Files.readAllBytes(p);</span>
+<span class="nc" id="L132">        } catch (IOException e) {</span>
+<span class="nc" id="L133">            throw new ScaffoldException(</span>
                     &quot;cannot read &quot; + p, e);
         }
     }

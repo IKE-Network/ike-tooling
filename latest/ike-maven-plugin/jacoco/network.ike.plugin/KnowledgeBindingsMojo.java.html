@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KnowledgeBindingsMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KnowledgeBindingsMojo.java</span></div><h1>KnowledgeBindingsMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.Language;
+import org.apache.maven.api.PathScope;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.ProjectScope;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.DependencyResolver;
+import org.apache.maven.api.services.DependencyResolverResult;
+import org.apache.maven.api.services.ProjectManager;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Generates the bindings class for a ledger-form knowledge set — the {@code TinkarTerm}
+ * idiom: one {@code EntityProxy} constant per declaration with its identity embedded as
+ * a resolved UUID literal and its javadoc generated from the declaration's definition —
+ * into {@code target/generated-sources/ike-knowledge}, registered as a compile source
+ * root so it compiles the Maven way and autocompletes in any IDE that includes the
+ * bindings artifact.
+ *
+ * &lt;p&gt;The generator itself lives tinkar-side ({@code
+ * dev.ikm.tinkar.entity.builder.BindingsMain}) because this plugin stays tinkar-free
+ * (the foundation boundary). This goal builds a classloader over the project's
+ * {@code MAIN_RUNTIME} dependency classpath and invokes that one stable entry point
+ * reflectively, in-process. The project's ledger dependency provides a
+ * {@code KnowledgeSetSource} via {@code META-INF/services}; composition is store-free, so
+ * no datastore or providers are needed on the classpath.
+ *
+ * &lt;p&gt;Typical use — a {@code *-bindings} module depending on its {@code *-terms} ledger
+ * module:
+ *
+ * &lt;pre&gt;{@code
+ * &lt;plugin&gt;
+ *     &lt;groupId&gt;network.ike.tooling&lt;/groupId&gt;
+ *     &lt;artifactId&gt;ike-maven-plugin&lt;/artifactId&gt;
+ *     &lt;executions&gt;
+ *         &lt;execution&gt;
+ *             &lt;goals&gt;&lt;goal&gt;knowledge-bindings&lt;/goal&gt;&lt;/goals&gt;
+ *             &lt;configuration&gt;
+ *                 &lt;packageName&gt;network.ike.richsurface.bindings&lt;/packageName&gt;
+ *                 &lt;className&gt;RichSurfaceTerms&lt;/className&gt;
+ *             &lt;/configuration&gt;
+ *         &lt;/execution&gt;
+ *     &lt;/executions&gt;
+ * &lt;/plugin&gt;
+ * }&lt;/pre&gt;
+ *
+ * @since 234
+ */
+@Mojo(name = IkeGoal.NAME_KNOWLEDGE_BINDINGS,
+      defaultPhase = &quot;generate-sources&quot;)
+<span class="fc" id="L78">public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {</span>
+
+    /** The stable tinkar-side entry point — change in lockstep with tinkar-core. */
+    static final String BINDINGS_MAIN = &quot;dev.ikm.tinkar.entity.builder.BindingsMain&quot;;
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+    protected org.apache.maven.api.plugin.Log getLog() {
+<span class="nc" id="L92">        return log;</span>
+    }
+
+    @Inject
+    private Session session;
+
+    @Inject
+    private Project project;
+
+    /**
+     * Package of the generated bindings class.
+     */
+    @Parameter(property = &quot;ike.knowledgeBindings.packageName&quot;, required = true)
+    String packageName;
+
+    /**
+     * Simple name of the generated bindings class, for example {@code RichSurfaceTerms}.
+     */
+    @Parameter(property = &quot;ike.knowledgeBindings.className&quot;, required = true)
+    String className;
+
+    /**
+     * Fully qualified name of the {@code KnowledgeSetSource} implementation to compose.
+     * Optional: when absent, exactly one implementation must be discoverable via
+     * {@code META-INF/services} on the project's dependency classpath.
+     */
+    @Parameter(property = &quot;ike.knowledgeBindings.sourceClass&quot;)
+    String sourceClass;
+
+    /**
+     * Root directory for the generated sources; registered as a compile source root.
+     */
+    @Parameter(property = &quot;ike.knowledgeBindings.outputDirectory&quot;,
+               defaultValue = &quot;${project.build.directory}/generated-sources/ike-knowledge&quot;)
+    String outputDirectory;
+
+    /**
+     * Skip bindings generation.
+     */
+    @Parameter(property = &quot;ike.knowledgeBindings.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /**
+     * Resolves the project's runtime dependency classpath, invokes the tinkar-side
+     * generator in a classloader over it, and registers the generated-sources root.
+     *
+     * @throws MojoException if the classpath cannot be resolved, the generator entry
+     *                       point is absent (the ledger dependency chain does not include
+     *                       tinkar entity), or generation fails
+     */
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L145">            getLog().info(&quot;ike:knowledge-bindings skipped (ike.knowledgeBindings.skip=true)&quot;);</span>
+<span class="nc" id="L146">            return;</span>
+        }
+
+<span class="nc" id="L149">        DependencyResolverResult resolved = session.getService(DependencyResolver.class)</span>
+<span class="nc" id="L150">                .resolve(session, project, PathScope.MAIN_RUNTIME);</span>
+<span class="nc" id="L151">        List&lt;URL&gt; classpath = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        for (Path path : resolved.getPaths()) {</span>
+            try {
+<span class="nc" id="L154">                classpath.add(path.toUri().toURL());</span>
+<span class="nc" id="L155">            } catch (Exception e) {</span>
+<span class="nc" id="L156">                throw new MojoException(&quot;Cannot convert classpath entry to URL: &quot; + path, e);</span>
+<span class="nc" id="L157">            }</span>
+<span class="nc" id="L158">        }</span>
+<span class="nc" id="L159">        getLog().debug(&quot;knowledge-bindings classpath: &quot; + classpath);</span>
+
+<span class="nc" id="L161">        List&lt;String&gt; args = new ArrayList&lt;&gt;(List.of(outputDirectory, packageName, className));</span>
+<span class="nc bnc" id="L162" title="All 4 branches missed.">        if (sourceClass != null &amp;&amp; !sourceClass.isBlank()) {</span>
+<span class="nc" id="L163">            args.add(sourceClass);</span>
+        }
+
+<span class="nc" id="L166">        ClassLoader originalContext = Thread.currentThread().getContextClassLoader();</span>
+<span class="nc" id="L167">        try (URLClassLoader loader = new URLClassLoader(&quot;ike-knowledge-bindings&quot;,</span>
+<span class="nc" id="L168">                classpath.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {</span>
+<span class="nc" id="L169">            Thread.currentThread().setContextClassLoader(loader);</span>
+<span class="nc" id="L170">            Class&lt;?&gt; mainClass = Class.forName(BINDINGS_MAIN, true, loader);</span>
+<span class="nc" id="L171">            Method main = mainClass.getMethod(&quot;main&quot;, String[].class);</span>
+<span class="nc" id="L172">            main.invoke(null, (Object) args.toArray(new String[0]));</span>
+<span class="nc" id="L173">        } catch (ClassNotFoundException e) {</span>
+<span class="nc" id="L174">            throw new MojoException(BINDINGS_MAIN + &quot; is not on the project's dependency&quot;</span>
+                    + &quot; classpath — the ledger dependency chain must include dev.ikm.tinkar:entity&quot;
+                    + &quot; (with the knowledge-set builder API)&quot;, e);
+<span class="nc" id="L177">        } catch (InvocationTargetException e) {</span>
+<span class="nc" id="L178">            throw new MojoException(&quot;Bindings generation failed: &quot;</span>
+<span class="nc" id="L179">                    + e.getCause().getMessage(), e.getCause());</span>
+<span class="nc" id="L180">        } catch (MojoException e) {</span>
+<span class="nc" id="L181">            throw e;</span>
+<span class="nc" id="L182">        } catch (Exception e) {</span>
+<span class="nc" id="L183">            throw new MojoException(&quot;Bindings generation failed&quot;, e);</span>
+        } finally {
+<span class="nc" id="L185">            Thread.currentThread().setContextClassLoader(originalContext);</span>
+        }
+
+<span class="nc" id="L188">        Path sourceRoot = Path.of(outputDirectory);</span>
+<span class="nc" id="L189">        session.getService(ProjectManager.class)</span>
+<span class="nc" id="L190">                .addSourceRoot(project, ProjectScope.MAIN, Language.JAVA_FAMILY, sourceRoot);</span>
+<span class="nc" id="L191">        getLog().info(&quot;Generated &quot; + packageName + &quot;.&quot; + className</span>
+                + &quot; into &quot; + sourceRoot + &quot; (registered as compile source root)&quot;);
+<span class="nc" id="L193">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
