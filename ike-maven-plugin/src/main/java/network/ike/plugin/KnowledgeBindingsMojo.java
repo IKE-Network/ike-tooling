@@ -80,6 +80,9 @@ public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {
     /** The stable tinkar-side entry point — change in lockstep with tinkar-core. */
     static final String BINDINGS_MAIN = "dev.ikm.tinkar.entity.builder.BindingsMain";
 
+    /** Creates this goal instance. */
+    public KnowledgeBindingsMojo() {}
+
     @Inject
     private org.apache.maven.api.plugin.Log log;
 

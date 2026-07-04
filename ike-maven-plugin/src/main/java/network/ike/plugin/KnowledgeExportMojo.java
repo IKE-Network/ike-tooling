@@ -77,6 +77,9 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
     /** The stable tinkar-side entry point — change in lockstep with tinkar-core. */
     static final String CHANGESET_MAIN = "dev.ikm.tinkar.entity.builder.ChangeSetMain";
 
+    /** Creates this goal instance. */
+    public KnowledgeExportMojo() {}
+
     @Inject
     private org.apache.maven.api.plugin.Log log;
 
