@@ -114,6 +114,14 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
     String sourceClass;
 
     /**
+     * Optional koncepts YAML to extract from the same loaded store — the standard
+     * glossary definition source ({@code koncept-asciidoc-extension}). Extracting here
+     * reuses the single change-set materialization rather than a parallel read of the set.
+     */
+    @Parameter(property = "ike.knowledgeExport.konceptsYmlFile")
+    String konceptsYmlFile;
+
+    /**
      * The project's classes/resources directory, included on the export classpath so the
      * module's own {@code META-INF/services} registrations are discoverable.
      */
@@ -166,6 +174,9 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().debug("knowledge-export classpath: " + classpath);
 
         List<String> args = new ArrayList<>(List.of(outputFile));
+        if (konceptsYmlFile != null && !konceptsYmlFile.isBlank()) {
+            args.add(konceptsYmlFile);
+        }
         if (sourceClass != null && !sourceClass.isBlank()) {
             args.add(sourceClass);
         }
