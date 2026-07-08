@@ -235,3 +235,51 @@ properties above), then:
 - Document the invariant at the guard's declaration.
 - Track "make this bindable" as a real issue rather than letting the
   guard pair metastasize.
+
+## Node-to-Image: Drag Views, Thumbnails, Exports
+
+When you need a raster of a node — a drag view, a thumbnail, an
+export — **snapshot a dedicated, off-screen node built for the image,
+not the live on-screen node.** The two have conflicting requirements:
+the on-screen node must show full content and carry live layout,
+selection, and edit state; the image must be bounded, ellipsised, and
+a fixed size. Forcing one node to be both is the signature of the
+fight — `HGROW`/`resize`/`maxWidth` gymnastics, and hard dead ends
+(a `Label` can't render a strikethrough, but a `Text` can't
+ellipsise). A dedicated image node lets each be right on its own
+terms, with less code.
+
+Build the image node in a **throwaway `Scene`** — never shown, no
+`Stage` — so CSS and sizing resolve, then snapshot it:
+
+```java
+Region glyph = buildGlyph(...);         // dedicated, bounded, styled for the image
+new Scene(new Group(glyph));            // off-screen: applies CSS, enables layout
+glyph.applyCss();
+glyph.resize(glyph.prefWidth(-1), glyph.prefHeight(-1));
+glyph.layout();
+Image image = glyph.snapshot(params, new WritableImage(w, h));
+```
+
+**Off-stage there is no layout pulse.** A node in an unshown scene is
+never sized by a pulse, so `applyCss()` + `resize(prefWidth, prefHeight)`
++ `layout()` yourself before `snapshot()`. And an **unpinned child
+collapses to its minimum** off-stage — a label to a single character —
+so pin the sizes you depend on (`setMinWidth`/`setPrefWidth`/`setMaxWidth`,
+and the same for height). Never `snapshot()` a node that is not in a
+scene; the throwaway scene is what makes an off-screen node
+snapshottable.
+
+**Render pixel-perfect: fixed integer geometry, snapshot 1:1.** Do
+**not** snapshot at a non-integer scale to reach a target size — scaling
+a raster rounds pixel positions and drifts by a pixel. Instead:
+
+- Size the image node in **integer** pixels and snapshot **1:1** (no
+  scale transform, only a translation to the image origin).
+- **Pin aligned siblings to the same height** (e.g. an icon and its
+  label box), so their shared centre lands on an integer row, not a
+  fraction.
+- Keep vertical insets **symmetric** so content centres exactly; account
+  for the border width when you size, so the geometry stays integer.
+
+Reference implementation: `KonceptDragImage` (`komet-claude-plugin`).
