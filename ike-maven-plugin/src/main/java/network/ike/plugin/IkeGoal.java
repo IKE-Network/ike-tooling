@@ -84,6 +84,12 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "replays into a fresh ephemeral store, exports the store, "
                     + "and attaches the file as the changeset classifier "
                     + "(ike-issues#824)."),
+    /** {@code ike:kb-assemble} — assemble a knowledge base from ordered artifacts. */
+    KB_ASSEMBLE(IkeGoal.NAME_KB_ASSEMBLE, KbAssembleMojo.class,
+            "Assemble a knowledge base from ordered knowledge artifacts — "
+                    + "base data plus change sets into a store, classified by "
+                    + "default — and optionally install it into a data-source "
+                    + "directory a knowledge browser reads (ike-issues#848)."),
     /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
     NOTARIZE(IkeGoal.NAME_NOTARIZE, NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
@@ -201,6 +207,9 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_KNOWLEDGE_BINDINGS = "knowledge-bindings";
     /** Mirror for {@link #KNOWLEDGE_EXPORT}. */
     public static final String NAME_KNOWLEDGE_EXPORT = "knowledge-export";
+
+    /** Mirror for {@link #KB_ASSEMBLE}. */
+    public static final String NAME_KB_ASSEMBLE = "kb-assemble";
     /** Mirror for {@link #NOTARIZE}. */
     public static final String NAME_NOTARIZE = "notarize";
     /** Mirror for {@link #RELEASE_DRAFT}. */
