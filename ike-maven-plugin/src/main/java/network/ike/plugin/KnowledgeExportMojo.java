@@ -15,6 +15,11 @@
  */
 package network.ike.plugin;
 
+import network.ike.knowledge.spi.ExportRequest;
+import network.ike.knowledge.spi.ExportResult;
+import network.ike.knowledge.spi.IkeServiceBootstrap;
+import network.ike.knowledge.spi.KnowledgeExporter;
+import network.ike.knowledge.spi.ViewSpec;
 import org.apache.maven.api.PathScope;
 import org.apache.maven.api.ProducedArtifact;
 import org.apache.maven.api.Project;
@@ -27,34 +32,28 @@ import org.apache.maven.api.services.DependencyResolver;
 import org.apache.maven.api.services.DependencyResolverResult;
 import org.apache.maven.api.services.ProjectManager;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
 
 /**
- * Exports a ledger-form knowledge set as its protobuf change-set artifact: composes the
- * project's {@code KnowledgeSetSource}, replays the session into a fresh ephemeral
- * store, exports the store, and attaches the file as the {@code changeset} classifier —
- * the released form of the set. A starter set is exactly this artifact applied to an
- * empty base.
+ * Exports a ledger-form knowledge set as its protobuf change-set artifact and attaches
+ * it as the {@code changeset} classifier — the released form of the set. A starter set
+ * is exactly this artifact applied to an empty base.
  *
- * <p>The exporter lives tinkar-side ({@code dev.ikm.tinkar.entity.builder.ChangeSetMain})
- * because this plugin stays tinkar-free (the foundation boundary): the goal builds a
- * classloader over the project's {@code MAIN_RUNTIME} dependency classpath — plus the
- * project's own classes directory — and invokes the entry point reflectively,
- * in-process. Unlike {@code ike:knowledge-bindings}, export replays into a store, so the
- * project must carry the tinkar ephemeral/entity/executor providers at runtime scope and
- * supply their legacy {@code META-INF/services} controller registrations in its own
- * resources (tinkar providers declare services in {@code module-info} only; the goal
- * runs on the classpath).
+ * <p>The goal is a thin face over the knowledge-pipeline SPI
+ * ({@code network.ike.tooling:ike-knowledge-spi}): it builds a typed
+ * {@link ExportRequest}, and the {@link KnowledgeExporter} implementation is resolved by
+ * ServiceLoader from the <em>project's</em> runtime classpath inside a forked seam —
+ * declare {@code network.ike.knowledge:ike-knowledge-provider} at the use site (or rely
+ * on the parent POM's default wiring). This plugin never depends on a store engine.
  *
  * <p>Typical use — a {@code *-changeset} module depending on its {@code *-terms} ledger
- * module plus the providers:
+ * module plus the provider:
  *
  * <pre>{@code
  * <plugin>
@@ -73,9 +72,6 @@ import java.util.List;
 @Mojo(name = IkeGoal.NAME_KNOWLEDGE_EXPORT,
       defaultPhase = "package")
 public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
-
-    /** The stable tinkar-side entry point — change in lockstep with tinkar-core. */
-    static final String CHANGESET_MAIN = "dev.ikm.tinkar.entity.builder.ChangeSetMain";
 
     /** Creates this goal instance. */
     public KnowledgeExportMojo() {}
@@ -107,22 +103,52 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
 
     /**
      * Fully qualified name of the {@code KnowledgeSetSource} implementation to compose.
-     * Optional: when absent, exactly one implementation must be discoverable via
-     * {@code META-INF/services} on the project's dependency classpath.
+     * Optional: when absent, exactly one implementation must be discoverable on the
+     * project's runtime classpath.
      */
     @Parameter(property = "ike.knowledgeExport.sourceClass")
     String sourceClass;
 
     /**
      * Optional koncepts YAML to extract from the same loaded store — the standard
-     * glossary definition source ({@code koncept-asciidoc-extension}). Extracting here
-     * reuses the single change-set materialization rather than a parallel read of the set.
+     * glossary definition source. Extracting here reuses the single change-set
+     * materialization rather than a parallel read of the set.
      */
     @Parameter(property = "ike.knowledgeExport.konceptsYmlFile")
     String konceptsYmlFile;
 
     /**
-     * The project's classes/resources directory, included on the export classpath so the
+     * The view specification's dotted dimension keys (IKE-KNOWLEDGE-VIEW), stating only
+     * what differs from the implementation's defaults — for example
+     * {@code <view><stamp.allowedStates>Active</stamp.allowedStates></view>}.
+     */
+    @Parameter
+    Map<String, String> view = Map.of();
+
+    /**
+     * The knowledge-service implementation's simple class name, when the classpath
+     * carries several.
+     */
+    @Parameter(property = "ike.knowledgeExport.implementation")
+    String implementation;
+
+    /**
+     * Fork the seam (the default posture — the store lifecycle is JVM-global, and the
+     * fork survives anything the implementation does). Disable only for debugging:
+     * same classpath, same bootstrap, no process boundary.
+     */
+    @Parameter(property = "ike.knowledgeExport.fork", defaultValue = "true")
+    boolean fork;
+
+    /**
+     * Extra child-JVM arguments for the forked seam (heap, flags). The child inherits
+     * {@code --enable-preview} from the Maven JVM automatically.
+     */
+    @Parameter
+    List<String> forkJvmArguments = List.of();
+
+    /**
+     * The project's classes/resources directory, included on the seam classpath so the
      * module's own {@code META-INF/services} registrations are discoverable.
      */
     @Parameter(property = "ike.knowledgeExport.classesDirectory",
@@ -143,12 +169,20 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
     boolean skip;
 
     /**
-     * Resolves the project's runtime dependency classpath, invokes the tinkar-side
-     * exporter in a classloader over it, and attaches the change-set artifact.
+     * The build directory hosting the seam's request/result files (under
+     * {@code ike-knowledge/}).
+     */
+    @Parameter(property = "ike.knowledgeExport.buildDirectory",
+               defaultValue = "${project.build.directory}")
+    String buildDirectory;
+
+    /**
+     * Builds the typed export request, runs the {@link KnowledgeExporter} across the
+     * forked seam on the project's runtime classpath, and attaches the change-set
+     * artifact.
      *
-     * @throws MojoException if the classpath cannot be resolved, the exporter entry
-     *                       point is absent, export fails, or the output file was not
-     *                       produced
+     * @throws MojoException if the classpath cannot be resolved, the seam fails, or the
+     *                       output file was not produced
      */
     @Override
     public void execute() {
@@ -157,56 +191,33 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
             return;
         }
 
-        DependencyResolverResult resolved = session.getService(DependencyResolver.class)
-                .resolve(session, project, PathScope.MAIN_RUNTIME);
-        List<URL> classpath = new ArrayList<>();
-        try {
-            Path classesDir = Path.of(classesDirectory);
-            if (Files.isDirectory(classesDir)) {
-                classpath.add(classesDir.toUri().toURL());
-            }
-            for (Path path : resolved.getPaths()) {
-                classpath.add(path.toUri().toURL());
-            }
-        } catch (Exception e) {
-            throw new MojoException("Cannot assemble export classpath", e);
-        }
-        getLog().debug("knowledge-export classpath: " + classpath);
-
-        List<String> args = new ArrayList<>(List.of(outputFile));
-        if (konceptsYmlFile != null && !konceptsYmlFile.isBlank()) {
-            args.add(konceptsYmlFile);
-        }
-        if (sourceClass != null && !sourceClass.isBlank()) {
-            args.add(sourceClass);
+        ExportRequest request = new ExportRequest(
+                Path.of(outputFile),
+                Optional.ofNullable(konceptsYmlFile).filter(s -> !s.isBlank()).map(Path::of),
+                Optional.ofNullable(sourceClass).filter(s -> !s.isBlank()),
+                ViewSpec.of(view));
+        Properties wire = request.toProperties();
+        if (implementation != null && !implementation.isBlank()) {
+            wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);
         }
 
-        ClassLoader originalContext = Thread.currentThread().getContextClassLoader();
-        try (URLClassLoader loader = new URLClassLoader("ike-knowledge-export",
-                classpath.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {
-            Thread.currentThread().setContextClassLoader(loader);
-            Class<?> mainClass = Class.forName(CHANGESET_MAIN, true, loader);
-            Method main = mainClass.getMethod("main", String[].class);
-            main.invoke(null, (Object) args.toArray(new String[0]));
-        } catch (ClassNotFoundException e) {
-            throw new MojoException(CHANGESET_MAIN + " is not on the project's dependency"
-                    + " classpath — the ledger dependency chain must include dev.ikm.tinkar:entity"
-                    + " (with the knowledge-set builder API)", e);
-        } catch (InvocationTargetException e) {
-            throw new MojoException("Change-set export failed: "
-                    + e.getCause().getMessage(), e.getCause());
-        } catch (MojoException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new MojoException("Change-set export failed", e);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalContext);
-        }
+        Properties resultWire = new KnowledgeServiceRunner(getLog()).run(
+                KnowledgeExporter.class.getName(), wire, seamClasspath(),
+                Path.of(buildDirectory, "ike-knowledge"),
+                fork, forkJvmArguments);
+        ExportResult result = ExportResult.fromProperties(resultWire);
 
-        Path produced = Path.of(outputFile);
+        Path produced = result.outputFile();
         if (!Files.isRegularFile(produced)) {
             throw new MojoException("Change-set export produced no file at " + produced);
         }
+        getLog().info("Change set exported: " + produced.getFileName() + " — "
+                + result.counts().total() + " entities (" + result.counts().concepts()
+                + " concepts, " + result.counts().semantics() + " semantics, "
+                + result.counts().patterns() + " patterns, " + result.counts().stamps()
+                + " stamps)");
+        result.konceptsYmlFile().ifPresent(yml ->
+                getLog().info("Koncepts extracted: " + yml));
 
         if (attach) {
             ProducedArtifact artifact = session.createProducedArtifact(
@@ -218,5 +229,17 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
         } else {
             getLog().info("Change set written (not attached): " + produced);
         }
+    }
+
+    private List<Path> seamClasspath() {
+        DependencyResolverResult resolved = session.getService(DependencyResolver.class)
+                .resolve(session, project, PathScope.MAIN_RUNTIME);
+        List<Path> classpath = new ArrayList<>();
+        Path classesDir = Path.of(classesDirectory);
+        if (Files.isDirectory(classesDir)) {
+            classpath.add(classesDir);
+        }
+        classpath.addAll(resolved.getPaths());
+        return classpath;
     }
 }
