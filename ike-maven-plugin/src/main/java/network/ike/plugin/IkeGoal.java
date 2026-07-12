@@ -90,6 +90,17 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "base data plus change sets into a store, classified by "
                     + "default — and optionally install it into a data-source "
                     + "directory a knowledge browser reads (ike-issues#848)."),
+    /** {@code ike:starter-set-create-draft} — preview a new starter-set project. */
+    STARTER_SET_CREATE_DRAFT(IkeGoal.NAME_STARTER_SET_CREATE_DRAFT, StarterSetCreateDraftMojo.class,
+            "Preview the genesis of a new starter-set project: the derived name "
+                    + "family, the semantic tag, the UUID posture, the file list, "
+                    + "and next-step commands. Side-effect-free (ike-issues#866)."),
+    /** {@code ike:starter-set-create-publish} — create a new starter-set project. */
+    STARTER_SET_CREATE_PUBLISH(IkeGoal.NAME_STARTER_SET_CREATE_PUBLISH, StarterSetCreatePublishMojo.class,
+            "Genesis of a new starter-set project: mint the set's permanent "
+                    + "identity, materialize the five-module family from the "
+                    + "standards templates, bootstrap-commit, and verify the "
+                    + "generated project builds green (ike-issues#866)."),
     /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
     NOTARIZE(IkeGoal.NAME_NOTARIZE, NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
@@ -210,6 +221,12 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
     /** Mirror for {@link #KB_ASSEMBLE}. */
     public static final String NAME_KB_ASSEMBLE = "kb-assemble";
+
+    /** Mirror for {@link #STARTER_SET_CREATE_DRAFT}. */
+    public static final String NAME_STARTER_SET_CREATE_DRAFT = "starter-set-create-draft";
+
+    /** Mirror for {@link #STARTER_SET_CREATE_PUBLISH}. */
+    public static final String NAME_STARTER_SET_CREATE_PUBLISH = "starter-set-create-publish";
     /** Mirror for {@link #NOTARIZE}. */
     public static final String NAME_NOTARIZE = "notarize";
     /** Mirror for {@link #RELEASE_DRAFT}. */
