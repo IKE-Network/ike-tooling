@@ -15,6 +15,10 @@
  */
 package network.ike.plugin;
 
+import network.ike.plugin.support.ConsoleIkePrompter;
+import network.ike.plugin.support.IkePrompter;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.Log;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.nio.file.Path;
@@ -49,6 +53,17 @@ abstract class StarterSetCreateParameters {
      */
     @Parameter(property = "semanticTag")
     String semanticTag;
+
+    /**
+     * The artifact-root family suffix — the repo/artifact is named
+     * {@code <slug>-<artifactSuffix>} (default {@code starter-set}). No
+     * {@code defaultValue} here deliberately: {@code null} means "not supplied on the
+     * command line", which is what triggers the interactive confirmation prompt in
+     * {@link #plan(String, Log, Session)} (IKE-Network/ike-issues#872) rather than
+     * silently applying the default.
+     */
+    @Parameter(property = "artifactSuffix")
+    String artifactSuffix;
 
     /**
      * The set UUID. Absent (the default), publish mints a fresh one and prints it
@@ -109,11 +124,23 @@ abstract class StarterSetCreateParameters {
      *
      * @param uuidForPlan the UUID the plan carries (a placeholder in draft; the minted
      *                    or supplied value in publish)
+     * @param log         the goal's logger, used only if {@code artifactSuffix} needs
+     *                    an interactive confirmation prompt
+     * @param session     the Maven session, consulted for interactive mode; may be
+     *                    {@code null} (unit tests) — treated as non-interactive
      * @return the plan
      */
-    StarterSetPlan plan(String uuidForPlan) {
+    StarterSetPlan plan(String uuidForPlan, Log log, Session session) {
         String uuid = (setUuid == null || setUuid.isBlank()) ? uuidForPlan : setUuid.strip();
-        return new StarterSetPlan(setName, groupId, semanticTag, uuid, version,
+        String suffix = artifactSuffix;
+        if (suffix == null || suffix.isBlank()) {
+            boolean interactive = session != null && session.getSettings().isInteractiveMode();
+            IkePrompter prompter = new ConsoleIkePrompter(log, interactive);
+            String answer = prompter.prompt(
+                    "Artifact suffix — repo/artifact will be named <slug>-<suffix> [starter-set]: ");
+            suffix = (answer == null || answer.isBlank()) ? "starter-set" : answer;
+        }
+        return new StarterSetPlan(setName, groupId, semanticTag, suffix, uuid, version,
                 parentVersion, chronologyStoreVersion, providerVersion,
                 StarterSetCreateSupport.pluginVersion(), konceptExtensionVersion,
                 baseArtifact,

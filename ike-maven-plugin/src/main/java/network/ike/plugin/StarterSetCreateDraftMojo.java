@@ -55,7 +55,7 @@ public class StarterSetCreateDraftMojo extends StarterSetCreateParameters
      */
     @Override
     public void execute() {
-        StarterSetPlan plan = plan("<minted-at-publish>");
+        StarterSetPlan plan = plan("<minted-at-publish>", log, session);
         Map<String, String> templates = StarterSetCreateSupport.loadTemplates(session);
         Path target = targetDirectory(plan);
         for (String line : StarterSetCreateSupport

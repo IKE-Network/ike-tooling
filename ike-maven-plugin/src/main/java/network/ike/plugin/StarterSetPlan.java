@@ -27,7 +27,8 @@ import java.util.Objects;
  * publish goals render exactly the same facts.
  *
  * <p>Derivations from {@code setName} (each overridable at the goal): slug
- * ({@code cql-clause}), artifact root ({@code cql-clause-starter-knowledge}),
+ * ({@code cql-clause}), artifact root ({@code cql-clause-starter-set} — the family
+ * suffix is itself a parameter, {@code artifactSuffix}, default {@code starter-set}),
  * compact class name ({@code CqlClause}), semantic tag (defaults to the class name —
  * a headline item, never silently mechanical: it lives in every birth FQN forever),
  * and base package ({@code <groupId>.cqlclause}).
@@ -42,6 +43,9 @@ final class StarterSetPlan {
      * @param setName                 the set's human name, e.g. {@code "CQL Clause"}
      * @param groupId                 the Maven groupId placing the set in its family
      * @param semanticTag             the semantic tag, or null for the derived default
+     * @param artifactSuffix          the artifact-root family suffix (e.g.
+     *                                {@code starter-set}), or null/blank for the
+     *                                default {@code starter-set}
      * @param setUuid                 the set UUID (already minted or supplied)
      * @param version                 the project version
      * @param parentVersion           the ike-parent version
@@ -53,9 +57,9 @@ final class StarterSetPlan {
      * @param inceptionTime           the inception stamp's literal ISO time
      * @throws IllegalArgumentException if the set name or groupId is blank
      */
-    StarterSetPlan(String setName, String groupId, String semanticTag, String setUuid,
-                   String version, String parentVersion, String chronologyStoreVersion,
-                   String providerVersion, String toolingVersion,
+    StarterSetPlan(String setName, String groupId, String semanticTag, String artifactSuffix,
+                   String setUuid, String version, String parentVersion,
+                   String chronologyStoreVersion, String providerVersion, String toolingVersion,
                    String konceptExtensionVersion, String baseArtifactSpec,
                    String inceptionTime) {
         if (setName == null || setName.isBlank()) {
@@ -67,11 +71,16 @@ final class StarterSetPlan {
         }
         String slug = slugOf(setName);
         String className = classNameOf(setName);
+        String suffix = (artifactSuffix == null || artifactSuffix.isBlank())
+                ? "starter-set" : artifactSuffix.strip();
         tokens.put("setName", setName.strip());
         tokens.put("groupId", groupId.strip());
         tokens.put("slug", slug);
-        tokens.put("artifactRoot", slug + "-starter-knowledge");
+        tokens.put("artifactRoot", slug + "-" + suffix);
         tokens.put("className", className);
+        String familyLabel = titleCase(suffix);
+        tokens.put("familyLabel", familyLabel);
+        tokens.put("familyLabelLower", familyLabel.toLowerCase(Locale.ROOT));
         tokens.put("tag", (semanticTag == null || semanticTag.isBlank())
                 ? className : semanticTag.strip());
         tokens.put("basePackage", groupId.strip() + "." + slug.replace("-", ""));
@@ -84,6 +93,29 @@ final class StarterSetPlan {
         tokens.put("konceptExtensionVersion", konceptExtensionVersion);
         tokens.put("baseArtifactSpec", baseArtifactSpec);
         tokens.put("inceptionTime", inceptionTime);
+    }
+
+    /**
+     * Renders a kebab-case suffix as a human-readable, space-separated title-case
+     * label — {@code starter-set} becomes {@code Starter Set}. Used for free-text
+     * prose (POM {@code <name>}/{@code <description>}, READMEs, docs) that would
+     * otherwise hardcode the word "knowledge" regardless of the chosen
+     * {@code artifactSuffix}.
+     *
+     * @param suffix the kebab-case suffix
+     * @return the title-case label
+     */
+    static String titleCase(String suffix) {
+        StringBuilder label = new StringBuilder();
+        for (String word : suffix.split("-")) {
+            if (!word.isEmpty()) {
+                if (label.length() > 0) {
+                    label.append(' ');
+                }
+                label.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+            }
+        }
+        return label.toString();
     }
 
     /**

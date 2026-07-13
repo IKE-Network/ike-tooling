@@ -51,7 +51,7 @@ final class ConceptSet {
 
         set.concept("@tag@ root (@tag@)").at(inception)
                 .synonym("@tag@ root")
-                .definition("Root concept of the @setName@ starter knowledge.")
+                .definition("Root concept of the @setName@ @familyLabelLower@.")
                 .isA(TinkarTerm.MODEL_CONCEPT);
 
         // TODO: declare this set's content concepts here, classified under the

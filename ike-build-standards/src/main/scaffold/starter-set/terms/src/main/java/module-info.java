@@ -16,7 +16,7 @@
 
 /**
  * The @tag@ ledger: the append-only, replayable source of the @setName@
- * starter knowledge.
+ * @familyLabelLower@.
  */
 module @basePackage@.terms {
     requires transitive dev.ikm.tinkar.entity;

@@ -29,7 +29,11 @@ import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 class StarterSetPlanTest {
 
     private static StarterSetPlan plan(String setName, String tag) {
-        return new StarterSetPlan(setName, "network.ike.cql", tag,
+        return plan(setName, tag, null);
+    }
+
+    private static StarterSetPlan plan(String setName, String tag, String artifactSuffix) {
+        return new StarterSetPlan(setName, "network.ike.cql", tag, artifactSuffix,
                 "7b6a5c4d-3e2f-5a1b-8c9d-0e1f2a3b4c5d", "1-SNAPSHOT", "131",
                 "1.127.2-SNAPSHOT", "1-SNAPSHOT", "235-SNAPSHOT", "90-SNAPSHOT",
                 "PB g:a:zip:reasoned-pb:1", "2026-07-11T00:00:00Z");
@@ -40,17 +44,27 @@ class StarterSetPlanTest {
     void nameFamily() {
         StarterSetPlan plan = plan("CQL Clause", null);
         assertThat(plan.token("slug")).isEqualTo("cql-clause");
-        assertThat(plan.token("artifactRoot")).isEqualTo("cql-clause-starter-knowledge");
+        // artifactSuffix defaults to "starter-set" when omitted/blank.
+        assertThat(plan.token("artifactRoot")).isEqualTo("cql-clause-starter-set");
         // Acronym casing is preserved — the ratified (IKE) tag is all-caps.
         assertThat(plan.token("className")).isEqualTo("CQLClause");
         assertThat(plan.token("tag")).isEqualTo("CQLClause");
         assertThat(plan.token("basePackage")).isEqualTo("network.ike.cql.cqlclause");
 
         assertThat(plan("CQL Clause", "IKE").token("tag")).isEqualTo("IKE");
+        assertThat(plan("CQL Clause", null, "starter-knowledge").token("artifactRoot"))
+                .isEqualTo("cql-clause-starter-knowledge");
+        // familyLabel/familyLabelLower are the human-readable prose form of the
+        // suffix — free text (POM <name>, READMEs, docs) must not hardcode
+        // "knowledge" regardless of the chosen artifactSuffix.
+        assertThat(plan.token("familyLabel")).isEqualTo("Starter Set");
+        assertThat(plan.token("familyLabelLower")).isEqualTo("starter set");
+        assertThat(plan("CQL Clause", null, "starter-knowledge").token("familyLabel"))
+                .isEqualTo("Starter Knowledge");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> plan("  ", null)).withMessageContaining("setName");
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new StarterSetPlan("X", " ", null, "u", "v", "p",
+                .isThrownBy(() -> new StarterSetPlan("X", " ", null, null, "u", "v", "p",
                         "c", "pr", "t", "k", "b", "i"))
                 .withMessageContaining("groupId");
     }
