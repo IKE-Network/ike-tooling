@@ -16,7 +16,6 @@
 package network.ike.plugin;
 
 import org.apache.maven.api.Language;
-import org.apache.maven.api.PathScope;
 import org.apache.maven.api.Project;
 import org.apache.maven.api.ProjectScope;
 import org.apache.maven.api.Session;
@@ -24,8 +23,6 @@ import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
-import org.apache.maven.api.services.DependencyResolver;
-import org.apache.maven.api.services.DependencyResolverResult;
 import org.apache.maven.api.services.ProjectManager;
 
 import java.lang.reflect.InvocationTargetException;
@@ -81,7 +78,7 @@ public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {
     static final String BINDINGS_MAIN = &quot;dev.ikm.tinkar.entity.builder.BindingsMain&quot;;
 
     /** Creates this goal instance. */
-<span class="fc" id="L84">    public KnowledgeBindingsMojo() {}</span>
+<span class="fc" id="L81">    public KnowledgeBindingsMojo() {}</span>
 
     @Inject
     private org.apache.maven.api.plugin.Log log;
@@ -92,7 +89,7 @@ public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {
      * @return the logger
      */
     protected org.apache.maven.api.plugin.Log getLog() {
-<span class="nc" id="L95">        return log;</span>
+<span class="nc" id="L92">        return log;</span>
     }
 
     @Inject
@@ -144,55 +141,55 @@ public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {
      */
     @Override
     public void execute() {
-<span class="nc bnc" id="L147" title="All 2 branches missed.">        if (skip) {</span>
-<span class="nc" id="L148">            getLog().info(&quot;ike:knowledge-bindings skipped (ike.knowledgeBindings.skip=true)&quot;);</span>
-<span class="nc" id="L149">            return;</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L145">            getLog().info(&quot;ike:knowledge-bindings skipped (ike.knowledgeBindings.skip=true)&quot;);</span>
+<span class="nc" id="L146">            return;</span>
         }
 
-<span class="nc" id="L152">        DependencyResolverResult resolved = session.getService(DependencyResolver.class)</span>
-<span class="nc" id="L153">                .resolve(session, project, PathScope.MAIN_RUNTIME);</span>
-<span class="nc" id="L154">        List&lt;URL&gt; classpath = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L155" title="All 2 branches missed.">        for (Path path : resolved.getPaths()) {</span>
+        // Resolution goes through the plugin's serialized entry point — Maven 4 rc-5's
+        // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
+<span class="nc" id="L151">        List&lt;URL&gt; classpath = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        for (Path path : RuntimeClasspathResolver.mainRuntimePaths(session, project)) {</span>
             try {
-<span class="nc" id="L157">                classpath.add(path.toUri().toURL());</span>
-<span class="nc" id="L158">            } catch (Exception e) {</span>
-<span class="nc" id="L159">                throw new MojoException(&quot;Cannot convert classpath entry to URL: &quot; + path, e);</span>
-<span class="nc" id="L160">            }</span>
-<span class="nc" id="L161">        }</span>
-<span class="nc" id="L162">        getLog().debug(&quot;knowledge-bindings classpath: &quot; + classpath);</span>
+<span class="nc" id="L154">                classpath.add(path.toUri().toURL());</span>
+<span class="nc" id="L155">            } catch (Exception e) {</span>
+<span class="nc" id="L156">                throw new MojoException(&quot;Cannot convert classpath entry to URL: &quot; + path, e);</span>
+<span class="nc" id="L157">            }</span>
+<span class="nc" id="L158">        }</span>
+<span class="nc" id="L159">        getLog().debug(&quot;knowledge-bindings classpath: &quot; + classpath);</span>
 
-<span class="nc" id="L164">        List&lt;String&gt; args = new ArrayList&lt;&gt;(List.of(outputDirectory, packageName, className));</span>
-<span class="nc bnc" id="L165" title="All 4 branches missed.">        if (sourceClass != null &amp;&amp; !sourceClass.isBlank()) {</span>
-<span class="nc" id="L166">            args.add(sourceClass);</span>
+<span class="nc" id="L161">        List&lt;String&gt; args = new ArrayList&lt;&gt;(List.of(outputDirectory, packageName, className));</span>
+<span class="nc bnc" id="L162" title="All 4 branches missed.">        if (sourceClass != null &amp;&amp; !sourceClass.isBlank()) {</span>
+<span class="nc" id="L163">            args.add(sourceClass);</span>
         }
 
-<span class="nc" id="L169">        ClassLoader originalContext = Thread.currentThread().getContextClassLoader();</span>
-<span class="nc" id="L170">        try (URLClassLoader loader = new URLClassLoader(&quot;ike-knowledge-bindings&quot;,</span>
-<span class="nc" id="L171">                classpath.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {</span>
-<span class="nc" id="L172">            Thread.currentThread().setContextClassLoader(loader);</span>
-<span class="nc" id="L173">            Class&lt;?&gt; mainClass = Class.forName(BINDINGS_MAIN, true, loader);</span>
-<span class="nc" id="L174">            Method main = mainClass.getMethod(&quot;main&quot;, String[].class);</span>
-<span class="nc" id="L175">            main.invoke(null, (Object) args.toArray(new String[0]));</span>
-<span class="nc" id="L176">        } catch (ClassNotFoundException e) {</span>
-<span class="nc" id="L177">            throw new MojoException(BINDINGS_MAIN + &quot; is not on the project's dependency&quot;</span>
+<span class="nc" id="L166">        ClassLoader originalContext = Thread.currentThread().getContextClassLoader();</span>
+<span class="nc" id="L167">        try (URLClassLoader loader = new URLClassLoader(&quot;ike-knowledge-bindings&quot;,</span>
+<span class="nc" id="L168">                classpath.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {</span>
+<span class="nc" id="L169">            Thread.currentThread().setContextClassLoader(loader);</span>
+<span class="nc" id="L170">            Class&lt;?&gt; mainClass = Class.forName(BINDINGS_MAIN, true, loader);</span>
+<span class="nc" id="L171">            Method main = mainClass.getMethod(&quot;main&quot;, String[].class);</span>
+<span class="nc" id="L172">            main.invoke(null, (Object) args.toArray(new String[0]));</span>
+<span class="nc" id="L173">        } catch (ClassNotFoundException e) {</span>
+<span class="nc" id="L174">            throw new MojoException(BINDINGS_MAIN + &quot; is not on the project's dependency&quot;</span>
                     + &quot; classpath — the ledger dependency chain must include dev.ikm.tinkar:entity&quot;
                     + &quot; (with the knowledge-set builder API)&quot;, e);
-<span class="nc" id="L180">        } catch (InvocationTargetException e) {</span>
-<span class="nc" id="L181">            throw new MojoException(&quot;Bindings generation failed: &quot;</span>
-<span class="nc" id="L182">                    + e.getCause().getMessage(), e.getCause());</span>
-<span class="nc" id="L183">        } catch (MojoException e) {</span>
-<span class="nc" id="L184">            throw e;</span>
-<span class="nc" id="L185">        } catch (Exception e) {</span>
-<span class="nc" id="L186">            throw new MojoException(&quot;Bindings generation failed&quot;, e);</span>
+<span class="nc" id="L177">        } catch (InvocationTargetException e) {</span>
+<span class="nc" id="L178">            throw new MojoException(&quot;Bindings generation failed: &quot;</span>
+<span class="nc" id="L179">                    + e.getCause().getMessage(), e.getCause());</span>
+<span class="nc" id="L180">        } catch (MojoException e) {</span>
+<span class="nc" id="L181">            throw e;</span>
+<span class="nc" id="L182">        } catch (Exception e) {</span>
+<span class="nc" id="L183">            throw new MojoException(&quot;Bindings generation failed&quot;, e);</span>
         } finally {
-<span class="nc" id="L188">            Thread.currentThread().setContextClassLoader(originalContext);</span>
+<span class="nc" id="L185">            Thread.currentThread().setContextClassLoader(originalContext);</span>
         }
 
-<span class="nc" id="L191">        Path sourceRoot = Path.of(outputDirectory);</span>
-<span class="nc" id="L192">        session.getService(ProjectManager.class)</span>
-<span class="nc" id="L193">                .addSourceRoot(project, ProjectScope.MAIN, Language.JAVA_FAMILY, sourceRoot);</span>
-<span class="nc" id="L194">        getLog().info(&quot;Generated &quot; + packageName + &quot;.&quot; + className</span>
+<span class="nc" id="L188">        Path sourceRoot = Path.of(outputDirectory);</span>
+<span class="nc" id="L189">        session.getService(ProjectManager.class)</span>
+<span class="nc" id="L190">                .addSourceRoot(project, ProjectScope.MAIN, Language.JAVA_FAMILY, sourceRoot);</span>
+<span class="nc" id="L191">        getLog().info(&quot;Generated &quot; + packageName + &quot;.&quot; + className</span>
                 + &quot; into &quot; + sourceRoot + &quot; (registered as compile source root)&quot;);
-<span class="nc" id="L196">    }</span>
+<span class="nc" id="L193">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

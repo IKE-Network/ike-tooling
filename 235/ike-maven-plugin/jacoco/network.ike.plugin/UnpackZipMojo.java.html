@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UnpackZipMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">UnpackZipMojo.java</span></div><h1>UnpackZipMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Duration;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+/**
+ * Download a zip archive from a URL and unpack it.
+ *
+ * &lt;p&gt;Uses {@link java.util.zip.ZipInputStream} directly, bypassing
+ * Plexus Archiver. This avoids the 1800+ case-sensitivity warnings
+ * that Plexus emits on macOS when a zip contains entries that differ
+ * only by case (e.g., the DocBook XSL distribution).
+ *
+ * &lt;p&gt;The downloaded zip is cached in a local directory so subsequent
+ * builds skip the download when the cached file already exists.
+ *
+ * &lt;p&gt;This goal replaces both {@code download-maven-plugin:wget} and
+ * the {@code exec-maven-plugin} call to system {@code unzip} in the
+ * docbook-xsl build.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;{@code
+ * &lt;execution&gt;
+ *     &lt;id&gt;download-and-unpack-docbook-xsl&lt;/id&gt;
+ *     &lt;phase&gt;generate-resources&lt;/phase&gt;
+ *     &lt;goals&gt;&lt;goal&gt;unpack-zip&lt;/goal&gt;&lt;/goals&gt;
+ *     &lt;configuration&gt;
+ *         &lt;url&gt;https://github.com/.../docbook-xsl-1.79.2.zip&lt;/url&gt;
+ *         &lt;outputDirectory&gt;${project.build.directory}&lt;/outputDirectory&gt;
+ *     &lt;/configuration&gt;
+ * &lt;/execution&gt;
+ * }&lt;/pre&gt;
+ *
+ * @since 100
+ */
+@Mojo(name = IkeGoal.NAME_UNPACK_ZIP,
+      defaultPhase = &quot;generate-resources&quot;)
+public class UnpackZipMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L61">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /**
+     * URL of the zip archive to download.
+     */
+    @Parameter(property = &quot;ike.unpack.url&quot;, required = true)
+    String url;
+
+    /**
+     * Directory to unpack into. The zip's internal directory structure
+     * is preserved beneath this directory.
+     */
+    @Parameter(property = &quot;ike.unpack.outputDirectory&quot;, required = true)
+    String outputDirectory;
+
+    /**
+     * Local cache directory for downloaded archives. If the zip file
+     * already exists here, the download is skipped.
+     *
+     * &lt;p&gt;Defaults to {@code ~/.m2/repository/.cache/ike-maven-plugin/}.
+     */
+    @Parameter(property = &quot;ike.unpack.cacheDirectory&quot;,
+               defaultValue = &quot;${settings.localRepository}/.cache/ike-maven-plugin&quot;)
+    String cacheDirectory;
+
+    /**
+     * Skip execution.
+     */
+    @Parameter(property = &quot;ike.unpack.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /**
+     * HTTP connect/read timeout in seconds.
+     */
+    @Parameter(property = &quot;ike.unpack.timeout&quot;, defaultValue = &quot;60&quot;)
+    int timeoutSeconds;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L99">    public UnpackZipMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L104">            getLog().debug(&quot;unpack-zip: skipped&quot;);</span>
+<span class="nc" id="L105">            return;</span>
+        }
+
+        try {
+<span class="nc" id="L109">            Path zipFile = download();</span>
+<span class="nc" id="L110">            unpack(zipFile);</span>
+<span class="nc" id="L111">        } catch (IOException e) {</span>
+<span class="nc" id="L112">            throw new MojoException(</span>
+                    &quot;unpack-zip failed for &quot; + url, e);
+<span class="nc" id="L114">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L115">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L116">            throw new MojoException(</span>
+                    &quot;unpack-zip interrupted for &quot; + url, e);
+<span class="nc" id="L118">        }</span>
+<span class="nc" id="L119">    }</span>
+
+    /**
+     * Download the zip to the cache directory, skipping if already present.
+     *
+     * @return path to the cached zip file
+     * @throws IOException if download or I/O fails
+     * @throws InterruptedException if the download is interrupted
+     */
+    private Path download() throws IOException, InterruptedException {
+<span class="nc" id="L129">        Path cacheDir = Path.of(cacheDirectory);</span>
+<span class="nc" id="L130">        Files.createDirectories(cacheDir);</span>
+
+        // Derive filename from URL (last path segment)
+<span class="nc" id="L133">        String filename = url.substring(url.lastIndexOf('/') + 1);</span>
+<span class="nc" id="L134">        Path cached = cacheDir.resolve(filename);</span>
+
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        if (Files.isRegularFile(cached)) {</span>
+<span class="nc" id="L137">            getLog().info(&quot;unpack-zip: using cached &quot; + cached);</span>
+<span class="nc" id="L138">            return cached;</span>
+        }
+
+<span class="nc" id="L141">        getLog().info(&quot;unpack-zip: downloading &quot; + url);</span>
+
+<span class="nc" id="L143">        HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L144">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
+<span class="nc" id="L145">                .connectTimeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L146">                .build();</span>
+
+<span class="nc" id="L148">        HttpRequest request = HttpRequest.newBuilder()</span>
+<span class="nc" id="L149">                .uri(URI.create(url))</span>
+<span class="nc" id="L150">                .timeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L151">                .GET()</span>
+<span class="nc" id="L152">                .build();</span>
+
+        // Download to a temp file, then move atomically to avoid
+        // partial files in the cache on failure
+<span class="nc" id="L156">        Path temp = Files.createTempFile(cacheDir, &quot;download-&quot;, &quot;.tmp&quot;);</span>
+        try {
+<span class="nc" id="L158">            HttpResponse&lt;Path&gt; response = client.send(request,</span>
+<span class="nc" id="L159">                    HttpResponse.BodyHandlers.ofFile(temp));</span>
+
+<span class="nc bnc" id="L161" title="All 2 branches missed.">            if (response.statusCode() != 200) {</span>
+<span class="nc" id="L162">                throw new IOException(&quot;HTTP &quot; + response.statusCode()</span>
+                        + &quot; downloading &quot; + url);
+            }
+
+<span class="nc" id="L166">            Files.move(temp, cached, StandardCopyOption.REPLACE_EXISTING);</span>
+<span class="nc" id="L167">            getLog().info(&quot;unpack-zip: cached &quot; + filename</span>
+<span class="nc" id="L168">                    + &quot; (&quot; + Files.size(cached) / 1024 + &quot; KB)&quot;);</span>
+<span class="nc" id="L169">            return cached;</span>
+<span class="nc" id="L170">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc" id="L171">            Files.deleteIfExists(temp);</span>
+<span class="nc" id="L172">            throw e;</span>
+        }
+    }
+
+    /**
+     * Unpack a zip file to the output directory using
+     * {@link ZipInputStream}.
+     *
+     * &lt;p&gt;Unlike Plexus Archiver, this does not warn on
+     * case-insensitive filesystem collisions — it silently overwrites,
+     * matching the behavior of system {@code unzip -o}.
+     *
+     * @param zipFile the zip archive to unpack
+     * @throws IOException if unpacking fails
+     */
+    private void unpack(Path zipFile) throws IOException {
+<span class="nc" id="L188">        Path outDir = Path.of(outputDirectory);</span>
+<span class="nc" id="L189">        Files.createDirectories(outDir);</span>
+
+<span class="nc" id="L191">        int count = 0;</span>
+<span class="nc" id="L192">        try (ZipInputStream zis = new ZipInputStream(</span>
+<span class="nc" id="L193">                Files.newInputStream(zipFile))) {</span>
+
+            ZipEntry entry;
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            while ((entry = zis.getNextEntry()) != null) {</span>
+<span class="nc" id="L197">                Path target = outDir.resolve(entry.getName()).normalize();</span>
+
+                // Guard against zip-slip
+<span class="nc bnc" id="L200" title="All 2 branches missed.">                if (!target.startsWith(outDir)) {</span>
+<span class="nc" id="L201">                    throw new IOException(</span>
+                            &quot;Zip entry outside target directory: &quot;
+<span class="nc" id="L203">                                    + entry.getName());</span>
+                }
+
+<span class="nc bnc" id="L206" title="All 2 branches missed.">                if (entry.isDirectory()) {</span>
+<span class="nc" id="L207">                    Files.createDirectories(target);</span>
+                } else {
+<span class="nc" id="L209">                    Files.createDirectories(target.getParent());</span>
+<span class="nc" id="L210">                    Files.copy(zis, target,</span>
+                            StandardCopyOption.REPLACE_EXISTING);
+<span class="nc" id="L212">                    count++;</span>
+                }
+<span class="nc" id="L214">                zis.closeEntry();</span>
+<span class="nc" id="L215">            }</span>
+        }
+
+<span class="nc" id="L218">        getLog().info(&quot;unpack-zip: extracted &quot; + count + &quot; files to &quot;</span>
+                + outDir);
+<span class="nc" id="L220">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
