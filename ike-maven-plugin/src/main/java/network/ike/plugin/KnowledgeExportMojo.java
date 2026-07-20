@@ -20,7 +20,6 @@ import network.ike.knowledge.spi.ExportResult;
 import network.ike.knowledge.spi.IkeServiceBootstrap;
 import network.ike.knowledge.spi.KnowledgeExporter;
 import network.ike.knowledge.spi.ViewSpec;
-import org.apache.maven.api.PathScope;
 import org.apache.maven.api.ProducedArtifact;
 import org.apache.maven.api.Project;
 import org.apache.maven.api.Session;
@@ -28,8 +27,6 @@ import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
-import org.apache.maven.api.services.DependencyResolver;
-import org.apache.maven.api.services.DependencyResolverResult;
 import org.apache.maven.api.services.ProjectManager;
 
 import java.nio.file.Files;
@@ -232,14 +229,14 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
     }
 
     private List<Path> seamClasspath() {
-        DependencyResolverResult resolved = session.getService(DependencyResolver.class)
-                .resolve(session, project, PathScope.MAIN_RUNTIME);
+        // Resolution goes through the plugin's serialized entry point — Maven 4 rc-5's
+        // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
         List<Path> classpath = new ArrayList<>();
         Path classesDir = Path.of(classesDirectory);
         if (Files.isDirectory(classesDir)) {
             classpath.add(classesDir);
         }
-        classpath.addAll(resolved.getPaths());
+        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));
         return classpath;
     }
 }

@@ -16,7 +16,6 @@
 package network.ike.plugin;
 
 import org.apache.maven.api.Language;
-import org.apache.maven.api.PathScope;
 import org.apache.maven.api.Project;
 import org.apache.maven.api.ProjectScope;
 import org.apache.maven.api.Session;
@@ -24,8 +23,6 @@ import org.apache.maven.api.di.Inject;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
-import org.apache.maven.api.services.DependencyResolver;
-import org.apache.maven.api.services.DependencyResolverResult;
 import org.apache.maven.api.services.ProjectManager;
 
 import java.lang.reflect.InvocationTargetException;
@@ -149,10 +146,10 @@ public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {
             return;
         }
 
-        DependencyResolverResult resolved = session.getService(DependencyResolver.class)
-                .resolve(session, project, PathScope.MAIN_RUNTIME);
+        // Resolution goes through the plugin's serialized entry point — Maven 4 rc-5's
+        // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
         List<URL> classpath = new ArrayList<>();
-        for (Path path : resolved.getPaths()) {
+        for (Path path : RuntimeClasspathResolver.mainRuntimePaths(session, project)) {
             try {
                 classpath.add(path.toUri().toURL());
             } catch (Exception e) {
