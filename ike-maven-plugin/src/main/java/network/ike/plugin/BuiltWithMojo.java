@@ -68,8 +68,7 @@ import java.util.Map;
  * }</pre>
  *
  * @see RenderSpdxLicensesMojo  the SPDX-grouped licenses report
- * @see GenerateBomMojo         the IKE-specific BOM (different
- *                              concept — Maven dependency BOM)
+ * @see GenerateBomMojo         the IKE-specific Maven dependency BOM (a different concept)
  */
 @Mojo(name = IkeGoal.NAME_BUILT_WITH, defaultPhase = "pre-site")
 public class BuiltWithMojo implements org.apache.maven.api.plugin.Mojo {

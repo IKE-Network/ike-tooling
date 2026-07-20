@@ -77,7 +77,7 @@ public class ScaffoldRevertMojo extends AbstractGoalMojo {
 
     /**
      * Explicit override for the project root. When omitted, the goal
-     * uses {@link Session#getTopDirectory()} (the directory Maven was
+     * uses {@code Session#getTopDirectory()} (the directory Maven was
      * invoked from); a missing {@code pom.xml} at that location signals
      * fresh-machine bootstrap and the project scope is skipped.
      */

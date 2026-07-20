@@ -49,8 +49,7 @@ import java.util.Map;
  *
  * @see RenderSpdxLicensesMojo  the SPDX-grouped slice
  * @see BuiltWithMojo           the narrative + summary slice
- * @see GenerateBomMojo         IKE-specific Maven dependency BOM
- *                              (different concept)
+ * @see GenerateBomMojo         IKE-specific Maven dependency BOM (a different concept)
  */
 @Mojo(name = IkeGoal.NAME_RENDER_SBOM_VIEWER, defaultPhase = "pre-site")
 public class RenderSbomViewerMojo implements org.apache.maven.api.plugin.Mojo {

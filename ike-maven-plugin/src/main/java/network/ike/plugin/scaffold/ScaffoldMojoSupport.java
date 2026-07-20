@@ -41,7 +41,7 @@ public final class ScaffoldMojoSupport {
      * is required, even when one is in scope. Callers therefore pass an
      * explicit {@code projectRoot} parameter when supplied by the user;
      * when blank, this helper derives the directory from
-     * {@link Session#getTopDirectory()} (the directory Maven was
+     * {@code Session#getTopDirectory()} (the directory Maven was
      * launched from).
      *
      * <p>The result is null when no {@code pom.xml} sits at the
