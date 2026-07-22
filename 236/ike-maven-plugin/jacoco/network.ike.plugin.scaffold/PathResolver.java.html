@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PathResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">PathResolver.java</span></div><h1>PathResolver.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.nio.file.Path;
+import java.util.Objects;
+
+/**
+ * Expands manifest {@code dest} strings to absolute filesystem paths.
+ *
+ * &lt;p&gt;Conventions:
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@link ScaffoldScope#USER} entries start with {@code &quot;~/&quot;} and
+ *       resolve against the caller-supplied user home.&lt;/li&gt;
+ *   &lt;li&gt;{@link ScaffoldScope#PROJECT} entries may optionally start
+ *       with {@code &quot;{project.root}/&quot;} (the literal token, not a
+ *       property reference); both forms resolve against the
+ *       project-root path passed in.&lt;/li&gt;
+ * &lt;/ul&gt;
+ */
+public final class PathResolver {
+
+    private final Path userHome;
+    private final Path projectRoot;
+
+    /**
+     * Construct a resolver bound to the given user-home and
+     * project-root anchors. Either anchor may be used at resolve time
+     * depending on the scope of the manifest entry; {@code projectRoot}
+     * may be omitted when only USER-scope resolution is required.
+     *
+     * @param userHome    absolute path to the user's home directory;
+     *                    required for USER-scope entries
+     * @param projectRoot absolute path to the current project's root;
+     *                    required for PROJECT-scope entries. May be
+     *                    {@code null} when only USER-scope resolution
+     *                    is expected (e.g. fresh-machine bootstrap).
+     */
+<span class="fc" id="L37">    public PathResolver(Path userHome, Path projectRoot) {</span>
+<span class="fc" id="L38">        this.userHome = Objects.requireNonNull(userHome, &quot;userHome&quot;);</span>
+<span class="fc" id="L39">        this.projectRoot = projectRoot;</span>
+<span class="fc" id="L40">    }</span>
+
+    /**
+     * Resolve a manifest entry to an absolute path.
+     *
+     * @param entry the manifest entry
+     * @return absolute, normalised path
+     * @throws ScaffoldException if the entry's scope does not match
+     *                           the available roots or the dest form
+     *                           is inconsistent with its scope
+     */
+    public Path resolve(ManifestEntry entry) {
+<span class="fc" id="L52">        return resolveDest(entry.dest(), entry.scope());</span>
+    }
+
+    /**
+     * Resolve a bare {@code dest} string to an absolute path.
+     *
+     * &lt;p&gt;Used for lockfile entries that have no surviving manifest
+     * counterpart (orphans) — the scope is inferred by the caller
+     * from which lockfile the {@code dest} came out of.
+     *
+     * @param dest  the manifest {@code dest} string
+     * @param scope the scope to resolve under
+     * @return absolute, normalised path
+     * @throws ScaffoldException if the dest form is inconsistent with
+     *                           its scope or the required root is
+     *                           unavailable
+     */
+    public Path resolveDest(String dest, ScaffoldScope scope) {
+<span class="fc bfc" id="L70" title="All 2 branches covered.">        if (scope == ScaffoldScope.USER) {</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">            if (!dest.startsWith(&quot;~/&quot;)) {</span>
+<span class="fc" id="L72">                throw new ScaffoldException(</span>
+                        &quot;USER-scope entry '&quot; + dest
+                                + &quot;' must start with '~/'&quot;);
+            }
+<span class="fc" id="L76">            return userHome.resolve(dest.substring(2)).normalize();</span>
+        }
+        // PROJECT
+<span class="fc bfc" id="L79" title="All 2 branches covered.">        if (dest.startsWith(&quot;~/&quot;)) {</span>
+<span class="fc" id="L80">            throw new ScaffoldException(</span>
+                    &quot;PROJECT-scope entry '&quot; + dest
+                            + &quot;' must not start with '~/'&quot;);
+        }
+<span class="fc bfc" id="L84" title="All 2 branches covered.">        if (projectRoot == null) {</span>
+<span class="fc" id="L85">            throw new ScaffoldException(</span>
+                    &quot;PROJECT-scope entry '&quot; + dest
+                            + &quot;' needs a projectRoot but none was &quot;
+                            + &quot;configured&quot;);
+        }
+<span class="fc bfc" id="L90" title="All 2 branches covered.">        String rel = dest.startsWith(&quot;{project.root}/&quot;)</span>
+<span class="fc" id="L91">                ? dest.substring(&quot;{project.root}/&quot;.length())</span>
+<span class="fc" id="L92">                : dest;</span>
+<span class="fc" id="L93">        return projectRoot.resolve(rel).normalize();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

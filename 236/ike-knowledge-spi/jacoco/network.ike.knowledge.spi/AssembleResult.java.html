@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AssembleResult.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">AssembleResult.java</span></div><h1>AssembleResult.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * What an assembly produced: per-input load summaries, the classification summary when
+ * classification ran, and the effective-view report the implementation wrote beside the
+ * store (every dimension fully resolved — the reproducibility record).
+ *
+ * @param loads               one summary per input artifact, in load order
+ * @param classification      the classification summary; empty when classification was
+ *                            skipped
+ * @param effectiveViewReport the effective-view report file, when the implementation
+ *                            produced one
+ */
+public record AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;ClassificationSummary&gt; classification,
+                             Optional&lt;Path&gt; effectiveViewReport) {
+
+    /**
+     * Validates and defensively copies the result.
+     *
+     * @param loads               one summary per input artifact, in load order
+     * @param classification      the classification summary
+     * @param effectiveViewReport the effective-view report file
+     * @throws NullPointerException if any component is null
+     */
+<span class="fc" id="L32">    public AssembleResult {</span>
+<span class="fc" id="L33">        loads = List.copyOf(Objects.requireNonNull(loads, &quot;loads&quot;));</span>
+<span class="fc" id="L34">        Objects.requireNonNull(classification, &quot;classification&quot;);</span>
+<span class="fc" id="L35">        Objects.requireNonNull(effectiveViewReport, &quot;effectiveViewReport&quot;);</span>
+<span class="fc" id="L36">    }</span>
+
+    /**
+     * Encodes this result in the seam wire format.
+     *
+     * @return the result properties
+     */
+    public Properties toProperties() {
+<span class="fc" id="L44">        Properties properties = new Properties();</span>
+<span class="fc bfc" id="L45" title="All 2 branches covered.">        for (int i = 0; i &lt; loads.size(); i++) {</span>
+<span class="fc" id="L46">            LoadSummary load = loads.get(i);</span>
+<span class="fc" id="L47">            PropCodec.put(properties, &quot;load.&quot; + (i + 1) + &quot;.artifact&quot;, load.artifact());</span>
+<span class="fc" id="L48">            PropCodec.putCounts(properties, &quot;load.&quot; + (i + 1) + &quot;.&quot;, load.counts());</span>
+        }
+<span class="fc" id="L50">        classification.ifPresent(summary -&gt; {</span>
+<span class="fc" id="L51">            PropCodec.put(properties, &quot;classification.service&quot;, summary.service());</span>
+<span class="fc" id="L52">            PropCodec.put(properties, &quot;classification.conceptCount&quot;, Long.toString(summary.conceptCount()));</span>
+<span class="fc" id="L53">            PropCodec.put(properties, &quot;classification.inferredChanges&quot;, Long.toString(summary.inferredChanges()));</span>
+<span class="fc" id="L54">            PropCodec.put(properties, &quot;classification.navigationChanges&quot;, Long.toString(summary.navigationChanges()));</span>
+<span class="fc" id="L55">            PropCodec.put(properties, &quot;classification.elapsedMillis&quot;, Long.toString(summary.elapsedMillis()));</span>
+<span class="fc" id="L56">        });</span>
+<span class="fc" id="L57">        PropCodec.putOptional(properties, &quot;effectiveViewReport&quot;, effectiveViewReport.map(Path::toString));</span>
+<span class="fc" id="L58">        return properties;</span>
+    }
+
+    /**
+     * Decodes a result from the seam wire format.
+     *
+     * @param properties the result properties
+     * @return the decoded result
+     * @throws IllegalArgumentException if present keys are malformed
+     */
+    public static AssembleResult fromProperties(Properties properties) {
+<span class="fc" id="L69">        int count = PropCodec.indexedCount(properties, &quot;load.&quot;, &quot;artifact&quot;);</span>
+<span class="fc" id="L70">        List&lt;LoadSummary&gt; loads = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        for (int i = 1; i &lt;= count; i++) {</span>
+<span class="fc" id="L72">            loads.add(new LoadSummary(PropCodec.require(properties, &quot;load.&quot; + i + &quot;.artifact&quot;),</span>
+<span class="fc" id="L73">                    PropCodec.getCounts(properties, &quot;load.&quot; + i + &quot;.&quot;)));</span>
+        }
+<span class="fc" id="L75">        Optional&lt;ClassificationSummary&gt; classification =</span>
+<span class="fc" id="L76">                PropCodec.optional(properties, &quot;classification.service&quot;).map(service -&gt;</span>
+<span class="fc" id="L77">                        new ClassificationSummary(service,</span>
+<span class="fc" id="L78">                                PropCodec.requireLong(properties, &quot;classification.conceptCount&quot;),</span>
+<span class="fc" id="L79">                                PropCodec.requireLong(properties, &quot;classification.inferredChanges&quot;),</span>
+<span class="fc" id="L80">                                PropCodec.requireLong(properties, &quot;classification.navigationChanges&quot;),</span>
+<span class="fc" id="L81">                                PropCodec.requireLong(properties, &quot;classification.elapsedMillis&quot;)));</span>
+<span class="fc" id="L82">        return new AssembleResult(loads, classification,</span>
+<span class="fc" id="L83">                PropCodec.optionalPath(properties, &quot;effectiveViewReport&quot;));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

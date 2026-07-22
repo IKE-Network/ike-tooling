@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbAssembleMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbAssembleMojo.java</span></div><h1>KbAssembleMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import network.ike.knowledge.spi.ArtifactInput;
+import network.ike.knowledge.spi.AssembleRequest;
+import network.ike.knowledge.spi.AssembleResult;
+import network.ike.knowledge.spi.IkeServiceBootstrap;
+import network.ike.knowledge.spi.KnowledgeBaseAssembler;
+import network.ike.knowledge.spi.ViewSpec;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * Assembles a knowledge base from ordered knowledge artifacts — base data plus change
+ * sets into a store, classified by default — and optionally installs it into a
+ * data-source directory a knowledge browser reads. The full-cycle goal: a starter set
+ * becomes an openable, navigable KB in one build (IKE-Network/ike-issues#848, #850).
+ *
+ * &lt;p&gt;The goal is a thin face over the knowledge-pipeline SPI: it builds a typed
+ * {@link AssembleRequest}, and the {@link KnowledgeBaseAssembler} implementation is
+ * resolved by ServiceLoader from the &lt;em&gt;project's&lt;/em&gt; runtime classpath inside a
+ * forked seam — declare {@code network.ike.knowledge:ike-knowledge-provider} at the use
+ * site (or rely on the parent POM's default wiring).
+ *
+ * &lt;p&gt;Inputs are ordered {@code ROLE spec} entries: the role is {@code STORE_SEED}
+ * (first position only), {@code PB}, or {@code CHANGESET}; the spec is either a Maven
+ * coordinate ({@code groupId:artifactId[:extension[:classifier]]:version}, resolved
+ * from the repositories) or a file path — captured verification change sets feed the
+ * next iteration as file inputs:
+ *
+ * &lt;pre&gt;{@code
+ * &lt;inputs&gt;
+ *     &lt;input&gt;PB dev.ikm.data.tinkar:tinkar-starter-data:zip:reasoned-pb:20251009&lt;/input&gt;
+ *     &lt;input&gt;CHANGESET ${project.basedir}/../my-changeset/target/my-changeset.zip&lt;/input&gt;
+ * &lt;/inputs&gt;
+ * }&lt;/pre&gt;
+ *
+ * @since 235
+ */
+@Mojo(name = IkeGoal.NAME_KB_ASSEMBLE,
+      defaultPhase = &quot;package&quot;)
+public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
+
+    /** Creates this goal instance. */
+<span class="fc" id="L71">    public KbAssembleMojo() {}</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+    protected org.apache.maven.api.plugin.Log getLog() {
+<span class="nc" id="L82">        return log;</span>
+    }
+
+    @Inject
+    private Session session;
+
+    @Inject
+    private Project project;
+
+    /**
+     * The ordered knowledge inputs, each {@code ROLE spec} — role
+     * {@code STORE_SEED | PB | CHANGESET}, spec a Maven coordinate
+     * ({@code g:a[:extension[:classifier]]:v}) or a file path. List order is load
+     * order; the base comes first.
+     */
+<span class="fc" id="L97">    @Parameter</span>
+<span class="fc" id="L98">    List&lt;String&gt; inputs = List.of();</span>
+
+    /**
+     * The store root to assemble into.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.storeRoot&quot;,
+               defaultValue = &quot;${project.build.directory}/kb&quot;)
+    String storeRoot;
+
+    /**
+     * Delete the store root before assembling — the default, so every build assembles
+     * the declared knowledge-state from scratch.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.cleanStart&quot;, defaultValue = &quot;true&quot;)
+    boolean cleanStart;
+
+    /**
+     * Run classification as the final assembly step — the default posture; the
+     * assembled KB is navigable the moment a browser opens it.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.classify&quot;, defaultValue = &quot;true&quot;)
+    boolean classify;
+
+    /**
+     * The reasoner service's simple class name, when the classpath carries several.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.reasonerService&quot;)
+    String reasonerService;
+
+    /**
+     * A directory to install the assembled store into — for example a data-source
+     * directory a knowledge browser reads ({@code ${user.home}/Solor/&lt;name&gt;}).
+     * Replaced wholesale on each install.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.installDirectory&quot;)
+    String installDirectory;
+
+    /**
+     * The view specification's dotted dimension keys (IKE-KNOWLEDGE-VIEW), stating only
+     * what differs from the implementation's defaults.
+     */
+<span class="fc" id="L139">    @Parameter</span>
+<span class="fc" id="L140">    Map&lt;String, String&gt; view = Map.of();</span>
+
+    /**
+     * The knowledge-service implementation's simple class name, when the classpath
+     * carries several.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.implementation&quot;)
+    String implementation;
+
+    /**
+     * Fork the seam (the default posture). Disable only for debugging.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.fork&quot;, defaultValue = &quot;true&quot;)
+    boolean fork;
+
+    /**
+     * Extra child-JVM arguments for the forked seam (heap, flags). The child inherits
+     * {@code --enable-preview} from the Maven JVM automatically.
+     */
+<span class="fc" id="L159">    @Parameter</span>
+<span class="fc" id="L160">    List&lt;String&gt; forkJvmArguments = List.of();</span>
+
+    /**
+     * The project's classes/resources directory, included on the seam classpath.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.classesDirectory&quot;,
+               defaultValue = &quot;${project.build.outputDirectory}&quot;)
+    String classesDirectory;
+
+    /**
+     * The build directory hosting the seam's request/result files.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.buildDirectory&quot;,
+               defaultValue = &quot;${project.build.directory}&quot;)
+    String buildDirectory;
+
+    /**
+     * Skip knowledge-base assembly.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /**
+     * Resolves the ordered inputs, builds the typed assembly request, and runs the
+     * {@link KnowledgeBaseAssembler} across the forked seam.
+     *
+     * @throws MojoException if an input cannot be parsed or resolved, the seam fails,
+     *                       or the store was not produced
+     */
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L191" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L192">            getLog().info(&quot;ike:kb-assemble skipped (ike.kbAssemble.skip=true)&quot;);</span>
+<span class="nc" id="L193">            return;</span>
+        }
+<span class="nc bnc" id="L195" title="All 2 branches missed.">        if (inputs.isEmpty()) {</span>
+<span class="nc" id="L196">            throw new MojoException(&quot;ike:kb-assemble requires at least one &lt;inputs&gt;&lt;input&gt; entry&quot;</span>
+                    + &quot; (ROLE followed by a Maven coordinate or file path)&quot;);
+        }
+
+<span class="nc" id="L200">        AssembleRequest request = new AssembleRequest(</span>
+<span class="nc" id="L201">                Path.of(storeRoot), cleanStart, resolveInputs(), ViewSpec.of(view), classify,</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">                Optional.ofNullable(reasonerService).filter(s -&gt; !s.isBlank()),</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">                Optional.ofNullable(installDirectory).filter(s -&gt; !s.isBlank()).map(Path::of));</span>
+<span class="nc" id="L204">        Properties wire = request.toProperties();</span>
+<span class="nc bnc" id="L205" title="All 4 branches missed.">        if (implementation != null &amp;&amp; !implementation.isBlank()) {</span>
+<span class="nc" id="L206">            wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);</span>
+        }
+
+<span class="nc" id="L209">        Properties resultWire = new KnowledgeServiceRunner(getLog()).run(</span>
+<span class="nc" id="L210">                KnowledgeBaseAssembler.class.getName(), wire, seamClasspath(),</span>
+<span class="nc" id="L211">                Path.of(buildDirectory, &quot;ike-knowledge&quot;), fork, forkJvmArguments);</span>
+<span class="nc" id="L212">        AssembleResult result = AssembleResult.fromProperties(resultWire);</span>
+
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (!Files.isDirectory(Path.of(storeRoot))) {</span>
+<span class="nc" id="L215">            throw new MojoException(&quot;Knowledge-base assembly produced no store at &quot; + storeRoot);</span>
+        }
+<span class="nc" id="L217">        result.loads().forEach(load -&gt; getLog().info(&quot;Loaded &quot; + load.artifact() + &quot; — &quot;</span>
+<span class="nc" id="L218">                + load.counts().total() + &quot; entities (&quot; + load.counts().concepts()</span>
+<span class="nc" id="L219">                + &quot; concepts, &quot; + load.counts().semantics() + &quot; semantics, &quot;</span>
+<span class="nc" id="L220">                + load.counts().patterns() + &quot; patterns, &quot; + load.counts().stamps() + &quot; stamps)&quot;));</span>
+<span class="nc" id="L221">        result.classification().ifPresentOrElse(</span>
+<span class="nc" id="L222">                summary -&gt; getLog().info(&quot;Classified by &quot; + summary.service() + &quot;: &quot;</span>
+<span class="nc" id="L223">                        + summary.conceptCount() + &quot; concepts, &quot; + summary.inferredChanges()</span>
+<span class="nc" id="L224">                        + &quot; inferred changes, &quot; + summary.navigationChanges()</span>
+<span class="nc" id="L225">                        + &quot; navigation changes in &quot; + summary.elapsedMillis() + &quot; ms&quot;),</span>
+<span class="nc" id="L226">                () -&gt; getLog().info(&quot;Classification skipped by request&quot;));</span>
+<span class="nc" id="L227">        result.effectiveViewReport().ifPresent(report -&gt;</span>
+<span class="nc" id="L228">                getLog().info(&quot;Effective view reported: &quot; + report));</span>
+<span class="nc bnc" id="L229" title="All 4 branches missed.">        if (installDirectory != null &amp;&amp; !installDirectory.isBlank()) {</span>
+<span class="nc" id="L230">            getLog().info(&quot;Knowledge base installed: &quot; + installDirectory);</span>
+        }
+<span class="nc" id="L232">    }</span>
+
+    private List&lt;ArtifactInput&gt; resolveInputs() {
+<span class="nc" id="L235">        List&lt;ArtifactInput&gt; resolved = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        for (String entry : inputs) {</span>
+<span class="nc" id="L237">            String stripped = entry.strip();</span>
+<span class="nc" id="L238">            int space = stripped.indexOf(' ');</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">            if (space &lt;= 0) {</span>
+<span class="nc" id="L240">                throw new MojoException(&quot;Input entry needs \&quot;ROLE spec\&quot;: &quot; + entry);</span>
+            }
+            ArtifactInput.Role role;
+            try {
+<span class="nc" id="L244">                role = ArtifactInput.Role.valueOf(stripped.substring(0, space));</span>
+<span class="nc" id="L245">            } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L246">                throw new MojoException(&quot;Unknown input role in \&quot;&quot; + entry</span>
+                        + &quot;\&quot; — use STORE_SEED, PB, or CHANGESET&quot;, e);
+<span class="nc" id="L248">            }</span>
+<span class="nc" id="L249">            String spec = stripped.substring(space + 1).strip();</span>
+<span class="nc" id="L250">            resolved.add(new ArtifactInput(role, resolveSpec(spec)));</span>
+<span class="nc" id="L251">        }</span>
+<span class="nc" id="L252">        return resolved;</span>
+    }
+
+    /**
+     * A spec with two or more colons is a Maven coordinate
+     * ({@code g:a[:extension[:classifier]]:v}); anything else is a file path.
+     */
+    private Path resolveSpec(String spec) {
+<span class="nc bnc" id="L260" title="All 4 branches missed.">        if (spec.chars().filter(c -&gt; c == ':').count() &gt;= 2) {</span>
+            try {
+<span class="nc" id="L262">                return session.resolveArtifact(session.createArtifactCoordinates(spec)).getPath();</span>
+<span class="nc" id="L263">            } catch (Exception e) {</span>
+<span class="nc" id="L264">                throw new MojoException(&quot;Cannot resolve knowledge input &quot; + spec, e);</span>
+            }
+        }
+<span class="nc" id="L267">        Path file = Path.of(spec);</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">        if (!Files.isRegularFile(file)) {</span>
+<span class="nc" id="L269">            throw new MojoException(&quot;Knowledge input file does not exist: &quot; + file</span>
+                    + &quot; — captured change sets must be present before assembly&quot;);
+        }
+<span class="nc" id="L272">        return file;</span>
+    }
+
+    private List&lt;Path&gt; seamClasspath() {
+        // Resolution goes through the plugin's serialized entry point — Maven 4 rc-5's
+        // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
+<span class="nc" id="L278">        List&lt;Path&gt; classpath = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L279">        Path classesDir = Path.of(classesDirectory);</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">        if (Files.isDirectory(classesDir)) {</span>
+<span class="nc" id="L281">            classpath.add(classesDir);</span>
+        }
+<span class="nc" id="L283">        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));</span>
+<span class="nc" id="L284">        return classpath;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

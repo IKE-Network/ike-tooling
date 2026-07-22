@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KnowledgeExportMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KnowledgeExportMojo.java</span></div><h1>KnowledgeExportMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import network.ike.knowledge.spi.ExportRequest;
+import network.ike.knowledge.spi.ExportResult;
+import network.ike.knowledge.spi.IkeServiceBootstrap;
+import network.ike.knowledge.spi.KnowledgeExporter;
+import network.ike.knowledge.spi.ViewSpec;
+import org.apache.maven.api.ProducedArtifact;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.ProjectManager;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * Exports a ledger-form knowledge set as its protobuf change-set artifact and attaches
+ * it as the {@code changeset} classifier — the released form of the set. A starter set
+ * is exactly this artifact applied to an empty base.
+ *
+ * &lt;p&gt;The goal is a thin face over the knowledge-pipeline SPI
+ * ({@code network.ike.tooling:ike-knowledge-spi}): it builds a typed
+ * {@link ExportRequest}, and the {@link KnowledgeExporter} implementation is resolved by
+ * ServiceLoader from the &lt;em&gt;project's&lt;/em&gt; runtime classpath inside a forked seam —
+ * declare {@code network.ike.knowledge:ike-knowledge-provider} at the use site (or rely
+ * on the parent POM's default wiring). This plugin never depends on a store engine.
+ *
+ * &lt;p&gt;Typical use — a {@code *-changeset} module depending on its {@code *-terms} ledger
+ * module plus the provider:
+ *
+ * &lt;pre&gt;{@code
+ * &lt;plugin&gt;
+ *     &lt;groupId&gt;network.ike.tooling&lt;/groupId&gt;
+ *     &lt;artifactId&gt;ike-maven-plugin&lt;/artifactId&gt;
+ *     &lt;executions&gt;
+ *         &lt;execution&gt;
+ *             &lt;goals&gt;&lt;goal&gt;knowledge-export&lt;/goal&gt;&lt;/goals&gt;
+ *         &lt;/execution&gt;
+ *     &lt;/executions&gt;
+ * &lt;/plugin&gt;
+ * }&lt;/pre&gt;
+ *
+ * @since 234
+ */
+@Mojo(name = IkeGoal.NAME_KNOWLEDGE_EXPORT,
+      defaultPhase = &quot;package&quot;)
+public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
+
+    /** Creates this goal instance. */
+<span class="fc" id="L74">    public KnowledgeExportMojo() {}</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+    protected org.apache.maven.api.plugin.Log getLog() {
+<span class="nc" id="L85">        return log;</span>
+    }
+
+    @Inject
+    private Session session;
+
+    @Inject
+    private Project project;
+
+    /**
+     * The change-set file to write and attach.
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.outputFile&quot;,
+               defaultValue = &quot;${project.build.directory}/${project.artifactId}-${project.version}-changeset.zip&quot;)
+    String outputFile;
+
+    /**
+     * Fully qualified name of the {@code KnowledgeSetSource} implementation to compose.
+     * Optional: when absent, exactly one implementation must be discoverable on the
+     * project's runtime classpath.
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.sourceClass&quot;)
+    String sourceClass;
+
+    /**
+     * Optional koncepts YAML to extract from the same loaded store — the standard
+     * glossary definition source. Extracting here reuses the single change-set
+     * materialization rather than a parallel read of the set.
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.konceptsYmlFile&quot;)
+    String konceptsYmlFile;
+
+    /**
+     * The view specification's dotted dimension keys (IKE-KNOWLEDGE-VIEW), stating only
+     * what differs from the implementation's defaults — for example
+     * {@code &lt;view&gt;&lt;stamp.allowedStates&gt;Active&lt;/stamp.allowedStates&gt;&lt;/view&gt;}.
+     */
+<span class="fc" id="L122">    @Parameter</span>
+<span class="fc" id="L123">    Map&lt;String, String&gt; view = Map.of();</span>
+
+    /**
+     * The knowledge-service implementation's simple class name, when the classpath
+     * carries several.
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.implementation&quot;)
+    String implementation;
+
+    /**
+     * Fork the seam (the default posture — the store lifecycle is JVM-global, and the
+     * fork survives anything the implementation does). Disable only for debugging:
+     * same classpath, same bootstrap, no process boundary.
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.fork&quot;, defaultValue = &quot;true&quot;)
+    boolean fork;
+
+    /**
+     * Extra child-JVM arguments for the forked seam (heap, flags). The child inherits
+     * {@code --enable-preview} from the Maven JVM automatically.
+     */
+<span class="fc" id="L144">    @Parameter</span>
+<span class="fc" id="L145">    List&lt;String&gt; forkJvmArguments = List.of();</span>
+
+    /**
+     * The project's classes/resources directory, included on the seam classpath so the
+     * module's own {@code META-INF/services} registrations are discoverable.
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.classesDirectory&quot;,
+               defaultValue = &quot;${project.build.outputDirectory}&quot;)
+    String classesDirectory;
+
+    /**
+     * Attach the exported file to the project as the {@code changeset} classifier
+     * (extension {@code zip}), so it installs and deploys with the module.
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.attach&quot;, defaultValue = &quot;true&quot;)
+    boolean attach;
+
+    /**
+     * Skip change-set export.
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /**
+     * The build directory hosting the seam's request/result files (under
+     * {@code ike-knowledge/}).
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.buildDirectory&quot;,
+               defaultValue = &quot;${project.build.directory}&quot;)
+    String buildDirectory;
+
+    /**
+     * Builds the typed export request, runs the {@link KnowledgeExporter} across the
+     * forked seam on the project's runtime classpath, and attaches the change-set
+     * artifact.
+     *
+     * @throws MojoException if the classpath cannot be resolved, the seam fails, or the
+     *                       output file was not produced
+     */
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L186" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L187">            getLog().info(&quot;ike:knowledge-export skipped (ike.knowledgeExport.skip=true)&quot;);</span>
+<span class="nc" id="L188">            return;</span>
+        }
+
+<span class="nc" id="L191">        ExportRequest request = new ExportRequest(</span>
+<span class="nc" id="L192">                Path.of(outputFile),</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                Optional.ofNullable(konceptsYmlFile).filter(s -&gt; !s.isBlank()).map(Path::of),</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">                Optional.ofNullable(sourceClass).filter(s -&gt; !s.isBlank()),</span>
+<span class="nc" id="L195">                ViewSpec.of(view));</span>
+<span class="nc" id="L196">        Properties wire = request.toProperties();</span>
+<span class="nc bnc" id="L197" title="All 4 branches missed.">        if (implementation != null &amp;&amp; !implementation.isBlank()) {</span>
+<span class="nc" id="L198">            wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);</span>
+        }
+
+<span class="nc" id="L201">        Properties resultWire = new KnowledgeServiceRunner(getLog()).run(</span>
+<span class="nc" id="L202">                KnowledgeExporter.class.getName(), wire, seamClasspath(),</span>
+<span class="nc" id="L203">                Path.of(buildDirectory, &quot;ike-knowledge&quot;),</span>
+                fork, forkJvmArguments);
+<span class="nc" id="L205">        ExportResult result = ExportResult.fromProperties(resultWire);</span>
+
+<span class="nc" id="L207">        Path produced = result.outputFile();</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (!Files.isRegularFile(produced)) {</span>
+<span class="nc" id="L209">            throw new MojoException(&quot;Change-set export produced no file at &quot; + produced);</span>
+        }
+<span class="nc" id="L211">        getLog().info(&quot;Change set exported: &quot; + produced.getFileName() + &quot; — &quot;</span>
+<span class="nc" id="L212">                + result.counts().total() + &quot; entities (&quot; + result.counts().concepts()</span>
+<span class="nc" id="L213">                + &quot; concepts, &quot; + result.counts().semantics() + &quot; semantics, &quot;</span>
+<span class="nc" id="L214">                + result.counts().patterns() + &quot; patterns, &quot; + result.counts().stamps()</span>
+                + &quot; stamps)&quot;);
+<span class="nc" id="L216">        result.konceptsYmlFile().ifPresent(yml -&gt;</span>
+<span class="nc" id="L217">                getLog().info(&quot;Koncepts extracted: &quot; + yml));</span>
+
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        if (attach) {</span>
+<span class="nc" id="L220">            ProducedArtifact artifact = session.createProducedArtifact(</span>
+<span class="nc" id="L221">                    project.getGroupId(), project.getArtifactId(), project.getVersion(),</span>
+                    &quot;changeset&quot;, &quot;zip&quot;, &quot;zip&quot;);
+<span class="nc" id="L223">            session.getService(ProjectManager.class).attachArtifact(project, artifact, produced);</span>
+<span class="nc" id="L224">            getLog().info(&quot;Attached change set &quot; + produced.getFileName()</span>
+                    + &quot; (classifier: changeset, extension: zip)&quot;);
+<span class="nc" id="L226">        } else {</span>
+<span class="nc" id="L227">            getLog().info(&quot;Change set written (not attached): &quot; + produced);</span>
+        }
+<span class="nc" id="L229">    }</span>
+
+    private List&lt;Path&gt; seamClasspath() {
+        // Resolution goes through the plugin's serialized entry point — Maven 4 rc-5's
+        // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
+<span class="nc" id="L234">        List&lt;Path&gt; classpath = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L235">        Path classesDir = Path.of(classesDirectory);</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        if (Files.isDirectory(classesDir)) {</span>
+<span class="nc" id="L237">            classpath.add(classesDir);</span>
+        }
+<span class="nc" id="L239">        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));</span>
+<span class="nc" id="L240">        return classpath;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
