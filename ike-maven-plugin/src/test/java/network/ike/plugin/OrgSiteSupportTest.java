@@ -48,7 +48,8 @@ class OrgSiteSupportTest {
                         "ike-docs",
                         "ike-workspace-extension",
                         "ike-version-management-extension",
-                        "ike-platform");
+                        "ike-platform",
+                        "ike-starter-set");
     }
 
     @Test
@@ -88,12 +89,38 @@ class OrgSiteSupportTest {
     }
 
     @Test
-    void badge_present_for_every_foundation_member() {
+    void badge_present_for_every_released_foundation_member() {
         for (String id : OrgSiteSupport.FOUNDATION.keySet()) {
+            if (OrgSiteSupport.NOT_ON_MAVEN_CENTRAL.contains(id)) {
+                continue;
+            }
             assertThat(OrgSiteSupport.mavenCentralBadge(id))
                     .as("badge for foundation member " + id)
                     .isNotNull();
         }
+    }
+
+    @Test
+    void badge_is_null_for_foundation_members_not_yet_on_central() {
+        // Foundation membership states a project's TIER, not that it has
+        // been released. A pre-release member belongs in the Foundation
+        // section from the outset, but a badge pointing at coordinates
+        // that do not resolve renders as not-found — so it is omitted
+        // until first release. IKE-Network/ike-issues#930.
+        assertThat(OrgSiteSupport.NOT_ON_MAVEN_CENTRAL)
+                .contains("ike-starter-set");
+        assertThat(OrgSiteSupport.FOUNDATION)
+                .containsKey("ike-starter-set");
+        assertThat(OrgSiteSupport.mavenCentralBadge("ike-starter-set"))
+                .isNull();
+    }
+
+    @Test
+    void every_not_on_central_entry_is_a_foundation_member() {
+        // The set only suppresses badges for foundation members; an entry
+        // naming a non-member would be dead configuration.
+        assertThat(OrgSiteSupport.FOUNDATION.keySet())
+                .containsAll(OrgSiteSupport.NOT_ON_MAVEN_CENTRAL);
     }
 
     // ── Foundation dependency diagram in the landing-page preamble ──

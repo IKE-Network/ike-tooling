@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -121,20 +122,42 @@ public final class OrgSiteSupport {
         m.put("ike-version-management-extension",
                 "network.ike.tooling:ike-version-management-extension");
         m.put("ike-platform",            "network.ike.platform:ike-platform");
+        // The foundational content set — concepts, patterns and axioms an
+        // IKE knowledge graph starts from. Consumes ike-platform, so it
+        // sits last in the dependency direction.
+        // IKE-Network/ike-issues#930.
+        m.put("ike-starter-set",         "network.ike.foundation:ike-starter-set");
         return Collections.unmodifiableMap(m);
     }
+
+    /**
+     * Foundation members that are not yet published to Maven Central, and
+     * so render without a version badge.
+     *
+     * <p>Membership of {@link #FOUNDATION} is a statement about a
+     * project's tier, not about whether it has been released. A
+     * pre-release member belongs in the Foundation section from the
+     * outset — it is simply not on Central yet, and a badge pointing at
+     * coordinates that do not resolve renders as not-found.
+     *
+     * <p>An entry graduates out of this set at the project's first
+     * release. See IKE-Network/ike-issues#930.
+     */
+    static final Set<String> NOT_ON_MAVEN_CENTRAL = Set.of("ike-starter-set");
 
     /**
      * Build the Maven Central version-badge AsciiDoc for a project.
      *
      * @param artifactId the project artifact ID
      * @return an AsciiDoc {@code image:} macro for foundation
-     *         projects, or {@code null} if the project is not a
-     *         foundation member
+     *         projects that are published to Maven Central, or
+     *         {@code null} if the project is not a foundation member or
+     *         is a foundation member not yet on Central (see
+     *         {@link #NOT_ON_MAVEN_CENTRAL})
      */
     static String mavenCentralBadge(String artifactId) {
         String coordinates = FOUNDATION.get(artifactId);
-        if (coordinates == null) {
+        if (coordinates == null || NOT_ON_MAVEN_CENTRAL.contains(artifactId)) {
             return null;
         }
         String path = coordinates.replace(':', '/');
