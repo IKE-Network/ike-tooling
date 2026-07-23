@@ -363,11 +363,11 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
      * @param projRoot the project repo root
      */
     private void commitScaffoldOutput(File projRoot) {
-<span class="fc" id="L366">        String status = ReleaseSupport.execCapture(projRoot,</span>
+        // Stage the visible scaffold output by name. `git status --porcelain`
+        // omits ignored files, so this list never contains an ignored path — a
+        // plain (unforced) `git add` is correct and ignore-safe here.
+<span class="fc" id="L369">        String status = ReleaseSupport.execCapture(projRoot,</span>
                 &quot;git&quot;, &quot;status&quot;, &quot;--porcelain&quot;);
-<span class="pc bpc" id="L368" title="1 of 2 branches missed.">        if (status.isBlank()) {</span>
-<span class="nc" id="L369">            return;</span>
-        }
         // Scaffold authors only simple-named config files (mvnw, pom.xml,
         // .gitignore, .mvn/…) and never renames, so the porcelain paths are
         // unquoted and arrow-free; the rename/quote handling below is
@@ -393,18 +393,59 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
             }
 <span class="fc" id="L394">            addCommand.add(path);</span>
         }
-<span class="pc bpc" id="L396" title="1 of 2 branches missed.">        if (addCommand.size() &lt;= 3) {</span>
-<span class="nc" id="L397">            return;</span>
+<span class="pc bpc" id="L396" title="1 of 2 branches missed.">        if (addCommand.size() &gt; 3) {</span>
+<span class="fc" id="L397">            ReleaseSupport.exec(projRoot, getLog(),</span>
+<span class="fc" id="L398">                    addCommand.toArray(new String[0]));</span>
         }
-<span class="fc" id="L399">        ReleaseSupport.exec(projRoot, getLog(),</span>
-<span class="fc" id="L400">                addCommand.toArray(new String[0]));</span>
-<span class="fc" id="L401">        ReleaseSupport.exec(projRoot, getLog(), &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,</span>
+
+        // #919: force-stage the goal-owned project lockfile AFTER the porcelain
+        // sweep. It lives under .ike/, which a stale user-global gitignore (a
+        // `~/.gitignore_global` `.ike/` rule) can hide from porcelain entirely —
+        // so it would be silently omitted from this isolation commit, breaking
+        // the &quot;scaffold.lock is tracked&quot; contract. `git add -f` overrides any
+        // ignore rule; staging it separately (not via the porcelain list above)
+        // keeps that plain `git add` ignore-safe.
+<span class="fc" id="L408">        forceStageProjectLockfile(projRoot);</span>
+
+        // Commit only what is actually staged — never an empty commit on a
+        // clean re-run that authored nothing.
+<span class="fc" id="L412">        if (ReleaseSupport.execCapture(projRoot,</span>
+<span class="pc bpc" id="L413" title="1 of 2 branches missed.">                &quot;git&quot;, &quot;status&quot;, &quot;--porcelain&quot;).isBlank()) {</span>
+<span class="nc" id="L414">            return;</span>
+        }
+<span class="fc" id="L416">        ReleaseSupport.exec(projRoot, getLog(), &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,</span>
                 &quot;scaffold: apply IKE standards&quot;
-<span class="fc bfc" id="L403" title="All 2 branches covered.">                + (applyFoundation ? &quot; + foundation drift&quot; : &quot;&quot;)</span>
+<span class="fc bfc" id="L418" title="All 2 branches covered.">                + (applyFoundation ? &quot; + foundation drift&quot; : &quot;&quot;)</span>
                 + &quot;\n\nRefs: IKE-Network/ike-issues#780&quot;);
-<span class="fc" id="L405">        getLog().info(&quot;  ✓ committed scaffold output in &quot;</span>
-<span class="fc" id="L406">                + projRoot.getName());</span>
-<span class="fc" id="L407">    }</span>
+<span class="fc" id="L420">        getLog().info(&quot;  ✓ committed scaffold output in &quot;</span>
+<span class="fc" id="L421">                + projRoot.getName());</span>
+<span class="fc" id="L422">    }</span>
+
+    /**
+     * Force-stage the project scaffold lockfile ({@code .ike/scaffold.lock})
+     * with {@code git add -f} so no ignore rule — repository or user-global
+     * (a stale {@code ~/.gitignore_global} {@code .ike/} entry) — can hide it
+     * from {@code git status --porcelain} and thereby drop it from the scaffold
+     * isolation commit (IKE-Network/ike-issues#919). A no-op when the lockfile
+     * does not exist or the force-add fails (logged at debug — the porcelain
+     * sweep in {@link #commitScaffoldOutput} still stages everything visible).
+     *
+     * @param projRoot the project repo root
+     */
+    private void forceStageProjectLockfile(File projRoot) {
+<span class="fc" id="L436">        Path lock = ScaffoldMojoSupport.projectLockfilePath(projRoot.toPath());</span>
+<span class="pc bpc" id="L437" title="2 of 4 branches missed.">        if (lock == null || !Files.exists(lock)) {</span>
+<span class="nc" id="L438">            return;</span>
+        }
+<span class="fc" id="L440">        String rel = projRoot.toPath().relativize(lock).toString();</span>
+        try {
+<span class="fc" id="L442">            ReleaseSupport.exec(projRoot, getLog(),</span>
+                    &quot;git&quot;, &quot;add&quot;, &quot;-f&quot;, &quot;--&quot;, rel);
+<span class="nc" id="L444">        } catch (MojoException e) {</span>
+<span class="nc" id="L445">            getLog().debug(&quot;Could not force-stage &quot; + rel + &quot;: &quot;</span>
+<span class="nc" id="L446">                    + e.getMessage());</span>
+<span class="fc" id="L447">        }</span>
+<span class="fc" id="L448">    }</span>
 
     /**
      * Scan one scope for orphaned scaffold files — lockfile entries
@@ -429,23 +470,23 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
             ScaffoldScope scope,
             PathResolver resolver,
             List&lt;OrphanEntry&gt; collected) {
-<span class="fc" id="L432">        List&lt;OrphanEntry&gt; orphans = OrphanScanner.scan(</span>
+<span class="fc" id="L473">        List&lt;OrphanEntry&gt; orphans = OrphanScanner.scan(</span>
                 manifest, priorLock, scope, resolver);
-<span class="pc bpc" id="L434" title="1 of 2 branches missed.">        if (orphans.isEmpty()) {</span>
-<span class="fc" id="L435">            return updated;</span>
+<span class="pc bpc" id="L475" title="1 of 2 branches missed.">        if (orphans.isEmpty()) {</span>
+<span class="fc" id="L476">            return updated;</span>
         }
-<span class="nc" id="L437">        ScaffoldMojoSupport.logLines(getLog(),</span>
-<span class="nc" id="L438">                ScaffoldMojoSupport.renderOrphanReport(orphans, scope));</span>
-<span class="nc" id="L439">        collected.addAll(orphans);</span>
-<span class="nc" id="L440">        return applier.removeOrphans(orphans, updated);</span>
+<span class="nc" id="L478">        ScaffoldMojoSupport.logLines(getLog(),</span>
+<span class="nc" id="L479">                ScaffoldMojoSupport.renderOrphanReport(orphans, scope));</span>
+<span class="nc" id="L480">        collected.addAll(orphans);</span>
+<span class="nc" id="L481">        return applier.removeOrphans(orphans, updated);</span>
     }
 
     private static long orphanCount(
             List&lt;OrphanEntry&gt; orphans,
             OrphanEntry.Disposition disposition) {
-<span class="nc" id="L446">        return orphans.stream()</span>
-<span class="nc bnc" id="L447" title="All 2 branches missed.">                .filter(o -&gt; o.disposition() == disposition)</span>
-<span class="nc" id="L448">                .count();</span>
+<span class="nc" id="L487">        return orphans.stream()</span>
+<span class="nc bnc" id="L488" title="All 2 branches missed.">                .filter(o -&gt; o.disposition() == disposition)</span>
+<span class="nc" id="L489">                .count();</span>
     }
 
     /**
@@ -462,32 +503,32 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
                                        Counts userCounts,
                                        Counts projectCounts,
                                        List&lt;OrphanEntry&gt; orphans) {
-<span class="fc" id="L465">        GoalReportBuilder report = new GoalReportBuilder();</span>
-<span class="fc" id="L466">        report.paragraph(&quot;Applied the scaffold manifest to disk.&quot;);</span>
-<span class="fc" id="L467">        report.bullet(&quot;standards version: `&quot;</span>
-<span class="fc" id="L468">                + manifest.standardsVersion() + &quot;`&quot;);</span>
-<span class="fc" id="L469">        report.bullet(&quot;user scope: &quot; + userCounts.summary());</span>
-<span class="fc bfc" id="L470" title="All 2 branches covered.">        if (projectCounts != null) {</span>
-<span class="fc" id="L471">            report.bullet(&quot;project scope: &quot; + projectCounts.summary());</span>
+<span class="fc" id="L506">        GoalReportBuilder report = new GoalReportBuilder();</span>
+<span class="fc" id="L507">        report.paragraph(&quot;Applied the scaffold manifest to disk.&quot;);</span>
+<span class="fc" id="L508">        report.bullet(&quot;standards version: `&quot;</span>
+<span class="fc" id="L509">                + manifest.standardsVersion() + &quot;`&quot;);</span>
+<span class="fc" id="L510">        report.bullet(&quot;user scope: &quot; + userCounts.summary());</span>
+<span class="fc bfc" id="L511" title="All 2 branches covered.">        if (projectCounts != null) {</span>
+<span class="fc" id="L512">            report.bullet(&quot;project scope: &quot; + projectCounts.summary());</span>
         } else {
-<span class="fc" id="L473">            report.bullet(&quot;project scope: (none — fresh machine)&quot;);</span>
+<span class="fc" id="L514">            report.bullet(&quot;project scope: (none — fresh machine)&quot;);</span>
         }
-<span class="pc bpc" id="L475" title="1 of 2 branches missed.">        if (!orphans.isEmpty()) {</span>
-<span class="nc" id="L476">            report.bullet(&quot;orphans: &quot; + orphanCount(orphans,</span>
+<span class="pc bpc" id="L516" title="1 of 2 branches missed.">        if (!orphans.isEmpty()) {</span>
+<span class="nc" id="L517">            report.bullet(&quot;orphans: &quot; + orphanCount(orphans,</span>
                     OrphanEntry.Disposition.REMOVE) + &quot; removed, &quot;
-<span class="nc" id="L478">                    + orphanCount(orphans,</span>
+<span class="nc" id="L519">                    + orphanCount(orphans,</span>
                     OrphanEntry.Disposition.SKIP_USER_EDITED)
                     + &quot; kept (user-edited)&quot;);
         }
-<span class="fc" id="L482">        int totalSkipped = userCounts.skip()</span>
-<span class="fc bfc" id="L483" title="All 2 branches covered.">                + (projectCounts != null ? projectCounts.skip() : 0);</span>
-<span class="pc bpc" id="L484" title="1 of 2 branches missed.">        if (totalSkipped &gt; 0) {</span>
-<span class="nc" id="L485">            report.paragraph(totalSkipped</span>
+<span class="fc" id="L523">        int totalSkipped = userCounts.skip()</span>
+<span class="fc bfc" id="L524" title="All 2 branches covered.">                + (projectCounts != null ? projectCounts.skip() : 0);</span>
+<span class="pc bpc" id="L525" title="1 of 2 branches missed.">        if (totalSkipped &gt; 0) {</span>
+<span class="nc" id="L526">            report.paragraph(totalSkipped</span>
                     + &quot; entry(ies) skipped (user-edited) — run&quot;
-<span class="nc" id="L487">                    + &quot; `&quot; + IkeGoal.SCAFFOLD_DRAFT.qualified()</span>
+<span class="nc" id="L528">                    + &quot; `&quot; + IkeGoal.SCAFFOLD_DRAFT.qualified()</span>
                     + &quot;` for details.&quot;);
         }
-<span class="fc" id="L490">        return report.build();</span>
+<span class="fc" id="L531">        return report.build();</span>
     }
 
     /**
@@ -520,123 +561,123 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
     private void applyFoundationDrift(
             Path projRoot,
             ScaffoldManifest.Foundation foundation) {
-<span class="pc bpc" id="L523" title="1 of 2 branches missed.">        if (resolveFoundation) {</span>
-<span class="nc" id="L524">            getLog().info(&quot;&quot;);</span>
+<span class="pc bpc" id="L564" title="1 of 2 branches missed.">        if (resolveFoundation) {</span>
+<span class="nc" id="L565">            getLog().info(&quot;&quot;);</span>
             try {
-<span class="nc" id="L526">                foundation = FoundationBaker.latestFoundation(foundation,</span>
-<span class="nc" id="L527">                        new SessionCandidateVersionResolver(getSession()));</span>
-<span class="nc" id="L528">                getLog().info(&quot;Foundation: resolved latest released &quot;</span>
+<span class="nc" id="L567">                foundation = FoundationBaker.latestFoundation(foundation,</span>
+<span class="nc" id="L568">                        new SessionCandidateVersionResolver(getSession()));</span>
+<span class="nc" id="L569">                getLog().info(&quot;Foundation: resolved latest released &quot;</span>
                         + &quot;versions (resolve-foundation mode).&quot;);
-<span class="nc" id="L530">            } catch (RuntimeException e) {</span>
-<span class="nc" id="L531">                getLog().warn(&quot;Foundation: could not resolve latest &quot;</span>
-<span class="nc" id="L532">                        + &quot;versions (&quot; + e.getMessage() + &quot;) — falling &quot;</span>
+<span class="nc" id="L571">            } catch (RuntimeException e) {</span>
+<span class="nc" id="L572">                getLog().warn(&quot;Foundation: could not resolve latest &quot;</span>
+<span class="nc" id="L573">                        + &quot;versions (&quot; + e.getMessage() + &quot;) — falling &quot;</span>
                         + &quot;back to the baked scaffold snapshot.&quot;);
-<span class="nc" id="L534">            }</span>
+<span class="nc" id="L575">            }</span>
         }
 
-<span class="fc" id="L537">        Path pomPath = projRoot.resolve(&quot;pom.xml&quot;);</span>
+<span class="fc" id="L578">        Path pomPath = projRoot.resolve(&quot;pom.xml&quot;);</span>
         List&lt;FoundationDriftChecker.Entry&gt; entries;
         try {
-<span class="fc" id="L540">            entries = FoundationDriftChecker.checkPomFile(</span>
+<span class="fc" id="L581">            entries = FoundationDriftChecker.checkPomFile(</span>
                     pomPath, foundation);
-<span class="nc" id="L542">        } catch (IOException e) {</span>
-<span class="nc" id="L543">            getLog().warn(&quot;Could not read POM for foundation drift &quot;</span>
-<span class="nc" id="L544">                    + &quot;apply: &quot; + e.getMessage());</span>
-<span class="nc" id="L545">            return;</span>
-<span class="fc" id="L546">        }</span>
+<span class="nc" id="L583">        } catch (IOException e) {</span>
+<span class="nc" id="L584">            getLog().warn(&quot;Could not read POM for foundation drift &quot;</span>
+<span class="nc" id="L585">                    + &quot;apply: &quot; + e.getMessage());</span>
+<span class="nc" id="L586">            return;</span>
+<span class="fc" id="L587">        }</span>
 
-<span class="fc" id="L548">        List&lt;FoundationDriftChecker.Entry&gt; toApply = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L549">        int parentSkipped = 0;</span>
-<span class="fc bfc" id="L550" title="All 2 branches covered.">        for (FoundationDriftChecker.Entry e : entries) {</span>
-<span class="fc bfc" id="L551" title="All 2 branches covered.">            if (e.state() != FoundationDriftChecker.State.DIFFERS) {</span>
-<span class="fc" id="L552">                continue;</span>
+<span class="fc" id="L589">        List&lt;FoundationDriftChecker.Entry&gt; toApply = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L590">        int parentSkipped = 0;</span>
+<span class="fc bfc" id="L591" title="All 2 branches covered.">        for (FoundationDriftChecker.Entry e : entries) {</span>
+<span class="fc bfc" id="L592" title="All 2 branches covered.">            if (e.state() != FoundationDriftChecker.State.DIFFERS) {</span>
+<span class="fc" id="L593">                continue;</span>
             }
             // #418: in a workspace the &lt;parent&gt; cascade is owned by
             // ParentVersionReconciler; skip the parent pin so this
             // per-subproject apply does not overwrite it.
-<span class="fc bfc" id="L557" title="All 2 branches covered.">            if (skipParent</span>
-<span class="fc bfc" id="L558" title="All 2 branches covered.">                    &amp;&amp; e.kind() == FoundationDriftChecker.Kind.PARENT) {</span>
-<span class="fc" id="L559">                parentSkipped++;</span>
-<span class="fc" id="L560">                continue;</span>
+<span class="fc bfc" id="L598" title="All 2 branches covered.">            if (skipParent</span>
+<span class="fc bfc" id="L599" title="All 2 branches covered.">                    &amp;&amp; e.kind() == FoundationDriftChecker.Kind.PARENT) {</span>
+<span class="fc" id="L600">                parentSkipped++;</span>
+<span class="fc" id="L601">                continue;</span>
             }
-<span class="fc" id="L562">            toApply.add(e);</span>
-<span class="fc" id="L563">        }</span>
-<span class="fc bfc" id="L564" title="All 2 branches covered.">        if (parentSkipped &gt; 0) {</span>
-<span class="fc" id="L565">            getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L566">            getLog().info(&quot;Foundation: &lt;parent&gt; left to the workspace &quot;</span>
+<span class="fc" id="L603">            toApply.add(e);</span>
+<span class="fc" id="L604">        }</span>
+<span class="fc bfc" id="L605" title="All 2 branches covered.">        if (parentSkipped &gt; 0) {</span>
+<span class="fc" id="L606">            getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L607">            getLog().info(&quot;Foundation: &lt;parent&gt; left to the workspace &quot;</span>
                     + &quot;(ParentVersionReconciler owns the parent cascade).&quot;);
         }
-<span class="fc bfc" id="L569" title="All 2 branches covered.">        if (toApply.isEmpty()) {</span>
-<span class="fc" id="L570">            getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L571">            getLog().info(&quot;Foundation: aligned with scaffold &quot;</span>
+<span class="fc bfc" id="L610" title="All 2 branches covered.">        if (toApply.isEmpty()) {</span>
+<span class="fc" id="L611">            getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L612">            getLog().info(&quot;Foundation: aligned with scaffold &quot;</span>
                     + &quot;(no drift to apply).&quot;);
-<span class="fc" id="L573">            return;</span>
+<span class="fc" id="L614">            return;</span>
         }
 
-<span class="fc" id="L576">        getLog().info(&quot;&quot;);</span>
-<span class="fc" id="L577">        getLog().info(&quot;IKE Foundation Apply:&quot;);</span>
-<span class="fc bfc" id="L578" title="All 2 branches covered.">        if (!applyFoundation) {</span>
-<span class="fc" id="L579">            getLog().info(&quot;  (dry-run — pass -Dike.scaffold.apply-foundation=true to apply)&quot;);</span>
+<span class="fc" id="L617">        getLog().info(&quot;&quot;);</span>
+<span class="fc" id="L618">        getLog().info(&quot;IKE Foundation Apply:&quot;);</span>
+<span class="fc bfc" id="L619" title="All 2 branches covered.">        if (!applyFoundation) {</span>
+<span class="fc" id="L620">            getLog().info(&quot;  (dry-run — pass -Dike.scaffold.apply-foundation=true to apply)&quot;);</span>
         }
         String content;
         try {
-<span class="fc" id="L583">            content = Files.readString(pomPath, StandardCharsets.UTF_8);</span>
-<span class="nc" id="L584">        } catch (IOException e) {</span>
-<span class="nc" id="L585">            getLog().warn(&quot;Could not read &quot; + pomPath + &quot;: &quot;</span>
-<span class="nc" id="L586">                    + e.getMessage());</span>
-<span class="nc" id="L587">            return;</span>
-<span class="fc" id="L588">        }</span>
+<span class="fc" id="L624">            content = Files.readString(pomPath, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L625">        } catch (IOException e) {</span>
+<span class="nc" id="L626">            getLog().warn(&quot;Could not read &quot; + pomPath + &quot;: &quot;</span>
+<span class="nc" id="L627">                    + e.getMessage());</span>
+<span class="nc" id="L628">            return;</span>
+<span class="fc" id="L629">        }</span>
 
-<span class="fc" id="L590">        String updated = content;</span>
-<span class="fc bfc" id="L591" title="All 2 branches covered.">        for (FoundationDriftChecker.Entry e : toApply) {</span>
+<span class="fc" id="L631">        String updated = content;</span>
+<span class="fc bfc" id="L632" title="All 2 branches covered.">        for (FoundationDriftChecker.Entry e : toApply) {</span>
             String label;
-<span class="fc bfc" id="L593" title="All 2 branches covered.">            if (e.kind() == FoundationDriftChecker.Kind.PARENT) {</span>
-<span class="fc" id="L594">                String[] ga = e.name().split(&quot;:&quot;, 2);</span>
-<span class="pc bpc" id="L595" title="1 of 2 branches missed.">                if (ga.length == 2) {</span>
-<span class="fc" id="L596">                    updated = PomRewriter.updateParentVersion(</span>
-<span class="fc" id="L597">                            updated, ga[0], ga[1], e.expected());</span>
+<span class="fc bfc" id="L634" title="All 2 branches covered.">            if (e.kind() == FoundationDriftChecker.Kind.PARENT) {</span>
+<span class="fc" id="L635">                String[] ga = e.name().split(&quot;:&quot;, 2);</span>
+<span class="pc bpc" id="L636" title="1 of 2 branches missed.">                if (ga.length == 2) {</span>
+<span class="fc" id="L637">                    updated = PomRewriter.updateParentVersion(</span>
+<span class="fc" id="L638">                            updated, ga[0], ga[1], e.expected());</span>
                 }
-<span class="fc" id="L599">                label = &quot;&lt;parent&gt; &quot; + e.name();</span>
-<span class="fc" id="L600">            } else {</span>
-<span class="fc" id="L601">                updated = PomRewriter.updateProperty(</span>
-<span class="fc" id="L602">                        updated, e.name(), e.expected());</span>
-<span class="fc" id="L603">                label = &quot;${&quot; + e.name() + &quot;}&quot;;</span>
+<span class="fc" id="L640">                label = &quot;&lt;parent&gt; &quot; + e.name();</span>
+<span class="fc" id="L641">            } else {</span>
+<span class="fc" id="L642">                updated = PomRewriter.updateProperty(</span>
+<span class="fc" id="L643">                        updated, e.name(), e.expected());</span>
+<span class="fc" id="L644">                label = &quot;${&quot; + e.name() + &quot;}&quot;;</span>
             }
-<span class="fc bfc" id="L605" title="All 2 branches covered.">            getLog().info(&quot;  &quot; + (applyFoundation ? &quot;✓ &quot; : &quot;→ &quot;)</span>
-<span class="fc" id="L606">                    + label + &quot;: &quot; + e.actual() + &quot; → &quot; + e.expected());</span>
-<span class="fc" id="L607">        }</span>
+<span class="fc bfc" id="L646" title="All 2 branches covered.">            getLog().info(&quot;  &quot; + (applyFoundation ? &quot;✓ &quot; : &quot;→ &quot;)</span>
+<span class="fc" id="L647">                    + label + &quot;: &quot; + e.actual() + &quot; → &quot; + e.expected());</span>
+<span class="fc" id="L648">        }</span>
 
-<span class="fc bfc" id="L609" title="All 2 branches covered.">        if (!applyFoundation) {</span>
-<span class="fc" id="L610">            return;</span>
+<span class="fc bfc" id="L650" title="All 2 branches covered.">        if (!applyFoundation) {</span>
+<span class="fc" id="L651">            return;</span>
         }
-<span class="pc bpc" id="L612" title="1 of 2 branches missed.">        if (updated.equals(content)) {</span>
-<span class="nc" id="L613">            getLog().info(&quot;  (no textual change — values already &quot;</span>
+<span class="pc bpc" id="L653" title="1 of 2 branches missed.">        if (updated.equals(content)) {</span>
+<span class="nc" id="L654">            getLog().info(&quot;  (no textual change — values already &quot;</span>
                     + &quot;matched at the LST level)&quot;);
-<span class="nc" id="L615">            return;</span>
+<span class="nc" id="L656">            return;</span>
         }
         // #349: capture pre-apply POM as a backup so
         // ike:scaffold-revert can restore. One-shot — the next
         // foundation apply overwrites this, and revert deletes
         // it on success.
-<span class="fc" id="L621">        Path backup = projRoot.resolve(&quot;.ike&quot;)</span>
-<span class="fc" id="L622">                .resolve(&quot;foundation-revert.pom.xml&quot;);</span>
+<span class="fc" id="L662">        Path backup = projRoot.resolve(&quot;.ike&quot;)</span>
+<span class="fc" id="L663">                .resolve(&quot;foundation-revert.pom.xml&quot;);</span>
         try {
-<span class="fc" id="L624">            Files.createDirectories(backup.getParent());</span>
-<span class="fc" id="L625">            Files.writeString(backup, content, StandardCharsets.UTF_8);</span>
-<span class="fc" id="L626">            getLog().info(&quot;  → backup: &quot; + backup);</span>
-<span class="nc" id="L627">        } catch (IOException e) {</span>
-<span class="nc" id="L628">            getLog().warn(&quot;Could not write foundation revert backup: &quot;</span>
-<span class="nc" id="L629">                    + e.getMessage());</span>
+<span class="fc" id="L665">            Files.createDirectories(backup.getParent());</span>
+<span class="fc" id="L666">            Files.writeString(backup, content, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L667">            getLog().info(&quot;  → backup: &quot; + backup);</span>
+<span class="nc" id="L668">        } catch (IOException e) {</span>
+<span class="nc" id="L669">            getLog().warn(&quot;Could not write foundation revert backup: &quot;</span>
+<span class="nc" id="L670">                    + e.getMessage());</span>
             // Still attempt the apply — losing revert capability is
             // worse than no foundation update.
-<span class="fc" id="L632">        }</span>
+<span class="fc" id="L673">        }</span>
         try {
-<span class="fc" id="L634">            Files.writeString(pomPath, updated, StandardCharsets.UTF_8);</span>
-<span class="fc" id="L635">            getLog().info(&quot;  → wrote &quot; + pomPath);</span>
-<span class="nc" id="L636">        } catch (IOException e) {</span>
-<span class="nc" id="L637">            getLog().warn(&quot;Could not write updated POM: &quot;</span>
-<span class="nc" id="L638">                    + e.getMessage());</span>
-<span class="fc" id="L639">        }</span>
-<span class="fc" id="L640">    }</span>
+<span class="fc" id="L675">            Files.writeString(pomPath, updated, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L676">            getLog().info(&quot;  → wrote &quot; + pomPath);</span>
+<span class="nc" id="L677">        } catch (IOException e) {</span>
+<span class="nc" id="L678">            getLog().warn(&quot;Could not write updated POM: &quot;</span>
+<span class="nc" id="L679">                    + e.getMessage());</span>
+<span class="fc" id="L680">        }</span>
+<span class="fc" id="L681">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
