@@ -716,6 +716,49 @@ class ScaffoldPublishMojoTest {
                 .doesNotContain("mvnw").doesNotContain("pom.xml");
     }
 
+    @Test
+    void gitProject_ikeIgnored_lockfileStillForceCommitted(@TempDir Path tmp)
+            throws Exception {
+        Path scaffold = tmp.resolve("scaffold");
+        Path project = tmp.resolve("proj");
+        Path userHome = tmp.resolve("home");
+        Files.createDirectories(scaffold);
+        Files.createDirectories(userHome);
+        Files.writeString(scaffold.resolve("mvnw"), "#!/bin/sh\nmvnw body\n");
+        Files.writeString(scaffold.resolve("scaffold-manifest.yaml"), """
+                schema: 1
+                standards-version: "7"
+                files:
+                  - dest: mvnw
+                    scope: project
+                    tier: tool-owned
+                    source: mvnw
+                """);
+        cleanGitProject(project);
+        // A gitignore rule for .ike/ (repo-level here; a stale
+        // ~/.gitignore_global `.ike/` in the field) hides the project lockfile
+        // from `git status --porcelain`, so pre-#919 it was silently dropped
+        // from the scaffold isolation commit. The force-stage keeps it tracked.
+        Files.writeString(project.resolve(".gitignore"), ".ike/\n");
+        git(project, "add", ".gitignore");
+        git(project, "commit", "-m", "ignore .ike");
+
+        ScaffoldPublishMojo mojo = new ScaffoldPublishMojo();
+        inject(mojo, "log", new RecordingLog());
+        inject(mojo, "scaffoldDir", scaffold.toString());
+        inject(mojo, "projectRoot", project.toString());
+        inject(mojo, "userHome", userHome.toString());
+
+        mojo.execute();
+
+        assertThat(gitOut(project, "ls-files"))
+                .as("force-staged lockfile must be tracked despite the .ike/ ignore")
+                .contains(".ike/scaffold.lock");
+        assertThat(gitOut(project, "show", "--name-only", "--format=", "HEAD"))
+                .as("the isolation commit must include the lockfile")
+                .contains(".ike/scaffold.lock");
+    }
+
     private static void cleanGitProject(Path project) throws Exception {
         Files.createDirectories(project);
         git(project, "init", "-b", "main");

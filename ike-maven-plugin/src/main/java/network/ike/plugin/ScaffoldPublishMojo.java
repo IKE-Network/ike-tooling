@@ -363,11 +363,11 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
      * @param projRoot the project repo root
      */
     private void commitScaffoldOutput(File projRoot) {
+        // Stage the visible scaffold output by name. `git status --porcelain`
+        // omits ignored files, so this list never contains an ignored path — a
+        // plain (unforced) `git add` is correct and ignore-safe here.
         String status = ReleaseSupport.execCapture(projRoot,
                 "git", "status", "--porcelain");
-        if (status.isBlank()) {
-            return;
-        }
         // Scaffold authors only simple-named config files (mvnw, pom.xml,
         // .gitignore, .mvn/…) and never renames, so the porcelain paths are
         // unquoted and arrow-free; the rename/quote handling below is
@@ -393,17 +393,58 @@ public class ScaffoldPublishMojo extends AbstractGoalMojo {
             }
             addCommand.add(path);
         }
-        if (addCommand.size() <= 3) {
+        if (addCommand.size() > 3) {
+            ReleaseSupport.exec(projRoot, getLog(),
+                    addCommand.toArray(new String[0]));
+        }
+
+        // #919: force-stage the goal-owned project lockfile AFTER the porcelain
+        // sweep. It lives under .ike/, which a stale user-global gitignore (a
+        // `~/.gitignore_global` `.ike/` rule) can hide from porcelain entirely —
+        // so it would be silently omitted from this isolation commit, breaking
+        // the "scaffold.lock is tracked" contract. `git add -f` overrides any
+        // ignore rule; staging it separately (not via the porcelain list above)
+        // keeps that plain `git add` ignore-safe.
+        forceStageProjectLockfile(projRoot);
+
+        // Commit only what is actually staged — never an empty commit on a
+        // clean re-run that authored nothing.
+        if (ReleaseSupport.execCapture(projRoot,
+                "git", "status", "--porcelain").isBlank()) {
             return;
         }
-        ReleaseSupport.exec(projRoot, getLog(),
-                addCommand.toArray(new String[0]));
         ReleaseSupport.exec(projRoot, getLog(), "git", "commit", "-m",
                 "scaffold: apply IKE standards"
                 + (applyFoundation ? " + foundation drift" : "")
                 + "\n\nRefs: IKE-Network/ike-issues#780");
         getLog().info("  ✓ committed scaffold output in "
                 + projRoot.getName());
+    }
+
+    /**
+     * Force-stage the project scaffold lockfile ({@code .ike/scaffold.lock})
+     * with {@code git add -f} so no ignore rule — repository or user-global
+     * (a stale {@code ~/.gitignore_global} {@code .ike/} entry) — can hide it
+     * from {@code git status --porcelain} and thereby drop it from the scaffold
+     * isolation commit (IKE-Network/ike-issues#919). A no-op when the lockfile
+     * does not exist or the force-add fails (logged at debug — the porcelain
+     * sweep in {@link #commitScaffoldOutput} still stages everything visible).
+     *
+     * @param projRoot the project repo root
+     */
+    private void forceStageProjectLockfile(File projRoot) {
+        Path lock = ScaffoldMojoSupport.projectLockfilePath(projRoot.toPath());
+        if (lock == null || !Files.exists(lock)) {
+            return;
+        }
+        String rel = projRoot.toPath().relativize(lock).toString();
+        try {
+            ReleaseSupport.exec(projRoot, getLog(),
+                    "git", "add", "-f", "--", rel);
+        } catch (MojoException e) {
+            getLog().debug("Could not force-stage " + rel + ": "
+                    + e.getMessage());
+        }
     }
 
     /**
