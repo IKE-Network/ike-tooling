@@ -93,6 +93,13 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "though a subproject produced the files; pair with "
                     + "deployAtEnd/installAtEnd so late attachments publish "
                     + "(ike-issues#933)."),
+    /** {@code ike:knowledge-verify} — round-trip verify a knowledge artifact in a pristine store. */
+    KNOWLEDGE_VERIFY(IkeGoal.NAME_KNOWLEDGE_VERIFY, KnowledgeVerifyMojo.class,
+            "Verify a knowledge artifact in a pristine store: load it exactly "
+                    + "as a consumer's import would (manifest and count-equality "
+                    + "checks intact) over its declared base, optionally sweep "
+                    + "every reference for resolution, and fail the build on any "
+                    + "error finding (ike-issues#951)."),
     /** {@code ike:kb-assemble} — assemble a knowledge base from ordered artifacts. */
     KB_ASSEMBLE(IkeGoal.NAME_KB_ASSEMBLE, KbAssembleMojo.class,
             "Assemble a knowledge base from ordered knowledge artifacts — "
@@ -230,6 +237,9 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
     /** The {@code knowledge-attach} goal name. */
     public static final String NAME_KNOWLEDGE_ATTACH = "knowledge-attach";
+
+    /** The {@code knowledge-verify} goal name. */
+    public static final String NAME_KNOWLEDGE_VERIFY = "knowledge-verify";
 
     /** Mirror for {@link #KB_ASSEMBLE}. */
     public static final String NAME_KB_ASSEMBLE = "kb-assemble";
