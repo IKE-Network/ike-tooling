@@ -38,9 +38,15 @@ import java.util.Optional;
 import java.util.Properties;
 
 /**
- * Exports a ledger-form knowledge set as its protobuf change-set artifact and attaches
- * it as the {@code changeset} classifier — the released form of the set. A starter set
- * is exactly this artifact applied to an empty base.
+ * Exports a ledger-form knowledge set as a full standalone protobuf artifact and
+ * attaches it under a declared classifier — by default {@code unreasoned-pb}, the
+ * settled name for a stated-only export the consumer classifies on load
+ * (IKE-Network/ike-issues#933). The ledger replay is reasoner-blind, so what this goal
+ * produces is always the whole unreasoned set; {@code changeset} is reserved for a
+ * genuine delta layered on a released base (declare it explicitly where that is truly
+ * what ships — delta authoring doctrine is IKE-Network/ike-issues#844), and the
+ * classified counterpart, {@code reasoned-pb}, comes from {@code ike:kb-assemble}'s
+ * export step.
  *
  * <p>The goal is a thin face over the knowledge-pipeline SPI
  * ({@code network.ike.tooling:ike-knowledge-spi}): it builds a typed
@@ -92,11 +98,21 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
     private Project project;
 
     /**
-     * The change-set file to write and attach.
+     * The export file to write and attach. When unset, defaults to
+     * {@code <buildDirectory>/<artifactId>-<version>-<classifier>.zip}.
      */
-    @Parameter(property = "ike.knowledgeExport.outputFile",
-               defaultValue = "${project.build.directory}/${project.artifactId}-${project.version}-changeset.zip")
+    @Parameter(property = "ike.knowledgeExport.outputFile")
     String outputFile;
+
+    /**
+     * The classifier the export is attached under — and, when {@link #outputFile} is
+     * unset, the suffix of the default file name. {@code unreasoned-pb} is the settled
+     * default: a ledger replay is stated-only, so the artifact is the whole standalone
+     * unreasoned set. Declare {@code changeset} only for a genuine delta
+     * (IKE-Network/ike-issues#933).
+     */
+    @Parameter(property = "ike.knowledgeExport.classifier", defaultValue = "unreasoned-pb")
+    String classifier;
 
     /**
      * Fully qualified name of the {@code KnowledgeSetSource} implementation to compose.
@@ -153,8 +169,8 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
     String classesDirectory;
 
     /**
-     * Attach the exported file to the project as the {@code changeset} classifier
-     * (extension {@code zip}), so it installs and deploys with the module.
+     * Attach the exported file to the project under {@link #classifier} (extension
+     * {@code zip}), so it installs and deploys with the module.
      */
     @Parameter(property = "ike.knowledgeExport.attach", defaultValue = "true")
     boolean attach;
@@ -175,8 +191,8 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
 
     /**
      * Builds the typed export request, runs the {@link KnowledgeExporter} across the
-     * forked seam on the project's runtime classpath, and attaches the change-set
-     * artifact.
+     * forked seam on the project's runtime classpath, and attaches the export under
+     * the declared classifier.
      *
      * @throws MojoException if the classpath cannot be resolved, the seam fails, or the
      *                       output file was not produced
@@ -188,8 +204,12 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
             return;
         }
 
+        String effectiveOutput = (outputFile == null || outputFile.isBlank())
+                ? Path.of(buildDirectory).resolve(
+                        project.getArtifactId() + "-" + project.getVersion() + "-" + classifier + ".zip").toString()
+                : outputFile;
         ExportRequest request = new ExportRequest(
-                Path.of(outputFile),
+                Path.of(effectiveOutput),
                 Optional.ofNullable(konceptsYmlFile).filter(s -> !s.isBlank()).map(Path::of),
                 Optional.ofNullable(sourceClass).filter(s -> !s.isBlank()),
                 ViewSpec.of(view));
@@ -206,9 +226,9 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
 
         Path produced = result.outputFile();
         if (!Files.isRegularFile(produced)) {
-            throw new MojoException("Change-set export produced no file at " + produced);
+            throw new MojoException("Knowledge export produced no file at " + produced);
         }
-        getLog().info("Change set exported: " + produced.getFileName() + " — "
+        getLog().info("Knowledge set exported: " + produced.getFileName() + " — "
                 + result.counts().total() + " entities (" + result.counts().concepts()
                 + " concepts, " + result.counts().semantics() + " semantics, "
                 + result.counts().patterns() + " patterns, " + result.counts().stamps()
@@ -219,12 +239,12 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
         if (attach) {
             ProducedArtifact artifact = session.createProducedArtifact(
                     project.getGroupId(), project.getArtifactId(), project.getVersion(),
-                    "changeset", "zip", "zip");
+                    classifier, "zip", "zip");
             session.getService(ProjectManager.class).attachArtifact(project, artifact, produced);
-            getLog().info("Attached change set " + produced.getFileName()
-                    + " (classifier: changeset, extension: zip)");
+            getLog().info("Attached knowledge export " + produced.getFileName()
+                    + " (classifier: " + classifier + ", extension: zip)");
         } else {
-            getLog().info("Change set written (not attached): " + produced);
+            getLog().info("Knowledge set written (not attached): " + produced);
         }
     }
 

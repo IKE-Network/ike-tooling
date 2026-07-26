@@ -17,9 +17,11 @@ import java.util.Properties;
  *                            skipped
  * @param effectiveViewReport the effective-view report file, when the implementation
  *                            produced one
+ * @param reasonedPbFile      the reasoned-protobuf export the assembly produced, when
+ *                            one was requested (IKE-Network/ike-issues#933)
  */
 public record AssembleResult(List<LoadSummary> loads, Optional<ClassificationSummary> classification,
-                             Optional<Path> effectiveViewReport) {
+                             Optional<Path> effectiveViewReport, Optional<Path> reasonedPbFile) {
 
     /**
      * Validates and defensively copies the result.
@@ -33,6 +35,20 @@ public record AssembleResult(List<LoadSummary> loads, Optional<ClassificationSum
         loads = List.copyOf(Objects.requireNonNull(loads, "loads"));
         Objects.requireNonNull(classification, "classification");
         Objects.requireNonNull(effectiveViewReport, "effectiveViewReport");
+        Objects.requireNonNull(reasonedPbFile, "reasonedPbFile");
+    }
+
+    /**
+     * Creates a result without a reasoned-protobuf export — the pre-#933 shape, kept
+     * for source compatibility with existing callers.
+     *
+     * @param loads               one summary per input artifact, in load order
+     * @param classification      the classification summary
+     * @param effectiveViewReport the effective-view report file
+     */
+    public AssembleResult(List<LoadSummary> loads, Optional<ClassificationSummary> classification,
+                          Optional<Path> effectiveViewReport) {
+        this(loads, classification, effectiveViewReport, Optional.empty());
     }
 
     /**
@@ -55,6 +71,7 @@ public record AssembleResult(List<LoadSummary> loads, Optional<ClassificationSum
             PropCodec.put(properties, "classification.elapsedMillis", Long.toString(summary.elapsedMillis()));
         });
         PropCodec.putOptional(properties, "effectiveViewReport", effectiveViewReport.map(Path::toString));
+        PropCodec.putOptional(properties, "reasonedPbFile", reasonedPbFile.map(Path::toString));
         return properties;
     }
 
@@ -80,6 +97,7 @@ public record AssembleResult(List<LoadSummary> loads, Optional<ClassificationSum
                                 PropCodec.requireLong(properties, "classification.navigationChanges"),
                                 PropCodec.requireLong(properties, "classification.elapsedMillis")));
         return new AssembleResult(loads, classification,
-                PropCodec.optionalPath(properties, "effectiveViewReport"));
+                PropCodec.optionalPath(properties, "effectiveViewReport"),
+                PropCodec.optionalPath(properties, "reasonedPbFile"));
     }
 }

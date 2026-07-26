@@ -21,9 +21,11 @@ import network.ike.knowledge.spi.AssembleResult;
 import network.ike.knowledge.spi.IkeServiceBootstrap;
 import network.ike.knowledge.spi.KnowledgeBaseAssembler;
 import network.ike.knowledge.spi.ViewSpec;
+import org.apache.maven.api.ProducedArtifact;
 import org.apache.maven.api.Project;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.services.ProjectManager;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -38,7 +40,9 @@ import java.util.Properties;
 
 /**
  * Assembles a knowledge base from ordered knowledge artifacts — base data plus change
- * sets into a store, classified by default — and optionally installs it into a
+ * sets into a store, classified by default — optionally exports the classified store
+ * as a standalone {@code reasoned-pb} artifact (IKE-Network/ike-issues#933), and
+ * optionally installs it into a
  * data-source directory a knowledge browser reads. The full-cycle goal: a starter set
  * becomes an openable, navigable KB in one build (IKE-Network/ike-issues#848, #850).
  *
@@ -133,6 +137,30 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     String installDirectory;
 
     /**
+     * Export the classified store as a full standalone reasoned protobuf — the
+     * {@code reasoned-pb} classifier form, inferred results baked in, ready to open
+     * without a reasoner run (IKE-Network/ike-issues#933). Requires {@link #classify}.
+     */
+    @Parameter(property = "ike.kbAssemble.reasonedPb", defaultValue = "false")
+    boolean reasonedPb;
+
+    /**
+     * The reasoned-protobuf export file. When unset and {@link #reasonedPb} is true,
+     * defaults to {@code <buildDirectory>/<artifactId>-<version>-reasoned-pb.zip}.
+     * Setting this implies {@link #reasonedPb}.
+     */
+    @Parameter(property = "ike.kbAssemble.reasonedPbFile")
+    String reasonedPbFile;
+
+    /**
+     * Attach the reasoned-protobuf export to the project under the
+     * {@code reasoned-pb} classifier (extension {@code zip}), so it installs and
+     * deploys with the module.
+     */
+    @Parameter(property = "ike.kbAssemble.attachReasonedPb", defaultValue = "true")
+    boolean attachReasonedPb;
+
+    /**
      * The view specification's dotted dimension keys (IKE-KNOWLEDGE-VIEW), stating only
      * what differs from the implementation's defaults.
      */
@@ -197,10 +225,12 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                     + " (ROLE followed by a Maven coordinate or file path)");
         }
 
+        Optional<Path> reasonedPbTarget = reasonedPbTarget();
         AssembleRequest request = new AssembleRequest(
                 Path.of(storeRoot), cleanStart, resolveInputs(), ViewSpec.of(view), classify,
                 Optional.ofNullable(reasonerService).filter(s -> !s.isBlank()),
-                Optional.ofNullable(installDirectory).filter(s -> !s.isBlank()).map(Path::of));
+                Optional.ofNullable(installDirectory).filter(s -> !s.isBlank()).map(Path::of),
+                reasonedPbTarget);
         Properties wire = request.toProperties();
         if (implementation != null && !implementation.isBlank()) {
             wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);
@@ -229,6 +259,40 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         if (installDirectory != null && !installDirectory.isBlank()) {
             getLog().info("Knowledge base installed: " + installDirectory);
         }
+        if (reasonedPbTarget.isPresent()) {
+            Path produced = result.reasonedPbFile().orElseThrow(() -> new MojoException(
+                    "Reasoned-protobuf export was requested but the assembly reported none"));
+            if (!Files.isRegularFile(produced)) {
+                throw new MojoException("Reasoned-protobuf export produced no file at " + produced);
+            }
+            getLog().info("Reasoned knowledge set exported: " + produced.getFileName());
+            if (attachReasonedPb) {
+                ProducedArtifact artifact = session.createProducedArtifact(
+                        project.getGroupId(), project.getArtifactId(), project.getVersion(),
+                        "reasoned-pb", "zip", "zip");
+                session.getService(ProjectManager.class).attachArtifact(project, artifact, produced);
+                getLog().info("Attached reasoned knowledge export " + produced.getFileName()
+                        + " (classifier: reasoned-pb, extension: zip)");
+            }
+        }
+    }
+
+    /**
+     * The reasoned-protobuf export target: the explicit {@link #reasonedPbFile} when
+     * set, the conventional {@code <artifactId>-<version>-reasoned-pb.zip} under the
+     * build directory when {@link #reasonedPb} asked for one, empty otherwise.
+     *
+     * @return the export target, when an export was requested
+     */
+    private Optional<Path> reasonedPbTarget() {
+        if (reasonedPbFile != null && !reasonedPbFile.isBlank()) {
+            return Optional.of(Path.of(reasonedPbFile));
+        }
+        if (reasonedPb) {
+            return Optional.of(Path.of(buildDirectory).resolve(
+                    project.getArtifactId() + "-" + project.getVersion() + "-reasoned-pb.zip"));
+        }
+        return Optional.empty();
     }
 
     private List<ArtifactInput> resolveInputs() {

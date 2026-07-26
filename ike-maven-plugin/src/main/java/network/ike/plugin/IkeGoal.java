@@ -77,13 +77,22 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "classpath, composes it, writes the TinkarTerm-idiom "
                     + "constants class into generated-sources, and registers "
                     + "the source root (ike-issues#824)."),
-    /** {@code ike:knowledge-export} — export a knowledge set's protobuf change set. */
+    /** {@code ike:knowledge-export} — export a knowledge set as a standalone protobuf. */
     KNOWLEDGE_EXPORT(IkeGoal.NAME_KNOWLEDGE_EXPORT, KnowledgeExportMojo.class,
-            "Export a ledger-form knowledge set as its protobuf change-set "
+            "Export a ledger-form knowledge set as a full standalone protobuf "
                     + "artifact: composes the project's KnowledgeSetSource, "
                     + "replays into a fresh ephemeral store, exports the store, "
-                    + "and attaches the file as the changeset classifier "
-                    + "(ike-issues#824)."),
+                    + "and attaches the file under a declared classifier — "
+                    + "unreasoned-pb by default; changeset is reserved for "
+                    + "genuine deltas (ike-issues#824, #933)."),
+    /** {@code ike:knowledge-attach} — attach knowledge artifacts under another reactor GAV. */
+    KNOWLEDGE_ATTACH(IkeGoal.NAME_KNOWLEDGE_ATTACH, KnowledgeAttachMojo.class,
+            "Attach produced knowledge artifacts to another reactor project — "
+                    + "typically the aggregator, so a set's released coordinate "
+                    + "reads <aggregator>:<v>:{unreasoned-pb|reasoned-pb} even "
+                    + "though a subproject produced the files; pair with "
+                    + "deployAtEnd/installAtEnd so late attachments publish "
+                    + "(ike-issues#933)."),
     /** {@code ike:kb-assemble} — assemble a knowledge base from ordered artifacts. */
     KB_ASSEMBLE(IkeGoal.NAME_KB_ASSEMBLE, KbAssembleMojo.class,
             "Assemble a knowledge base from ordered knowledge artifacts — "
@@ -218,6 +227,9 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_KNOWLEDGE_BINDINGS = "knowledge-bindings";
     /** Mirror for {@link #KNOWLEDGE_EXPORT}. */
     public static final String NAME_KNOWLEDGE_EXPORT = "knowledge-export";
+
+    /** The {@code knowledge-attach} goal name. */
+    public static final String NAME_KNOWLEDGE_ATTACH = "knowledge-attach";
 
     /** Mirror for {@link #KB_ASSEMBLE}. */
     public static final String NAME_KB_ASSEMBLE = "kb-assemble";

@@ -47,6 +47,31 @@ class RequestCodecTest {
     }
 
     @Test
+    @DisplayName("Reasoned-pb export round-trips, and demands classification"
+            + " — reasoned-pb means inferred results baked in (ike-issues#933)")
+    void reasonedPbExport() {
+        AssembleRequest request = new AssembleRequest(
+                Path.of("target/kb"), true,
+                List.of(new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip"))),
+                VIEW, true, Optional.empty(), Optional.empty(),
+                Optional.of(Path.of("target/set-reasoned-pb.zip")));
+        assertThat(AssembleRequest.fromProperties(request.toProperties())).isEqualTo(request);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> new AssembleRequest(
+                        Path.of("target/kb"), true,
+                        List.of(new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip"))),
+                        ViewSpec.empty(), false, Optional.empty(), Optional.empty(),
+                        Optional.of(Path.of("target/set-reasoned-pb.zip"))))
+                .withMessageContaining("classify");
+
+        AssembleResult produced = new AssembleResult(
+                List.of(new LoadSummary("starter.pb.zip", new EntityCounts(1, 2, 3, 4))),
+                Optional.of(new ClassificationSummary("ExampleReasonerService", 10, 2, 3, 42)),
+                Optional.empty(), Optional.of(Path.of("target/set-reasoned-pb.zip")));
+        assertThat(AssembleResult.fromProperties(produced.toProperties())).isEqualTo(produced);
+    }
+
+    @Test
     @DisplayName("Indexed lists fail closed: a gap is an error, never a silent truncation")
     void indexedListsFailClosed() {
         AssembleRequest request = new AssembleRequest(Path.of("target/kb"), false,

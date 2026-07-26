@@ -24,10 +24,15 @@ import java.util.Properties;
  *                         <em>concept</em> that authors derived semantics
  * @param installDirectory a directory to copy the assembled store into (for example a
  *                         data-source directory a knowledge browser reads)
+ * @param reasonedPbFile   the file to export the classified store to as a full
+ *                         standalone reasoned protobuf — the {@code reasoned-pb}
+ *                         classifier form, inferred results baked in
+ *                         (IKE-Network/ike-issues#933); empty means no export;
+ *                         requires {@code classify}
  */
 public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactInput> inputs,
                               ViewSpec view, boolean classify, Optional<String> reasonerService,
-                              Optional<Path> installDirectory) {
+                              Optional<Path> installDirectory, Optional<Path> reasonedPbFile) {
 
     /**
      * Validates and defensively copies the request.
@@ -39,21 +44,48 @@ public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactI
      * @param classify         whether to run classification as the final step
      * @param reasonerService  the reasoner-service simple name when several are present
      * @param installDirectory a directory to copy the assembled store into
+     * @param reasonedPbFile   the reasoned-protobuf export file; empty means no export
      * @throws NullPointerException     if any component is null
-     * @throws IllegalArgumentException if {@code inputs} is empty or an
+     * @throws IllegalArgumentException if {@code inputs} is empty, an
      *                                  {@link ArtifactInput.Role#STORE_SEED} appears
-     *                                  after the first position
+     *                                  after the first position, or a reasoned-protobuf
+     *                                  export is requested without classification
      */
     public AssembleRequest {
         Objects.requireNonNull(storeRoot, "storeRoot");
         Objects.requireNonNull(view, "view");
         Objects.requireNonNull(reasonerService, "reasonerService");
         Objects.requireNonNull(installDirectory, "installDirectory");
+        Objects.requireNonNull(reasonedPbFile, "reasonedPbFile");
         inputs = List.copyOf(Objects.requireNonNull(inputs, "inputs"));
         if (inputs.isEmpty()) {
             throw new IllegalArgumentException("An assembly requires at least one input artifact");
         }
+        if (reasonedPbFile.isPresent() && !classify) {
+            throw new IllegalArgumentException(
+                    "A reasoned-protobuf export requires classification (classify=true):"
+                            + " reasoned-pb means inferred results baked in");
+        }
         ArtifactInput.requireSeedFirstOnly(inputs);
+    }
+
+    /**
+     * Creates a request without a reasoned-protobuf export — the pre-#933 shape,
+     * kept for source compatibility with existing callers.
+     *
+     * @param storeRoot        the store's root directory
+     * @param cleanStart       whether to delete the store root before assembling
+     * @param inputs           the artifacts, in load order
+     * @param view             the view specification
+     * @param classify         whether to run classification as the final step
+     * @param reasonerService  the reasoner-service simple name when several are present
+     * @param installDirectory a directory to copy the assembled store into
+     */
+    public AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactInput> inputs,
+                           ViewSpec view, boolean classify, Optional<String> reasonerService,
+                           Optional<Path> installDirectory) {
+        this(storeRoot, cleanStart, inputs, view, classify, reasonerService, installDirectory,
+                Optional.empty());
     }
 
     /**
@@ -70,6 +102,7 @@ public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactI
         PropCodec.put(properties, "classify", Boolean.toString(classify));
         PropCodec.putOptional(properties, "reasonerService", reasonerService);
         PropCodec.putOptional(properties, "installDirectory", installDirectory.map(Path::toString));
+        PropCodec.putOptional(properties, "reasonedPbFile", reasonedPbFile.map(Path::toString));
         return properties;
     }
 
@@ -89,6 +122,7 @@ public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactI
                 PropCodec.getView(properties),
                 PropCodec.getBoolean(properties, "classify", true),
                 PropCodec.optional(properties, "reasonerService"),
-                PropCodec.optionalPath(properties, "installDirectory"));
+                PropCodec.optionalPath(properties, "installDirectory"),
+                PropCodec.optionalPath(properties, "reasonedPbFile"));
     }
 }
