@@ -38,9 +38,15 @@ import java.util.Optional;
 import java.util.Properties;
 
 /**
- * Exports a ledger-form knowledge set as its protobuf change-set artifact and attaches
- * it as the {@code changeset} classifier — the released form of the set. A starter set
- * is exactly this artifact applied to an empty base.
+ * Exports a ledger-form knowledge set as a full standalone protobuf artifact and
+ * attaches it under a declared classifier — by default {@code unreasoned-pb}, the
+ * settled name for a stated-only export the consumer classifies on load
+ * (IKE-Network/ike-issues#933). The ledger replay is reasoner-blind, so what this goal
+ * produces is always the whole unreasoned set; {@code changeset} is reserved for a
+ * genuine delta layered on a released base (declare it explicitly where that is truly
+ * what ships — delta authoring doctrine is IKE-Network/ike-issues#844), and the
+ * classified counterpart, {@code reasoned-pb}, comes from {@code ike:kb-assemble}'s
+ * export step.
  *
  * &lt;p&gt;The goal is a thin face over the knowledge-pipeline SPI
  * ({@code network.ike.tooling:ike-knowledge-spi}): it builds a typed
@@ -71,7 +77,7 @@ import java.util.Properties;
 public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
 
     /** Creates this goal instance. */
-<span class="fc" id="L74">    public KnowledgeExportMojo() {}</span>
+<span class="fc" id="L80">    public KnowledgeExportMojo() {}</span>
 
     @Inject
     private org.apache.maven.api.plugin.Log log;
@@ -82,7 +88,7 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
      * @return the logger
      */
     protected org.apache.maven.api.plugin.Log getLog() {
-<span class="nc" id="L85">        return log;</span>
+<span class="nc" id="L91">        return log;</span>
     }
 
     @Inject
@@ -92,11 +98,21 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
     private Project project;
 
     /**
-     * The change-set file to write and attach.
+     * The export file to write and attach. When unset, defaults to
+     * {@code &lt;buildDirectory&gt;/&lt;artifactId&gt;-&lt;version&gt;-&lt;classifier&gt;.zip}.
      */
-    @Parameter(property = &quot;ike.knowledgeExport.outputFile&quot;,
-               defaultValue = &quot;${project.build.directory}/${project.artifactId}-${project.version}-changeset.zip&quot;)
+    @Parameter(property = &quot;ike.knowledgeExport.outputFile&quot;)
     String outputFile;
+
+    /**
+     * The classifier the export is attached under — and, when {@link #outputFile} is
+     * unset, the suffix of the default file name. {@code unreasoned-pb} is the settled
+     * default: a ledger replay is stated-only, so the artifact is the whole standalone
+     * unreasoned set. Declare {@code changeset} only for a genuine delta
+     * (IKE-Network/ike-issues#933).
+     */
+    @Parameter(property = &quot;ike.knowledgeExport.classifier&quot;, defaultValue = &quot;unreasoned-pb&quot;)
+    String classifier;
 
     /**
      * Fully qualified name of the {@code KnowledgeSetSource} implementation to compose.
@@ -119,8 +135,8 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
      * what differs from the implementation's defaults — for example
      * {@code &lt;view&gt;&lt;stamp.allowedStates&gt;Active&lt;/stamp.allowedStates&gt;&lt;/view&gt;}.
      */
-<span class="fc" id="L122">    @Parameter</span>
-<span class="fc" id="L123">    Map&lt;String, String&gt; view = Map.of();</span>
+<span class="fc" id="L138">    @Parameter</span>
+<span class="fc" id="L139">    Map&lt;String, String&gt; view = Map.of();</span>
 
     /**
      * The knowledge-service implementation's simple class name, when the classpath
@@ -141,8 +157,8 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
      * Extra child-JVM arguments for the forked seam (heap, flags). The child inherits
      * {@code --enable-preview} from the Maven JVM automatically.
      */
-<span class="fc" id="L144">    @Parameter</span>
-<span class="fc" id="L145">    List&lt;String&gt; forkJvmArguments = List.of();</span>
+<span class="fc" id="L160">    @Parameter</span>
+<span class="fc" id="L161">    List&lt;String&gt; forkJvmArguments = List.of();</span>
 
     /**
      * The project's classes/resources directory, included on the seam classpath so the
@@ -153,8 +169,8 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
     String classesDirectory;
 
     /**
-     * Attach the exported file to the project as the {@code changeset} classifier
-     * (extension {@code zip}), so it installs and deploys with the module.
+     * Attach the exported file to the project under {@link #classifier} (extension
+     * {@code zip}), so it installs and deploys with the module.
      */
     @Parameter(property = &quot;ike.knowledgeExport.attach&quot;, defaultValue = &quot;true&quot;)
     boolean attach;
@@ -175,69 +191,73 @@ public class KnowledgeExportMojo implements org.apache.maven.api.plugin.Mojo {
 
     /**
      * Builds the typed export request, runs the {@link KnowledgeExporter} across the
-     * forked seam on the project's runtime classpath, and attaches the change-set
-     * artifact.
+     * forked seam on the project's runtime classpath, and attaches the export under
+     * the declared classifier.
      *
      * @throws MojoException if the classpath cannot be resolved, the seam fails, or the
      *                       output file was not produced
      */
     @Override
     public void execute() {
-<span class="nc bnc" id="L186" title="All 2 branches missed.">        if (skip) {</span>
-<span class="nc" id="L187">            getLog().info(&quot;ike:knowledge-export skipped (ike.knowledgeExport.skip=true)&quot;);</span>
-<span class="nc" id="L188">            return;</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L203">            getLog().info(&quot;ike:knowledge-export skipped (ike.knowledgeExport.skip=true)&quot;);</span>
+<span class="nc" id="L204">            return;</span>
         }
 
-<span class="nc" id="L191">        ExportRequest request = new ExportRequest(</span>
-<span class="nc" id="L192">                Path.of(outputFile),</span>
-<span class="nc bnc" id="L193" title="All 2 branches missed.">                Optional.ofNullable(konceptsYmlFile).filter(s -&gt; !s.isBlank()).map(Path::of),</span>
-<span class="nc bnc" id="L194" title="All 2 branches missed.">                Optional.ofNullable(sourceClass).filter(s -&gt; !s.isBlank()),</span>
-<span class="nc" id="L195">                ViewSpec.of(view));</span>
-<span class="nc" id="L196">        Properties wire = request.toProperties();</span>
-<span class="nc bnc" id="L197" title="All 4 branches missed.">        if (implementation != null &amp;&amp; !implementation.isBlank()) {</span>
-<span class="nc" id="L198">            wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);</span>
+<span class="nc bnc" id="L207" title="All 4 branches missed.">        String effectiveOutput = (outputFile == null || outputFile.isBlank())</span>
+<span class="nc" id="L208">                ? Path.of(buildDirectory).resolve(</span>
+<span class="nc" id="L209">                        project.getArtifactId() + &quot;-&quot; + project.getVersion() + &quot;-&quot; + classifier + &quot;.zip&quot;).toString()</span>
+<span class="nc" id="L210">                : outputFile;</span>
+<span class="nc" id="L211">        ExportRequest request = new ExportRequest(</span>
+<span class="nc" id="L212">                Path.of(effectiveOutput),</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">                Optional.ofNullable(konceptsYmlFile).filter(s -&gt; !s.isBlank()).map(Path::of),</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">                Optional.ofNullable(sourceClass).filter(s -&gt; !s.isBlank()),</span>
+<span class="nc" id="L215">                ViewSpec.of(view));</span>
+<span class="nc" id="L216">        Properties wire = request.toProperties();</span>
+<span class="nc bnc" id="L217" title="All 4 branches missed.">        if (implementation != null &amp;&amp; !implementation.isBlank()) {</span>
+<span class="nc" id="L218">            wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);</span>
         }
 
-<span class="nc" id="L201">        Properties resultWire = new KnowledgeServiceRunner(getLog()).run(</span>
-<span class="nc" id="L202">                KnowledgeExporter.class.getName(), wire, seamClasspath(),</span>
-<span class="nc" id="L203">                Path.of(buildDirectory, &quot;ike-knowledge&quot;),</span>
+<span class="nc" id="L221">        Properties resultWire = new KnowledgeServiceRunner(getLog()).run(</span>
+<span class="nc" id="L222">                KnowledgeExporter.class.getName(), wire, seamClasspath(),</span>
+<span class="nc" id="L223">                Path.of(buildDirectory, &quot;ike-knowledge&quot;),</span>
                 fork, forkJvmArguments);
-<span class="nc" id="L205">        ExportResult result = ExportResult.fromProperties(resultWire);</span>
+<span class="nc" id="L225">        ExportResult result = ExportResult.fromProperties(resultWire);</span>
 
-<span class="nc" id="L207">        Path produced = result.outputFile();</span>
-<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (!Files.isRegularFile(produced)) {</span>
-<span class="nc" id="L209">            throw new MojoException(&quot;Change-set export produced no file at &quot; + produced);</span>
+<span class="nc" id="L227">        Path produced = result.outputFile();</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (!Files.isRegularFile(produced)) {</span>
+<span class="nc" id="L229">            throw new MojoException(&quot;Knowledge export produced no file at &quot; + produced);</span>
         }
-<span class="nc" id="L211">        getLog().info(&quot;Change set exported: &quot; + produced.getFileName() + &quot; — &quot;</span>
-<span class="nc" id="L212">                + result.counts().total() + &quot; entities (&quot; + result.counts().concepts()</span>
-<span class="nc" id="L213">                + &quot; concepts, &quot; + result.counts().semantics() + &quot; semantics, &quot;</span>
-<span class="nc" id="L214">                + result.counts().patterns() + &quot; patterns, &quot; + result.counts().stamps()</span>
+<span class="nc" id="L231">        getLog().info(&quot;Knowledge set exported: &quot; + produced.getFileName() + &quot; — &quot;</span>
+<span class="nc" id="L232">                + result.counts().total() + &quot; entities (&quot; + result.counts().concepts()</span>
+<span class="nc" id="L233">                + &quot; concepts, &quot; + result.counts().semantics() + &quot; semantics, &quot;</span>
+<span class="nc" id="L234">                + result.counts().patterns() + &quot; patterns, &quot; + result.counts().stamps()</span>
                 + &quot; stamps)&quot;);
-<span class="nc" id="L216">        result.konceptsYmlFile().ifPresent(yml -&gt;</span>
-<span class="nc" id="L217">                getLog().info(&quot;Koncepts extracted: &quot; + yml));</span>
+<span class="nc" id="L236">        result.konceptsYmlFile().ifPresent(yml -&gt;</span>
+<span class="nc" id="L237">                getLog().info(&quot;Koncepts extracted: &quot; + yml));</span>
 
-<span class="nc bnc" id="L219" title="All 2 branches missed.">        if (attach) {</span>
-<span class="nc" id="L220">            ProducedArtifact artifact = session.createProducedArtifact(</span>
-<span class="nc" id="L221">                    project.getGroupId(), project.getArtifactId(), project.getVersion(),</span>
-                    &quot;changeset&quot;, &quot;zip&quot;, &quot;zip&quot;);
-<span class="nc" id="L223">            session.getService(ProjectManager.class).attachArtifact(project, artifact, produced);</span>
-<span class="nc" id="L224">            getLog().info(&quot;Attached change set &quot; + produced.getFileName()</span>
-                    + &quot; (classifier: changeset, extension: zip)&quot;);
-<span class="nc" id="L226">        } else {</span>
-<span class="nc" id="L227">            getLog().info(&quot;Change set written (not attached): &quot; + produced);</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (attach) {</span>
+<span class="nc" id="L240">            ProducedArtifact artifact = session.createProducedArtifact(</span>
+<span class="nc" id="L241">                    project.getGroupId(), project.getArtifactId(), project.getVersion(),</span>
+                    classifier, &quot;zip&quot;, &quot;zip&quot;);
+<span class="nc" id="L243">            session.getService(ProjectManager.class).attachArtifact(project, artifact, produced);</span>
+<span class="nc" id="L244">            getLog().info(&quot;Attached knowledge export &quot; + produced.getFileName()</span>
+                    + &quot; (classifier: &quot; + classifier + &quot;, extension: zip)&quot;);
+<span class="nc" id="L246">        } else {</span>
+<span class="nc" id="L247">            getLog().info(&quot;Knowledge set written (not attached): &quot; + produced);</span>
         }
-<span class="nc" id="L229">    }</span>
+<span class="nc" id="L249">    }</span>
 
     private List&lt;Path&gt; seamClasspath() {
         // Resolution goes through the plugin's serialized entry point — Maven 4 rc-5's
         // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
-<span class="nc" id="L234">        List&lt;Path&gt; classpath = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L235">        Path classesDir = Path.of(classesDirectory);</span>
-<span class="nc bnc" id="L236" title="All 2 branches missed.">        if (Files.isDirectory(classesDir)) {</span>
-<span class="nc" id="L237">            classpath.add(classesDir);</span>
+<span class="nc" id="L254">        List&lt;Path&gt; classpath = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L255">        Path classesDir = Path.of(classesDirectory);</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">        if (Files.isDirectory(classesDir)) {</span>
+<span class="nc" id="L257">            classpath.add(classesDir);</span>
         }
-<span class="nc" id="L239">        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));</span>
-<span class="nc" id="L240">        return classpath;</span>
+<span class="nc" id="L259">        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));</span>
+<span class="nc" id="L260">        return classpath;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

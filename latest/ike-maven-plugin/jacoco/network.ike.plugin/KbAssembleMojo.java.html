@@ -21,9 +21,11 @@ import network.ike.knowledge.spi.AssembleResult;
 import network.ike.knowledge.spi.IkeServiceBootstrap;
 import network.ike.knowledge.spi.KnowledgeBaseAssembler;
 import network.ike.knowledge.spi.ViewSpec;
+import org.apache.maven.api.ProducedArtifact;
 import org.apache.maven.api.Project;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.services.ProjectManager;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -38,7 +40,9 @@ import java.util.Properties;
 
 /**
  * Assembles a knowledge base from ordered knowledge artifacts — base data plus change
- * sets into a store, classified by default — and optionally installs it into a
+ * sets into a store, classified by default — optionally exports the classified store
+ * as a standalone {@code reasoned-pb} artifact (IKE-Network/ike-issues#933), and
+ * optionally installs it into a
  * data-source directory a knowledge browser reads. The full-cycle goal: a starter set
  * becomes an openable, navigable KB in one build (IKE-Network/ike-issues#848, #850).
  *
@@ -68,7 +72,7 @@ import java.util.Properties;
 public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
 
     /** Creates this goal instance. */
-<span class="fc" id="L71">    public KbAssembleMojo() {}</span>
+<span class="fc" id="L75">    public KbAssembleMojo() {}</span>
 
     @Inject
     private org.apache.maven.api.plugin.Log log;
@@ -79,7 +83,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * @return the logger
      */
     protected org.apache.maven.api.plugin.Log getLog() {
-<span class="nc" id="L82">        return log;</span>
+<span class="nc" id="L86">        return log;</span>
     }
 
     @Inject
@@ -94,8 +98,8 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * ({@code g:a[:extension[:classifier]]:v}) or a file path. List order is load
      * order; the base comes first.
      */
-<span class="fc" id="L97">    @Parameter</span>
-<span class="fc" id="L98">    List&lt;String&gt; inputs = List.of();</span>
+<span class="fc" id="L101">    @Parameter</span>
+<span class="fc" id="L102">    List&lt;String&gt; inputs = List.of();</span>
 
     /**
      * The store root to assemble into.
@@ -133,11 +137,35 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     String installDirectory;
 
     /**
+     * Export the classified store as a full standalone reasoned protobuf — the
+     * {@code reasoned-pb} classifier form, inferred results baked in, ready to open
+     * without a reasoner run (IKE-Network/ike-issues#933). Requires {@link #classify}.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.reasonedPb&quot;, defaultValue = &quot;false&quot;)
+    boolean reasonedPb;
+
+    /**
+     * The reasoned-protobuf export file. When unset and {@link #reasonedPb} is true,
+     * defaults to {@code &lt;buildDirectory&gt;/&lt;artifactId&gt;-&lt;version&gt;-reasoned-pb.zip}.
+     * Setting this implies {@link #reasonedPb}.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.reasonedPbFile&quot;)
+    String reasonedPbFile;
+
+    /**
+     * Attach the reasoned-protobuf export to the project under the
+     * {@code reasoned-pb} classifier (extension {@code zip}), so it installs and
+     * deploys with the module.
+     */
+    @Parameter(property = &quot;ike.kbAssemble.attachReasonedPb&quot;, defaultValue = &quot;true&quot;)
+    boolean attachReasonedPb;
+
+    /**
      * The view specification's dotted dimension keys (IKE-KNOWLEDGE-VIEW), stating only
      * what differs from the implementation's defaults.
      */
-<span class="fc" id="L139">    @Parameter</span>
-<span class="fc" id="L140">    Map&lt;String, String&gt; view = Map.of();</span>
+<span class="fc" id="L167">    @Parameter</span>
+<span class="fc" id="L168">    Map&lt;String, String&gt; view = Map.of();</span>
 
     /**
      * The knowledge-service implementation's simple class name, when the classpath
@@ -156,8 +184,8 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * Extra child-JVM arguments for the forked seam (heap, flags). The child inherits
      * {@code --enable-preview} from the Maven JVM automatically.
      */
-<span class="fc" id="L159">    @Parameter</span>
-<span class="fc" id="L160">    List&lt;String&gt; forkJvmArguments = List.of();</span>
+<span class="fc" id="L187">    @Parameter</span>
+<span class="fc" id="L188">    List&lt;String&gt; forkJvmArguments = List.of();</span>
 
     /**
      * The project's classes/resources directory, included on the seam classpath.
@@ -188,68 +216,104 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      */
     @Override
     public void execute() {
-<span class="nc bnc" id="L191" title="All 2 branches missed.">        if (skip) {</span>
-<span class="nc" id="L192">            getLog().info(&quot;ike:kb-assemble skipped (ike.kbAssemble.skip=true)&quot;);</span>
-<span class="nc" id="L193">            return;</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L220">            getLog().info(&quot;ike:kb-assemble skipped (ike.kbAssemble.skip=true)&quot;);</span>
+<span class="nc" id="L221">            return;</span>
         }
-<span class="nc bnc" id="L195" title="All 2 branches missed.">        if (inputs.isEmpty()) {</span>
-<span class="nc" id="L196">            throw new MojoException(&quot;ike:kb-assemble requires at least one &lt;inputs&gt;&lt;input&gt; entry&quot;</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        if (inputs.isEmpty()) {</span>
+<span class="nc" id="L224">            throw new MojoException(&quot;ike:kb-assemble requires at least one &lt;inputs&gt;&lt;input&gt; entry&quot;</span>
                     + &quot; (ROLE followed by a Maven coordinate or file path)&quot;);
         }
 
-<span class="nc" id="L200">        AssembleRequest request = new AssembleRequest(</span>
-<span class="nc" id="L201">                Path.of(storeRoot), cleanStart, resolveInputs(), ViewSpec.of(view), classify,</span>
-<span class="nc bnc" id="L202" title="All 2 branches missed.">                Optional.ofNullable(reasonerService).filter(s -&gt; !s.isBlank()),</span>
-<span class="nc bnc" id="L203" title="All 2 branches missed.">                Optional.ofNullable(installDirectory).filter(s -&gt; !s.isBlank()).map(Path::of));</span>
-<span class="nc" id="L204">        Properties wire = request.toProperties();</span>
-<span class="nc bnc" id="L205" title="All 4 branches missed.">        if (implementation != null &amp;&amp; !implementation.isBlank()) {</span>
-<span class="nc" id="L206">            wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);</span>
+<span class="nc" id="L228">        Optional&lt;Path&gt; reasonedPbTarget = reasonedPbTarget();</span>
+<span class="nc" id="L229">        AssembleRequest request = new AssembleRequest(</span>
+<span class="nc" id="L230">                Path.of(storeRoot), cleanStart, resolveInputs(), ViewSpec.of(view), classify,</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">                Optional.ofNullable(reasonerService).filter(s -&gt; !s.isBlank()),</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">                Optional.ofNullable(installDirectory).filter(s -&gt; !s.isBlank()).map(Path::of),</span>
+                reasonedPbTarget);
+<span class="nc" id="L234">        Properties wire = request.toProperties();</span>
+<span class="nc bnc" id="L235" title="All 4 branches missed.">        if (implementation != null &amp;&amp; !implementation.isBlank()) {</span>
+<span class="nc" id="L236">            wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);</span>
         }
 
-<span class="nc" id="L209">        Properties resultWire = new KnowledgeServiceRunner(getLog()).run(</span>
-<span class="nc" id="L210">                KnowledgeBaseAssembler.class.getName(), wire, seamClasspath(),</span>
-<span class="nc" id="L211">                Path.of(buildDirectory, &quot;ike-knowledge&quot;), fork, forkJvmArguments);</span>
-<span class="nc" id="L212">        AssembleResult result = AssembleResult.fromProperties(resultWire);</span>
+<span class="nc" id="L239">        Properties resultWire = new KnowledgeServiceRunner(getLog()).run(</span>
+<span class="nc" id="L240">                KnowledgeBaseAssembler.class.getName(), wire, seamClasspath(),</span>
+<span class="nc" id="L241">                Path.of(buildDirectory, &quot;ike-knowledge&quot;), fork, forkJvmArguments);</span>
+<span class="nc" id="L242">        AssembleResult result = AssembleResult.fromProperties(resultWire);</span>
 
-<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (!Files.isDirectory(Path.of(storeRoot))) {</span>
-<span class="nc" id="L215">            throw new MojoException(&quot;Knowledge-base assembly produced no store at &quot; + storeRoot);</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if (!Files.isDirectory(Path.of(storeRoot))) {</span>
+<span class="nc" id="L245">            throw new MojoException(&quot;Knowledge-base assembly produced no store at &quot; + storeRoot);</span>
         }
-<span class="nc" id="L217">        result.loads().forEach(load -&gt; getLog().info(&quot;Loaded &quot; + load.artifact() + &quot; — &quot;</span>
-<span class="nc" id="L218">                + load.counts().total() + &quot; entities (&quot; + load.counts().concepts()</span>
-<span class="nc" id="L219">                + &quot; concepts, &quot; + load.counts().semantics() + &quot; semantics, &quot;</span>
-<span class="nc" id="L220">                + load.counts().patterns() + &quot; patterns, &quot; + load.counts().stamps() + &quot; stamps)&quot;));</span>
-<span class="nc" id="L221">        result.classification().ifPresentOrElse(</span>
-<span class="nc" id="L222">                summary -&gt; getLog().info(&quot;Classified by &quot; + summary.service() + &quot;: &quot;</span>
-<span class="nc" id="L223">                        + summary.conceptCount() + &quot; concepts, &quot; + summary.inferredChanges()</span>
-<span class="nc" id="L224">                        + &quot; inferred changes, &quot; + summary.navigationChanges()</span>
-<span class="nc" id="L225">                        + &quot; navigation changes in &quot; + summary.elapsedMillis() + &quot; ms&quot;),</span>
-<span class="nc" id="L226">                () -&gt; getLog().info(&quot;Classification skipped by request&quot;));</span>
-<span class="nc" id="L227">        result.effectiveViewReport().ifPresent(report -&gt;</span>
-<span class="nc" id="L228">                getLog().info(&quot;Effective view reported: &quot; + report));</span>
-<span class="nc bnc" id="L229" title="All 4 branches missed.">        if (installDirectory != null &amp;&amp; !installDirectory.isBlank()) {</span>
-<span class="nc" id="L230">            getLog().info(&quot;Knowledge base installed: &quot; + installDirectory);</span>
+<span class="nc" id="L247">        result.loads().forEach(load -&gt; getLog().info(&quot;Loaded &quot; + load.artifact() + &quot; — &quot;</span>
+<span class="nc" id="L248">                + load.counts().total() + &quot; entities (&quot; + load.counts().concepts()</span>
+<span class="nc" id="L249">                + &quot; concepts, &quot; + load.counts().semantics() + &quot; semantics, &quot;</span>
+<span class="nc" id="L250">                + load.counts().patterns() + &quot; patterns, &quot; + load.counts().stamps() + &quot; stamps)&quot;));</span>
+<span class="nc" id="L251">        result.classification().ifPresentOrElse(</span>
+<span class="nc" id="L252">                summary -&gt; getLog().info(&quot;Classified by &quot; + summary.service() + &quot;: &quot;</span>
+<span class="nc" id="L253">                        + summary.conceptCount() + &quot; concepts, &quot; + summary.inferredChanges()</span>
+<span class="nc" id="L254">                        + &quot; inferred changes, &quot; + summary.navigationChanges()</span>
+<span class="nc" id="L255">                        + &quot; navigation changes in &quot; + summary.elapsedMillis() + &quot; ms&quot;),</span>
+<span class="nc" id="L256">                () -&gt; getLog().info(&quot;Classification skipped by request&quot;));</span>
+<span class="nc" id="L257">        result.effectiveViewReport().ifPresent(report -&gt;</span>
+<span class="nc" id="L258">                getLog().info(&quot;Effective view reported: &quot; + report));</span>
+<span class="nc bnc" id="L259" title="All 4 branches missed.">        if (installDirectory != null &amp;&amp; !installDirectory.isBlank()) {</span>
+<span class="nc" id="L260">            getLog().info(&quot;Knowledge base installed: &quot; + installDirectory);</span>
         }
-<span class="nc" id="L232">    }</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">        if (reasonedPbTarget.isPresent()) {</span>
+<span class="nc" id="L263">            Path produced = result.reasonedPbFile().orElseThrow(() -&gt; new MojoException(</span>
+                    &quot;Reasoned-protobuf export was requested but the assembly reported none&quot;));
+<span class="nc bnc" id="L265" title="All 2 branches missed.">            if (!Files.isRegularFile(produced)) {</span>
+<span class="nc" id="L266">                throw new MojoException(&quot;Reasoned-protobuf export produced no file at &quot; + produced);</span>
+            }
+<span class="nc" id="L268">            getLog().info(&quot;Reasoned knowledge set exported: &quot; + produced.getFileName());</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">            if (attachReasonedPb) {</span>
+<span class="nc" id="L270">                ProducedArtifact artifact = session.createProducedArtifact(</span>
+<span class="nc" id="L271">                        project.getGroupId(), project.getArtifactId(), project.getVersion(),</span>
+                        &quot;reasoned-pb&quot;, &quot;zip&quot;, &quot;zip&quot;);
+<span class="nc" id="L273">                session.getService(ProjectManager.class).attachArtifact(project, artifact, produced);</span>
+<span class="nc" id="L274">                getLog().info(&quot;Attached reasoned knowledge export &quot; + produced.getFileName()</span>
+                        + &quot; (classifier: reasoned-pb, extension: zip)&quot;);
+            }
+        }
+<span class="nc" id="L278">    }</span>
+
+    /**
+     * The reasoned-protobuf export target: the explicit {@link #reasonedPbFile} when
+     * set, the conventional {@code &lt;artifactId&gt;-&lt;version&gt;-reasoned-pb.zip} under the
+     * build directory when {@link #reasonedPb} asked for one, empty otherwise.
+     *
+     * @return the export target, when an export was requested
+     */
+    private Optional&lt;Path&gt; reasonedPbTarget() {
+<span class="nc bnc" id="L288" title="All 4 branches missed.">        if (reasonedPbFile != null &amp;&amp; !reasonedPbFile.isBlank()) {</span>
+<span class="nc" id="L289">            return Optional.of(Path.of(reasonedPbFile));</span>
+        }
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (reasonedPb) {</span>
+<span class="nc" id="L292">            return Optional.of(Path.of(buildDirectory).resolve(</span>
+<span class="nc" id="L293">                    project.getArtifactId() + &quot;-&quot; + project.getVersion() + &quot;-reasoned-pb.zip&quot;));</span>
+        }
+<span class="nc" id="L295">        return Optional.empty();</span>
+    }
 
     private List&lt;ArtifactInput&gt; resolveInputs() {
-<span class="nc" id="L235">        List&lt;ArtifactInput&gt; resolved = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L236" title="All 2 branches missed.">        for (String entry : inputs) {</span>
-<span class="nc" id="L237">            String stripped = entry.strip();</span>
-<span class="nc" id="L238">            int space = stripped.indexOf(' ');</span>
-<span class="nc bnc" id="L239" title="All 2 branches missed.">            if (space &lt;= 0) {</span>
-<span class="nc" id="L240">                throw new MojoException(&quot;Input entry needs \&quot;ROLE spec\&quot;: &quot; + entry);</span>
+<span class="nc" id="L299">        List&lt;ArtifactInput&gt; resolved = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">        for (String entry : inputs) {</span>
+<span class="nc" id="L301">            String stripped = entry.strip();</span>
+<span class="nc" id="L302">            int space = stripped.indexOf(' ');</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">            if (space &lt;= 0) {</span>
+<span class="nc" id="L304">                throw new MojoException(&quot;Input entry needs \&quot;ROLE spec\&quot;: &quot; + entry);</span>
             }
             ArtifactInput.Role role;
             try {
-<span class="nc" id="L244">                role = ArtifactInput.Role.valueOf(stripped.substring(0, space));</span>
-<span class="nc" id="L245">            } catch (IllegalArgumentException e) {</span>
-<span class="nc" id="L246">                throw new MojoException(&quot;Unknown input role in \&quot;&quot; + entry</span>
+<span class="nc" id="L308">                role = ArtifactInput.Role.valueOf(stripped.substring(0, space));</span>
+<span class="nc" id="L309">            } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L310">                throw new MojoException(&quot;Unknown input role in \&quot;&quot; + entry</span>
                         + &quot;\&quot; — use STORE_SEED, PB, or CHANGESET&quot;, e);
-<span class="nc" id="L248">            }</span>
-<span class="nc" id="L249">            String spec = stripped.substring(space + 1).strip();</span>
-<span class="nc" id="L250">            resolved.add(new ArtifactInput(role, resolveSpec(spec)));</span>
-<span class="nc" id="L251">        }</span>
-<span class="nc" id="L252">        return resolved;</span>
+<span class="nc" id="L312">            }</span>
+<span class="nc" id="L313">            String spec = stripped.substring(space + 1).strip();</span>
+<span class="nc" id="L314">            resolved.add(new ArtifactInput(role, resolveSpec(spec)));</span>
+<span class="nc" id="L315">        }</span>
+<span class="nc" id="L316">        return resolved;</span>
     }
 
     /**
@@ -257,31 +321,31 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * ({@code g:a[:extension[:classifier]]:v}); anything else is a file path.
      */
     private Path resolveSpec(String spec) {
-<span class="nc bnc" id="L260" title="All 4 branches missed.">        if (spec.chars().filter(c -&gt; c == ':').count() &gt;= 2) {</span>
+<span class="nc bnc" id="L324" title="All 4 branches missed.">        if (spec.chars().filter(c -&gt; c == ':').count() &gt;= 2) {</span>
             try {
-<span class="nc" id="L262">                return session.resolveArtifact(session.createArtifactCoordinates(spec)).getPath();</span>
-<span class="nc" id="L263">            } catch (Exception e) {</span>
-<span class="nc" id="L264">                throw new MojoException(&quot;Cannot resolve knowledge input &quot; + spec, e);</span>
+<span class="nc" id="L326">                return session.resolveArtifact(session.createArtifactCoordinates(spec)).getPath();</span>
+<span class="nc" id="L327">            } catch (Exception e) {</span>
+<span class="nc" id="L328">                throw new MojoException(&quot;Cannot resolve knowledge input &quot; + spec, e);</span>
             }
         }
-<span class="nc" id="L267">        Path file = Path.of(spec);</span>
-<span class="nc bnc" id="L268" title="All 2 branches missed.">        if (!Files.isRegularFile(file)) {</span>
-<span class="nc" id="L269">            throw new MojoException(&quot;Knowledge input file does not exist: &quot; + file</span>
+<span class="nc" id="L331">        Path file = Path.of(spec);</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">        if (!Files.isRegularFile(file)) {</span>
+<span class="nc" id="L333">            throw new MojoException(&quot;Knowledge input file does not exist: &quot; + file</span>
                     + &quot; — captured change sets must be present before assembly&quot;);
         }
-<span class="nc" id="L272">        return file;</span>
+<span class="nc" id="L336">        return file;</span>
     }
 
     private List&lt;Path&gt; seamClasspath() {
         // Resolution goes through the plugin's serialized entry point — Maven 4 rc-5's
         // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
-<span class="nc" id="L278">        List&lt;Path&gt; classpath = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L279">        Path classesDir = Path.of(classesDirectory);</span>
-<span class="nc bnc" id="L280" title="All 2 branches missed.">        if (Files.isDirectory(classesDir)) {</span>
-<span class="nc" id="L281">            classpath.add(classesDir);</span>
+<span class="nc" id="L342">        List&lt;Path&gt; classpath = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L343">        Path classesDir = Path.of(classesDirectory);</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (Files.isDirectory(classesDir)) {</span>
+<span class="nc" id="L345">            classpath.add(classesDir);</span>
         }
-<span class="nc" id="L283">        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));</span>
-<span class="nc" id="L284">        return classpath;</span>
+<span class="nc" id="L347">        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));</span>
+<span class="nc" id="L348">        return classpath;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
