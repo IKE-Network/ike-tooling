@@ -37,6 +37,39 @@ class ReleaseSupportTest {
      * with the bridge hooks installed.
      */
     @Test
+    void execCapture_failure_carriesCommandDirectoryAndStderr(
+            @TempDir Path tempDir) {
+        // tempDir has no .git anywhere above it, so `git rev-parse` exits
+        // 128 with "not a git repository" on stderr. Before
+        // IKE-Network/ike-issues#961 execCapture read stdout only and
+        // threw a bare "Command failed (exit 128)", discarding the only
+        // record of why — leaving a denied push, a bad ref, and a
+        // network failure indistinguishable.
+        assertThatThrownBy(() -> ReleaseSupport.execCapture(
+                tempDir.toFile(), "git", "rev-parse", "--show-toplevel"))
+                .isInstanceOf(MojoException.class)
+                .hasMessageContaining("git rev-parse")
+                .hasMessageContaining(tempDir.toFile().toString())
+                .hasMessageContaining("not a git repository")
+                .hasMessageNotContaining("Command failed");
+    }
+
+    @Test
+    void exec_failure_carriesCommandDirectoryAndRoutedOutput(
+            @TempDir Path tempDir) {
+        // The streaming counterpart: exec() routes output through the
+        // logger, but the exception must carry it too.
+        assertThatThrownBy(() -> ReleaseSupport.exec(
+                tempDir.toFile(), new CapturingLog(),
+                "git", "rev-parse", "--show-toplevel"))
+                .isInstanceOf(MojoException.class)
+                .hasMessageContaining("git rev-parse")
+                .hasMessageContaining(tempDir.toFile().toString())
+                .hasMessageContaining("not a git repository")
+                .hasMessageNotContaining("Command failed");
+    }
+
+    @Test
     void ikeProcessBuilder_setsVcsContextEnvVar(@TempDir Path tempDir) {
         ProcessBuilder pb = ReleaseSupport.ikeProcessBuilder(
                 tempDir.toFile(), "echo", "hello");

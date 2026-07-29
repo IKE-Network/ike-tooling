@@ -111,22 +111,32 @@ public class ReleaseSupport {
             // Route subprocess output through Maven's logger, stripping
             // Maven log prefixes to avoid redundant [INFO] [stdout] [INFO].
             // Maps subprocess [WARNING]/[ERROR] to the correct parent level.
+            StringBuilder captured = new StringBuilder();
             try (BufferedReader reader = new java.io.BufferedReader(
                     new java.io.InputStreamReader(proc.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     routeSubprocessLine(log, line);
+                    captured.append(line).append('\n');
                 }
             }
             int exit = proc.waitFor();
             if (exit != 0) {
+                String detail = captured.toString().trim();
                 throw new MojoException(
-                        "Command failed (exit " + exit + "): " +
-                                String.join(" ", command));
+                        String.join(" ", command) + " in " + workDir
+                                + " failed (exit " + exit + ")"
+                                + (detail.isEmpty() ? "" : ":\n" + detail));
             }
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
             throw new MojoException(
-                    "Failed to execute: " + String.join(" ", command), e);
+                    "Failed to execute " + String.join(" ", command)
+                            + " in " + workDir + ": " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new MojoException(
+                    "Interrupted while executing " + String.join(" ", command)
+                            + " in " + workDir, e);
         }
     }
 
@@ -294,16 +304,31 @@ public class ReleaseSupport {
                             StandardCharsets.UTF_8))) {
                 output = reader.lines().collect(Collectors.joining("\n")).trim();
             }
+            // Streams stay separate so callers keep parseable stdout, but
+            // stderr must still reach the exception — otherwise the only
+            // record of *why* a command failed is thrown away
+            // (IKE-Network/ike-issues#961). Drained before waitFor() so a
+            // chatty subprocess cannot block on a full pipe.
+            String stderr = new String(
+                    process.getErrorStream().readAllBytes(),
+                    StandardCharsets.UTF_8).trim();
             int exit = process.waitFor();
             if (exit != 0) {
                 throw new MojoException(
-                        "Command failed (exit " + exit + "): " +
-                                String.join(" ", command));
+                        String.join(" ", command) + " in " + workDir
+                                + " failed (exit " + exit + ")"
+                                + (stderr.isEmpty() ? "" : ": " + stderr));
             }
             return output;
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
             throw new MojoException(
-                    "Failed to execute: " + String.join(" ", command), e);
+                    "Failed to execute " + String.join(" ", command)
+                            + " in " + workDir + ": " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new MojoException(
+                    "Interrupted while executing " + String.join(" ", command)
+                            + " in " + workDir, e);
         }
     }
 
