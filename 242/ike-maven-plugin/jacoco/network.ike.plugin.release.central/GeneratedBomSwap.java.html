@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GeneratedBomSwap.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release.central</a> &gt; <span class="el_source">GeneratedBomSwap.java</span></div><h1>GeneratedBomSwap.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release.central;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
+
+/**
+ * Swap {@code ike:generate-bom} output into the Maven Central staging
+ * bundle (IKE-Network/ike-issues#853).
+ *
+ * &lt;p&gt;{@code generate-bom} writes a fully resolved BOM to
+ * {@code target/generated-bom.xml}, but Maven 4's immutable
+ * {@code Project} offers no way to make install/deploy publish it in
+ * place of the stub POM — so every {@code ike-bom} version on Central
+ * (72–132) shipped the stub: no {@code &lt;dependencyManagement&gt;} at all,
+ * plus leaked {@code &lt;build&gt;} and {@code &lt;distributionManagement&gt;}
+ * sections. This class closes the gap at the staging step of
+ * {@code ike:release-publish}: after the signed deploy into
+ * {@code target/staging-deploy}, each module's generated BOM replaces
+ * its staged stub POM.
+ *
+ * &lt;p&gt;The stub's signature and checksums are deleted along with its
+ * content — they were produced over the stub bytes and must be
+ * regenerated over the swapped file (the caller re-signs via
+ * {@code gpg:sign-and-deploy-file} under the same {@code signArtifacts}
+ * profile the staging deploy used).
+ */
+final class GeneratedBomSwap {
+
+    private GeneratedBomSwap() {}
+
+    /** Sidecars invalidated by a content swap. */
+<span class="fc" id="L43">    private static final List&lt;String&gt; SIDECARS = List.of(</span>
+            &quot;.asc&quot;, &quot;.md5&quot;, &quot;.sha1&quot;, &quot;.sha256&quot;, &quot;.sha512&quot;);
+
+    /**
+     * One planned swap: a module's generated BOM and the staged stub
+     * POM it replaces.
+     */
+<span class="fc" id="L50">    record Swap(Path generatedBom, Path stagedPom,</span>
+                String groupId, String artifactId, String version) {}
+
+    /**
+     * Find every {@code target/generated-bom.xml} under
+     * {@code gitRoot} and pair it with its staged POM.
+     *
+     * @param gitRoot    the release worktree root
+     * @param stagingDir the {@code staging-deploy} directory
+     * @return planned swaps for generated BOMs whose staged POM exists;
+     *         a generated BOM without a staged counterpart is skipped
+     * @throws IOException when the tree walk or an XML read fails
+     */
+    static List&lt;Swap&gt; plan(Path gitRoot, Path stagingDir)
+            throws IOException {
+<span class="fc" id="L65">        List&lt;Swap&gt; swaps = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L66">        try (Stream&lt;Path&gt; paths = Files.walk(gitRoot, 6)) {</span>
+<span class="fc" id="L67">            List&lt;Path&gt; generated = paths</span>
+<span class="fc" id="L68">                    .filter(p -&gt; p.getFileName().toString()</span>
+<span class="fc" id="L69">                            .equals(&quot;generated-bom.xml&quot;))</span>
+<span class="pc bpc" id="L70" title="1 of 2 branches missed.">                    .filter(p -&gt; p.getParent() != null</span>
+<span class="fc" id="L71">                            &amp;&amp; p.getParent().getFileName().toString()</span>
+<span class="pc bpc" id="L72" title="1 of 2 branches missed.">                                    .equals(&quot;target&quot;))</span>
+<span class="fc" id="L73">                    .toList();</span>
+<span class="fc bfc" id="L74" title="All 2 branches covered.">            for (Path bom : generated) {</span>
+<span class="fc" id="L75">                String[] gav = readGav(bom);</span>
+<span class="pc bpc" id="L76" title="1 of 2 branches missed.">                if (gav == null) continue;</span>
+<span class="fc" id="L77">                Path stagedPom = stagingDir</span>
+<span class="fc" id="L78">                        .resolve(gav[0].replace('.', '/'))</span>
+<span class="fc" id="L79">                        .resolve(gav[1])</span>
+<span class="fc" id="L80">                        .resolve(gav[2])</span>
+<span class="fc" id="L81">                        .resolve(gav[1] + &quot;-&quot; + gav[2] + &quot;.pom&quot;);</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">                if (!Files.isRegularFile(stagedPom)) continue;</span>
+<span class="fc" id="L83">                swaps.add(new Swap(bom, stagedPom, gav[0], gav[1], gav[2]));</span>
+<span class="fc" id="L84">            }</span>
+        }
+<span class="fc" id="L86">        return swaps;</span>
+    }
+
+    /**
+     * Replace the staged POM's content with the generated BOM and
+     * delete the now-stale signature and checksum sidecars.
+     *
+     * @param swap the planned swap
+     * @return the deleted sidecar paths
+     * @throws IOException when a write or delete fails
+     */
+    static List&lt;Path&gt; apply(Swap swap) throws IOException {
+<span class="fc" id="L98">        Files.writeString(swap.stagedPom(),</span>
+<span class="fc" id="L99">                Files.readString(swap.generatedBom(), StandardCharsets.UTF_8),</span>
+                StandardCharsets.UTF_8);
+<span class="fc" id="L101">        List&lt;Path&gt; deleted = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L102" title="All 2 branches covered.">        for (String suffix : SIDECARS) {</span>
+<span class="fc" id="L103">            Path sidecar = swap.stagedPom().resolveSibling(</span>
+<span class="fc" id="L104">                    swap.stagedPom().getFileName() + suffix);</span>
+<span class="fc bfc" id="L105" title="All 2 branches covered.">            if (Files.deleteIfExists(sidecar)) {</span>
+<span class="fc" id="L106">                deleted.add(sidecar);</span>
+            }
+<span class="fc" id="L108">        }</span>
+<span class="fc" id="L109">        return deleted;</span>
+    }
+
+    /**
+     * Assert the staged POM now carries the resolved BOM payload and
+     * none of the stub's build machinery — the #853 failure was
+     * silent, so the swap's success must not be assumed.
+     *
+     * @param swap the applied swap
+     * @return null when valid, else a description of what is wrong
+     * @throws IOException when the staged POM cannot be read
+     */
+    static String verify(Swap swap) throws IOException {
+<span class="fc" id="L122">        String pom = Files.readString(swap.stagedPom(),</span>
+                StandardCharsets.UTF_8);
+<span class="fc bfc" id="L124" title="All 2 branches covered.">        if (!pom.contains(&quot;&lt;dependencyManagement&gt;&quot;)) {</span>
+<span class="fc" id="L125">            return swap.stagedPom() + &quot; has no &lt;dependencyManagement&gt; &quot;</span>
+                    + &quot;after the generated-BOM swap&quot;;
+        }
+<span class="pc bpc" id="L128" title="1 of 4 branches missed.">        if (pom.contains(&quot;&lt;build&gt;&quot;) || pom.contains(&quot;&lt;distributionManagement&gt;&quot;)) {</span>
+<span class="fc" id="L129">            return swap.stagedPom() + &quot; still carries stub build machinery &quot;</span>
+                    + &quot;(&lt;build&gt;/&lt;distributionManagement&gt;) after the swap&quot;;
+        }
+<span class="fc" id="L132">        return null;</span>
+    }
+
+    /**
+     * Read project-level groupId/artifactId/version from a generated
+     * BOM, or null when the file is not parseable as a POM.
+     */
+    private static String[] readGav(Path bomXml) {
+        try {
+<span class="fc" id="L141">            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();</span>
+<span class="fc" id="L142">            dbf.setFeature(</span>
+                    XMLConstants.FEATURE_SECURE_PROCESSING, true);
+<span class="fc" id="L144">            Document doc = dbf.newDocumentBuilder().parse(bomXml.toFile());</span>
+<span class="fc" id="L145">            Element project = doc.getDocumentElement();</span>
+<span class="fc" id="L146">            String groupId = directChildText(project, &quot;groupId&quot;);</span>
+<span class="fc" id="L147">            String artifactId = directChildText(project, &quot;artifactId&quot;);</span>
+<span class="fc" id="L148">            String version = directChildText(project, &quot;version&quot;);</span>
+<span class="pc bpc" id="L149" title="3 of 6 branches missed.">            if (groupId == null || artifactId == null || version == null) {</span>
+<span class="nc" id="L150">                return null;</span>
+            }
+<span class="fc" id="L152">            return new String[] {groupId, artifactId, version};</span>
+<span class="nc" id="L153">        } catch (Exception e) {</span>
+<span class="nc" id="L154">            return null;</span>
+        }
+    }
+
+    /** Text of a direct child element, ignoring nested occurrences. */
+    private static String directChildText(Element parent, String name) {
+<span class="pc bpc" id="L160" title="1 of 2 branches missed.">        for (Node n = parent.getFirstChild(); n != null;</span>
+<span class="fc" id="L161">                n = n.getNextSibling()) {</span>
+<span class="fc bfc" id="L162" title="All 4 branches covered.">            if (n instanceof Element el &amp;&amp; name.equals(el.getTagName())) {</span>
+<span class="fc" id="L163">                return el.getTextContent().trim();</span>
+            }
+        }
+<span class="nc" id="L166">        return null;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
