@@ -284,8 +284,18 @@ detection** — a reactor leaf bundling a sibling repo's artifact while
 that repo builds against other modules would otherwise contract into a
 false repo-level cycle — but they **remain in cascade analysis**, so a
 version bump in the bundled artifact still reaches the bundling POM.
-Derivation never emits `bundle`; it is hand-declared, and re-derivation
-preserves it instead of downgrading the edge to `build`.
+Derivation emits `bundle` for plugin-staged references — entries of a
+plugin's own `<dependencies>` block and `maven-dependency-plugin`
+`<artifactItem>`s that resolve to workspace subprojects
+(IKE-Network/ike-issues#965). A true project dependency on the same
+producer anywhere in the repo outranks staging and derives `build`,
+and a stale `build` entry whose derivation moved to `bundle` is
+superseded in place (the migration path from a project dependency to
+`artifactItem` staging). `bundle` may also be hand-declared — the
+compile-shaped idiom, a project dependency plus module `requires` used
+purely for image inclusion, is machine-indistinguishable from a true
+dependency — and re-derivation preserves the hand entry instead of
+downgrading it to `build`.
 
 **Resolution hazard**: because the workspace does not order the
 bundled artifact's build, it must already be resolvable when the
