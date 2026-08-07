@@ -129,6 +129,13 @@ final class GeneratedBomSwap {
             return swap.stagedPom() + " still carries stub build machinery "
                     + "(<build>/<distributionManagement>) after the swap";
         }
+        for (String required : List.of("<licenses>", "<developers>", "<scm>")) {
+            if (!pom.contains(required)) {
+                return swap.stagedPom() + " lacks " + required
+                        + " after the generated-BOM swap — Maven Central "
+                        + "requires it (IKE-Network/ike-issues#967)";
+            }
+        }
         return null;
     }
 

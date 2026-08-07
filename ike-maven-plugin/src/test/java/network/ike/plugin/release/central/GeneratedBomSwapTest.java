@@ -32,6 +32,20 @@ class GeneratedBomSwapTest {
                 <version>133</version>
                 <packaging>pom</packaging>
                 <name>IKE BOM</name>
+                <licenses>
+                    <license>
+                        <name>Apache License, Version 2.0</name>
+                        <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+                    </license>
+                </licenses>
+                <developers>
+                    <developer>
+                        <id>kec</id>
+                    </developer>
+                </developers>
+                <scm>
+                    <connection>scm:git:https://github.com/IKE-Network/ike-platform.git</connection>
+                </scm>
                 <dependencyManagement>
                     <dependencies>
                         <dependency>
@@ -139,6 +153,24 @@ class GeneratedBomSwapTest {
         GeneratedBomSwap.apply(swap);
 
         assertThat(GeneratedBomSwap.verify(swap)).isNull();
+    }
+
+    @Test
+    void verify_rejects_missing_central_metadata() throws Exception {
+        // #967: the first live central-stage fire (platform v148)
+        // passed the swap and then died at JReleaser's PomChecker —
+        // the generated BOM carried no licenses/developers/scm.
+        // verify() now names the gap inside central-stage instead.
+        GeneratedBomSwap.Swap swap =
+                GeneratedBomSwap.plan(gitRoot, stagingDir).get(0);
+        Files.writeString(stagedPom, GENERATED_BOM
+                        .replace("<licenses>", "<x>")
+                        .replace("</licenses>", "</x>"),
+                StandardCharsets.UTF_8);
+
+        assertThat(GeneratedBomSwap.verify(swap))
+                .contains("<licenses>")
+                .contains("967");
     }
 
     @Test

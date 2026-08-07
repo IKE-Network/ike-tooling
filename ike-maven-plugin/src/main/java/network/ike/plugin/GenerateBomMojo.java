@@ -4,6 +4,7 @@ import org.apache.maven.api.Project;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.model.Dependency;
 import org.apache.maven.api.model.DependencyManagement;
+import org.apache.maven.api.model.Scm;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
@@ -115,11 +116,28 @@ public class GenerateBomMojo implements org.apache.maven.api.plugin.Mojo {
                         dep.getClassifier(), dep.getType(), dep.getScope()))
                 .toList();
 
+        // ── Carry Central-required metadata into the standalone BOM ──
+        // The stub inherits <licenses>/<developers>/<scm> through its
+        // parent chain; the generated BOM has no parent, so the blocks
+        // must be written explicitly or Central's PomChecker rejects
+        // the upload (IKE-Network/ike-issues#967).
+        List<BomLicense> licenses = project.getModel().getLicenses().stream()
+                .map(l -> new BomLicense(l.getName(), l.getUrl()))
+                .toList();
+        List<BomDeveloper> developers = project.getModel().getDevelopers().stream()
+                .map(d -> new BomDeveloper(d.getId(), d.getName(), d.getEmail()))
+                .toList();
+        Scm modelScm = project.getModel().getScm();
+        BomScm scm = modelScm == null ? null : new BomScm(
+                modelScm.getConnection(), modelScm.getDeveloperConnection(),
+                modelScm.getUrl(), modelScm.getTag());
+
         // ── Generate BOM POM ─────────────────────────────────────────
         String bomXml = buildBomXml(
                 project.getGroupId(), project.getArtifactId(), project.getVersion(),
                 project.getModel().getName(), project.getModel().getDescription(),
                 project.getModel().getUrl(),
+                licenses, developers, scm,
                 entries);
 
         Path targetDir = Path.of(project.getBuild().getDirectory());
@@ -154,12 +172,22 @@ public class GenerateBomMojo implements org.apache.maven.api.plugin.Mojo {
      * @param name        project display name (XML-escaped internally)
      * @param description project description (may be null)
      * @param url         project URL (may be null)
+     * @param licenses    license entries; empty omits the block — Maven
+     *                    Central requires at least one entry
+     *                    (IKE-Network/ike-issues#967)
+     * @param developers  developer entries; empty omits the block —
+     *                    Maven Central requires at least one entry (#967)
+     * @param scm         SCM block; null omits it — Maven Central
+     *                    requires it (#967)
      * @param entries     managed dependency entries
      * @return well-formed POM XML
      */
     public static String buildBomXml(String groupId, String artifactId,
                                       String version, String name,
                                       String description, String url,
+                                      List<BomLicense> licenses,
+                                      List<BomDeveloper> developers,
+                                      BomScm scm,
                                       List<BomEntry> entries) {
         StringBuilder xml = new StringBuilder(4096);
         xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -186,6 +214,66 @@ public class GenerateBomMojo implements org.apache.maven.api.plugin.Mojo {
                .append("</description>\n");
         }
         xml.append("    <url>").append(url != null ? url : "").append("</url>\n\n");
+
+        // Central-required publishing metadata (#967): the stub POM
+        // inherits these through its parent chain; a standalone BOM
+        // must carry them itself.
+        if (!licenses.isEmpty()) {
+            xml.append("    <licenses>\n");
+            for (BomLicense license : licenses) {
+                xml.append("        <license>\n");
+                if (license.name() != null) {
+                    xml.append("            <name>")
+                       .append(escapeXml(license.name())).append("</name>\n");
+                }
+                if (license.url() != null) {
+                    xml.append("            <url>")
+                       .append(license.url()).append("</url>\n");
+                }
+                xml.append("        </license>\n");
+            }
+            xml.append("    </licenses>\n\n");
+        }
+        if (!developers.isEmpty()) {
+            xml.append("    <developers>\n");
+            for (BomDeveloper developer : developers) {
+                xml.append("        <developer>\n");
+                if (developer.id() != null) {
+                    xml.append("            <id>")
+                       .append(escapeXml(developer.id())).append("</id>\n");
+                }
+                if (developer.name() != null) {
+                    xml.append("            <name>")
+                       .append(escapeXml(developer.name())).append("</name>\n");
+                }
+                if (developer.email() != null) {
+                    xml.append("            <email>")
+                       .append(escapeXml(developer.email())).append("</email>\n");
+                }
+                xml.append("        </developer>\n");
+            }
+            xml.append("    </developers>\n\n");
+        }
+        if (scm != null) {
+            xml.append("    <scm>\n");
+            if (scm.connection() != null) {
+                xml.append("        <connection>")
+                   .append(escapeXml(scm.connection())).append("</connection>\n");
+            }
+            if (scm.developerConnection() != null) {
+                xml.append("        <developerConnection>")
+                   .append(escapeXml(scm.developerConnection()))
+                   .append("</developerConnection>\n");
+            }
+            if (scm.url() != null) {
+                xml.append("        <url>").append(scm.url()).append("</url>\n");
+            }
+            if (scm.tag() != null) {
+                xml.append("        <tag>")
+                   .append(escapeXml(scm.tag())).append("</tag>\n");
+            }
+            xml.append("    </scm>\n\n");
+        }
 
         // Dependency Management
         xml.append("    <dependencyManagement>\n");
