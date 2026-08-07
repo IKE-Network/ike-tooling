@@ -253,7 +253,7 @@ these fields:
 | `version` | No | Current version string (null/`~` for unversioned) |
 | `groupId` | No | Maven groupId for version updates |
 | `parent` | No | Name of the workspace subproject that provides this one's Maven parent POM |
-| `depends-on` | No | List of dependency declarations |
+| `depends-on` | No | List of dependency declarations: `subproject`, `relationship` (`build` \| `content` \| `tooling` \| `bundle`), optional `version-property` |
 | `sha` | No | Pinned commit SHA (written by `ws:checkpoint-publish`) |
 | `maven-version` | No | Override `defaults.maven-version` for this subproject |
 | `notes` | No | Free-text migration notes |
@@ -268,10 +268,29 @@ depends-on:
     relationship: content    # references architecture/concepts
   - subproject: ike-platform
     relationship: tooling    # uses CLI tools or plugins
+  - subproject: komet-claude-plugin
+    relationship: bundle     # packaged into an assembly; resolved
+                             # from the repository, not built here
 ```
 
 Relationship types matter for cascade analysis: `build` dependencies require
 rebuild; `content` dependencies may require only review.
+
+`bundle` models the plugin-bundle pattern: the artifact is packaged
+into an assembly at package time and resolved from the repository
+(`~/.m2` or a snapshot repo), not built from the workspace. `bundle`
+edges are **excluded from build-order topological sort and cycle
+detection** — a reactor leaf bundling a sibling repo's artifact while
+that repo builds against other modules would otherwise contract into a
+false repo-level cycle — but they **remain in cascade analysis**, so a
+version bump in the bundled artifact still reaches the bundling POM.
+Derivation never emits `bundle`; it is hand-declared, and re-derivation
+preserves it instead of downgrading the edge to `build`.
+
+**Resolution hazard**: because the workspace does not order the
+bundled artifact's build, it must already be resolvable when the
+bundling subproject packages. On a clean slate, build the bundled
+subproject first (IKE-Network/ike-issues#963).
 
 ### Version Cascade Mechanisms
 

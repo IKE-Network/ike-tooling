@@ -17,12 +17,22 @@ import java.util.Set;
  * by {@code depends-on} entries in workspace.yaml. The graph is small
  * (typically &lt; 20 nodes) so simple implementations are preferred
  * over library dependencies.
+ *
+ * <p>{@code relationship: bundle} edges (package-time bundling of a
+ * repository-resolved artifact, IKE-Network/ike-issues#963) are
+ * excluded from the forward — build-ordering — graph, so they do not
+ * participate in {@link #topologicalSort} or {@link #detectCycle}.
+ * They remain in the reverse graph, so {@link #cascade} still reaches
+ * the bundling subproject when the bundled artifact changes.
  */
 public final class WorkspaceGraph {
 
     private final Manifest manifest;
 
-    /** Forward edges: subproject → subprojects it depends on. */
+    /**
+     * Forward edges: subproject → subprojects it depends on for build
+     * ordering ({@code bundle} edges excluded).
+     */
     private final Map<String, List<String>> forward;
 
     /** Reverse edges: subproject → subprojects that depend on it. */
@@ -221,12 +231,22 @@ public final class WorkspaceGraph {
     public List<String> verify() {
         List<String> errors = new ArrayList<>();
 
-        // Check 1: all dependency targets exist as subprojects
+        // Check 1: all dependency targets exist as subprojects, and
+        // every relationship value is a recognized one (a typo would
+        // otherwise silently change ordering semantics — #963).
         for (Subproject subproject : manifest.subprojects().values()) {
             for (Dependency dep : subproject.dependsOn()) {
                 if (!manifest.subprojects().containsKey(dep.subproject())) {
                     errors.add(subproject.name() + " depends on unknown subproject: "
                             + dep.subproject());
+                }
+                if (dep.relationship() != null
+                        && !Dependency.KNOWN_RELATIONSHIPS.contains(
+                                dep.relationship().toLowerCase(java.util.Locale.ROOT))) {
+                    errors.add(subproject.name() + " depends on "
+                            + dep.subproject() + " with unknown relationship: '"
+                            + dep.relationship()
+                            + "' (expected build | content | tooling | bundle)");
                 }
             }
         }
@@ -265,6 +285,7 @@ public final class WorkspaceGraph {
         for (Subproject subproject : manifest.subprojects().values()) {
             List<String> deps = new ArrayList<>();
             for (Dependency dep : subproject.dependsOn()) {
+                if (!dep.ordersBuild()) continue;
                 deps.add(dep.subproject());
             }
             edges.put(subproject.name(), Collections.unmodifiableList(deps));

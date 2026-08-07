@@ -155,6 +155,83 @@ class WorkspaceGraphTest {
         assertThat(errors).anyMatch(e -> e.contains("unknown subproject: missing"));
     }
 
+    // ── Bundle relationship (#963) ──────────────────────────────────
+
+    /**
+     * The komet ⇄ komet-claude-plugin shape: {@code app} bundles
+     * {@code plugin} at package time (repository-resolved), while
+     * {@code plugin} genuinely builds against {@code app}. As two build
+     * edges this is a cycle; with the bundling side declared
+     * {@code relationship: bundle} the ordering graph is acyclic.
+     */
+    private static final String BUNDLE_SHAPE = """
+            schema-version: "1.0"
+            subprojects:
+              app:
+                type: software
+                depends-on:
+                  - subproject: plugin
+                    relationship: bundle
+              plugin:
+                type: software
+                depends-on:
+                  - subproject: app
+                    relationship: build
+            """;
+
+    @Test
+    void bundleEdgeExcludedFromCycleDetection() {
+        Manifest m = ManifestReader.read(new StringReader(BUNDLE_SHAPE));
+        WorkspaceGraph g = new WorkspaceGraph(m);
+
+        assertThat(g.detectCycle()).isEmpty();
+        assertThat(g.verify()).isEmpty();
+    }
+
+    @Test
+    void bundleEdgeExcludedFromTopologicalSort() {
+        Manifest m = ManifestReader.read(new StringReader(BUNDLE_SHAPE));
+        WorkspaceGraph g = new WorkspaceGraph(m);
+
+        List<String> sorted = g.topologicalSort();
+
+        // Only plugin's build edge on app orders the pair: app first.
+        // The bundle edge must not gate scheduling (and as a build edge
+        // it would have made the sort throw on the cycle instead).
+        assertThat(sorted).containsExactly("app", "plugin");
+    }
+
+    @Test
+    void bundleEdgeIncludedInCascade() {
+        Manifest m = ManifestReader.read(new StringReader(BUNDLE_SHAPE));
+        WorkspaceGraph g = new WorkspaceGraph(m);
+
+        // A version bump in the bundled artifact still needs to reach
+        // the bundling POM: app is affected by a change in plugin.
+        assertThat(g.cascade("plugin")).contains("app");
+    }
+
+    @Test
+    void verifyFlagsUnknownRelationship() {
+        String yaml = """
+                schema-version: "1.0"
+                subprojects:
+                  a:
+                    type: software
+                    depends-on:
+                      - subproject: b
+                        relationship: bogus
+                  b:
+                    type: software
+                """;
+        Manifest m = ManifestReader.read(new StringReader(yaml));
+        WorkspaceGraph g = new WorkspaceGraph(m);
+
+        assertThat(g.verify())
+                .anyMatch(e -> e.contains("unknown relationship")
+                        && e.contains("bogus"));
+    }
+
     @Test
     void parseSilentlyIgnoresUnknownType() {
         // The subproject-type concept was removed; any `type:` field is
