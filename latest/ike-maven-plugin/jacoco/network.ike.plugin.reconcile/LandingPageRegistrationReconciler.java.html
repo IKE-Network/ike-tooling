@@ -154,37 +154,53 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
 <span class="nc" id="L154">                    + &quot;: registered &quot; + ctx.projectId()</span>
 <span class="nc" id="L155">                    + &quot; &quot; + ctx.projectVersion());</span>
 <span class="nc" id="L156">        } catch (MojoException e) {</span>
-<span class="nc" id="L157">            ctx.log().warn(&quot;  ⚠ &quot; + dimension()</span>
-<span class="nc" id="L158">                    + &quot;: registration failed (non-fatal): &quot; + e.getMessage());</span>
-<span class="nc" id="L159">        }</span>
-<span class="nc" id="L160">    }</span>
+            // Registration was requested and could not be completed — a
+            // green build here is a lie: the site would be live but the
+            // project invisible on the landing page, which nothing else
+            // surfaces (IKE-Network/ike-issues#928). Callers that want
+            // site-only publication say so with -DupdateRegistration=false.
+<span class="nc" id="L162">            throw new MojoException(</span>
+<span class="nc" id="L163">                    dimension() + &quot; failed: &quot; + e.getMessage()</span>
+                            + &quot; — the sub-site may already be deployed, but &quot;
+                            + &quot;the project would not appear on the landing &quot;
+                            + &quot;page. Re-run after fixing the cause, or use &quot;
+<span class="nc" id="L167">                            + &quot;-D&quot; + optOutFlag() + &quot;=false for a &quot;</span>
+                            + &quot;deliberately site-only publication.&quot;, e);
+<span class="nc" id="L169">        }</span>
+<span class="nc" id="L170">    }</span>
 
     @Override
     public void uninstall(SiteContext ctx) {
-<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (ctx.options().isOptedOut(optOutFlag())) {</span>
-<span class="nc" id="L165">            ctx.log().info(&quot;  &quot; + dimension() + &quot;: skipped (opted out via -D&quot;</span>
-<span class="nc" id="L166">                    + optOutFlag() + &quot;=false)&quot;);</span>
-<span class="nc" id="L167">            return;</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        if (ctx.options().isOptedOut(optOutFlag())) {</span>
+<span class="nc" id="L175">            ctx.log().info(&quot;  &quot; + dimension() + &quot;: skipped (opted out via -D&quot;</span>
+<span class="nc" id="L176">                    + optOutFlag() + &quot;=false)&quot;);</span>
+<span class="nc" id="L177">            return;</span>
         }
         try {
-<span class="nc" id="L170">            OrgSiteSupport.deregisterProject(</span>
-<span class="nc" id="L171">                    ctx.log(),</span>
-<span class="nc" id="L172">                    ctx.srcRepoUrl(), ctx.pubRepoUrl(),</span>
-<span class="nc" id="L173">                    ctx.srcBranch(), ctx.pubBranch(),</span>
-<span class="nc" id="L174">                    ctx.projectId());</span>
-<span class="nc" id="L175">            ctx.log().info(&quot;  &quot; + dimension()</span>
-<span class="nc" id="L176">                    + &quot;: deregistered &quot; + ctx.projectId()</span>
+<span class="nc" id="L180">            OrgSiteSupport.deregisterProject(</span>
+<span class="nc" id="L181">                    ctx.log(),</span>
+<span class="nc" id="L182">                    ctx.srcRepoUrl(), ctx.pubRepoUrl(),</span>
+<span class="nc" id="L183">                    ctx.srcBranch(), ctx.pubBranch(),</span>
+<span class="nc" id="L184">                    ctx.projectId());</span>
+<span class="nc" id="L185">            ctx.log().info(&quot;  &quot; + dimension()</span>
+<span class="nc" id="L186">                    + &quot;: deregistered &quot; + ctx.projectId()</span>
                     + &quot; from landing page&quot;);
-<span class="nc" id="L178">        } catch (MojoException e) {</span>
-<span class="nc" id="L179">            ctx.log().warn(&quot;  ⚠ &quot; + dimension()</span>
-<span class="nc" id="L180">                    + &quot;: deregistration failed (non-fatal): &quot; + e.getMessage());</span>
-<span class="nc" id="L181">        }</span>
-<span class="nc" id="L182">    }</span>
+<span class="nc" id="L188">        } catch (MojoException e) {</span>
+            // Same contract as apply(): a requested deregistration that
+            // did not happen must not report success (#928).
+<span class="nc" id="L191">            throw new MojoException(</span>
+<span class="nc" id="L192">                    dimension() + &quot; failed: &quot; + e.getMessage()</span>
+                            + &quot; — the project would remain listed on the &quot;
+                            + &quot;landing page. Re-run after fixing the cause, &quot;
+<span class="nc" id="L195">                            + &quot;or use -D&quot; + optOutFlag() + &quot;=false to skip &quot;</span>
+                            + &quot;deregistration deliberately.&quot;, e);
+<span class="nc" id="L197">        }</span>
+<span class="nc" id="L198">    }</span>
 
     // ── Drift probe ─────────────────────────────────────────────────
 
     /** Result of a landing-page HTTP probe. */
-<span class="nc" id="L187">    private record Probe(boolean reachable, String version, String detail) {}</span>
+<span class="nc" id="L203">    private record Probe(boolean reachable, String version, String detail) {}</span>
 
     /**
      * Probe {@code https://ike.network/} (the master single-page
@@ -198,46 +214,46 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
      * (= &quot;not registered&quot;). Otherwise returns the version string.
      */
     private static Probe probeRegisteredVersion(String projectId) {
-<span class="nc" id="L201">        String url = &quot;https://ike.network/&quot;;</span>
-<span class="nc" id="L202">        try (HttpClient client = HttpClient.newBuilder()</span>
-<span class="nc" id="L203">                .connectTimeout(PROBE_TIMEOUT)</span>
-<span class="nc" id="L204">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
-<span class="nc" id="L205">                .build()) {</span>
-<span class="nc" id="L206">            HttpRequest req = HttpRequest.newBuilder(URI.create(url))</span>
-<span class="nc" id="L207">                    .timeout(PROBE_TIMEOUT)</span>
-<span class="nc" id="L208">                    .GET()</span>
-<span class="nc" id="L209">                    .build();</span>
-<span class="nc" id="L210">            HttpResponse&lt;String&gt; resp = client.send(req,</span>
-<span class="nc" id="L211">                    HttpResponse.BodyHandlers.ofString());</span>
-<span class="nc bnc" id="L212" title="All 2 branches missed.">            if (resp.statusCode() / 100 != 2) {</span>
-<span class="nc" id="L213">                return new Probe(false, null, &quot;HTTP &quot; + resp.statusCode());</span>
+<span class="nc" id="L217">        String url = &quot;https://ike.network/&quot;;</span>
+<span class="nc" id="L218">        try (HttpClient client = HttpClient.newBuilder()</span>
+<span class="nc" id="L219">                .connectTimeout(PROBE_TIMEOUT)</span>
+<span class="nc" id="L220">                .followRedirects(HttpClient.Redirect.NORMAL)</span>
+<span class="nc" id="L221">                .build()) {</span>
+<span class="nc" id="L222">            HttpRequest req = HttpRequest.newBuilder(URI.create(url))</span>
+<span class="nc" id="L223">                    .timeout(PROBE_TIMEOUT)</span>
+<span class="nc" id="L224">                    .GET()</span>
+<span class="nc" id="L225">                    .build();</span>
+<span class="nc" id="L226">            HttpResponse&lt;String&gt; resp = client.send(req,</span>
+<span class="nc" id="L227">                    HttpResponse.BodyHandlers.ofString());</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">            if (resp.statusCode() / 100 != 2) {</span>
+<span class="nc" id="L229">                return new Probe(false, null, &quot;HTTP &quot; + resp.statusCode());</span>
             }
-<span class="nc" id="L215">            String body = resp.body();</span>
-<span class="nc" id="L216">            int sectionAt = body.indexOf(&quot;id=\&quot;&quot; + projectId + &quot;\&quot;&quot;);</span>
-<span class="nc bnc" id="L217" title="All 2 branches missed.">            if (sectionAt &lt; 0) {</span>
-<span class="nc" id="L218">                return new Probe(true, null,</span>
+<span class="nc" id="L231">            String body = resp.body();</span>
+<span class="nc" id="L232">            int sectionAt = body.indexOf(&quot;id=\&quot;&quot; + projectId + &quot;\&quot;&quot;);</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">            if (sectionAt &lt; 0) {</span>
+<span class="nc" id="L234">                return new Probe(true, null,</span>
                         &quot;no &lt;h2 id=\&quot;&quot; + projectId + &quot;\&quot;&gt; section &quot;
                         + &quot;(project not registered on the homepage)&quot;);
             }
             // Look for the version cell immediately after the section
             // start; cap the search window to the next &lt;h2 to avoid
             // matching a later project's cell on a missing-cell case.
-<span class="nc" id="L225">            int nextSection = body.indexOf(&quot;&lt;h2 &quot;, sectionAt + 1);</span>
-<span class="nc bnc" id="L226" title="All 2 branches missed.">            String window = nextSection &lt; 0</span>
-<span class="nc" id="L227">                    ? body.substring(sectionAt)</span>
-<span class="nc" id="L228">                    : body.substring(sectionAt, nextSection);</span>
-<span class="nc" id="L229">            Matcher m = REGISTERED_VERSION_PATTERN.matcher(window);</span>
-<span class="nc bnc" id="L230" title="All 2 branches missed.">            if (m.find()) {</span>
-<span class="nc" id="L231">                return new Probe(true, m.group(1).trim(), &quot;&quot;);</span>
+<span class="nc" id="L241">            int nextSection = body.indexOf(&quot;&lt;h2 &quot;, sectionAt + 1);</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">            String window = nextSection &lt; 0</span>
+<span class="nc" id="L243">                    ? body.substring(sectionAt)</span>
+<span class="nc" id="L244">                    : body.substring(sectionAt, nextSection);</span>
+<span class="nc" id="L245">            Matcher m = REGISTERED_VERSION_PATTERN.matcher(window);</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">            if (m.find()) {</span>
+<span class="nc" id="L247">                return new Probe(true, m.group(1).trim(), &quot;&quot;);</span>
             }
-<span class="nc" id="L233">            return new Probe(true, null, &quot;no version cell in &quot;</span>
+<span class="nc" id="L249">            return new Probe(true, null, &quot;no version cell in &quot;</span>
                     + projectId + &quot; section&quot;);
-<span class="nc bnc" id="L235" title="All 6 branches missed.">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L236" title="All 2 branches missed.">            if (e instanceof InterruptedException) {</span>
-<span class="nc" id="L237">                Thread.currentThread().interrupt();</span>
+<span class="nc bnc" id="L251" title="All 6 branches missed.">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">            if (e instanceof InterruptedException) {</span>
+<span class="nc" id="L253">                Thread.currentThread().interrupt();</span>
             }
-<span class="nc" id="L239">            return new Probe(false, null,</span>
-<span class="nc" id="L240">                    e.getClass().getSimpleName() + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L255">            return new Probe(false, null,</span>
+<span class="nc" id="L256">                    e.getClass().getSimpleName() + &quot;: &quot; + e.getMessage());</span>
         }
     }
 
@@ -251,20 +267,20 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
      * did.
      */
     private static List&lt;String&gt; readReactorModules(File gitRoot) {
-<span class="nc" id="L254">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
-<span class="nc bnc" id="L255" title="All 2 branches missed.">        if (!rootPom.isFile()) return List.of();</span>
+<span class="nc" id="L270">        File rootPom = new File(gitRoot, &quot;pom.xml&quot;);</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        if (!rootPom.isFile()) return List.of();</span>
         try {
-<span class="nc" id="L257">            String pom = Files.readString(rootPom.toPath());</span>
-<span class="nc" id="L258">            Pattern p = Pattern.compile(</span>
+<span class="nc" id="L273">            String pom = Files.readString(rootPom.toPath());</span>
+<span class="nc" id="L274">            Pattern p = Pattern.compile(</span>
                     &quot;&lt;(?:module|subproject)&gt;([^&lt;]+)&lt;/(?:module|subproject)&gt;&quot;);
-<span class="nc" id="L260">            Matcher m = p.matcher(pom);</span>
-<span class="nc" id="L261">            List&lt;String&gt; modules = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L262" title="All 2 branches missed.">            while (m.find()) {</span>
-<span class="nc" id="L263">                modules.add(m.group(1));</span>
+<span class="nc" id="L276">            Matcher m = p.matcher(pom);</span>
+<span class="nc" id="L277">            List&lt;String&gt; modules = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">            while (m.find()) {</span>
+<span class="nc" id="L279">                modules.add(m.group(1));</span>
             }
-<span class="nc" id="L265">            return modules;</span>
-<span class="nc" id="L266">        } catch (IOException e) {</span>
-<span class="nc" id="L267">            return List.of();</span>
+<span class="nc" id="L281">            return modules;</span>
+<span class="nc" id="L282">        } catch (IOException e) {</span>
+<span class="nc" id="L283">            return List.of();</span>
         }
     }
 
@@ -276,8 +292,8 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
      * @return the detected version string, or {@code null}
      */
     static String extractRegisteredVersion(String html) {
-<span class="nc" id="L279">        Matcher m = REGISTERED_VERSION_PATTERN.matcher(html);</span>
-<span class="nc bnc" id="L280" title="All 2 branches missed.">        return m.find() ? m.group(1).trim() : null;</span>
+<span class="nc" id="L295">        Matcher m = REGISTERED_VERSION_PATTERN.matcher(html);</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">        return m.find() ? m.group(1).trim() : null;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,6 +1,6 @@
 ---
-date_published: 2026-07-28
-date_modified: 2026-07-28
+date_published: 2026-08-06
+date_modified: 2026-08-06
 canonical_url: https://ike.network/ike-tooling/ike-build-standards/summary.html
 ---
 
@@ -27,5 +27,5 @@ canonical_url: https://ike.network/ike-tooling/ike-build-standards/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-build-standards |
-| Version | 240 |
+| Version | 241 |
 | Type | pom |

@@ -1027,22 +1027,37 @@ public final class OrgSiteSupport {
     // ── Internal helpers ─────────────────────────────────────────────
 
     /**
-     * Resolve Maven executable. Prefers {@code mvnw} in the repo,
-     * falls back to system {@code mvn}.
+     * Resolve a Maven executable for building a cloned repo. Prefers
+     * the repo's own {@code mvnw}; otherwise falls back to the Maven
+     * distribution running this very build ({@code maven.home}), which
+     * is always present in-process — the org-site repo ships no
+     * wrapper, and depending on a system {@code mvn} on PATH made
+     * registration fail on hosts without one
+     * (IKE-Network/ike-issues#928). A PATH lookup remains as the last
+     * resort for exotic embedders that unset {@code maven.home}.
      */
-    private static File resolveMaven(File repoRoot, Log log)
+    static File resolveMaven(File repoRoot, Log log)
             throws MojoException {
-<span class="nc" id="L1035">        File mvnw = new File(repoRoot, &quot;mvnw&quot;);</span>
-<span class="nc bnc" id="L1036" title="All 4 branches missed.">        if (mvnw.isFile() &amp;&amp; mvnw.canExecute()) {</span>
-<span class="nc" id="L1037">            return mvnw;</span>
+<span class="fc" id="L1041">        File mvnw = new File(repoRoot, &quot;mvnw&quot;);</span>
+<span class="pc bpc" id="L1042" title="1 of 4 branches missed.">        if (mvnw.isFile() &amp;&amp; mvnw.canExecute()) {</span>
+<span class="fc" id="L1043">            return mvnw;</span>
         }
-        // Fall back to system Maven
+<span class="fc" id="L1045">        String mavenHome = System.getProperty(&quot;maven.home&quot;);</span>
+<span class="pc bpc" id="L1046" title="2 of 4 branches missed.">        if (mavenHome != null &amp;&amp; !mavenHome.isBlank()) {</span>
+<span class="fc" id="L1047">            boolean windows = System.getProperty(&quot;os.name&quot;, &quot;&quot;)</span>
+<span class="fc" id="L1048">                    .toLowerCase(java.util.Locale.ROOT).contains(&quot;win&quot;);</span>
+<span class="fc" id="L1049">            File mvn = new File(mavenHome,</span>
+<span class="pc bpc" id="L1050" title="1 of 2 branches missed.">                    &quot;bin/&quot; + (windows ? &quot;mvn.cmd&quot; : &quot;mvn&quot;));</span>
+<span class="pc bpc" id="L1051" title="1 of 2 branches missed.">            if (mvn.isFile()) {</span>
+<span class="fc" id="L1052">                return mvn;</span>
+            }
+        }
         try {
-<span class="nc" id="L1041">            String path = ReleaseSupport.execCapture(repoRoot, &quot;which&quot;, &quot;mvn&quot;);</span>
-<span class="nc" id="L1042">            return new File(path.trim());</span>
-<span class="nc" id="L1043">        } catch (Exception e) {</span>
-<span class="nc" id="L1044">            throw new MojoException(</span>
-                    &quot;No Maven wrapper or system 'mvn' found&quot;, e);
+<span class="nc" id="L1056">            String path = ReleaseSupport.execCapture(repoRoot, &quot;which&quot;, &quot;mvn&quot;);</span>
+<span class="nc" id="L1057">            return new File(path.trim());</span>
+<span class="nc" id="L1058">        } catch (Exception e) {</span>
+<span class="nc" id="L1059">            throw new MojoException(</span>
+                    &quot;No Maven wrapper, maven.home, or system 'mvn' found&quot;, e);
         }
     }
 }

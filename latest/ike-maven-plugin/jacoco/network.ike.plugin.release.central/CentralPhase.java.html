@@ -135,14 +135,15 @@ public final class CentralPhase {
                 &quot;-DaltDeploymentRepository=local::file://&quot;
 <span class="nc" id="L136">                        + stagingDir.toAbsolutePath());</span>
 <span class="nc" id="L137">        pruneBuildPoms(stagingDir);</span>
-<span class="nc" id="L138">        ctx.log().info(&quot;Uploading bundle via JReleaser...&quot;);</span>
+<span class="nc" id="L138">        swapGeneratedBoms(stagingDir);</span>
+<span class="nc" id="L139">        ctx.log().info(&quot;Uploading bundle via JReleaser...&quot;);</span>
         // -N (non-recursive): jreleaser:deploy runs once, at the reactor
         // root, uploading the whole staging directory as a single bundle.
         // Without it the goal runs per module — the first invocation
         // publishes everything, the rest fail &quot;artifacts already deployed&quot;.
-<span class="nc" id="L143">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
-<span class="nc" id="L144">                mvnw.getAbsolutePath(), &quot;jreleaser:deploy&quot;, &quot;-N&quot;, &quot;-B&quot;);</span>
-<span class="nc" id="L145">    }</span>
+<span class="nc" id="L144">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L145">                mvnw.getAbsolutePath(), &quot;jreleaser:deploy&quot;, &quot;-N&quot;, &quot;-B&quot;);</span>
+<span class="nc" id="L146">    }</span>
 
     /**
      * Deletes the Maven 4 {@code -build.pom} artifacts — and their
@@ -153,21 +154,62 @@ public final class CentralPhase {
      * so the directory is walked recursively.
      */
     private void pruneBuildPoms(Path stagingDir) {
-<span class="nc" id="L156">        try (Stream&lt;Path&gt; paths = Files.walk(stagingDir)) {</span>
-<span class="nc" id="L157">            List&lt;Path&gt; buildPoms = paths</span>
-<span class="nc" id="L158">                    .filter(Files::isRegularFile)</span>
-<span class="nc" id="L159">                    .filter(p -&gt; p.getFileName().toString()</span>
-<span class="nc" id="L160">                            .contains(&quot;-build.pom&quot;))</span>
-<span class="nc" id="L161">                    .toList();</span>
-<span class="nc bnc" id="L162" title="All 2 branches missed.">            for (Path p : buildPoms) {</span>
-<span class="nc" id="L163">                Files.delete(p);</span>
-<span class="nc" id="L164">                ctx.log().info(&quot;  pruned &quot; + stagingDir.relativize(p));</span>
-<span class="nc" id="L165">            }</span>
-<span class="nc" id="L166">        } catch (IOException e) {</span>
-<span class="nc" id="L167">            throw new MojoException(</span>
+<span class="nc" id="L157">        try (Stream&lt;Path&gt; paths = Files.walk(stagingDir)) {</span>
+<span class="nc" id="L158">            List&lt;Path&gt; buildPoms = paths</span>
+<span class="nc" id="L159">                    .filter(Files::isRegularFile)</span>
+<span class="nc" id="L160">                    .filter(p -&gt; p.getFileName().toString()</span>
+<span class="nc" id="L161">                            .contains(&quot;-build.pom&quot;))</span>
+<span class="nc" id="L162">                    .toList();</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">            for (Path p : buildPoms) {</span>
+<span class="nc" id="L164">                Files.delete(p);</span>
+<span class="nc" id="L165">                ctx.log().info(&quot;  pruned &quot; + stagingDir.relativize(p));</span>
+<span class="nc" id="L166">            }</span>
+<span class="nc" id="L167">        } catch (IOException e) {</span>
+<span class="nc" id="L168">            throw new MojoException(</span>
                     &quot;Failed to prune -build.pom artifacts from &quot;
                             + stagingDir, e);
-<span class="nc" id="L170">        }</span>
-<span class="nc" id="L171">    }</span>
+<span class="nc" id="L171">        }</span>
+<span class="nc" id="L172">    }</span>
+
+    /**
+     * Replace each staged stub POM with its module's
+     * {@code target/generated-bom.xml}, re-sign it, and verify the
+     * result (IKE-Network/ike-issues#853). The stub's signature and
+     * checksums are invalidated by the content swap, so the swapped
+     * file is re-deployed into the staging directory through
+     * {@code gpg:sign-and-deploy-file} under the same
+     * {@code signArtifacts} profile as the original staging deploy —
+     * producing a fresh signature and fresh checksums over the real
+     * BOM bytes before JReleaser uploads the bundle.
+     */
+    private void swapGeneratedBoms(Path stagingDir) {
+<span class="nc" id="L186">        File gitRoot = ctx.gitRoot();</span>
+<span class="nc" id="L187">        File mvnw = ctx.mvnw();</span>
+        try {
+            for (GeneratedBomSwap.Swap swap
+<span class="nc bnc" id="L190" title="All 2 branches missed.">                    : GeneratedBomSwap.plan(gitRoot.toPath(), stagingDir)) {</span>
+<span class="nc" id="L191">                GeneratedBomSwap.apply(swap);</span>
+<span class="nc" id="L192">                ctx.log().info(&quot;  swapped generated BOM into &quot;</span>
+<span class="nc" id="L193">                        + stagingDir.relativize(swap.stagedPom()));</span>
+<span class="nc" id="L194">                ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L195">                        mvnw.getAbsolutePath(),</span>
+                        &quot;gpg:sign-and-deploy-file&quot;, &quot;-N&quot;, &quot;-B&quot;,
+                        &quot;-P&quot;, &quot;signArtifacts&quot;,
+<span class="nc" id="L198">                        &quot;-Durl=file://&quot; + stagingDir.toAbsolutePath(),</span>
+<span class="nc" id="L199">                        &quot;-Dfile=&quot; + swap.generatedBom().toAbsolutePath(),</span>
+<span class="nc" id="L200">                        &quot;-DpomFile=&quot; + swap.generatedBom().toAbsolutePath(),</span>
+                        &quot;-Dpackaging=pom&quot;);
+<span class="nc" id="L202">                String problem = GeneratedBomSwap.verify(swap);</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">                if (problem != null) {</span>
+<span class="nc" id="L204">                    throw new MojoException(</span>
+                            &quot;Generated-BOM swap verification failed: &quot;
+                                    + problem);
+                }
+<span class="nc" id="L208">            }</span>
+<span class="nc" id="L209">        } catch (IOException e) {</span>
+<span class="nc" id="L210">            throw new MojoException(</span>
+                    &quot;Failed to swap generated BOMs into &quot; + stagingDir, e);
+<span class="nc" id="L212">        }</span>
+<span class="nc" id="L213">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

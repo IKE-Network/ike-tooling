@@ -1,22 +1,50 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Dependency.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">Dependency.java</span></div><h1>Dependency.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
 
+import java.util.Set;
+
 /**
  * An inter-repository dependency declared in a subproject's
  * {@code depends-on} list.
  *
+ * &lt;p&gt;Relationship semantics (see {@code IKE-WORKSPACE.md}):
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code build} — needs the upstream's compiled artifacts;
+ *       orders the workspace build.&lt;/li&gt;
+ *   &lt;li&gt;{@code content} — references the upstream's architecture or
+ *       concepts; a change may require only review.&lt;/li&gt;
+ *   &lt;li&gt;{@code tooling} — uses the upstream's CLI tools or Maven
+ *       plugins.&lt;/li&gt;
+ *   &lt;li&gt;{@code bundle} — packages the upstream's artifact into an
+ *       assembly at package time, resolved from the repository
+ *       ({@code ~/.m2} or a snapshot repo) rather than built from the
+ *       workspace. Excluded from build ordering and cycle detection,
+ *       still traversed by cascade analysis
+ *       (IKE-Network/ike-issues#963). Carries a resolution hazard: the
+ *       workspace does not guarantee the artifact is built first.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
  * @param subproject      the name of the depended-on subproject
- * @param relationship    the nature of the dependency (&quot;build&quot;, &quot;content&quot;, or &quot;tool-time&quot;)
+ * @param relationship    the nature of the dependency — one of
+ *                        {@link #KNOWN_RELATIONSHIPS}
  * @param versionProperty optional POM property name that tracks the upstream
  *                        subproject's version (e.g., &quot;ike-maven-plugin.version&quot;).
  *                        Used by {@code ike:ws-release} to update version
  *                        references after releasing an upstream subproject.
  *                        Null if no property tracking is needed.
  */
-<span class="fc" id="L15">public record Dependency(</span>
+<span class="fc" id="L35">public record Dependency(</span>
         String subproject,
         String relationship,
         String versionProperty
 ) {
+    /**
+     * The recognized {@code relationship:} values. {@code tool-time}
+     * is the legacy spelling of {@code tooling}, kept for manifests
+     * written before the standard settled on the shorter name.
+     */
+<span class="fc" id="L45">    public static final Set&lt;String&gt; KNOWN_RELATIONSHIPS =</span>
+<span class="fc" id="L46">            Set.of(&quot;build&quot;, &quot;content&quot;, &quot;tooling&quot;, &quot;tool-time&quot;, &quot;bundle&quot;);</span>
+
     /**
      * Two-arg constructor for backwards compatibility (no version-property).
      *
@@ -24,7 +52,20 @@
      * @param relationship the nature of the dependency
      */
     public Dependency(String subproject, String relationship) {
-<span class="fc" id="L27">        this(subproject, relationship, null);</span>
-<span class="fc" id="L28">    }</span>
+<span class="fc" id="L55">        this(subproject, relationship, null);</span>
+<span class="fc" id="L56">    }</span>
+
+    /**
+     * Whether this edge constrains workspace build order. Every
+     * relationship does except {@code bundle}, whose artifact is
+     * repository-resolved at package time and therefore orders nothing
+     * (IKE-Network/ike-issues#963).
+     *
+     * @return true when the edge participates in topological sort and
+     *         cycle detection
+     */
+    public boolean ordersBuild() {
+<span class="fc bfc" id="L68" title="All 2 branches covered.">        return !&quot;bundle&quot;.equalsIgnoreCase(relationship);</span>
+    }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
