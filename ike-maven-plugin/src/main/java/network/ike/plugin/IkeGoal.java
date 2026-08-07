@@ -35,6 +35,13 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "or .properties so a CI meta-runner can generate "
                     + "build-chain edges from release-cascade.yaml "
                     + "instead of hand-wiring them."),
+    /** {@code ike:central-stage} — finalize a Central staging dir: prune + swap generated BOMs (#966). */
+    CENTRAL_STAGE(IkeGoal.NAME_CENTRAL_STAGE, CentralStageMojo.class,
+            "Finalize a Maven Central staging directory: prune "
+                    + "-build.pom artifacts and swap generated BOMs "
+                    + "over their staged stubs, re-signing and "
+                    + "verifying (#853/#966). Invoked version-pinned "
+                    + "by the async Central deploy sentinel script."),
     /** {@code ike:central-status} — report async Maven Central deploy state (#484). */
     CENTRAL_STATUS(IkeGoal.NAME_CENTRAL_STATUS, CentralStatusMojo.class,
             "Report the status of asynchronous Maven Central deploys "
@@ -212,6 +219,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
     /** Mirror for {@link #CASCADE_EXPORT}. */
     public static final String NAME_CASCADE_EXPORT = "cascade-export";
+    /** Mirror for {@link #CENTRAL_STAGE}. */
+    public static final String NAME_CENTRAL_STAGE = "central-stage";
     /** Mirror for {@link #CENTRAL_STATUS}. */
     public static final String NAME_CENTRAL_STATUS = "central-status";
     /** Mirror for {@link #CODESIGN_NATIVES}. */

@@ -142,14 +142,43 @@ class ReleaseDraftMojoAsyncScriptTest {
     }
 
     @Test
-    void script_prunes_build_pom_artifacts_recursively() {
-        // Maven 4 emits an extra -build.pom per module that must not
-        // ship to Central (#445). Prune from staging dir before
-        // JReleaser uploads.
+    void script_finalizes_staging_via_pinned_central_stage() {
+        // #966: prune + generated-BOM swap + verify run through
+        // ike:central-stage, invoked with the full G:A:V coordinates
+        // of the plugin that rendered the script. Resolving through
+        // the worktree's own plugin pin would run staging logic one
+        // release behind the plugin executing the release — the exact
+        // gap that shipped ike-bom 145/146 to Central as stubs.
         String script = render();
-        assertThat(script).contains("find \"$WORKTREE/target/staging-deploy\"")
-                .contains("-name '*-build.pom'")
-                .contains("-delete");
+        assertThat(script).contains(
+                "CENTRAL_STAGE_GOAL=\"network.ike.tooling:ike-maven-plugin:242:central-stage\"");
+        assertThat(script).contains("\"$CENTRAL_STAGE_GOAL\"")
+                .contains("\"-Dike.central.buildRoot=$WORKTREE\"")
+                .contains("\"-Dike.central.stagingDir=$WORKTREE/target/staging-deploy\"");
+    }
+
+    @Test
+    void script_orders_central_stage_between_stage_and_upload() {
+        // The swap must see the freshly staged stubs (so it runs
+        // after the staging deploy) and JReleaser must upload the
+        // swapped bundle (so it runs before jreleaser:deploy).
+        String script = render();
+        int stage = script.indexOf("clean deploy -B -T 1");
+        int centralStage = script.indexOf("\"$CENTRAL_STAGE_GOAL\"");
+        int upload = script.indexOf("jreleaser:deploy -N -B");
+        assertThat(stage).isGreaterThan(-1);
+        assertThat(centralStage).isGreaterThan(stage);
+        assertThat(upload).isGreaterThan(centralStage);
+    }
+
+    @Test
+    void script_treats_central_stage_failure_as_cycle_failure() {
+        // A verify failure inside central-stage exits non-zero; the
+        // script must convert that into a retry-eligible cycle
+        // failure instead of proceeding to upload a stub (#966).
+        String script = render();
+        assertThat(script).contains(
+                "central-stage (prune+swap+verify) failed on cycle $ATTEMPTS");
     }
 
     @Test
@@ -235,6 +264,7 @@ class ReleaseDraftMojoAsyncScriptTest {
                 Paths.get("/tmp/cache/ike-tooling-197.properties"),
                 Paths.get("/tmp/cache/ike-tooling-197.log"),
                 "ike-tooling", "197",
+                "network.ike.tooling:ike-maven-plugin:242:central-stage",
                 maxAttempts, backoff,
                 Instant.parse("2026-05-21T19:00:00Z"));
     }

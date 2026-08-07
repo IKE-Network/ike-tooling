@@ -26,6 +26,7 @@ import org.apache.maven.api.plugin.annotations.Parameter;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +34,7 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 
 /**
  * Full release: build, deploy, tag, merge, and bump to next SNAPSHOT.
@@ -885,10 +887,12 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 centralDeployBackoffSeconds);
         Path scriptPath = sentinelDir.resolve(
                 artifactId + "-" + releaseVersion + ".sh");
+        String centralStageGoal = ownPluginCoordinates()
+                + ":" + IkeGoal.NAME_CENTRAL_STAGE;
         String script = renderRetryScript(
                 gitRoot.toPath(), mvnw.toPath(),
                 centralOutcome.sentinelPath(), centralOutcome.logPath(),
-                artifactId, releaseVersion,
+                artifactId, releaseVersion, centralStageGoal,
                 centralDeployMaxAttempts, backoff, now);
         try {
             Files.writeString(scriptPath, script);
@@ -995,16 +999,28 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
      * @param mvnw          absolute path to the Maven wrapper
      * @param sentinel      absolute path to the sentinel file
      * @param log           absolute path to the deploy log file
-     * @param artifactId    project artifactId
-     * @param version       release version (matches v&lt;version&gt; tag)
-     * @param maxAttempts   configured max attempts
-     * @param backoff       inter-attempt waits in seconds
-     * @param started       deploy start instant (UTC)
+     * @param artifactId       project artifactId
+     * @param version          release version (matches v&lt;version&gt; tag)
+     * @param centralStageGoal fully pinned {@code ike:central-stage}
+     *                         invocation
+     *                         ({@code groupId:artifactId:version:goal})
+     *                         run between the staging deploy and the
+     *                         JReleaser upload — prune, generated-BOM
+     *                         swap, re-sign, verify
+     *                         (IKE-Network/ike-issues#853, #966). Pinned
+     *                         to the rendering plugin's own version so
+     *                         the staged bundle is always finalized by
+     *                         the same code that ran the release,
+     *                         independent of the worktree's plugin pin.
+     * @param maxAttempts      configured max attempts
+     * @param backoff          inter-attempt waits in seconds
+     * @param started          deploy start instant (UTC)
      * @return the script source
      */
     static String renderRetryScript(Path gitRoot, Path mvnw,
                                      Path sentinel, Path log,
                                      String artifactId, String version,
+                                     String centralStageGoal,
                                      int maxAttempts, int[] backoff,
                                      Instant started) {
         StringBuilder backoffArr = new StringBuilder();
@@ -1029,6 +1045,7 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                 LOG="%s"
                 GIT_ROOT="%s"
                 MVNW="%s"
+                CENTRAL_STAGE_GOAL="%s"
                 MAX_ATTEMPTS=%d
                 BACKOFFS=(%s)
 
@@ -1104,15 +1121,20 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     echo "[$(date)] Stage failed on cycle $ATTEMPTS" >> "$LOG"
                     return 1
                   fi
-                  # Step 2: prune -build.pom (Maven 4 build POMs, not
-                  # published to Central).
-                  find "$WORKTREE/target/staging-deploy" \\
-                      \\( -name '*-build.pom' -o -name '*-build.pom.asc' \\
-                         -o -name '*-build.pom.md5' \\
-                         -o -name '*-build.pom.sha1' \\
-                         -o -name '*-build.pom.sha256' \\
-                         -o -name '*-build.pom.sha512' \\) \\
-                      -delete >> "$LOG" 2>&1 || true
+                  # Step 2: finalize the staged bundle — prune Maven 4
+                  # -build.pom artifacts and swap generated BOMs over
+                  # their staged stubs, re-signed and verified
+                  # (IKE-Network/ike-issues#853, #966). The goal is
+                  # version-pinned to the plugin that rendered this
+                  # script; the worktree's own plugin pin may lag one
+                  # release behind.
+                  if ! (cd "$WORKTREE" && "$MVNW" -N -B \\
+                      "$CENTRAL_STAGE_GOAL" \\
+                      "-Dike.central.buildRoot=$WORKTREE" \\
+                      "-Dike.central.stagingDir=$WORKTREE/target/staging-deploy") >> "$LOG" 2>&1; then
+                    echo "[$(date)] central-stage (prune+swap+verify) failed on cycle $ATTEMPTS" >> "$LOG"
+                    return 1
+                  fi
                   # Step 3: upload via JReleaser. Capture to per-cycle
                   # log for validation.
                   if ! (cd "$WORKTREE" && "$MVNW" jreleaser:deploy -N -B) > "$attempt_log" 2>&1; then
@@ -1178,7 +1200,50 @@ public class ReleaseDraftMojo extends AbstractGoalMojo {
                     log.toAbsolutePath(),
                     gitRoot.toAbsolutePath(),
                     mvnw.toAbsolutePath(),
+                    centralStageGoal,
                     maxAttempts, backoffArr);
+    }
+
+    /**
+     * The running plugin's own {@code groupId:artifactId:version},
+     * read from the {@code pom.properties} Maven packages into every
+     * plugin jar. Used to render a fully pinned
+     * {@code ike:central-stage} invocation into the async Central
+     * deploy script — resolving the goal through the worktree's own
+     * plugin pin instead would run staging logic one release behind
+     * the plugin executing the release (IKE-Network/ike-issues#966).
+     *
+     * @return this plugin's {@code groupId:artifactId:version}
+     * @throws MojoException when the descriptor resource is missing
+     *         or incomplete — an unpinned script would silently
+     *         reintroduce the #966 bypass, so the release fails
+     *         instead
+     */
+    static String ownPluginCoordinates() {
+        String resource = "/META-INF/maven/network.ike.tooling/"
+                + "ike-maven-plugin/pom.properties";
+        try (InputStream in = ReleaseDraftMojo.class
+                .getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new MojoException("Plugin descriptor " + resource
+                        + " not found on the plugin classpath — cannot "
+                        + "render a version-pinned central-stage "
+                        + "invocation (IKE-Network/ike-issues#966)");
+            }
+            Properties props = new Properties();
+            props.load(in);
+            String groupId = props.getProperty("groupId");
+            String artifactId = props.getProperty("artifactId");
+            String version = props.getProperty("version");
+            if (groupId == null || artifactId == null || version == null) {
+                throw new MojoException("Plugin descriptor " + resource
+                        + " is missing groupId/artifactId/version");
+            }
+            return groupId + ":" + artifactId + ":" + version;
+        } catch (IOException e) {
+            throw new MojoException("Could not read plugin descriptor "
+                    + resource + ": " + e.getMessage(), e);
+        }
     }
 
 

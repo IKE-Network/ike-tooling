@@ -6,12 +6,8 @@ import network.ike.plugin.release.RetrySchedule;
 import org.apache.maven.api.plugin.MojoException;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Stream;
 
 /**
  * The Maven Central deploy phase of the release pipeline (sync path).
@@ -118,10 +114,11 @@ public final class CentralPhase {
      * loop in {@link #execute()} calls this per attempt.
      *
      * <p>Three steps: a signed {@code clean deploy} to a local
-     * staging directory ({@code target/staging-deploy}); a prune of
-     * the Maven 4 {@code -build.pom} artifacts (build-time only, not
-     * published to Central); then {@code jreleaser:deploy}, which
-     * uploads the staged bundle to the Sonatype Central Portal.
+     * staging directory ({@code target/staging-deploy}); the shared
+     * {@link CentralStaging} finalization (prune {@code -build.pom}
+     * artifacts, swap + re-sign + verify generated BOMs — #853/#966);
+     * then {@code jreleaser:deploy}, which uploads the staged bundle
+     * to the Sonatype Central Portal.
      */
     private void deployToMavenCentralCore() {
         File gitRoot = ctx.gitRoot();
@@ -134,8 +131,9 @@ public final class CentralPhase {
                 "-P", "release,signArtifacts",
                 "-DaltDeploymentRepository=local::file://"
                         + stagingDir.toAbsolutePath());
-        pruneBuildPoms(stagingDir);
-        swapGeneratedBoms(stagingDir);
+        CentralStaging.pruneBuildPoms(ctx.log(), stagingDir);
+        CentralStaging.swapGeneratedBoms(ctx.log(), gitRoot, mvnw,
+                stagingDir);
         ctx.log().info("Uploading bundle via JReleaser...");
         // -N (non-recursive): jreleaser:deploy runs once, at the reactor
         // root, uploading the whole staging directory as a single bundle.
@@ -143,72 +141,5 @@ public final class CentralPhase {
         // publishes everything, the rest fail "artifacts already deployed".
         ReleaseSupport.exec(gitRoot, ctx.log(),
                 mvnw.getAbsolutePath(), "jreleaser:deploy", "-N", "-B");
-    }
-
-    /**
-     * Deletes the Maven 4 {@code -build.pom} artifacts — and their
-     * signatures and checksums — from the staging directory. The
-     * build POM carries the 4.1.0 model and is build-time only;
-     * Maven Central publishes the consumer POM (the main
-     * {@code .pom}). One build POM is produced per reactor module,
-     * so the directory is walked recursively.
-     */
-    private void pruneBuildPoms(Path stagingDir) {
-        try (Stream<Path> paths = Files.walk(stagingDir)) {
-            List<Path> buildPoms = paths
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString()
-                            .contains("-build.pom"))
-                    .toList();
-            for (Path p : buildPoms) {
-                Files.delete(p);
-                ctx.log().info("  pruned " + stagingDir.relativize(p));
-            }
-        } catch (IOException e) {
-            throw new MojoException(
-                    "Failed to prune -build.pom artifacts from "
-                            + stagingDir, e);
-        }
-    }
-
-    /**
-     * Replace each staged stub POM with its module's
-     * {@code target/generated-bom.xml}, re-sign it, and verify the
-     * result (IKE-Network/ike-issues#853). The stub's signature and
-     * checksums are invalidated by the content swap, so the swapped
-     * file is re-deployed into the staging directory through
-     * {@code gpg:sign-and-deploy-file} under the same
-     * {@code signArtifacts} profile as the original staging deploy —
-     * producing a fresh signature and fresh checksums over the real
-     * BOM bytes before JReleaser uploads the bundle.
-     */
-    private void swapGeneratedBoms(Path stagingDir) {
-        File gitRoot = ctx.gitRoot();
-        File mvnw = ctx.mvnw();
-        try {
-            for (GeneratedBomSwap.Swap swap
-                    : GeneratedBomSwap.plan(gitRoot.toPath(), stagingDir)) {
-                GeneratedBomSwap.apply(swap);
-                ctx.log().info("  swapped generated BOM into "
-                        + stagingDir.relativize(swap.stagedPom()));
-                ReleaseSupport.exec(gitRoot, ctx.log(),
-                        mvnw.getAbsolutePath(),
-                        "gpg:sign-and-deploy-file", "-N", "-B",
-                        "-P", "signArtifacts",
-                        "-Durl=file://" + stagingDir.toAbsolutePath(),
-                        "-Dfile=" + swap.generatedBom().toAbsolutePath(),
-                        "-DpomFile=" + swap.generatedBom().toAbsolutePath(),
-                        "-Dpackaging=pom");
-                String problem = GeneratedBomSwap.verify(swap);
-                if (problem != null) {
-                    throw new MojoException(
-                            "Generated-BOM swap verification failed: "
-                                    + problem);
-                }
-            }
-        } catch (IOException e) {
-            throw new MojoException(
-                    "Failed to swap generated BOMs into " + stagingDir, e);
-        }
     }
 }
