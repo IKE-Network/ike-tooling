@@ -154,8 +154,18 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
                     + ": registered " + ctx.projectId()
                     + " " + ctx.projectVersion());
         } catch (MojoException e) {
-            ctx.log().warn("  ⚠ " + dimension()
-                    + ": registration failed (non-fatal): " + e.getMessage());
+            // Registration was requested and could not be completed — a
+            // green build here is a lie: the site would be live but the
+            // project invisible on the landing page, which nothing else
+            // surfaces (IKE-Network/ike-issues#928). Callers that want
+            // site-only publication say so with -DupdateRegistration=false.
+            throw new MojoException(
+                    dimension() + " failed: " + e.getMessage()
+                            + " — the sub-site may already be deployed, but "
+                            + "the project would not appear on the landing "
+                            + "page. Re-run after fixing the cause, or use "
+                            + "-D" + optOutFlag() + "=false for a "
+                            + "deliberately site-only publication.", e);
         }
     }
 
@@ -176,8 +186,14 @@ public class LandingPageRegistrationReconciler implements SiteReconciler {
                     + ": deregistered " + ctx.projectId()
                     + " from landing page");
         } catch (MojoException e) {
-            ctx.log().warn("  ⚠ " + dimension()
-                    + ": deregistration failed (non-fatal): " + e.getMessage());
+            // Same contract as apply(): a requested deregistration that
+            // did not happen must not report success (#928).
+            throw new MojoException(
+                    dimension() + " failed: " + e.getMessage()
+                            + " — the project would remain listed on the "
+                            + "landing page. Re-run after fixing the cause, "
+                            + "or use -D" + optOutFlag() + "=false to skip "
+                            + "deregistration deliberately.", e);
         }
     }
 

@@ -29,9 +29,13 @@ import java.util.List;
  * <p>This goal works around the limitation by reading the
  * {@code <dependencyManagement>} entries from a source module (default:
  * {@code ike-parent}) in the reactor, resolving every property reference to
- * a literal value, and writing a standalone BOM POM. The generated POM
- * replaces the stub POM for install/deploy, so external consumers get a
- * fully populated BOM without any manual maintenance. The generated POM
+ * a literal value, and writing a standalone BOM POM to
+ * {@code target/generated-bom.xml}. The Maven 4 {@code Project} is
+ * immutable, so the generated POM cannot replace the stub in the same
+ * build; {@code ike:release-publish} swaps it into the Maven Central
+ * staging bundle — re-signed and verified — before upload
+ * (IKE-Network/ike-issues#853), so external consumers get a fully
+ * populated BOM without any manual maintenance. The generated POM
  * uses the {@code 4.0.0} model version for maximum consumer
  * compatibility.</p>
  *
@@ -124,7 +128,9 @@ public class GenerateBomMojo implements org.apache.maven.api.plugin.Mojo {
             Path bomPom = targetDir.resolve("generated-bom.xml");
             Files.writeString(bomPom, bomXml);
 
-            // TODO: Maven 4 Project is immutable — generated BOM needs a different attachment mechanism
+            // Maven 4's Project is immutable, so the stub POM cannot be
+            // replaced here; the release pipeline swaps this file into
+            // the Central staging bundle (GeneratedBomSwap, #853).
 
             getLog().info("Generated BOM with " + deps.size()
                     + " managed entries from " + sourceArtifactId);

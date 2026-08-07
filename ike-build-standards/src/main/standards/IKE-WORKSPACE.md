@@ -292,6 +292,15 @@ bundled artifact's build, it must already be resolvable when the
 bundling subproject packages. On a clean slate, build the bundled
 subproject first (IKE-Network/ike-issues#963).
 
+**Ownership**: like `sha:` pins, `depends-on` `build` edges are
+machine-owned — `PostMutationSync` re-derives them from POM reality
+after every mutating goal, and marks derived blocks with a
+`# ── managed: depends-on … ──` comment. Hand-edits to `build` edges
+(including deletions) do not survive re-derivation; the durable way to
+declare an edge derivation must not touch is a non-`build`
+relationship (`bundle`, `content`, `tooling`), which re-derivation
+preserves verbatim, comments included (IKE-Network/ike-issues#964).
+
 ### Version Cascade Mechanisms
 
 When `ws:feature-start-publish` creates a feature branch, it cascades

@@ -1027,22 +1027,37 @@ public final class OrgSiteSupport {
     // ── Internal helpers ─────────────────────────────────────────────
 
     /**
-     * Resolve Maven executable. Prefers {@code mvnw} in the repo,
-     * falls back to system {@code mvn}.
+     * Resolve a Maven executable for building a cloned repo. Prefers
+     * the repo's own {@code mvnw}; otherwise falls back to the Maven
+     * distribution running this very build ({@code maven.home}), which
+     * is always present in-process — the org-site repo ships no
+     * wrapper, and depending on a system {@code mvn} on PATH made
+     * registration fail on hosts without one
+     * (IKE-Network/ike-issues#928). A PATH lookup remains as the last
+     * resort for exotic embedders that unset {@code maven.home}.
      */
-    private static File resolveMaven(File repoRoot, Log log)
+    static File resolveMaven(File repoRoot, Log log)
             throws MojoException {
         File mvnw = new File(repoRoot, "mvnw");
         if (mvnw.isFile() && mvnw.canExecute()) {
             return mvnw;
         }
-        // Fall back to system Maven
+        String mavenHome = System.getProperty("maven.home");
+        if (mavenHome != null && !mavenHome.isBlank()) {
+            boolean windows = System.getProperty("os.name", "")
+                    .toLowerCase(java.util.Locale.ROOT).contains("win");
+            File mvn = new File(mavenHome,
+                    "bin/" + (windows ? "mvn.cmd" : "mvn"));
+            if (mvn.isFile()) {
+                return mvn;
+            }
+        }
         try {
             String path = ReleaseSupport.execCapture(repoRoot, "which", "mvn");
             return new File(path.trim());
         } catch (Exception e) {
             throw new MojoException(
-                    "No Maven wrapper or system 'mvn' found", e);
+                    "No Maven wrapper, maven.home, or system 'mvn' found", e);
         }
     }
 }
