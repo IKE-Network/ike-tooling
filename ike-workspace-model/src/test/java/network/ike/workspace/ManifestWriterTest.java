@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ManifestWriterTest {
 
@@ -427,5 +428,129 @@ class ManifestWriterTest {
                 """;
         String result = ManifestWriter.collapseDuplicateSubprojectFields(yaml);
         assertThat(result).isEqualTo(yaml);
+    }
+
+    // ── recordReleaseAlignment (#973, minimal #233 semantics) ──
+
+    /** A realistic two-member manifest body for record-release tests. */
+    private static final String RECORD_FIXTURE = """
+            subprojects:
+              komet-bom:
+                repo: https://github.com/ikmdev/komet-bom.git
+                branch: main
+                sha: "22231e6499dd6d263cc5af3ce5cce7109c20d433"
+                version: 3.0.7-SNAPSHOT
+                groupId: dev.ikm.komet
+              tinkar-core:
+                repo: https://github.com/ikmdev/tinkar-core.git
+                branch: main
+                version: 1.127.2-SNAPSHOT
+                groupId: dev.ikm.tinkar
+            """;
+
+    @Test
+    void recordRelease_pins_version_and_writes_state_group_after_sha() {
+        String result = ManifestWriter.recordReleaseAlignment(
+                RECORD_FIXTURE, "komet-bom", "3.0.7", "v3.0.7");
+        // The four fields land adjacent, in canonical order, after sha.
+        assertThat(result).containsSubsequence(
+                "sha: \"22231e6499dd6d263cc5af3ce5cce7109c20d433\"",
+                "version: \"3.0.7\"",
+                "state: tag-aligned",
+                "kind: release",
+                "tag: v3.0.7",
+                "groupId: dev.ikm.komet");
+        // The sibling block is untouched.
+        assertThat(result).contains("version: 1.127.2-SNAPSHOT");
+        assertThat(result).doesNotContain("tinkar-core:\n    state:");
+    }
+
+    @Test
+    void recordRelease_without_sha_anchors_after_branch() {
+        String result = ManifestWriter.recordReleaseAlignment(
+                RECORD_FIXTURE, "tinkar-core", "1.127.2", "v1.127.2");
+        assertThat(result).containsSubsequence(
+                "tinkar-core:",
+                "branch: main",
+                "version: \"1.127.2\"",
+                "state: tag-aligned",
+                "kind: release",
+                "tag: v1.127.2");
+    }
+
+    @Test
+    void recordRelease_is_idempotent() {
+        String once = ManifestWriter.recordReleaseAlignment(
+                RECORD_FIXTURE, "komet-bom", "3.0.7", "v3.0.7");
+        String twice = ManifestWriter.recordReleaseAlignment(
+                once, "komet-bom", "3.0.7", "v3.0.7");
+        assertThat(twice).isEqualTo(once);
+    }
+
+    @Test
+    void recordRelease_updates_pin_in_place_on_re_release() {
+        String first = ManifestWriter.recordReleaseAlignment(
+                RECORD_FIXTURE, "komet-bom", "3.0.7", "v3.0.7");
+        String second = ManifestWriter.recordReleaseAlignment(
+                first, "komet-bom", "3.0.8", "v3.0.8");
+        assertThat(second).contains("version: \"3.0.8\"");
+        assertThat(second).contains("tag: v3.0.8");
+        assertThat(second).doesNotContain("3.0.7");
+        // Still exactly one occurrence of each state field in the block.
+        assertThat(second.split("state: tag-aligned", -1)).hasSize(2);
+        assertThat(second.split("kind: release", -1)).hasSize(2);
+    }
+
+    @Test
+    void recordRelease_throws_on_unknown_subproject() {
+        assertThatThrownBy(() -> ManifestWriter.recordReleaseAlignment(
+                RECORD_FIXTURE, "no-such-member", "1.0.0", "v1.0.0"))
+                .isInstanceOf(ManifestException.class)
+                .hasMessageContaining("no-such-member");
+    }
+
+    @Test
+    void recordRelease_rejects_blank_arguments() {
+        assertThatThrownBy(() -> ManifestWriter.recordReleaseAlignment(
+                RECORD_FIXTURE, "komet-bom", " ", "v1"))
+                .isInstanceOf(ManifestException.class)
+                .hasMessageContaining("releasedVersion");
+        assertThatThrownBy(() -> ManifestWriter.recordReleaseAlignment(
+                RECORD_FIXTURE, "komet-bom", "1.0.0", null))
+                .isInstanceOf(ManifestException.class)
+                .hasMessageContaining("releaseTag");
+    }
+
+    @Test
+    void recordRelease_roundtrips_through_reader(@TempDir Path tmp)
+            throws IOException {
+        String yaml = """
+                schema-version: "1.0"
+                generated: 2026-08-10
+
+                defaults:
+                  branch: main
+                  maven-version: "4.0.0-rc-5"
+
+                """ + RECORD_FIXTURE;
+        Path manifest = tmp.resolve("workspace.yaml");
+        Files.writeString(manifest, yaml);
+
+        ManifestWriter.recordRelease(manifest, "komet-bom", "3.0.7", "v3.0.7");
+
+        Subproject bom = ManifestReader.read(manifest)
+                .subprojects().get("komet-bom");
+        assertThat(bom.isTagAligned()).isTrue();
+        assertThat(bom.isSnapshotAligned()).isFalse();
+        assertThat(bom.state()).isEqualTo(Subproject.STATE_TAG_ALIGNED);
+        assertThat(bom.kind()).isEqualTo(Subproject.KIND_RELEASE);
+        assertThat(bom.tag()).isEqualTo("v3.0.7");
+        assertThat(bom.version()).isEqualTo("3.0.7");
+
+        Subproject tinkar = ManifestReader.read(manifest)
+                .subprojects().get("tinkar-core");
+        assertThat(tinkar.isSnapshotAligned())
+                .as("untouched member stays snapshot-aligned by default")
+                .isTrue();
     }
 }

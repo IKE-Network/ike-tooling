@@ -131,6 +131,98 @@ public final class ManifestWriter {
     }
 
     /**
+     * Transition a subproject to the tag-aligned {@code release} alignment
+     * state and pin its {@code version:} field at the released version —
+     * the manifest half of {@code ws:record-release}
+     * (IKE-Network/ike-issues#973, the minimal #233 semantics settled
+     * 2026-08-10).
+     *
+     * <p>Writes four fields in the subproject's block, inserting any that
+     * are absent and updating any that exist (duplicate occurrences are
+     * collapsed, #387): {@code version:} — the pin consumers align to,
+     * per the #233 invariant that a consumer's reference to X matches X's
+     * manifest version field — followed by {@code state: tag-aligned},
+     * {@code kind: release}, and {@code tag:} as one adjacent group. The
+     * version value is written quoted (a released version such as
+     * {@code 150} would otherwise parse as a YAML integer); state, kind,
+     * and tag are never numeric and are written bare.
+     *
+     * <p>Re-running with the same arguments produces identical content;
+     * re-running after a subsequent release updates the pin in place.
+     *
+     * @param yaml            full workspace.yaml content
+     * @param subprojectName  the subproject key; must exist in the manifest
+     * @param releasedVersion the released (de-qualified) version to pin,
+     *                        e.g. {@code 3.0.7}
+     * @param releaseTag      the git release tag, e.g. {@code v3.0.7}
+     * @return updated YAML content
+     * @throws ManifestException if the subproject block is absent, or any
+     *                           argument is null or blank
+     */
+    public static String recordReleaseAlignment(String yaml, String subprojectName,
+                                                String releasedVersion,
+                                                String releaseTag) {
+        requireNonBlank(subprojectName, "subprojectName");
+        requireNonBlank(releasedVersion, "releasedVersion");
+        requireNonBlank(releaseTag, "releaseTag");
+        if (findSubprojectBlockBounds(yaml, subprojectName) == null) {
+            throw new ManifestException("Cannot record a release for '"
+                    + subprojectName + "' — no such subproject in the manifest");
+        }
+        // Anchor the version pin where manifests conventionally keep it
+        // (after sha:, itself after branch:); fall back to branch: when no
+        // sha pin exists. The state group then chains off the version line,
+        // so the four fields always land adjacent regardless of anchor.
+        String versionAnchor = subprojectFieldExists(yaml, subprojectName, "sha")
+                ? "sha" : "branch";
+        String updated = yaml;
+        updated = addOrUpdateSubprojectField(updated, subprojectName,
+                "version", "\"" + releasedVersion + "\"", versionAnchor);
+        updated = addOrUpdateSubprojectField(updated, subprojectName,
+                "state", Subproject.STATE_TAG_ALIGNED, "version");
+        updated = addOrUpdateSubprojectField(updated, subprojectName,
+                "kind", Subproject.KIND_RELEASE, "state");
+        updated = addOrUpdateSubprojectField(updated, subprojectName,
+                "tag", releaseTag, "kind");
+        return updated;
+    }
+
+    /**
+     * File-level convenience over
+     * {@link #recordReleaseAlignment(String, String, String, String)}:
+     * read the manifest, record the release, write it back.
+     *
+     * @param manifestPath    path to workspace.yaml
+     * @param subprojectName  the subproject key; must exist in the manifest
+     * @param releasedVersion the released (de-qualified) version to pin
+     * @param releaseTag      the git release tag, e.g. {@code v3.0.7}
+     * @throws IOException       if the file cannot be read or written
+     * @throws ManifestException if the subproject block is absent, or any
+     *                           argument is null or blank
+     */
+    public static void recordRelease(Path manifestPath, String subprojectName,
+                                     String releasedVersion, String releaseTag)
+            throws IOException {
+        String content = Files.readString(manifestPath, StandardCharsets.UTF_8);
+        content = recordReleaseAlignment(
+                content, subprojectName, releasedVersion, releaseTag);
+        Files.writeString(manifestPath, content, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Reject a null or blank argument with a uniform message.
+     *
+     * @param value the argument value to check
+     * @param name  the argument name for the error message
+     * @throws ManifestException if {@code value} is null or blank
+     */
+    private static void requireNonBlank(String value, String name) {
+        if (value == null || value.isBlank()) {
+            throw new ManifestException(name + " must not be null or blank");
+        }
+    }
+
+    /**
      * Update a field in a subproject block, or insert it after a reference
      * field if it doesn't exist yet.
      *
