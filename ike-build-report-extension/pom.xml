@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  IKE Build-Report Extension
+  ══════════════════════════
+
+  Maven 4 build extension that collects structured session events
+  (execution results, repository transfer failures, model problems),
+  compares them against a committed ledger of accepted findings with
+  expected counts (.mvn/build-report.yaml), and writes a distilled
+  receipt (ike꞉build-report.md) at the execution root at session end.
+  Phase 1 is report-only; gate mode parses but does not enforce.
+
+  Design note: dev-build-report-extension (ike-lab-documents).
+  See IKE-Network/ike-issues#978.
+
+  Collection rides the classic EventSpy surface — verified present in
+  Maven 4.0.0-rc-5 core; the new API (maven-api-spi) has no
+  session-event SPI yet. Registration is via the hand-written sisu
+  index at META-INF/sisu/javax.inject.Named.
+-->
+<project xmlns="http://maven.apache.org/POM/4.1.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.1.0
+         http://maven.apache.org/xsd/maven-4.1.0.xsd">
+    <modelVersion>4.1.0</modelVersion>
+
+    <parent/>
+
+    <artifactId>ike-build-report-extension</artifactId>
+    <packaging>jar</packaging>
+
+    <name>IKE Build-Report Extension</name>
+    <description>
+        Maven 4 build extension that distills structured session events
+        into an ike꞉build-report.md receipt, compared against a committed
+        ledger of accepted findings with expected counts. Report-only in
+        Phase 1; session-end gating arrives in Phase 2.
+    </description>
+    <url>https://ike.network/ike-tooling/ike-build-report-extension/</url>
+    <inceptionYear>2026</inceptionYear>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <dependencies>
+        <!-- Classic Maven core surface: EventSpy, ExecutionEvent,
+             MavenSession. Provided by the running Maven at runtime. -->
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-core</artifactId>
+            <version>${maven-api.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Resolver events (RepositoryEvent) arrive through EventSpy. -->
+        <dependency>
+            <groupId>org.apache.maven.resolver</groupId>
+            <artifactId>maven-resolver-api</artifactId>
+            <version>2.0.13</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- javax.inject annotations for the sisu-discovered component. -->
+        <dependency>
+            <groupId>javax.inject</groupId>
+            <artifactId>javax.inject</artifactId>
+            <version>1</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Ledger parsing (.mvn/build-report.yaml). Ships in the
+             extension realm. -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>${snakeyaml.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit-jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <resources>
+            <!-- Filter only the version stamp; the sisu index must pass
+                 through verbatim. -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>network/ike/tooling/buildreport/build-report.properties</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>network/ike/tooling/buildreport/build-report.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
+    </build>
+</project>
