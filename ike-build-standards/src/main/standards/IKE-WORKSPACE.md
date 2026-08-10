@@ -340,6 +340,40 @@ downstream member may resolve stale versions from external BOMs
 instead of the feature branch versions. The gap detection accounts for
 all three mechanisms — convention-based properties suppress false positives.
 
+### Accepted Maven 4 warning: BOM imports from within the reactor
+
+Maven 4 logs a model warning for workspace members that import a BOM
+built in the same reactor (e.g. `komet-bom`):
+
+    [WARNING] Maven model problem: BOM imports from within reactor should be avoided at ...
+
+This is **accepted by design** in IKE workspaces — do not "fix" it.
+The workspace BOM is a living member of the working set: it evolves,
+branches, and releases with the subprojects that consume it.
+`cascadeBomImports` (above) rewrites the import version to the
+branch-qualified SNAPSHOT on feature-start, checkpoints pin it, and
+`ws:release-publish` versions it in lockstep. Importing a released
+external BOM instead would defeat exactly that.
+
+Upstream context: the lint is MNG-8012 — proposed as a hard
+prohibition, deliberately shipped as a warning after in-reactor BOM
+imports were restored as a supported pattern (MNG-8293, fixed in
+Maven 4.0.0-beta-5). Upstream has floated escalating it to a failure
+in a future release; if that lands, the workspace tooling needs an
+upstream conversation or a generated-BOM alternative — track it,
+don't silence it.
+
+The hazard the warning encodes is real but owned elsewhere: subset
+builds (`-pl`, `-am`) can skip the reactor BOM and resolve a stale
+repository copy (apache/maven#11397). Workspace discipline
+neutralizes it — build the full reactor once before any `-pl` scope,
+keep the working set atomic, and let checkpoints and releases version
+the BOM in lockstep.
+
+Guardrail: never enable `--fail-on-severity=WARN` (or stricter) on a
+workspace reactor, locally or in CI — it converts this accepted
+warning into a build failure.
+
 ## Goal Reference
 
 Most mutating goals come in `-draft` / `-publish` pairs.
