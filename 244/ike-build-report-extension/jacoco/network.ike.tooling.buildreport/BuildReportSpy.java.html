@@ -41,7 +41,7 @@ import org.slf4j.LoggerFactory;
  */
 @Named(&quot;ike-build-report&quot;)
 @Singleton
-<span class="nc" id="L44">public class BuildReportSpy implements EventSpy {</span>
+public class BuildReportSpy implements EventSpy {
 
 <span class="nc" id="L46">    private static final Logger LOG = LoggerFactory.getLogger(BuildReportSpy.class);</span>
 
@@ -56,7 +56,13 @@ import org.slf4j.LoggerFactory;
 
 <span class="nc" id="L57">    private final List&lt;Finding&gt; findings = Collections.synchronizedList(new ArrayList&lt;&gt;());</span>
 <span class="nc" id="L58">    private final Set&lt;String&gt; observedEventTypes = Collections.synchronizedSet(new LinkedHashSet&lt;&gt;());</span>
-<span class="nc" id="L59">    private final AtomicBoolean receiptWritten = new AtomicBoolean(false);</span>
+
+    /**
+     * Creates the spy; instantiated by the Maven container via the sisu
+     * index, never directly.
+     */
+<span class="nc" id="L64">    public BuildReportSpy() {}</span>
+<span class="nc" id="L65">    private final AtomicBoolean receiptWritten = new AtomicBoolean(false);</span>
     private volatile Path executionRoot;
 
     /**
@@ -68,7 +74,7 @@ import org.slf4j.LoggerFactory;
     public void init(Context context) {
         // The execution root is captured from SessionStarted instead —
         // the context's working directory may differ under -f.
-<span class="nc" id="L71">    }</span>
+<span class="nc" id="L77">    }</span>
 
     /**
      * Routes one build event into the collection model.
@@ -78,19 +84,19 @@ import org.slf4j.LoggerFactory;
     @Override
     public void onEvent(Object event) {
         try {
-<span class="nc bnc" id="L81" title="All 2 branches missed.">            if (Boolean.getBoolean(DEBUG_PROPERTY)) {</span>
-<span class="nc" id="L82">                observedEventTypes.add(describeEventType(event));</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">            if (Boolean.getBoolean(DEBUG_PROPERTY)) {</span>
+<span class="nc" id="L88">                observedEventTypes.add(describeEventType(event));</span>
             }
-<span class="nc bnc" id="L84" title="All 2 branches missed.">            if (event instanceof ExecutionEvent) {</span>
-<span class="nc" id="L85">                onExecutionEvent((ExecutionEvent) event);</span>
-<span class="nc bnc" id="L86" title="All 2 branches missed.">            } else if (event instanceof RepositoryEvent) {</span>
-<span class="nc" id="L87">                onRepositoryEvent((RepositoryEvent) event);</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">            if (event instanceof ExecutionEvent) {</span>
+<span class="nc" id="L91">                onExecutionEvent((ExecutionEvent) event);</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">            } else if (event instanceof RepositoryEvent) {</span>
+<span class="nc" id="L93">                onRepositoryEvent((RepositoryEvent) event);</span>
             }
-<span class="nc" id="L89">        } catch (Exception e) {</span>
-<span class="nc" id="L90">            LOG.warn(&quot;ike-build-report: event collection failed ({}); the receipt may be incomplete&quot;,</span>
-<span class="nc" id="L91">                    e.toString());</span>
-<span class="nc" id="L92">        }</span>
-<span class="nc" id="L93">    }</span>
+<span class="nc" id="L95">        } catch (Exception e) {</span>
+<span class="nc" id="L96">            LOG.warn(&quot;ike-build-report: event collection failed ({}); the receipt may be incomplete&quot;,</span>
+<span class="nc" id="L97">                    e.toString());</span>
+<span class="nc" id="L98">        }</span>
+<span class="nc" id="L99">    }</span>
 
     /**
      * Writes the receipt if the session ended without a
@@ -98,51 +104,52 @@ import org.slf4j.LoggerFactory;
      */
     @Override
     public void close() {
-<span class="nc" id="L101">        writeReceipt();</span>
-<span class="nc" id="L102">    }</span>
+<span class="nc" id="L107">        writeReceipt();</span>
+<span class="nc" id="L108">    }</span>
 
     private void onExecutionEvent(ExecutionEvent event) {
-<span class="nc bnc" id="L105" title="All 5 branches missed.">        switch (event.getType()) {</span>
-<span class="nc" id="L106">            case SessionStarted -&gt; captureExecutionRoot(event);</span>
-<span class="nc" id="L107">            case MojoFailed -&gt; findings.add(new Finding(</span>
+<span class="nc bnc" id="L111" title="All 6 branches missed.">        switch (event.getType()) {</span>
+<span class="nc" id="L112">            case ProjectDiscoveryStarted -&gt; resetSession();</span>
+<span class="nc" id="L113">            case SessionStarted -&gt; captureExecutionRoot(event);</span>
+<span class="nc" id="L114">            case MojoFailed -&gt; findings.add(new Finding(</span>
                     FindingCategory.EXECUTION,
                     Severity.ERROR,
-<span class="nc" id="L110">                    &quot;execution/mojo-failed/&quot; + describeMojo(event.getMojoExecution()),</span>
-<span class="nc" id="L111">                    describeProject(event) + &quot;: &quot; + describeThrowable(event.getException())));</span>
-<span class="nc" id="L112">            case ProjectFailed -&gt; findings.add(new Finding(</span>
+<span class="nc" id="L117">                    &quot;execution/mojo-failed/&quot; + describeMojo(event.getMojoExecution()),</span>
+<span class="nc" id="L118">                    describeProject(event) + &quot;: &quot; + describeThrowable(event.getException())));</span>
+<span class="nc" id="L119">            case ProjectFailed -&gt; findings.add(new Finding(</span>
                     FindingCategory.EXECUTION,
                     Severity.ERROR,
-<span class="nc" id="L115">                    &quot;execution/project-failed/&quot; + describeProject(event),</span>
-<span class="nc" id="L116">                    describeThrowable(event.getException())));</span>
+<span class="nc" id="L122">                    &quot;execution/project-failed/&quot; + describeProject(event),</span>
+<span class="nc" id="L123">                    describeThrowable(event.getException())));</span>
             case SessionEnded -&gt; {
-<span class="nc" id="L118">                captureExecutionRoot(event);</span>
-<span class="nc" id="L119">                writeReceipt();</span>
-<span class="nc" id="L120">            }</span>
+<span class="nc" id="L125">                captureExecutionRoot(event);</span>
+<span class="nc" id="L126">                writeReceipt();</span>
+<span class="nc" id="L127">            }</span>
             default -&gt; {
                 // Successes, skips, and forks carry no receipt content in Phase 1.
             }
         }
-<span class="nc" id="L125">    }</span>
+<span class="nc" id="L132">    }</span>
 
     private void onRepositoryEvent(RepositoryEvent event) {
-<span class="nc" id="L128">        List&lt;Exception&gt; exceptions = event.getExceptions();</span>
-<span class="nc bnc" id="L129" title="All 4 branches missed.">        if (exceptions == null || exceptions.isEmpty()) {</span>
-<span class="nc" id="L130">            return;</span>
+<span class="nc" id="L135">        List&lt;Exception&gt; exceptions = event.getExceptions();</span>
+<span class="nc bnc" id="L136" title="All 4 branches missed.">        if (exceptions == null || exceptions.isEmpty()) {</span>
+<span class="nc" id="L137">            return;</span>
         }
-<span class="nc bnc" id="L132" title="All 2 branches missed.">        boolean metadata = event.getMetadata() != null;</span>
-<span class="nc bnc" id="L133" title="All 2 branches missed.">        String subject = metadata ? &quot;metadata&quot; : &quot;artifact&quot;;</span>
-<span class="nc" id="L134">        String repositoryId = describeRepository(event.getRepository());</span>
-<span class="nc bnc" id="L135" title="All 2 branches missed.">        for (Exception exception : exceptions) {</span>
-<span class="nc bnc" id="L136" title="All 2 branches missed.">            if (isRoutineNegativeLookup(exception)) {</span>
-<span class="nc" id="L137">                continue;</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        boolean metadata = event.getMetadata() != null;</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        String subject = metadata ? &quot;metadata&quot; : &quot;artifact&quot;;</span>
+<span class="nc" id="L141">        String repositoryId = describeRepository(event.getRepository());</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        for (Exception exception : exceptions) {</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">            if (isRoutineNegativeLookup(exception)) {</span>
+<span class="nc" id="L144">                continue;</span>
             }
-<span class="nc" id="L139">            findings.add(new Finding(</span>
+<span class="nc" id="L146">            findings.add(new Finding(</span>
                     FindingCategory.REPOSITORY,
                     Severity.WARNING,
                     &quot;repository/&quot; + subject + &quot;-resolve-failed/&quot; + repositoryId,
-<span class="nc" id="L143">                    describeSubject(event) + &quot;: &quot; + describeThrowable(exception)));</span>
-<span class="nc" id="L144">        }</span>
-<span class="nc" id="L145">    }</span>
+<span class="nc" id="L150">                    describeSubject(event) + &quot;: &quot; + describeThrowable(exception)));</span>
+<span class="nc" id="L151">        }</span>
+<span class="nc" id="L152">    }</span>
 
     /**
      * Distinguishes routine negative lookups (an artifact simply absent
@@ -150,120 +157,135 @@ import org.slf4j.LoggerFactory;
      * as authentication rejections, which are always report-worthy.
      */
     private static boolean isRoutineNegativeLookup(Exception exception) {
-<span class="nc" id="L153">        return exception.getClass().getSimpleName().endsWith(&quot;NotFoundException&quot;);</span>
+<span class="nc" id="L160">        return exception.getClass().getSimpleName().endsWith(&quot;NotFoundException&quot;);</span>
     }
 
+    /**
+     * Clears all session state at {@code ProjectDiscoveryStarted} —
+     * before model building — so a long-lived JVM (the IDE's
+     * maven-server) starts every session clean and writes a fresh
+     * receipt each time.
+     */
+    private void resetSession() {
+<span class="nc" id="L170">        findings.clear();</span>
+<span class="nc" id="L171">        observedEventTypes.clear();</span>
+<span class="nc" id="L172">        receiptWritten.set(false);</span>
+<span class="nc" id="L173">        executionRoot = null;</span>
+<span class="nc" id="L174">        ModelObservations.reset();</span>
+<span class="nc" id="L175">    }</span>
+
     private void captureExecutionRoot(ExecutionEvent event) {
-<span class="nc bnc" id="L157" title="All 4 branches missed.">        if (executionRoot != null || event.getSession() == null) {</span>
-<span class="nc" id="L158">            return;</span>
+<span class="nc bnc" id="L178" title="All 4 branches missed.">        if (executionRoot != null || event.getSession() == null) {</span>
+<span class="nc" id="L179">            return;</span>
         }
-<span class="nc" id="L160">        java.io.File rootDirectory = event.getSession().getRequest().getMultiModuleProjectDirectory();</span>
-<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (rootDirectory != null) {</span>
-<span class="nc" id="L162">            executionRoot = rootDirectory.toPath();</span>
+<span class="nc" id="L181">        java.io.File rootDirectory = event.getSession().getRequest().getMultiModuleProjectDirectory();</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (rootDirectory != null) {</span>
+<span class="nc" id="L183">            executionRoot = rootDirectory.toPath();</span>
         }
-<span class="nc" id="L164">    }</span>
+<span class="nc" id="L185">    }</span>
 
     private void writeReceipt() {
-<span class="nc bnc" id="L167" title="All 2 branches missed.">        if (!receiptWritten.compareAndSet(false, true)) {</span>
-<span class="nc" id="L168">            return;</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        if (!receiptWritten.compareAndSet(false, true)) {</span>
+<span class="nc" id="L189">            return;</span>
         }
         try {
-<span class="nc bnc" id="L171" title="All 2 branches missed.">            Path root = executionRoot != null ? executionRoot : Path.of(System.getProperty(&quot;user.dir&quot;));</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">            Path root = executionRoot != null ? executionRoot : Path.of(System.getProperty(&quot;user.dir&quot;));</span>
             Ledger ledger;
-<span class="nc" id="L173">            String ledgerNote = &quot;&quot;;</span>
+<span class="nc" id="L194">            String ledgerNote = &quot;&quot;;</span>
             try {
-<span class="nc" id="L175">                ledger = Ledger.load(root.resolve(LEDGER_RELATIVE_PATH));</span>
-<span class="nc" id="L176">            } catch (IOException | IllegalArgumentException e) {</span>
-<span class="nc" id="L177">                ledger = Ledger.empty();</span>
-<span class="nc" id="L178">                ledgerNote = &quot;ledger &quot; + LEDGER_RELATIVE_PATH + &quot; not used: &quot; + e.getMessage();</span>
-<span class="nc" id="L179">            }</span>
+<span class="nc" id="L196">                ledger = Ledger.load(root.resolve(LEDGER_RELATIVE_PATH));</span>
+<span class="nc" id="L197">            } catch (IOException | IllegalArgumentException e) {</span>
+<span class="nc" id="L198">                ledger = Ledger.empty();</span>
+<span class="nc" id="L199">                ledgerNote = &quot;ledger &quot; + LEDGER_RELATIVE_PATH + &quot; not used: &quot; + e.getMessage();</span>
+<span class="nc" id="L200">            }</span>
             List&lt;Finding&gt; snapshot;
-<span class="nc" id="L181">            synchronized (findings) {</span>
-<span class="nc" id="L182">                snapshot = List.copyOf(findings);</span>
-<span class="nc" id="L183">            }</span>
-<span class="nc" id="L184">            LedgerEvaluation evaluation = ledger.evaluate(snapshot);</span>
-<span class="nc" id="L185">            String receipt = ReceiptRenderer.render(</span>
-<span class="nc" id="L186">                    toolVersion(), ZonedDateTime.now(), ledger.mode(), ledgerNote, evaluation);</span>
-<span class="nc bnc" id="L187" title="All 2 branches missed.">            if (Boolean.getBoolean(DEBUG_PROPERTY)) {</span>
-<span class="nc" id="L188">                receipt = receipt + renderDiagnostic();</span>
+<span class="nc" id="L202">            synchronized (findings) {</span>
+<span class="nc" id="L203">                snapshot = new ArrayList&lt;&gt;(findings);</span>
+<span class="nc" id="L204">            }</span>
+<span class="nc" id="L205">            snapshot.addAll(ModelCrossReference.findings(ModelObservations.snapshot(), root));</span>
+<span class="nc" id="L206">            LedgerEvaluation evaluation = ledger.evaluate(snapshot);</span>
+<span class="nc" id="L207">            String receipt = ReceiptRenderer.render(</span>
+<span class="nc" id="L208">                    toolVersion(), ZonedDateTime.now(), ledger.mode(), ledgerNote, evaluation);</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">            if (Boolean.getBoolean(DEBUG_PROPERTY)) {</span>
+<span class="nc" id="L210">                receipt = receipt + renderDiagnostic();</span>
             }
-<span class="nc" id="L190">            Path receiptFile = root.resolve(RECEIPT_FILE_NAME);</span>
-<span class="nc" id="L191">            Files.writeString(receiptFile, receipt, StandardCharsets.UTF_8);</span>
-<span class="nc bnc" id="L192" title="All 2 branches missed.">            if (evaluation.demandsAttention()) {</span>
-<span class="nc" id="L193">                LOG.warn(&quot;ike-build-report: {} failure(s), {} attention item(s) — see {}&quot;,</span>
-<span class="nc" id="L194">                        evaluation.failures().size(), evaluation.attention().size(), receiptFile);</span>
+<span class="nc" id="L212">            Path receiptFile = root.resolve(RECEIPT_FILE_NAME);</span>
+<span class="nc" id="L213">            Files.writeString(receiptFile, receipt, StandardCharsets.UTF_8);</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">            if (evaluation.demandsAttention()) {</span>
+<span class="nc" id="L215">                LOG.warn(&quot;ike-build-report: {} failure(s), {} attention item(s) — see {}&quot;,</span>
+<span class="nc" id="L216">                        evaluation.failures().size(), evaluation.attention().size(), receiptFile);</span>
             } else {
-<span class="nc" id="L196">                LOG.info(&quot;ike-build-report: clean — receipt at {}&quot;, receiptFile);</span>
+<span class="nc" id="L218">                LOG.info(&quot;ike-build-report: clean — receipt at {}&quot;, receiptFile);</span>
             }
-<span class="nc" id="L198">        } catch (Exception e) {</span>
-<span class="nc" id="L199">            LOG.warn(&quot;ike-build-report: could not write receipt: {}&quot;, e.toString());</span>
-<span class="nc" id="L200">        }</span>
-<span class="nc" id="L201">    }</span>
+<span class="nc" id="L220">        } catch (Exception e) {</span>
+<span class="nc" id="L221">            LOG.warn(&quot;ike-build-report: could not write receipt: {}&quot;, e.toString());</span>
+<span class="nc" id="L222">        }</span>
+<span class="nc" id="L223">    }</span>
 
     private String renderDiagnostic() {
-<span class="nc" id="L204">        StringBuilder out = new StringBuilder(&quot;\n## DIAGNOSTIC\n\n&quot;);</span>
-<span class="nc" id="L205">        synchronized (observedEventTypes) {</span>
-<span class="nc bnc" id="L206" title="All 2 branches missed.">            for (String type : observedEventTypes) {</span>
-<span class="nc" id="L207">                out.append(&quot;- &quot;).append(type).append('\n');</span>
-<span class="nc" id="L208">            }</span>
-<span class="nc" id="L209">        }</span>
-<span class="nc" id="L210">        return out.toString();</span>
+<span class="nc" id="L226">        StringBuilder out = new StringBuilder(&quot;\n## DIAGNOSTIC\n\n&quot;);</span>
+<span class="nc" id="L227">        synchronized (observedEventTypes) {</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">            for (String type : observedEventTypes) {</span>
+<span class="nc" id="L229">                out.append(&quot;- &quot;).append(type).append('\n');</span>
+<span class="nc" id="L230">            }</span>
+<span class="nc" id="L231">        }</span>
+<span class="nc" id="L232">        return out.toString();</span>
     }
 
     private static String describeEventType(Object event) {
-<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (event instanceof ExecutionEvent) {</span>
-<span class="nc" id="L215">            return &quot;ExecutionEvent.&quot; + ((ExecutionEvent) event).getType();</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        if (event instanceof ExecutionEvent) {</span>
+<span class="nc" id="L237">            return &quot;ExecutionEvent.&quot; + ((ExecutionEvent) event).getType();</span>
         }
-<span class="nc bnc" id="L217" title="All 2 branches missed.">        if (event instanceof RepositoryEvent) {</span>
-<span class="nc" id="L218">            return &quot;RepositoryEvent.&quot; + ((RepositoryEvent) event).getType();</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (event instanceof RepositoryEvent) {</span>
+<span class="nc" id="L240">            return &quot;RepositoryEvent.&quot; + ((RepositoryEvent) event).getType();</span>
         }
-<span class="nc bnc" id="L220" title="All 2 branches missed.">        return event == null ? &quot;null&quot; : event.getClass().getName();</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        return event == null ? &quot;null&quot; : event.getClass().getName();</span>
     }
 
     private static String describeMojo(MojoExecution mojo) {
-<span class="nc bnc" id="L224" title="All 2 branches missed.">        if (mojo == null) {</span>
-<span class="nc" id="L225">            return &quot;unknown&quot;;</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (mojo == null) {</span>
+<span class="nc" id="L247">            return &quot;unknown&quot;;</span>
         }
-<span class="nc" id="L227">        return mojo.getPlugin().getArtifactId() + &quot;:&quot; + mojo.getGoal();</span>
+<span class="nc" id="L249">        return mojo.getPlugin().getArtifactId() + &quot;:&quot; + mojo.getGoal();</span>
     }
 
     private static String describeProject(ExecutionEvent event) {
-<span class="nc bnc" id="L231" title="All 2 branches missed.">        return event.getProject() == null ? &quot;unknown&quot; : event.getProject().getArtifactId();</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">        return event.getProject() == null ? &quot;unknown&quot; : event.getProject().getArtifactId();</span>
     }
 
     private static String describeRepository(ArtifactRepository repository) {
-<span class="nc bnc" id="L235" title="All 2 branches missed.">        return repository == null ? &quot;unknown&quot; : repository.getId();</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">        return repository == null ? &quot;unknown&quot; : repository.getId();</span>
     }
 
     private static String describeSubject(RepositoryEvent event) {
-<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (event.getMetadata() != null) {</span>
-<span class="nc" id="L240">            return String.valueOf(event.getMetadata());</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        if (event.getMetadata() != null) {</span>
+<span class="nc" id="L262">            return String.valueOf(event.getMetadata());</span>
         }
-<span class="nc bnc" id="L242" title="All 2 branches missed.">        if (event.getArtifact() != null) {</span>
-<span class="nc" id="L243">            return String.valueOf(event.getArtifact());</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        if (event.getArtifact() != null) {</span>
+<span class="nc" id="L265">            return String.valueOf(event.getArtifact());</span>
         }
-<span class="nc" id="L245">        return &quot;unknown&quot;;</span>
+<span class="nc" id="L267">        return &quot;unknown&quot;;</span>
     }
 
     private static String describeThrowable(Throwable throwable) {
-<span class="nc bnc" id="L249" title="All 2 branches missed.">        if (throwable == null) {</span>
-<span class="nc" id="L250">            return &quot;no exception detail&quot;;</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        if (throwable == null) {</span>
+<span class="nc" id="L272">            return &quot;no exception detail&quot;;</span>
         }
-<span class="nc" id="L252">        String message = throwable.getMessage();</span>
-<span class="nc bnc" id="L253" title="All 4 branches missed.">        return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : message;</span>
+<span class="nc" id="L274">        String message = throwable.getMessage();</span>
+<span class="nc bnc" id="L275" title="All 4 branches missed.">        return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : message;</span>
     }
 
     private static String toolVersion() {
-<span class="nc" id="L257">        try (InputStream in = BuildReportSpy.class.getResourceAsStream(&quot;build-report.properties&quot;)) {</span>
-<span class="nc bnc" id="L258" title="All 2 branches missed.">            if (in != null) {</span>
-<span class="nc" id="L259">                Properties properties = new Properties();</span>
-<span class="nc" id="L260">                properties.load(in);</span>
-<span class="nc" id="L261">                return properties.getProperty(&quot;version&quot;, &quot;unknown&quot;);</span>
+<span class="nc" id="L279">        try (InputStream in = BuildReportSpy.class.getResourceAsStream(&quot;build-report.properties&quot;)) {</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            if (in != null) {</span>
+<span class="nc" id="L281">                Properties properties = new Properties();</span>
+<span class="nc" id="L282">                properties.load(in);</span>
+<span class="nc" id="L283">                return properties.getProperty(&quot;version&quot;, &quot;unknown&quot;);</span>
             }
-<span class="nc bnc" id="L263" title="All 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">        } catch (IOException e) {</span>
             // fall through to unknown
-<span class="nc" id="L265">        }</span>
-<span class="nc" id="L266">        return &quot;unknown&quot;;</span>
+<span class="nc" id="L287">        }</span>
+<span class="nc" id="L288">        return &quot;unknown&quot;;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
