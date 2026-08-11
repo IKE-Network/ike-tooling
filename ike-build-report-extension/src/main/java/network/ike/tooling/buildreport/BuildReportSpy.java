@@ -56,6 +56,12 @@ public class BuildReportSpy implements EventSpy {
 
     private final List<Finding> findings = Collections.synchronizedList(new ArrayList<>());
     private final Set<String> observedEventTypes = Collections.synchronizedSet(new LinkedHashSet<>());
+
+    /**
+     * Creates the spy; instantiated by the Maven container via the sisu
+     * index, never directly.
+     */
+    public BuildReportSpy() {}
     private final AtomicBoolean receiptWritten = new AtomicBoolean(false);
     private volatile Path executionRoot;
 
