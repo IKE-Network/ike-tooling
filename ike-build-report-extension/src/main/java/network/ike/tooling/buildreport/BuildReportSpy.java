@@ -103,6 +103,7 @@ public class BuildReportSpy implements EventSpy {
 
     private void onExecutionEvent(ExecutionEvent event) {
         switch (event.getType()) {
+            case ProjectDiscoveryStarted -> resetSession();
             case SessionStarted -> captureExecutionRoot(event);
             case MojoFailed -> findings.add(new Finding(
                     FindingCategory.EXECUTION,
@@ -153,6 +154,20 @@ public class BuildReportSpy implements EventSpy {
         return exception.getClass().getSimpleName().endsWith("NotFoundException");
     }
 
+    /**
+     * Clears all session state at {@code ProjectDiscoveryStarted} —
+     * before model building — so a long-lived JVM (the IDE's
+     * maven-server) starts every session clean and writes a fresh
+     * receipt each time.
+     */
+    private void resetSession() {
+        findings.clear();
+        observedEventTypes.clear();
+        receiptWritten.set(false);
+        executionRoot = null;
+        ModelObservations.reset();
+    }
+
     private void captureExecutionRoot(ExecutionEvent event) {
         if (executionRoot != null || event.getSession() == null) {
             return;
@@ -179,8 +194,9 @@ public class BuildReportSpy implements EventSpy {
             }
             List<Finding> snapshot;
             synchronized (findings) {
-                snapshot = List.copyOf(findings);
+                snapshot = new ArrayList<>(findings);
             }
+            snapshot.addAll(ModelCrossReference.findings(ModelObservations.snapshot(), root));
             LedgerEvaluation evaluation = ledger.evaluate(snapshot);
             String receipt = ReceiptRenderer.render(
                     toolVersion(), ZonedDateTime.now(), ledger.mode(), ledgerNote, evaluation);
