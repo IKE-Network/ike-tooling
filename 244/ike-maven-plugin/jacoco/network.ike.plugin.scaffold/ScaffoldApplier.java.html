@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScaffoldApplier.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">ScaffoldApplier.java</span></div><h1>ScaffoldApplier.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Execute a {@link ScaffoldPlan}: write out Write-actions to disk and
+ * compose the updated {@link ScaffoldLockfile}.
+ *
+ * &lt;p&gt;Write actions are executed in order; the applier carefully
+ * creates parent directories and uses
+ * {@link StandardCopyOption#REPLACE_EXISTING} so existing files are
+ * atomically replaced.
+ *
+ * &lt;p&gt;{@link TierAction.Skip} actions are recorded in the returned
+ * lockfile as-is (the existing entry stays put). {@link TierAction.UpToDate}
+ * and {@link TierAction.UserManaged} actions refresh the
+ * {@code standards-version} on model-managed elements but are
+ * otherwise no-ops.
+ */
+public final class ScaffoldApplier {
+
+    private final Clock clock;
+
+    /** Construct with {@link Clock#systemUTC()}. */
+    public ScaffoldApplier() {
+<span class="fc" id="L37">        this(Clock.systemUTC());</span>
+<span class="fc" id="L38">    }</span>
+
+    /**
+     * Construct with an explicit clock. Tests supply a fixed clock so
+     * the {@code generated-at} timestamp recorded in the updated
+     * lockfile is deterministic.
+     *
+     * @param clock clock used for timestamps written into the lockfile
+     */
+<span class="fc" id="L47">    public ScaffoldApplier(Clock clock) {</span>
+<span class="fc" id="L48">        this.clock = clock;</span>
+<span class="fc" id="L49">    }</span>
+
+    /**
+     * Carry out a plan.
+     *
+     * @param plan            the plan to execute
+     * @param currentLockfile the current lockfile (so entries outside
+     *                        the plan's scope are preserved verbatim)
+     * @return the updated lockfile
+     * @throws ScaffoldException if any Write fails
+     */
+    public ScaffoldLockfile apply(
+            ScaffoldPlan plan,
+            ScaffoldLockfile currentLockfile) {
+<span class="fc" id="L63">        Map&lt;String, LockfileEntry&gt; files =</span>
+<span class="fc" id="L64">                new LinkedHashMap&lt;&gt;(currentLockfile.files());</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">        for (PlannedEntry pe : plan.entries()) {</span>
+<span class="fc" id="L66">            LockfileEntry updated = applyOne(pe);</span>
+<span class="fc bfc" id="L67" title="All 2 branches covered.">            if (updated != null) {</span>
+<span class="fc" id="L68">                files.put(pe.manifest().dest(), updated);</span>
+            }
+            // Skip actions retain whatever the lockfile already had.
+<span class="fc" id="L71">        }</span>
+<span class="fc" id="L72">        return new ScaffoldLockfile(</span>
+                ScaffoldLockfile.CURRENT_SCHEMA,
+<span class="fc" id="L74">                plan.manifestStandardsVersion(),</span>
+<span class="fc" id="L75">                Instant.now(clock),</span>
+                files);
+    }
+
+    /**
+     * Remove orphaned scaffold files and drop their lockfile entries.
+     *
+     * &lt;p&gt;Run after {@link #apply} on the lockfile that {@code apply}
+     * returned. For each {@link OrphanEntry.Disposition#REMOVE} orphan
+     * the on-disk file is deleted; for {@code REMOVE} and
+     * {@link OrphanEntry.Disposition#ALREADY_ABSENT} orphans the stale
+     * lockfile entry is dropped. {@link OrphanEntry.Disposition#SKIP_USER_EDITED}
+     * orphans are left entirely alone — file and lockfile entry both
+     * stay, so the orphan keeps surfacing until the operator resolves
+     * it.
+     *
+     * @param orphans  orphans found by {@link OrphanScanner}
+     * @param lockfile the lockfile to prune (typically the result of
+     *                 {@link #apply})
+     * @return the lockfile with removed/absent orphan entries dropped
+     * @throws ScaffoldException if a file deletion fails
+     */
+    public ScaffoldLockfile removeOrphans(
+            List&lt;OrphanEntry&gt; orphans,
+            ScaffoldLockfile lockfile) {
+<span class="fc" id="L100">        ScaffoldLockfile result = lockfile;</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">        for (OrphanEntry orphan : orphans) {</span>
+<span class="fc bfc" id="L102" title="All 3 branches covered.">            switch (orphan.disposition()) {</span>
+                case REMOVE -&gt; {
+<span class="fc" id="L104">                    deleteFile(orphan.resolvedDest());</span>
+<span class="fc" id="L105">                    result = result.withoutEntry(orphan.dest());</span>
+<span class="fc" id="L106">                }</span>
+                case ALREADY_ABSENT -&gt;
+<span class="fc" id="L108">                        result = result.withoutEntry(orphan.dest());</span>
+                case SKIP_USER_EDITED -&gt; {
+                    // Leave the file and the lockfile entry in place.
+                }
+            }
+<span class="fc" id="L113">        }</span>
+<span class="fc" id="L114">        return result;</span>
+    }
+
+    private static void deleteFile(Path dest) {
+        try {
+<span class="fc" id="L119">            Files.delete(dest);</span>
+<span class="nc" id="L120">        } catch (IOException e) {</span>
+<span class="nc" id="L121">            throw new ScaffoldException(</span>
+                    &quot;cannot delete orphaned scaffold file &quot; + dest, e);
+<span class="fc" id="L123">        }</span>
+<span class="fc" id="L124">    }</span>
+
+    private LockfileEntry applyOne(PlannedEntry pe) {
+<span class="fc" id="L127">        TierAction action = pe.action();</span>
+<span class="fc bfc" id="L128" title="All 2 branches covered.">        if (action instanceof TierAction.Write w) {</span>
+<span class="fc" id="L129">            FileMode mode =</span>
+<span class="fc" id="L130">                    FileMode.fromManifest(w.entry().extras().get(&quot;mode&quot;));</span>
+<span class="fc" id="L131">            writeBytes(w.resolvedDest(), w.newContent(), mode);</span>
+<span class="fc" id="L132">            return lockfileEntryFor(pe, w.templateSha(), w.appliedSha());</span>
+        }
+<span class="fc bfc" id="L134" title="All 2 branches covered.">        if (action instanceof TierAction.UpToDate u) {</span>
+            // Refresh standards-version in the lockfile entry.
+<span class="fc" id="L136">            return lockfileEntryFor(pe, u.templateSha(), u.appliedSha());</span>
+        }
+<span class="fc bfc" id="L138" title="All 2 branches covered.">        if (action instanceof TierAction.UserManaged m) {</span>
+            // No write; refresh lockfile provenance like UpToDate.
+<span class="fc" id="L140">            return lockfileEntryFor(pe, m.templateSha(), m.appliedSha());</span>
+        }
+        // Skip: leave lockfile unchanged.
+<span class="fc" id="L143">        return null;</span>
+    }
+
+    private static LockfileEntry lockfileEntryFor(
+            PlannedEntry pe,
+            String templateSha,
+            String appliedSha) {
+<span class="fc" id="L150">        ScaffoldTier tier = pe.manifest().tier();</span>
+<span class="fc bfc" id="L151" title="All 3 branches covered.">        return switch (tier) {</span>
+            case TOOL_OWNED -&gt;
+<span class="fc" id="L153">                    LockfileEntry.toolOwned(templateSha);</span>
+            case TRACKED, TRACKED_BLOCK -&gt;
+<span class="fc" id="L155">                    LockfileEntry.tracked(</span>
+                            tier, templateSha, appliedSha);
+            case MODEL_MANAGED -&gt;
+<span class="fc" id="L158">                    LockfileEntry.modelManaged(pe.managedElements());</span>
+        };
+    }
+
+    /**
+     * Write {@code content} to {@code dest} atomically, then apply the
+     * file's {@link FileMode} on POSIX filesystems.
+     *
+     * &lt;p&gt;The write itself goes through a sibling temp file (created
+     * {@code 0600} by the JDK) + an atomic move, so the destination's
+     * permissions come from this method, not the moved temp file.
+     * Mode policy:
+     * &lt;ul&gt;
+     *   &lt;li&gt;an explicit mode ({@link FileMode#EXECUTABLE},
+     *       {@link FileMode#PRIVATE}) is always enforced — this is what
+     *       makes {@code mvnw} land {@code 0755} and the parked git
+     *       hooks land {@code 0600};&lt;/li&gt;
+     *   &lt;li&gt;{@link FileMode#DEFAULT} applies {@code 0644} when the file
+     *       did not exist before (install), but &lt;em&gt;preserves&lt;/em&gt; a
+     *       pre-existing file's permissions on update so the applier
+     *       never loosens, say, a locked-down {@code ~/.m2/settings.xml}
+     *       to {@code 0644}.&lt;/li&gt;
+     * &lt;/ul&gt;
+     *
+     * &lt;p&gt;On non-POSIX filesystems (e.g. Windows) the permission step is
+     * skipped silently — the bytes are still written.
+     *
+     * @param dest    destination path
+     * @param content bytes to write
+     * @param mode    declared file mode for this entry
+     */
+    private static void writeBytes(Path dest, byte[] content, FileMode mode) {
+        try {
+<span class="fc" id="L191">            Path parent = dest.getParent();</span>
+<span class="pc bpc" id="L192" title="1 of 2 branches missed.">            if (parent != null) {</span>
+<span class="fc" id="L193">                Files.createDirectories(parent);</span>
+            }
+
+<span class="fc" id="L196">            boolean posix = supportsPosix(dest);</span>
+            Set&lt;PosixFilePermission&gt; priorPerms =
+<span class="pc bpc" id="L198" title="1 of 2 branches missed.">                    posix ? readPosixPermissions(dest) : null;</span>
+
+<span class="fc" id="L200">            Path tmp = Files.createTempFile(</span>
+<span class="pc bpc" id="L201" title="1 of 2 branches missed.">                    parent == null ? dest.toAbsolutePath().getParent()</span>
+<span class="fc" id="L202">                            : parent,</span>
+<span class="fc" id="L203">                    dest.getFileName().toString(), &quot;.tmp&quot;);</span>
+            try {
+<span class="fc" id="L205">                Files.write(tmp, content);</span>
+<span class="fc" id="L206">                Files.move(tmp, dest,</span>
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+<span class="nc" id="L209">            } catch (IOException e) {</span>
+                try {
+<span class="nc" id="L211">                    Files.deleteIfExists(tmp);</span>
+<span class="nc" id="L212">                } catch (IOException ignored) {</span>
+                    // ignore — best-effort cleanup
+<span class="nc" id="L214">                }</span>
+<span class="nc" id="L215">                throw e;</span>
+<span class="fc" id="L216">            }</span>
+
+<span class="pc bpc" id="L218" title="1 of 2 branches missed.">            if (posix) {</span>
+<span class="fc" id="L219">                applyMode(dest, mode, priorPerms);</span>
+            }
+<span class="nc" id="L221">        } catch (IOException e) {</span>
+<span class="nc" id="L222">            throw new ScaffoldException(</span>
+                    &quot;cannot write &quot; + dest, e);
+<span class="fc" id="L224">        }</span>
+<span class="fc" id="L225">    }</span>
+
+    /**
+     * Whether the destination's filesystem supports POSIX permissions.
+     *
+     * @param dest the destination path (need not exist yet)
+     * @return {@code true} if the {@code posix} attribute view is
+     *         supported
+     */
+    private static boolean supportsPosix(Path dest) {
+<span class="fc" id="L235">        return dest.getFileSystem()</span>
+<span class="fc" id="L236">                .supportedFileAttributeViews().contains(&quot;posix&quot;);</span>
+    }
+
+    /**
+     * Read the existing POSIX permissions of {@code dest}, or
+     * {@code null} when it does not yet exist (a fresh install) or
+     * cannot be read.
+     *
+     * @param dest the destination path
+     * @return the current permission set, or {@code null}
+     */
+    private static Set&lt;PosixFilePermission&gt; readPosixPermissions(Path dest) {
+<span class="fc bfc" id="L248" title="All 2 branches covered.">        if (!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) {</span>
+<span class="fc" id="L249">            return null;</span>
+        }
+        try {
+<span class="fc" id="L252">            return Files.getPosixFilePermissions(dest);</span>
+<span class="nc" id="L253">        } catch (IOException e) {</span>
+<span class="nc" id="L254">            return null;</span>
+        }
+    }
+
+    /**
+     * Apply the resolved file mode to {@code dest}. Best-effort: a
+     * permission failure is swallowed so the (already-written) content
+     * survives.
+     *
+     * @param dest       the freshly-written destination
+     * @param mode       declared mode for this entry
+     * @param priorPerms permissions the file carried before this write,
+     *                   or {@code null} if it was a fresh install
+     */
+    private static void applyMode(
+            Path dest,
+            FileMode mode,
+            Set&lt;PosixFilePermission&gt; priorPerms) {
+        Set&lt;PosixFilePermission&gt; target;
+<span class="fc bfc" id="L273" title="All 2 branches covered.">        if (mode.isExplicit()) {</span>
+<span class="fc" id="L274">            target = mode.toPosixPermissions();</span>
+<span class="fc bfc" id="L275" title="All 2 branches covered.">        } else if (priorPerms != null) {</span>
+<span class="fc" id="L276">            target = priorPerms;</span>
+        } else {
+<span class="fc" id="L278">            target = FileMode.DEFAULT.toPosixPermissions();</span>
+        }
+        try {
+<span class="fc" id="L281">            Files.setPosixFilePermissions(dest, target);</span>
+<span class="nc" id="L282">        } catch (IOException | UnsupportedOperationException e) {</span>
+            // Best-effort: leave whatever the atomic move produced.
+<span class="fc" id="L284">        }</span>
+<span class="fc" id="L285">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

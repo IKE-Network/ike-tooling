@@ -1,0 +1,316 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WorkspaceGraph.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">WorkspaceGraph.java</span></div><h1>WorkspaceGraph.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Graph operations over a workspace {@link Manifest}.
+ *
+ * &lt;p&gt;All algorithms operate on the subproject dependency graph defined
+ * by {@code depends-on} entries in workspace.yaml. The graph is small
+ * (typically &amp;lt; 20 nodes) so simple implementations are preferred
+ * over library dependencies.
+ *
+ * &lt;p&gt;{@code relationship: bundle} edges (package-time bundling of a
+ * repository-resolved artifact, IKE-Network/ike-issues#963) are
+ * excluded from the forward — build-ordering — graph, so they do not
+ * participate in {@link #topologicalSort} or {@link #detectCycle}.
+ * They remain in the reverse graph, so {@link #cascade} still reaches
+ * the bundling subproject when the bundled artifact changes.
+ */
+public final class WorkspaceGraph {
+
+    private final Manifest manifest;
+
+    /**
+     * Forward edges: subproject → subprojects it depends on for build
+     * ordering ({@code bundle} edges excluded).
+     */
+    private final Map&lt;String, List&lt;String&gt;&gt; forward;
+
+    /** Reverse edges: subproject → subprojects that depend on it. */
+    private final Map&lt;String, List&lt;String&gt;&gt; reverse;
+
+    /**
+     * Build a graph from the given manifest.
+     * @param manifest parsed workspace manifest
+     */
+<span class="fc" id="L45">    public WorkspaceGraph(Manifest manifest) {</span>
+<span class="fc" id="L46">        this.manifest = manifest;</span>
+<span class="fc" id="L47">        this.forward = buildForwardEdges();</span>
+<span class="fc" id="L48">        this.reverse = buildReverseEdges();</span>
+<span class="fc" id="L49">    }</span>
+
+    /**
+     * Return the underlying manifest.
+     *
+     * @return the parsed workspace manifest
+     */
+    public Manifest manifest() {
+<span class="fc" id="L57">        return manifest;</span>
+    }
+
+    // ── Topological Sort ────────────────────────────────────────────
+
+    /**
+     * Topological sort of the given subprojects (or all if none specified).
+     * Dependencies outside the target set are ignored.
+     *
+     * @param targetNames subprojects to include; empty means all
+     * @return subprojects in dependency order (dependencies first)
+     * @throws ManifestException if a cycle is detected
+     */
+    public List&lt;String&gt; topologicalSort(Set&lt;String&gt; targetNames) {
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        Set&lt;String&gt; targets = targetNames.isEmpty()</span>
+<span class="fc" id="L72">                ? manifest.subprojects().keySet()</span>
+<span class="fc" id="L73">                : targetNames;</span>
+
+        // Kahn's algorithm
+<span class="fc" id="L76">        Map&lt;String, Integer&gt; inDegree = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L77" title="All 2 branches covered.">        for (String name : targets) {</span>
+<span class="fc" id="L78">            inDegree.put(name, 0);</span>
+<span class="fc" id="L79">        }</span>
+<span class="fc bfc" id="L80" title="All 2 branches covered.">        for (String name : targets) {</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">            for (String dep : depsInSet(name, targets)) {</span>
+<span class="fc" id="L82">                inDegree.merge(dep, 0, Integer::sum); // ensure dep exists</span>
+<span class="fc" id="L83">                inDegree.merge(name, 1, Integer::sum);</span>
+<span class="fc" id="L84">            }</span>
+<span class="fc" id="L85">        }</span>
+
+<span class="fc" id="L87">        Deque&lt;String&gt; queue = new ArrayDeque&lt;&gt;();</span>
+<span class="fc bfc" id="L88" title="All 2 branches covered.">        for (Map.Entry&lt;String, Integer&gt; entry : inDegree.entrySet()) {</span>
+<span class="fc bfc" id="L89" title="All 2 branches covered.">            if (entry.getValue() == 0) {</span>
+<span class="fc" id="L90">                queue.add(entry.getKey());</span>
+            }
+<span class="fc" id="L92">        }</span>
+
+<span class="fc" id="L94">        List&lt;String&gt; sorted = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L95" title="All 2 branches covered.">        while (!queue.isEmpty()) {</span>
+<span class="fc" id="L96">            String current = queue.poll();</span>
+<span class="fc" id="L97">            sorted.add(current);</span>
+<span class="fc bfc" id="L98" title="All 2 branches covered.">            for (String name : targets) {</span>
+<span class="fc bfc" id="L99" title="All 2 branches covered.">                if (depsInSet(name, targets).contains(current)) {</span>
+<span class="fc" id="L100">                    int remaining = inDegree.merge(name, -1, Integer::sum);</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">                    if (remaining == 0) {</span>
+<span class="fc" id="L102">                        queue.add(name);</span>
+                    }
+                }
+<span class="fc" id="L105">            }</span>
+<span class="fc" id="L106">        }</span>
+
+<span class="pc bpc" id="L108" title="1 of 2 branches missed.">        if (sorted.size() &lt; targets.size()) {</span>
+<span class="nc" id="L109">            Set&lt;String&gt; missing = new LinkedHashSet&lt;&gt;(targets);</span>
+<span class="nc" id="L110">            missing.removeAll(sorted);</span>
+<span class="nc" id="L111">            throw new ManifestException(&quot;Dependency cycle involving: &quot; + missing);</span>
+        }
+
+<span class="fc" id="L114">        return Collections.unmodifiableList(sorted);</span>
+    }
+
+    /**
+     * Topological sort of all subprojects.
+     *
+     * @return subproject names in dependency order (leaves first)
+     */
+    public List&lt;String&gt; topologicalSort() {
+<span class="fc" id="L123">        return topologicalSort(Set.of());</span>
+    }
+
+    // ── Cascade Analysis ────────────────────────────────────────────
+
+    /**
+     * Compute the propagation set: all subprojects that transitively
+     * depend on the given subproject (BFS on reverse edges).
+     *
+     * &lt;p&gt;The result does NOT include the starting subproject itself.
+     *
+     * @param subprojectName the changed subproject
+     * @return subprojects affected by a change, in BFS discovery order
+     * @throws ManifestException if the subproject does not exist
+     */
+    public List&lt;String&gt; cascade(String subprojectName) {
+<span class="fc bfc" id="L139" title="All 2 branches covered.">        if (!manifest.subprojects().containsKey(subprojectName)) {</span>
+<span class="fc" id="L140">            throw new ManifestException(</span>
+                    &quot;Unknown subproject: &quot; + subprojectName);
+        }
+
+<span class="fc" id="L144">        List&lt;String&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L145">        Set&lt;String&gt; visited = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc" id="L146">        visited.add(subprojectName);</span>
+
+<span class="fc" id="L148">        Deque&lt;String&gt; queue = new ArrayDeque&lt;&gt;();</span>
+<span class="fc" id="L149">        queue.add(subprojectName);</span>
+
+<span class="fc bfc" id="L151" title="All 2 branches covered.">        while (!queue.isEmpty()) {</span>
+<span class="fc" id="L152">            String current = queue.poll();</span>
+<span class="fc" id="L153">            List&lt;String&gt; dependents = reverse.getOrDefault(current, List.of());</span>
+<span class="fc bfc" id="L154" title="All 2 branches covered.">            for (String dep : dependents) {</span>
+<span class="fc bfc" id="L155" title="All 2 branches covered.">                if (visited.add(dep)) {</span>
+<span class="fc" id="L156">                    result.add(dep);</span>
+<span class="fc" id="L157">                    queue.add(dep);</span>
+                }
+<span class="fc" id="L159">            }</span>
+<span class="fc" id="L160">        }</span>
+<span class="fc" id="L161">        return Collections.unmodifiableList(result);</span>
+    }
+
+    // ── Cycle Detection ─────────────────────────────────────────────
+
+    /**
+     * Detect dependency cycles. Returns the first cycle found as a
+     * list of subproject names forming the cycle, or an empty list
+     * if no cycles exist.
+     *
+     * @return cycle path, or empty list if acyclic
+     */
+    public List&lt;String&gt; detectCycle() {
+        // DFS with three-color marking: WHITE=unvisited, GRAY=in-stack, BLACK=done
+<span class="fc" id="L175">        Set&lt;String&gt; white = new LinkedHashSet&lt;&gt;(manifest.subprojects().keySet());</span>
+<span class="fc" id="L176">        Set&lt;String&gt; gray = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc" id="L177">        Map&lt;String, String&gt; parent = new LinkedHashMap&lt;&gt;();</span>
+
+<span class="fc bfc" id="L179" title="All 2 branches covered.">        for (String start : manifest.subprojects().keySet()) {</span>
+<span class="fc bfc" id="L180" title="All 2 branches covered.">            if (!white.contains(start)) continue;</span>
+
+<span class="fc" id="L182">            Deque&lt;String&gt; stack = new ArrayDeque&lt;&gt;();</span>
+<span class="fc" id="L183">            stack.push(start);</span>
+
+<span class="fc bfc" id="L185" title="All 2 branches covered.">            while (!stack.isEmpty()) {</span>
+<span class="fc" id="L186">                String current = stack.peek();</span>
+
+<span class="fc bfc" id="L188" title="All 2 branches covered.">                if (white.remove(current)) {</span>
+<span class="fc" id="L189">                    gray.add(current);</span>
+<span class="fc bfc" id="L190" title="All 2 branches covered.">                    for (String dep : forwardDeps(current)) {</span>
+<span class="fc bfc" id="L191" title="All 2 branches covered.">                        if (gray.contains(dep)) {</span>
+                            // Found cycle — reconstruct path
+<span class="fc" id="L193">                            return reconstructCycle(parent, current, dep);</span>
+                        }
+<span class="fc bfc" id="L195" title="All 2 branches covered.">                        if (white.contains(dep)) {</span>
+<span class="fc" id="L196">                            parent.put(dep, current);</span>
+<span class="fc" id="L197">                            stack.push(dep);</span>
+                        }
+<span class="fc" id="L199">                    }</span>
+                } else {
+<span class="fc" id="L201">                    stack.pop();</span>
+<span class="fc" id="L202">                    gray.remove(current);</span>
+                }
+<span class="fc" id="L204">            }</span>
+<span class="fc" id="L205">        }</span>
+<span class="fc" id="L206">        return List.of();</span>
+    }
+
+    private List&lt;String&gt; reconstructCycle(Map&lt;String, String&gt; parent,
+                                           String from, String to) {
+<span class="fc" id="L211">        List&lt;String&gt; cycle = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L212">        cycle.add(to);</span>
+<span class="fc" id="L213">        String current = from;</span>
+<span class="fc bfc" id="L214" title="All 2 branches covered.">        while (!current.equals(to)) {</span>
+<span class="fc" id="L215">            cycle.add(current);</span>
+<span class="fc" id="L216">            current = parent.getOrDefault(current, to);</span>
+        }
+<span class="fc" id="L218">        cycle.add(to);</span>
+<span class="fc" id="L219">        Collections.reverse(cycle);</span>
+<span class="fc" id="L220">        return Collections.unmodifiableList(cycle);</span>
+    }
+
+    // ── Manifest Verification ───────────────────────────────────────
+
+    /**
+     * Verify manifest consistency. Returns a list of error messages;
+     * an empty list means the manifest is valid.
+     *
+     * @return error messages, or empty list if valid
+     */
+    public List&lt;String&gt; verify() {
+<span class="fc" id="L232">        List&lt;String&gt; errors = new ArrayList&lt;&gt;();</span>
+
+        // Check 1: all dependency targets exist as subprojects, and
+        // every relationship value is a recognized one (a typo would
+        // otherwise silently change ordering semantics — #963).
+<span class="fc bfc" id="L237" title="All 2 branches covered.">        for (Subproject subproject : manifest.subprojects().values()) {</span>
+<span class="fc bfc" id="L238" title="All 2 branches covered.">            for (Dependency dep : subproject.dependsOn()) {</span>
+<span class="fc bfc" id="L239" title="All 2 branches covered.">                if (!manifest.subprojects().containsKey(dep.subproject())) {</span>
+<span class="fc" id="L240">                    errors.add(subproject.name() + &quot; depends on unknown subproject: &quot;</span>
+<span class="fc" id="L241">                            + dep.subproject());</span>
+                }
+<span class="pc bpc" id="L243" title="1 of 2 branches missed.">                if (dep.relationship() != null</span>
+<span class="fc bfc" id="L244" title="All 2 branches covered.">                        &amp;&amp; !Dependency.KNOWN_RELATIONSHIPS.contains(</span>
+<span class="fc" id="L245">                                dep.relationship().toLowerCase(java.util.Locale.ROOT))) {</span>
+<span class="fc" id="L246">                    errors.add(subproject.name() + &quot; depends on &quot;</span>
+<span class="fc" id="L247">                            + dep.subproject() + &quot; with unknown relationship: '&quot;</span>
+<span class="fc" id="L248">                            + dep.relationship()</span>
+                            + &quot;' (expected build | content | tooling | bundle)&quot;);
+                }
+<span class="fc" id="L251">            }</span>
+<span class="fc" id="L252">        }</span>
+
+        // Check 2: no dependency cycles
+<span class="fc" id="L255">        List&lt;String&gt; cycle = detectCycle();</span>
+<span class="pc bpc" id="L256" title="1 of 2 branches missed.">        if (!cycle.isEmpty()) {</span>
+<span class="nc" id="L257">            errors.add(&quot;Dependency cycle: &quot; + String.join(&quot; → &quot;, cycle));</span>
+        }
+
+        // Type validity is enforced at parse time by SubprojectType.fromYamlName,
+        // so by the time we reach verify() every subproject.type() is a valid
+        // enum value — no additional check needed here.
+
+<span class="fc" id="L264">        return Collections.unmodifiableList(errors);</span>
+    }
+
+    // ── Internal ────────────────────────────────────────────────────
+
+    private List&lt;String&gt; forwardDeps(String name) {
+<span class="fc" id="L270">        return forward.getOrDefault(name, List.of());</span>
+    }
+
+    private Set&lt;String&gt; depsInSet(String name, Set&lt;String&gt; targetSet) {
+<span class="fc" id="L274">        Set&lt;String&gt; result = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L275" title="All 2 branches covered.">        for (String dep : forwardDeps(name)) {</span>
+<span class="fc bfc" id="L276" title="All 2 branches covered.">            if (targetSet.contains(dep)) {</span>
+<span class="fc" id="L277">                result.add(dep);</span>
+            }
+<span class="fc" id="L279">        }</span>
+<span class="fc" id="L280">        return result;</span>
+    }
+
+    private Map&lt;String, List&lt;String&gt;&gt; buildForwardEdges() {
+<span class="fc" id="L284">        Map&lt;String, List&lt;String&gt;&gt; edges = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L285" title="All 2 branches covered.">        for (Subproject subproject : manifest.subprojects().values()) {</span>
+<span class="fc" id="L286">            List&lt;String&gt; deps = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L287" title="All 2 branches covered.">            for (Dependency dep : subproject.dependsOn()) {</span>
+<span class="fc bfc" id="L288" title="All 2 branches covered.">                if (!dep.ordersBuild()) continue;</span>
+<span class="fc" id="L289">                deps.add(dep.subproject());</span>
+<span class="fc" id="L290">            }</span>
+<span class="fc" id="L291">            edges.put(subproject.name(), Collections.unmodifiableList(deps));</span>
+<span class="fc" id="L292">        }</span>
+<span class="fc" id="L293">        return Collections.unmodifiableMap(edges);</span>
+    }
+
+    private Map&lt;String, List&lt;String&gt;&gt; buildReverseEdges() {
+<span class="fc" id="L297">        Map&lt;String, List&lt;String&gt;&gt; edges = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L298" title="All 2 branches covered.">        for (String name : manifest.subprojects().keySet()) {</span>
+<span class="fc" id="L299">            edges.put(name, new ArrayList&lt;&gt;());</span>
+<span class="fc" id="L300">        }</span>
+<span class="fc bfc" id="L301" title="All 2 branches covered.">        for (Subproject subproject : manifest.subprojects().values()) {</span>
+<span class="fc bfc" id="L302" title="All 2 branches covered.">            for (Dependency dep : subproject.dependsOn()) {</span>
+<span class="fc" id="L303">                edges.computeIfAbsent(dep.subproject(), k -&gt; new ArrayList&lt;&gt;())</span>
+<span class="fc" id="L304">                        .add(subproject.name());</span>
+<span class="fc" id="L305">            }</span>
+<span class="fc" id="L306">        }</span>
+        // Make immutable
+<span class="fc" id="L308">        Map&lt;String, List&lt;String&gt;&gt; immutable = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L309" title="All 2 branches covered.">        for (Map.Entry&lt;String, List&lt;String&gt;&gt; entry : edges.entrySet()) {</span>
+<span class="fc" id="L310">            immutable.put(entry.getKey(),</span>
+<span class="fc" id="L311">                    Collections.unmodifiableList(entry.getValue()));</span>
+<span class="fc" id="L312">        }</span>
+<span class="fc" id="L313">        return Collections.unmodifiableMap(immutable);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

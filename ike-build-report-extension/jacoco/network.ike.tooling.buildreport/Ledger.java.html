@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Ledger.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">Ledger.java</span></div><h1>Ledger.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+
+/**
+ * The committed acceptance ledger, normally read from
+ * {@code .mvn/build-report.yaml} at the execution root.
+ *
+ * &lt;p&gt;Expected shape:&lt;/p&gt;
+ *
+ * &lt;pre&gt;{@code
+ * mode: report          # report | gate
+ * accepted:
+ *   - key: model-problem/bom-import-from-reactor
+ *     count: 2
+ *     reason: accepted by design — see IKE-WORKSPACE.md
+ *     since: 2026-08-10
+ * }&lt;/pre&gt;
+ *
+ * &lt;p&gt;A missing file yields {@link #empty()}: report mode, no accepted
+ * entries — every warning finding surfaces under ATTENTION.&lt;/p&gt;
+ */
+public final class Ledger {
+
+    private final LedgerMode mode;
+    private final List&lt;AcceptedEntry&gt; entries;
+
+<span class="fc" id="L41">    private Ledger(LedgerMode mode, List&lt;AcceptedEntry&gt; entries) {</span>
+<span class="fc" id="L42">        this.mode = mode;</span>
+<span class="fc" id="L43">        this.entries = List.copyOf(entries);</span>
+<span class="fc" id="L44">    }</span>
+
+    /**
+     * Creates the ledger used when no ledger file exists.
+     *
+     * @return an empty ledger in {@link LedgerMode#REPORT} mode
+     */
+    public static Ledger empty() {
+<span class="fc" id="L52">        return new Ledger(LedgerMode.REPORT, List.of());</span>
+    }
+
+    /**
+     * Loads a ledger from a YAML file.
+     *
+     * @param file the ledger file, typically {@code .mvn/build-report.yaml}
+     * @return the parsed ledger, or {@link #empty()} when the file does not exist
+     * @throws IOException              when the file exists but cannot be read
+     * @throws IllegalArgumentException when the YAML shape is not a ledger
+     */
+    public static Ledger load(Path file) throws IOException {
+<span class="fc" id="L64">        Objects.requireNonNull(file, &quot;file&quot;);</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">        if (!Files.exists(file)) {</span>
+<span class="fc" id="L66">            return empty();</span>
+        }
+<span class="fc" id="L68">        try (Reader reader = Files.newBufferedReader(file)) {</span>
+<span class="fc" id="L69">            Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));</span>
+<span class="fc" id="L70">            Object root = yaml.load(reader);</span>
+<span class="pc bpc" id="L71" title="1 of 2 branches missed.">            if (root == null) {</span>
+<span class="nc" id="L72">                return empty();</span>
+            }
+<span class="pc bpc" id="L74" title="1 of 2 branches missed.">            if (!(root instanceof Map)) {</span>
+<span class="nc" id="L75">                throw new IllegalArgumentException(</span>
+<span class="nc" id="L76">                        &quot;ledger root must be a mapping, was: &quot; + root.getClass().getSimpleName());</span>
+            }
+<span class="fc" id="L78">            Map&lt;?, ?&gt; map = (Map&lt;?, ?&gt;) root;</span>
+<span class="fc" id="L79">            LedgerMode mode = parseMode(map.get(&quot;mode&quot;));</span>
+<span class="fc" id="L80">            List&lt;AcceptedEntry&gt; entries = parseEntries(map.get(&quot;accepted&quot;));</span>
+<span class="fc" id="L81">            return new Ledger(mode, entries);</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        }</span>
+    }
+
+    private static LedgerMode parseMode(Object value) {
+<span class="fc bfc" id="L86" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L87">            return LedgerMode.REPORT;</span>
+        }
+<span class="fc" id="L89">        String text = String.valueOf(value).strip().toUpperCase(Locale.ROOT);</span>
+        try {
+<span class="fc" id="L91">            return LedgerMode.valueOf(text);</span>
+<span class="fc" id="L92">        } catch (IllegalArgumentException e) {</span>
+<span class="fc" id="L93">            throw new IllegalArgumentException(&quot;mode must be report or gate, was: &quot; + value);</span>
+        }
+    }
+
+    private static List&lt;AcceptedEntry&gt; parseEntries(Object value) {
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L99">            return List.of();</span>
+        }
+<span class="pc bpc" id="L101" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
+<span class="nc" id="L102">            throw new IllegalArgumentException(</span>
+<span class="nc" id="L103">                    &quot;accepted must be a list, was: &quot; + value.getClass().getSimpleName());</span>
+        }
+<span class="fc" id="L105">        List&lt;AcceptedEntry&gt; entries = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L106" title="All 2 branches covered.">        for (Object item : (List&lt;?&gt;) value) {</span>
+<span class="pc bpc" id="L107" title="1 of 2 branches missed.">            if (!(item instanceof Map)) {</span>
+<span class="nc" id="L108">                throw new IllegalArgumentException(&quot;accepted entries must be mappings, found: &quot; + item);</span>
+            }
+<span class="fc" id="L110">            Map&lt;?, ?&gt; entry = (Map&lt;?, ?&gt;) item;</span>
+<span class="fc" id="L111">            Object key = entry.get(&quot;key&quot;);</span>
+<span class="pc bpc" id="L112" title="1 of 2 branches missed.">            if (key == null) {</span>
+<span class="nc" id="L113">                throw new IllegalArgumentException(&quot;accepted entry is missing its key: &quot; + entry);</span>
+            }
+<span class="fc" id="L115">            Object count = entry.get(&quot;count&quot;);</span>
+<span class="fc bfc" id="L116" title="All 2 branches covered.">            if (!(count instanceof Integer)) {</span>
+<span class="fc" id="L117">                throw new IllegalArgumentException(</span>
+                        &quot;accepted entry '&quot; + key + &quot;' needs an integer count, was: &quot; + count);
+            }
+<span class="fc" id="L120">            entries.add(new AcceptedEntry(</span>
+<span class="fc" id="L121">                    String.valueOf(key),</span>
+<span class="fc" id="L122">                    (Integer) count,</span>
+<span class="fc bfc" id="L123" title="All 2 branches covered.">                    entry.get(&quot;reason&quot;) == null ? &quot;&quot; : String.valueOf(entry.get(&quot;reason&quot;)),</span>
+<span class="fc" id="L124">                    stringifySince(entry.get(&quot;since&quot;))));</span>
+<span class="fc" id="L125">        }</span>
+<span class="fc" id="L126">        return entries;</span>
+    }
+
+    /**
+     * Canonicalizes the {@code since} value to an ISO date string.
+     *
+     * &lt;p&gt;YAML resolves a bare {@code 2026-08-10} scalar as a timestamp
+     * ({@link java.util.Date} at midnight UTC), so the raw value must be
+     * mapped back to the date the author wrote.&lt;/p&gt;
+     */
+    private static String stringifySince(Object value) {
+<span class="fc bfc" id="L137" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L138">            return &quot;&quot;;</span>
+        }
+<span class="pc bpc" id="L140" title="1 of 2 branches missed.">        if (value instanceof java.util.Date date) {</span>
+<span class="fc" id="L141">            return java.time.Instant.ofEpochMilli(date.getTime())</span>
+<span class="fc" id="L142">                    .atZone(java.time.ZoneOffset.UTC)</span>
+<span class="fc" id="L143">                    .toLocalDate()</span>
+<span class="fc" id="L144">                    .toString();</span>
+        }
+<span class="nc" id="L146">        return String.valueOf(value);</span>
+    }
+
+    /**
+     * Returns the enforcement posture declared by the ledger.
+     *
+     * @return the ledger's mode; {@link LedgerMode#REPORT} when undeclared
+     */
+    public LedgerMode mode() {
+<span class="fc" id="L155">        return mode;</span>
+    }
+
+    /**
+     * Returns the accepted entries in declaration order.
+     *
+     * @return an immutable list of accepted entries
+     */
+    public List&lt;AcceptedEntry&gt; entries() {
+<span class="fc" id="L164">        return entries;</span>
+    }
+
+    /**
+     * Compares a session's findings against this ledger.
+     *
+     * &lt;p&gt;{@link Severity#ERROR} findings go to failures unconditionally.
+     * Warning findings are grouped by key: unaccepted keys and counts
+     * above expectation go to attention; counts at expectation go to
+     * accepted; counts below expectation (including zero) go to both
+     * accepted bookkeeping and the ratchet list.&lt;/p&gt;
+     *
+     * @param findings the session's findings in observation order
+     * @return the evaluation backing the receipt's sections
+     */
+    public LedgerEvaluation evaluate(List&lt;Finding&gt; findings) {
+<span class="fc" id="L180">        Objects.requireNonNull(findings, &quot;findings&quot;);</span>
+<span class="fc" id="L181">        List&lt;Finding&gt; failures = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L182">        Map&lt;String, List&lt;Finding&gt;&gt; warningsByKey = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L183" title="All 2 branches covered.">        for (Finding finding : findings) {</span>
+<span class="fc bfc" id="L184" title="All 2 branches covered.">            if (finding.severity() == Severity.ERROR) {</span>
+<span class="fc" id="L185">                failures.add(finding);</span>
+            } else {
+<span class="fc" id="L187">                warningsByKey.computeIfAbsent(finding.key(), k -&gt; new ArrayList&lt;&gt;()).add(finding);</span>
+            }
+<span class="fc" id="L189">        }</span>
+
+<span class="fc" id="L191">        Map&lt;String, AcceptedEntry&gt; entriesByKey = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">        for (AcceptedEntry entry : entries) {</span>
+<span class="fc" id="L193">            entriesByKey.put(entry.key(), entry);</span>
+<span class="fc" id="L194">        }</span>
+
+<span class="fc" id="L196">        List&lt;LedgerEvaluation.AttentionItem&gt; attention = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L197">        List&lt;LedgerEvaluation.AcceptedStatus&gt; accepted = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L198">        List&lt;LedgerEvaluation.AcceptedStatus&gt; ratchet = new ArrayList&lt;&gt;();</span>
+
+<span class="fc bfc" id="L200" title="All 2 branches covered.">        for (Map.Entry&lt;String, List&lt;Finding&gt;&gt; observed : warningsByKey.entrySet()) {</span>
+<span class="fc" id="L201">            AcceptedEntry entry = entriesByKey.remove(observed.getKey());</span>
+<span class="fc" id="L202">            long count = observed.getValue().size();</span>
+<span class="fc" id="L203">            String sample = observed.getValue().get(0).detail();</span>
+<span class="fc bfc" id="L204" title="All 2 branches covered.">            if (entry == null) {</span>
+<span class="fc" id="L205">                attention.add(new LedgerEvaluation.AttentionItem(observed.getKey(), count, null, sample));</span>
+<span class="fc bfc" id="L206" title="All 2 branches covered.">            } else if (count &gt; entry.count()) {</span>
+<span class="fc" id="L207">                attention.add(new LedgerEvaluation.AttentionItem(observed.getKey(), count, entry.count(), sample));</span>
+<span class="fc bfc" id="L208" title="All 2 branches covered.">            } else if (count == entry.count()) {</span>
+<span class="fc" id="L209">                accepted.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
+            } else {
+<span class="fc" id="L211">                accepted.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
+<span class="fc" id="L212">                ratchet.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
+            }
+<span class="fc" id="L214">        }</span>
+
+<span class="fc bfc" id="L216" title="All 2 branches covered.">        for (AcceptedEntry unobserved : entriesByKey.values()) {</span>
+<span class="fc" id="L217">            ratchet.add(new LedgerEvaluation.AcceptedStatus(unobserved, 0L));</span>
+<span class="fc" id="L218">        }</span>
+
+<span class="fc" id="L220">        return new LedgerEvaluation(failures, attention, accepted, ratchet);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

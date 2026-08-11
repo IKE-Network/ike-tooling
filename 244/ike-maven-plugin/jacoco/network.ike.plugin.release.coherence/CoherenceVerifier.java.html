@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CoherenceVerifier.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release.coherence</a> &gt; <span class="el_source">CoherenceVerifier.java</span></div><h1>CoherenceVerifier.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release.coherence;
+
+import network.ike.plugin.PomRewriter;
+import network.ike.plugin.ReleaseSupport;
+import network.ike.plugin.support.version.CandidateVersionResolver;
+import network.ike.plugin.support.version.MavenVersionComparator;
+import network.ike.plugin.support.version.SessionCandidateVersionResolver;
+import network.ike.support.enums.ConstantBackedEnum;
+import network.ike.support.enums.ReleasePolicy;
+import network.ike.workspace.cascade.CascadeEdge;
+import network.ike.workspace.cascade.EdgeKind;
+import network.ike.workspace.cascade.ProjectCascade;
+import network.ike.workspace.cascade.ProjectCascadeIo;
+import org.apache.maven.api.ArtifactCoordinates;
+import org.apache.maven.api.Repository;
+import org.apache.maven.api.RemoteRepository;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * The release-coherence gate (IKE-Network/ike-issues#705): a module's
+ * release does not complete until its own just-published artifact
+ * resolves at the demanded {@link ResolutionScope}, and its own upstream
+ * pins are confirmed current against fresh metadata.
+ *
+ * &lt;p&gt;Both checks assert only about &lt;em&gt;this&lt;/em&gt; module — never about
+ * its upstreams or which siblings are mid-cascade. Coherence emerges
+ * because the TeamCity finish-trigger fires the downstream only on the
+ * upstream's &lt;em&gt;success&lt;/em&gt;, and &quot;success&quot; now includes these checks.
+ * An un-resolvable artifact (or a pin that silently failed to catch up)
+ * fails &lt;em&gt;this&lt;/em&gt; build, the finish-trigger does not fire, and the
+ * cascade stops — incoherence is a red build on the responsible module,
+ * never a silently-wrong downstream.
+ *
+ * &lt;p&gt;&lt;strong&gt;Cold resolution.&lt;/strong&gt; Both checks run against a session
+ * whose local repository is a fresh, empty temp directory. This is
+ * essential: the module's own {@code .m2} trivially holds the artifact
+ * it just {@code install}ed, and caches upstream metadata under a daily
+ * update policy — so resolving against the normal local repo would
+ * confirm nothing and could read stale metadata (the exact failure that
+ * shipped the incoherent ike-platform v110 on 2026-06-18). An empty
+ * local repo forces a real fetch from the demanded remote, with the
+ * session's configured credentials preserved.
+ */
+public final class CoherenceVerifier {
+
+    /** Nexus group id consumers resolve released IKE artifacts from. */
+    private static final String NEXUS_PUBLIC_ID = &quot;ike-public&quot;;
+    /** Fallback URL for {@link ResolutionScope#NEXUS} if not configured in the session. */
+    private static final String NEXUS_PUBLIC_URL =
+            &quot;https://nexus.tinkar.org/repository/ike-public/&quot;;
+    /** Fallback URL for {@link ResolutionScope#CENTRAL} if not configured in the session. */
+    private static final String CENTRAL_URL = &quot;https://repo1.maven.org/maven2/&quot;;
+
+<span class="fc" id="L64">    private static final Map&lt;String, ReleasePolicy&gt; RELEASE_POLICY_INDEX =</span>
+<span class="fc" id="L65">            ConstantBackedEnum.index(ReleasePolicy.class);</span>
+
+    private final Session session;
+    private final Log log;
+
+    /**
+     * Creates a verifier bound to the active session and logger.
+     *
+     * @param session the active Maven session (provides the resolver
+     *                services, configured remotes, and credentials)
+     * @param log     the release logger
+     */
+<span class="nc" id="L77">    public CoherenceVerifier(Session session, Log log) {</span>
+<span class="nc" id="L78">        this.session = session;</span>
+<span class="nc" id="L79">        this.log = log;</span>
+<span class="nc" id="L80">    }</span>
+
+    /**
+     * The headline gate: confirm the just-released artifact resolves
+     * cold at the demanded scope, throwing if it does not.
+     *
+     * &lt;p&gt;Resolves the artifact's POM (every released artifact has one,
+     * regardless of packaging) against a fresh, empty local repository,
+     * so success means a cache-less consumer could genuinely fetch what
+     * this build published.
+     *
+     * @param groupId    the released artifact's groupId
+     * @param artifactId the released artifact's artifactId
+     * @param version    the released version (no {@code -SNAPSHOT})
+     * @param scope      the demanded resolution scope (must be {@code ≥ NEXUS} for publish)
+     * @throws MojoException if the artifact does not resolve at the demanded scope
+     */
+    public void verifySelfResolves(String groupId, String artifactId,
+            String version, ResolutionScope scope) throws MojoException {
+<span class="nc bnc" id="L99" title="All 2 branches missed.">        if (scope == ResolutionScope.LOCAL) {</span>
+            // Verifies nothing; -publish rejects LOCAL upstream of here.
+<span class="nc" id="L101">            log.info(&quot;Coherence gate: scope=local — skipped (verifies nothing).&quot;);</span>
+<span class="nc" id="L102">            return;</span>
+        }
+<span class="nc" id="L104">        RemoteRepository repo = demandedRepository(scope);</span>
+<span class="nc" id="L105">        String coords = groupId + &quot;:&quot; + artifactId + &quot;:pom:&quot; + version;</span>
+
+<span class="nc" id="L107">        try (ColdLocalRepo cold = new ColdLocalRepo(session)) {</span>
+<span class="nc" id="L108">            ArtifactCoordinates ac = cold.session.createArtifactCoordinates(coords);</span>
+<span class="nc" id="L109">            cold.session.resolveArtifact(ac, List.of(repo));</span>
+<span class="nc" id="L110">            log.info(&quot;✓ Coherence gate: &quot; + groupId + &quot;:&quot; + artifactId + &quot;:&quot;</span>
+<span class="nc" id="L111">                    + version + &quot; resolves cold from &quot; + scope.literalName()</span>
+<span class="nc" id="L112">                    + &quot; (&quot; + repo.getUrl() + &quot;).&quot;);</span>
+<span class="nc" id="L113">        } catch (IOException e) {</span>
+<span class="nc" id="L114">            throw new MojoException(&quot;Coherence gate: could not create a cold &quot;</span>
+<span class="nc" id="L115">                    + &quot;local repository for self-resolution: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L116">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L117">            throw new MojoException(</span>
+                    &quot;Release coherence gate FAILED — &quot; + groupId + &quot;:&quot;
+                    + artifactId + &quot;:&quot; + version + &quot; is NOT resolvable from the&quot;
+<span class="nc" id="L120">                    + &quot; demanded scope '&quot; + scope.literalName() + &quot;' (&quot;</span>
+<span class="nc" id="L121">                    + repo.getUrl() + &quot;).\n&quot;</span>
+                    + &quot;  A cold, cache-less resolver could not fetch the artifact&quot;
+                    + &quot; this build just deployed.\n&quot;
+                    + &quot;  Halting before tag-push so the cascade does not fire a&quot;
+                    + &quot; downstream against a missing upstream (#705).\n&quot;
+                    + &quot;  Likely cause: the deploy did not propagate to the group&quot;
+                    + &quot; repo, or the demanded scope is wrong.\n&quot;
+<span class="nc" id="L128">                    + &quot;  Resolver error: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L129">        }</span>
+<span class="nc" id="L130">    }</span>
+
+    /**
+     * The post-release coherence assert: fail loudly if any of this
+     * module's auto-aligned upstream pins did not catch up to the latest
+     * released upstream, judged against &lt;em&gt;fresh&lt;/em&gt; metadata.
+     *
+     * &lt;p&gt;This is the safety net for the stale-metadata failure mode: the
+     * B8 alignment step already raises these pins, but if it read a stale
+     * metadata cache it could silently leave a pin behind (shipping an
+     * incoherent build). Re-resolving cold here catches that.
+     *
+     * &lt;p&gt;Only edges this module would &lt;em&gt;auto-align&lt;/em&gt; are asserted —
+     * {@link ReleasePolicy#INTEGRATE} and {@link ReleasePolicy#RELEASE}.
+     * A {@code notify}/{@code verify}/{@code propose} edge is
+     * intentionally hand-gated and legitimately sits behind latest, so
+     * asserting it would false-fail. The policy-read mirrors
+     * {@code ReleasePrep.alignUpstreamProperties} (B8); keep the two in
+     * sync.
+     *
+     * &lt;p&gt;A no-op for a non-cascade member, the cascade head, or a module
+     * whose pins are all current.
+     *
+     * @param gitRoot the release working tree (its committed {@code pom.xml} is read)
+     * @param scope   the demanded scope whose repo supplies the fresh &quot;latest released&quot;
+     * @throws MojoException if an auto-aligned pin is behind the latest released upstream
+     */
+    public void assertUpstreamPinsCurrent(File gitRoot, ResolutionScope scope)
+            throws MojoException {
+<span class="nc bnc" id="L159" title="All 2 branches missed.">        if (scope == ResolutionScope.LOCAL) {</span>
+<span class="nc" id="L160">            return;</span>
+        }
+<span class="nc" id="L162">        Optional&lt;ProjectCascade&gt; loaded = ProjectCascadeIo.load(</span>
+<span class="nc" id="L163">                gitRoot.toPath().resolve(ProjectCascadeIo.MANIFEST_RELATIVE_PATH));</span>
+<span class="nc bnc" id="L164" title="All 4 branches missed.">        if (loaded.isEmpty() || loaded.get().upstream().isEmpty()) {</span>
+<span class="nc" id="L165">            return;</span>
+        }
+<span class="nc" id="L167">        File pomFile = new File(gitRoot, &quot;pom.xml&quot;);</span>
+        String content;
+        try {
+<span class="nc" id="L170">            content = Files.readString(pomFile.toPath());</span>
+<span class="nc" id="L171">        } catch (IOException e) {</span>
+<span class="nc" id="L172">            throw new MojoException(&quot;Coherence assert: could not read &quot;</span>
+<span class="nc" id="L173">                    + pomFile + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L174">        }</span>
+
+<span class="nc" id="L176">        List&lt;String&gt; behind = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L177">        try (ColdLocalRepo cold = new ColdLocalRepo(session)) {</span>
+<span class="nc" id="L178">            CandidateVersionResolver resolver =</span>
+                    new SessionCandidateVersionResolver(cold.session);
+
+<span class="nc bnc" id="L181" title="All 2 branches missed.">            for (CascadeEdge up : loaded.get().upstream()) {</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">                if (!autoAligned(pomFile, up)) {</span>
+<span class="nc" id="L183">                    continue;  // hand-gated policy — legitimately may sit behind</span>
+                }
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                boolean parentEdge = up.kind() == EdgeKind.PARENT;</span>
+<span class="nc" id="L186">                String property = up.versionProperty();</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">                String current = parentEdge</span>
+<span class="nc" id="L188">                        ? PomRewriter.readParentVersion(content,</span>
+<span class="nc" id="L189">                                up.groupId(), up.artifactId()).orElse(null)</span>
+<span class="nc" id="L190">                        : ReleaseSupport.readPomProperty(pomFile, property);</span>
+<span class="nc bnc" id="L191" title="All 4 branches missed.">                if (!parentEdge &amp;&amp; current == null) {</span>
+<span class="nc" id="L192">                    property = up.versionPropertyLegacy();</span>
+<span class="nc" id="L193">                    current = ReleaseSupport.readPomProperty(pomFile, property);</span>
+                }
+<span class="nc bnc" id="L195" title="All 4 branches missed.">                if (current == null || current.contains(&quot;${&quot;)) {</span>
+                    // No local pin, or pinned elsewhere — not this module's
+                    // pin to assert.
+<span class="nc" id="L198">                    continue;</span>
+                }
+                String latest;
+                try {
+<span class="nc" id="L202">                    List&lt;String&gt; candidates = resolver.resolveCandidates(</span>
+<span class="nc" id="L203">                            up.groupId(), up.artifactId(), null);</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                    latest = candidates.isEmpty() ? null</span>
+<span class="nc" id="L205">                            : candidates.get(candidates.size() - 1);</span>
+<span class="nc" id="L206">                } catch (RuntimeException e) {</span>
+                    // Resolution failure here is itself a coherence problem.
+<span class="nc" id="L208">                    behind.add(up.ga() + &quot;: could not re-resolve latest — &quot;</span>
+<span class="nc" id="L209">                            + e.getMessage());</span>
+<span class="nc" id="L210">                    continue;</span>
+<span class="nc" id="L211">                }</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">                if (latest != null &amp;&amp; MavenVersionComparator.INSTANCE</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">                        .compare(latest, current) &gt; 0) {</span>
+<span class="nc" id="L214">                    behind.add(up.ga() + &quot;: pin &quot; + current</span>
+                            + &quot; is behind latest released &quot; + latest);
+                }
+<span class="nc" id="L217">            }</span>
+<span class="nc" id="L218">        } catch (IOException e) {</span>
+<span class="nc" id="L219">            throw new MojoException(&quot;Coherence assert: could not create a cold &quot;</span>
+<span class="nc" id="L220">                    + &quot;local repository: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L221">        }</span>
+
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        if (!behind.isEmpty()) {</span>
+<span class="nc" id="L224">            StringBuilder msg = new StringBuilder(</span>
+                    &quot;Release coherence assert FAILED — this module's upstream&quot;
+                    + &quot; pin(s) did not catch up to the latest released&quot;
+                    + &quot; upstream (judged against fresh metadata):\n&quot;);
+<span class="nc bnc" id="L228" title="All 2 branches missed.">            for (String b : behind) {</span>
+<span class="nc" id="L229">                msg.append(&quot;  &quot;).append(b).append('\n');</span>
+<span class="nc" id="L230">            }</span>
+<span class="nc" id="L231">            msg.append(&quot;  The B8 alignment step likely read stale metadata.&quot;</span>
+                    + &quot; Halting before tag-push so the cascade does not ship an&quot;
+                    + &quot; incoherent build (#705). Re-run the release with a&quot;
+                    + &quot; refreshed cache.&quot;);
+<span class="nc" id="L235">            throw new MojoException(msg.toString());</span>
+        }
+<span class="nc" id="L237">    }</span>
+
+    /**
+     * Whether this module would auto-align the given upstream edge —
+     * delegating to {@link #autoAligned(File, String, String)} with the
+     * edge's typed and legacy policy-property names.
+     */
+    private boolean autoAligned(File pomFile, CascadeEdge up) {
+<span class="nc" id="L245">        return autoAligned(pomFile, up.policyProperty(), up.policyPropertyLegacy());</span>
+    }
+
+    /**
+     * Whether an upstream edge declared by the given policy properties
+     * would be &lt;em&gt;auto-aligned&lt;/em&gt; — i.e. its effective policy is
+     * {@code integrate} (the default) or {@code release}, the two rungs
+     * {@code ReleasePrep} B8 bumps without a human gate.
+     *
+     * &lt;p&gt;A {@code notify}/{@code verify}/{@code propose} edge is
+     * hand-gated and legitimately sits behind latest, so it must NOT be
+     * asserted current. The read mirrors
+     * {@code ReleasePrep.alignUpstreamProperties} (B8): typed-marker
+     * property first, legacy form next, then the {@code integrate}
+     * default for an absent/blank/unresolved-reference value.
+     *
+     * &lt;p&gt;Package-private and static so it is unit-testable against a real
+     * temp POM with no Maven session (TESTING.md mock-last).
+     *
+     * @param pomFile             the POM to read the policy from
+     * @param policyProperty      the typed-marker policy property name
+     * @param policyPropertyLegacy the pre-#525 legacy policy property name
+     * @return {@code true} for an {@code integrate}/{@code release} edge
+     */
+    static boolean autoAligned(File pomFile, String policyProperty,
+            String policyPropertyLegacy) {
+<span class="fc" id="L271">        String policyValue = ReleaseSupport.readPomProperty(pomFile, policyProperty);</span>
+<span class="fc bfc" id="L272" title="All 2 branches covered.">        if (policyValue == null) {</span>
+<span class="fc" id="L273">            policyValue = ReleaseSupport.readPomProperty(pomFile, policyPropertyLegacy);</span>
+        }
+<span class="fc bfc" id="L275" title="All 2 branches covered.">        if (policyValue != null) {</span>
+<span class="fc" id="L276">            policyValue = policyValue.trim();</span>
+        }
+<span class="pc bpc" id="L278" title="1 of 6 branches missed.">        if (policyValue == null || policyValue.isEmpty() || policyValue.contains(&quot;${&quot;)) {</span>
+<span class="fc" id="L279">            policyValue = ReleasePolicy.INTEGRATE.literalName();</span>
+        }
+<span class="fc" id="L281">        ReleasePolicy policy = RELEASE_POLICY_INDEX.get(policyValue);</span>
+<span class="fc bfc" id="L282" title="All 4 branches covered.">        return policy == ReleasePolicy.INTEGRATE || policy == ReleasePolicy.RELEASE;</span>
+    }
+
+    /**
+     * The remote repository for the demanded scope — preferring the
+     * session's own configured repo of that id (so credentials, proxy,
+     * and mirror settings are honoured), falling back to a synthesized
+     * one at the well-known URL.
+     */
+    private RemoteRepository demandedRepository(ResolutionScope scope) {
+<span class="nc bnc" id="L292" title="All 2 branches missed.">        String wantId = scope == ResolutionScope.CENTRAL</span>
+<span class="nc" id="L293">                ? Repository.CENTRAL_ID</span>
+<span class="nc" id="L294">                : NEXUS_PUBLIC_ID;</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        for (RemoteRepository r : session.getRemoteRepositories()) {</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">            if (wantId.equals(r.getId())) {</span>
+<span class="nc" id="L297">                return r;</span>
+            }
+<span class="nc" id="L299">        }</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">        String url = scope == ResolutionScope.CENTRAL ? CENTRAL_URL : NEXUS_PUBLIC_URL;</span>
+<span class="nc" id="L301">        return session.createRemoteRepository(wantId, url);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
