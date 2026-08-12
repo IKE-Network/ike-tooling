@@ -29,6 +29,20 @@ import java.util.Optional;
  */
 public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
+    /** {@code ike:build-report-ratchet-draft} — preview downward ledger tightening. */
+    BUILD_REPORT_RATCHET_DRAFT(IkeGoal.NAME_BUILD_REPORT_RATCHET_DRAFT,
+            BuildReportRatchetDraftMojo.class,
+            "Preview tightening the build-report acceptance ledger "
+                    + "(.mvn/build-report.yaml) against the latest session's "
+                    + "observations sidecar. Downward only — accepting new or "
+                    + "grown findings stays a human edit (ike-issues#989)."),
+    /** {@code ike:build-report-ratchet-publish} — apply downward ledger tightening. */
+    BUILD_REPORT_RATCHET_PUBLISH(IkeGoal.NAME_BUILD_REPORT_RATCHET_PUBLISH,
+            BuildReportRatchetPublishMojo.class,
+            "Tighten the build-report acceptance ledger to the latest "
+                    + "session's observations and rewrite it canonically. "
+                    + "Counts only move down; entries reaching 0 remain as "
+                    + "documented tripwires (ike-issues#989)."),
     /** {@code ike:cascade-export} — export the release cascade topology for CI. */
     CASCADE_EXPORT(IkeGoal.NAME_CASCADE_EXPORT, IkeCascadeExportMojo.class,
             "Export the foundation release cascade topology as JSON "
@@ -218,6 +232,10 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     // below — fails class-load if any constant and its mirror drift.
 
     /** Mirror for {@link #CASCADE_EXPORT}. */
+    /** Mirror for {@link #BUILD_REPORT_RATCHET_DRAFT}. */
+    public static final String NAME_BUILD_REPORT_RATCHET_DRAFT = "build-report-ratchet-draft";
+    /** Mirror for {@link #BUILD_REPORT_RATCHET_PUBLISH}. */
+    public static final String NAME_BUILD_REPORT_RATCHET_PUBLISH = "build-report-ratchet-publish";
     public static final String NAME_CASCADE_EXPORT = "cascade-export";
     /** Mirror for {@link #CENTRAL_STAGE}. */
     public static final String NAME_CENTRAL_STAGE = "central-stage";

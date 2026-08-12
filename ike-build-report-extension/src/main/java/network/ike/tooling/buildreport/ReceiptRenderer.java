@@ -42,7 +42,10 @@ public final class ReceiptRenderer {
                 .append(" · mode: ").append(mode.name().toLowerCase(java.util.Locale.ROOT))
                 .append("_\n\n");
         if (!ledgerNote.isBlank()) {
-            out.append("> ").append(ledgerNote.strip()).append("\n\n");
+            for (String line : ledgerNote.strip().split("\n")) {
+                out.append("> ").append(line.strip()).append('\n');
+            }
+            out.append('\n');
         }
 
         renderFailures(out, evaluation.failures());

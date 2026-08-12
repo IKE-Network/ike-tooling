@@ -1,18 +1,6 @@
 package network.ike.tooling.buildreport;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.inject.Named;
 import javax.inject.Singleton;
@@ -26,14 +14,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Collects structured session events and writes the
- * {@code ike꞉build-report.md} receipt at session end.
+ * Routes structured build events into {@link ReportSession}, which
+ * writes the {@code ike꞉build-report.md} receipt at session end.
  *
- * <p>Phase 1 is report-only: this spy never fails the build and never
- * throws out of {@link #onEvent(Object)} — a collection error degrades
- * to a log line, not a build problem. The receipt is written exactly
- * once, at {@code SessionEnded} (with {@link #close()} as a fallback
- * when a session ends abnormally).</p>
+ * <p>This spy never fails the build and never throws out of
+ * {@link #onEvent(Object)} — a collection error degrades to a log
+ * line, not a build problem. Gate enforcement, when armed, is
+ * {@link GateKeeper}'s job at {@code afterSessionEnd}; receipt
+ * writing is idempotent across the two components, whichever runs
+ * first.</p>
  *
  * <p>Registered through the hand-written sisu index at
  * {@code META-INF/sisu/javax.inject.Named}; see the module POM for the
@@ -45,25 +34,11 @@ public class BuildReportSpy implements EventSpy {
 
     private static final Logger LOG = LoggerFactory.getLogger(BuildReportSpy.class);
 
-    /** System property that adds a DIAGNOSTIC section listing observed event types. */
-    public static final String DEBUG_PROPERTY = "ike.build.report.debug";
-
-    /** Receipt file name at the execution root ({@code ꞉} is U+A789). */
-    public static final String RECEIPT_FILE_NAME = "ike꞉build-report.md";
-
-    /** Ledger location relative to the execution root. */
-    public static final String LEDGER_RELATIVE_PATH = ".mvn/build-report.yaml";
-
-    private final List<Finding> findings = Collections.synchronizedList(new ArrayList<>());
-    private final Set<String> observedEventTypes = Collections.synchronizedSet(new LinkedHashSet<>());
-
     /**
      * Creates the spy; instantiated by the Maven container via the sisu
      * index, never directly.
      */
     public BuildReportSpy() {}
-    private final AtomicBoolean receiptWritten = new AtomicBoolean(false);
-    private volatile Path executionRoot;
 
     /**
      * Initializes the spy; no context state is needed.
@@ -84,8 +59,8 @@ public class BuildReportSpy implements EventSpy {
     @Override
     public void onEvent(Object event) {
         try {
-            if (Boolean.getBoolean(DEBUG_PROPERTY)) {
-                observedEventTypes.add(describeEventType(event));
+            if (Boolean.getBoolean(ReportSession.DEBUG_PROPERTY)) {
+                ReportSession.addEventType(describeEventType(event));
             }
             if (event instanceof ExecutionEvent) {
                 onExecutionEvent((ExecutionEvent) event);
@@ -104,29 +79,29 @@ public class BuildReportSpy implements EventSpy {
      */
     @Override
     public void close() {
-        writeReceipt();
+        ReportSession.finalizeAndWrite();
     }
 
     private void onExecutionEvent(ExecutionEvent event) {
         switch (event.getType()) {
-            case ProjectDiscoveryStarted -> resetSession();
+            case ProjectDiscoveryStarted -> ReportSession.reset();
             case SessionStarted -> captureExecutionRoot(event);
-            case MojoFailed -> findings.add(new Finding(
+            case MojoFailed -> ReportSession.addFinding(new Finding(
                     FindingCategory.EXECUTION,
                     Severity.ERROR,
                     "execution/mojo-failed/" + describeMojo(event.getMojoExecution()),
                     describeProject(event) + ": " + describeThrowable(event.getException())));
-            case ProjectFailed -> findings.add(new Finding(
+            case ProjectFailed -> ReportSession.addFinding(new Finding(
                     FindingCategory.EXECUTION,
                     Severity.ERROR,
                     "execution/project-failed/" + describeProject(event),
                     describeThrowable(event.getException())));
             case SessionEnded -> {
                 captureExecutionRoot(event);
-                writeReceipt();
+                ReportSession.finalizeAndWrite();
             }
             default -> {
-                // Successes, skips, and forks carry no receipt content in Phase 1.
+                // Successes, skips, and forks carry no receipt content.
             }
         }
     }
@@ -143,7 +118,7 @@ public class BuildReportSpy implements EventSpy {
             if (isRoutineNegativeLookup(exception)) {
                 continue;
             }
-            findings.add(new Finding(
+            ReportSession.addFinding(new Finding(
                     FindingCategory.REPOSITORY,
                     Severity.WARNING,
                     "repository/" + subject + "-resolve-failed/" + repositoryId,
@@ -160,76 +135,14 @@ public class BuildReportSpy implements EventSpy {
         return exception.getClass().getSimpleName().endsWith("NotFoundException");
     }
 
-    /**
-     * Clears all session state at {@code ProjectDiscoveryStarted} —
-     * before model building — so a long-lived JVM (the IDE's
-     * maven-server) starts every session clean and writes a fresh
-     * receipt each time.
-     */
-    private void resetSession() {
-        findings.clear();
-        observedEventTypes.clear();
-        receiptWritten.set(false);
-        executionRoot = null;
-        ModelObservations.reset();
-    }
-
     private void captureExecutionRoot(ExecutionEvent event) {
-        if (executionRoot != null || event.getSession() == null) {
+        if (event.getSession() == null) {
             return;
         }
         java.io.File rootDirectory = event.getSession().getRequest().getMultiModuleProjectDirectory();
         if (rootDirectory != null) {
-            executionRoot = rootDirectory.toPath();
+            ReportSession.captureRoot(rootDirectory.toPath());
         }
-    }
-
-    private void writeReceipt() {
-        if (!receiptWritten.compareAndSet(false, true)) {
-            return;
-        }
-        try {
-            Path root = executionRoot != null ? executionRoot : Path.of(System.getProperty("user.dir"));
-            Ledger ledger;
-            String ledgerNote = "";
-            try {
-                ledger = Ledger.load(root.resolve(LEDGER_RELATIVE_PATH));
-            } catch (IOException | IllegalArgumentException e) {
-                ledger = Ledger.empty();
-                ledgerNote = "ledger " + LEDGER_RELATIVE_PATH + " not used: " + e.getMessage();
-            }
-            List<Finding> snapshot;
-            synchronized (findings) {
-                snapshot = new ArrayList<>(findings);
-            }
-            snapshot.addAll(ModelCrossReference.findings(ModelObservations.snapshot(), root));
-            LedgerEvaluation evaluation = ledger.evaluate(snapshot);
-            String receipt = ReceiptRenderer.render(
-                    toolVersion(), ZonedDateTime.now(), ledger.mode(), ledgerNote, evaluation);
-            if (Boolean.getBoolean(DEBUG_PROPERTY)) {
-                receipt = receipt + renderDiagnostic();
-            }
-            Path receiptFile = root.resolve(RECEIPT_FILE_NAME);
-            Files.writeString(receiptFile, receipt, StandardCharsets.UTF_8);
-            if (evaluation.demandsAttention()) {
-                LOG.warn("ike-build-report: {} failure(s), {} attention item(s) — see {}",
-                        evaluation.failures().size(), evaluation.attention().size(), receiptFile);
-            } else {
-                LOG.info("ike-build-report: clean — receipt at {}", receiptFile);
-            }
-        } catch (Exception e) {
-            LOG.warn("ike-build-report: could not write receipt: {}", e.toString());
-        }
-    }
-
-    private String renderDiagnostic() {
-        StringBuilder out = new StringBuilder("\n## DIAGNOSTIC\n\n");
-        synchronized (observedEventTypes) {
-            for (String type : observedEventTypes) {
-                out.append("- ").append(type).append('\n');
-            }
-        }
-        return out.toString();
     }
 
     private static String describeEventType(Object event) {
@@ -273,18 +186,5 @@ public class BuildReportSpy implements EventSpy {
         }
         String message = throwable.getMessage();
         return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : message;
-    }
-
-    private static String toolVersion() {
-        try (InputStream in = BuildReportSpy.class.getResourceAsStream("build-report.properties")) {
-            if (in != null) {
-                Properties properties = new Properties();
-                properties.load(in);
-                return properties.getProperty("version", "unknown");
-            }
-        } catch (IOException e) {
-            // fall through to unknown
-        }
-        return "unknown";
     }
 }

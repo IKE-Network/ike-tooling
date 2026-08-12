@@ -53,6 +53,19 @@ public final class Ledger {
     }
 
     /**
+     * Creates a ledger from parts — the construction path for tooling
+     * that rewrites ledgers (the ratchet goal).
+     *
+     * @param mode    the enforcement posture
+     * @param entries the accepted entries in declaration order
+     * @return the ledger
+     */
+    public static Ledger of(LedgerMode mode, List<AcceptedEntry> entries) {
+        Objects.requireNonNull(mode, "mode");
+        return new Ledger(mode, entries);
+    }
+
+    /**
      * Loads a ledger from a YAML file.
      *
      * @param file the ledger file, typically {@code .mvn/build-report.yaml}
@@ -121,7 +134,8 @@ public final class Ledger {
                     String.valueOf(key),
                     (Integer) count,
                     entry.get("reason") == null ? "" : String.valueOf(entry.get("reason")),
-                    stringifySince(entry.get("since"))));
+                    stringifySince(entry.get("since")),
+                    entry.get("mode") == null ? null : parseMode(entry.get("mode"))));
         }
         return entries;
     }
@@ -218,5 +232,32 @@ public final class Ledger {
         }
 
         return new LedgerEvaluation(failures, attention, accepted, ratchet);
+    }
+
+    /**
+     * Filters an evaluation's attention items down to those that gate.
+     *
+     * <p>An attention item gates unless its key has a ledger entry whose
+     * per-entry mode is {@link LedgerMode#REPORT} — the onboarding
+     * override. Unaccepted keys have no entry and therefore always
+     * gate.</p>
+     *
+     * @param evaluation the evaluation to filter
+     * @return the gating attention items, in evaluation order
+     */
+    public List<LedgerEvaluation.AttentionItem> gatingAttention(LedgerEvaluation evaluation) {
+        Objects.requireNonNull(evaluation, "evaluation");
+        Map<String, AcceptedEntry> entriesByKey = new LinkedHashMap<>();
+        for (AcceptedEntry entry : entries) {
+            entriesByKey.put(entry.key(), entry);
+        }
+        List<LedgerEvaluation.AttentionItem> gating = new ArrayList<>();
+        for (LedgerEvaluation.AttentionItem item : evaluation.attention()) {
+            AcceptedEntry entry = entriesByKey.get(item.key());
+            if (entry == null || entry.entryMode() != LedgerMode.REPORT) {
+                gating.add(item);
+            }
+        }
+        return gating;
     }
 }
