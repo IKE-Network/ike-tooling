@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BindingsRequest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">BindingsRequest.java</span></div><h1>BindingsRequest.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * A bindings-generation request: emit a compiler-visible constants class for a knowledge
+ * set's declarations (IKE-Network/ike-issues#824) or for a loaded store's concepts and
+ * patterns.
+ *
+ * @param mode               where the declarations come from
+ * @param outputDirectory    the generated-sources root to write under
+ * @param packageName        the generated class's package
+ * @param className          the generated class's simple name
+ * @param sourceClass        the ledger source class to compose when more than one is
+ *                           discoverable ({@link Mode#LEDGER} only)
+ * @param membershipPatterns for {@link Mode#STORE_SCAN}, restrict to members of these
+ *                           patterns; empty means every concept and pattern
+ * @param view               the view specification governing description selection;
+ *                           {@link ViewSpec#empty()} means implementation defaults
+ */
+public record BindingsRequest(Mode mode, Path outputDirectory, String packageName, String className,
+                              Optional&lt;String&gt; sourceClass, List&lt;ConceptRef&gt; membershipPatterns,
+                              ViewSpec view) {
+
+    /** Where bindings declarations come from. */
+<span class="fc" id="L31">    public enum Mode {</span>
+        /** Push from a composed knowledge-set ledger — the authored-set idiom. */
+<span class="fc" id="L33">        LEDGER,</span>
+        /**
+         * Scan a loaded store's concepts and patterns — the idiom for third-party
+         * knowledge bases and for ingest, optionally restricted by membership patterns.
+         */
+<span class="fc" id="L38">        STORE_SCAN</span>
+    }
+
+    /**
+     * Validates and defensively copies the request.
+     *
+     * @param mode               where the declarations come from
+     * @param outputDirectory    the generated-sources root to write under
+     * @param packageName        the generated class's package
+     * @param className          the generated class's simple name
+     * @param sourceClass        the ledger source class selection
+     * @param membershipPatterns the membership restriction for {@link Mode#STORE_SCAN}
+     * @param view               the view specification
+     * @throws NullPointerException     if any component is null
+     * @throws IllegalArgumentException if {@code packageName} or {@code className} is
+     *                                  blank, membership patterns are given in
+     *                                  {@link Mode#LEDGER} mode, or a source class is
+     *                                  given in {@link Mode#STORE_SCAN} mode
+     */
+<span class="fc" id="L57">    public BindingsRequest {</span>
+<span class="fc" id="L58">        Objects.requireNonNull(mode, &quot;mode&quot;);</span>
+<span class="fc" id="L59">        Objects.requireNonNull(outputDirectory, &quot;outputDirectory&quot;);</span>
+<span class="fc" id="L60">        Objects.requireNonNull(sourceClass, &quot;sourceClass&quot;);</span>
+<span class="fc" id="L61">        Objects.requireNonNull(view, &quot;view&quot;);</span>
+<span class="pc bpc" id="L62" title="2 of 4 branches missed.">        if (packageName == null || packageName.isBlank()) {</span>
+<span class="nc" id="L63">            throw new IllegalArgumentException(&quot;Bindings generation requires a package name&quot;);</span>
+        }
+<span class="pc bpc" id="L65" title="2 of 4 branches missed.">        if (className == null || className.isBlank()) {</span>
+<span class="nc" id="L66">            throw new IllegalArgumentException(&quot;Bindings generation requires a class name&quot;);</span>
+        }
+<span class="fc" id="L68">        membershipPatterns = List.copyOf(Objects.requireNonNull(membershipPatterns, &quot;membershipPatterns&quot;));</span>
+<span class="pc bpc" id="L69" title="1 of 4 branches missed.">        if (mode == Mode.LEDGER &amp;&amp; !membershipPatterns.isEmpty()) {</span>
+<span class="fc" id="L70">            throw new IllegalArgumentException(</span>
+                    &quot;Membership patterns apply to STORE_SCAN mode only — a ledger already declares its members&quot;);
+        }
+<span class="pc bpc" id="L73" title="1 of 4 branches missed.">        if (mode == Mode.STORE_SCAN &amp;&amp; sourceClass.isPresent()) {</span>
+<span class="fc" id="L74">            throw new IllegalArgumentException(</span>
+                    &quot;A ledger source class applies to LEDGER mode only — a store scan reads the store&quot;);
+        }
+<span class="fc" id="L77">    }</span>
+
+    /**
+     * Encodes this request in the seam wire format.
+     *
+     * @return the request properties
+     */
+    public Properties toProperties() {
+<span class="fc" id="L85">        Properties properties = new Properties();</span>
+<span class="fc" id="L86">        PropCodec.put(properties, &quot;mode&quot;, mode.name());</span>
+<span class="fc" id="L87">        PropCodec.put(properties, &quot;outputDirectory&quot;, outputDirectory.toString());</span>
+<span class="fc" id="L88">        PropCodec.put(properties, &quot;packageName&quot;, packageName);</span>
+<span class="fc" id="L89">        PropCodec.put(properties, &quot;className&quot;, className);</span>
+<span class="fc" id="L90">        PropCodec.putOptional(properties, &quot;sourceClass&quot;, sourceClass);</span>
+<span class="fc bfc" id="L91" title="All 2 branches covered.">        for (int i = 0; i &lt; membershipPatterns.size(); i++) {</span>
+<span class="fc" id="L92">            PropCodec.put(properties, &quot;membershipPattern.&quot; + (i + 1), membershipPatterns.get(i).format());</span>
+        }
+<span class="fc" id="L94">        PropCodec.putView(properties, view);</span>
+<span class="fc" id="L95">        return properties;</span>
+    }
+
+    /**
+     * Decodes a request from the seam wire format.
+     *
+     * @param properties the request properties
+     * @return the decoded request
+     * @throws IllegalArgumentException if required keys are absent or malformed
+     */
+    public static BindingsRequest fromProperties(Properties properties) {
+<span class="fc" id="L106">        int count = PropCodec.indexedCount(properties, &quot;membershipPattern.&quot;, &quot;&quot;);</span>
+<span class="fc" id="L107">        List&lt;ConceptRef&gt; membershipPatterns = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L108" title="All 2 branches covered.">        for (int i = 1; i &lt;= count; i++) {</span>
+<span class="fc" id="L109">            membershipPatterns.add(ConceptRef.parse(PropCodec.require(properties, &quot;membershipPattern.&quot; + i)));</span>
+        }
+<span class="fc" id="L111">        return new BindingsRequest(</span>
+<span class="fc" id="L112">                Mode.valueOf(PropCodec.require(properties, &quot;mode&quot;)),</span>
+<span class="fc" id="L113">                PropCodec.requirePath(properties, &quot;outputDirectory&quot;),</span>
+<span class="fc" id="L114">                PropCodec.require(properties, &quot;packageName&quot;),</span>
+<span class="fc" id="L115">                PropCodec.require(properties, &quot;className&quot;),</span>
+<span class="fc" id="L116">                PropCodec.optional(properties, &quot;sourceClass&quot;),</span>
+                membershipPatterns,
+<span class="fc" id="L118">                PropCodec.getView(properties));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

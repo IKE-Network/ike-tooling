@@ -1,6 +1,6 @@
 ---
-date_published: 2026-08-10
-date_modified: 2026-08-10
+date_published: 2026-08-11
+date_modified: 2026-08-11
 canonical_url: https://ike.network/ike-tooling/ike-knowledge-spi/dependency-info.html
 ---
 
@@ -12,14 +12,14 @@ canonical_url: https://ike.network/ike-tooling/ike-knowledge-spi/dependency-info
 <dependency>
   <groupId>network.ike.tooling</groupId>
   <artifactId>ike-knowledge-spi</artifactId>
-  <version>244</version>
+  <version>245</version>
 </dependency>
 ```
 
 ## [Apache Ivy](#apache-ivy)
 
 ```
-<dependency org="network.ike.tooling" name="ike-knowledge-spi" rev="244">
+<dependency org="network.ike.tooling" name="ike-knowledge-spi" rev="245">
   <artifact name="ike-knowledge-spi" type="jar" />
 </dependency>
 ```
@@ -28,24 +28,24 @@ canonical_url: https://ike.network/ike-tooling/ike-knowledge-spi/dependency-info
 
 ```
 @Grapes(
-@Grab(group='network.ike.tooling', module='ike-knowledge-spi', version='244')
+@Grab(group='network.ike.tooling', module='ike-knowledge-spi', version='245')
 )
 ```
 
 ## [Gradle/Grails](#gradle-grails)
 
 ```
-implementation 'network.ike.tooling:ike-knowledge-spi:244'
+implementation 'network.ike.tooling:ike-knowledge-spi:245'
 ```
 
 ## [Scala SBT](#scala-sbt)
 
 ```
-libraryDependencies += "network.ike.tooling" % "ike-knowledge-spi" % "244"
+libraryDependencies += "network.ike.tooling" % "ike-knowledge-spi" % "245"
 ```
 
 ## [Leiningen](#leiningen)
 
 ```
-[network.ike.tooling/ike-knowledge-spi "244"]
+[network.ike.tooling/ike-knowledge-spi "245"]
 ```

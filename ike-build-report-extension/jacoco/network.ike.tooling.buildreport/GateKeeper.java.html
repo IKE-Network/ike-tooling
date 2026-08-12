@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GateKeeper.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">GateKeeper.java</span></div><h1>GateKeeper.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import javax.inject.Named;
+import javax.inject.Singleton;
+
+import org.apache.maven.AbstractMavenLifecycleParticipant;
+import org.apache.maven.MavenExecutionException;
+import org.apache.maven.execution.MavenSession;
+
+/**
+ * Session-end gate enforcement (ike-issues#989).
+ *
+ * &lt;p&gt;At {@code afterSessionEnd} — after the receipt is on disk, thanks
+ * to {@link ReportSession#finalizeAndWrite()}'s idempotence — this
+ * participant fails the build when the ledger declares
+ * {@code mode: gate} and gating ATTENTION exists. It never fails a
+ * build that already failed, never enforces when the escape hatch
+ * property ({@value ReportSession#GATE_SKIP_PROPERTY}) is set, and the
+ * skip itself is recorded in the receipt. In {@code mode: report}
+ * this participant is a spectator.&lt;/p&gt;
+ */
+@Named(&quot;ike-build-report-gate&quot;)
+@Singleton
+public class GateKeeper extends AbstractMavenLifecycleParticipant {
+
+    /** Creates the participant; instantiated by the sisu index, never directly. */
+<span class="nc" id="L27">    public GateKeeper() {</span>
+<span class="nc" id="L28">    }</span>
+
+    /**
+     * Enforces the gate verdict for the completed session.
+     *
+     * @param session the completed Maven session
+     * @throws MavenExecutionException when the gate fails the build
+     */
+    @Override
+    public void afterSessionEnd(MavenSession session) throws MavenExecutionException {
+<span class="nc" id="L38">        GateVerdict verdict = ReportSession.finalizeAndWrite();</span>
+<span class="nc bnc" id="L39" title="All 2 branches missed.">        if (!verdict.shouldFailBuild()) {</span>
+<span class="nc" id="L40">            return;</span>
+        }
+<span class="nc" id="L42">        StringBuilder message = new StringBuilder(256);</span>
+<span class="nc" id="L43">        message.append(&quot;ike-build-report gate: &quot;)</span>
+<span class="nc" id="L44">                .append(verdict.gatingAttention().size())</span>
+<span class="nc" id="L45">                .append(&quot; gating attention item(s)&quot;);</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">        for (LedgerEvaluation.AttentionItem item : verdict.gatingAttention()) {</span>
+<span class="nc" id="L47">            message.append(&quot;\n  - &quot;).append(item.key()).append(&quot; — observed &quot;).append(item.observed());</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">            if (item.expected() != null) {</span>
+<span class="nc" id="L49">                message.append(&quot;, accepted &quot;).append(item.expected());</span>
+            } else {
+<span class="nc" id="L51">                message.append(&quot;, not accepted&quot;);</span>
+            }
+<span class="nc" id="L53">        }</span>
+<span class="nc" id="L54">        message.append(&quot;\nSee &quot;)</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">                .append(verdict.receiptPath() != null</span>
+<span class="nc" id="L56">                        ? verdict.receiptPath()</span>
+<span class="nc" id="L57">                        : ReportSession.RECEIPT_FILE_NAME)</span>
+<span class="nc" id="L58">                .append(&quot;; accept via the ledger, or skip once with -D&quot;)</span>
+<span class="nc" id="L59">                .append(ReportSession.GATE_SKIP_PROPERTY).append(&quot;=true&quot;);</span>
+<span class="nc" id="L60">        throw new MavenExecutionException(message.toString(), (Throwable) null);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

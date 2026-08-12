@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReleaseRecord.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">ReleaseRecord.java</span></div><h1>ReleaseRecord.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * One release cycle of a working set — the typed model behind
+ * {@code releases/release-&lt;cycle&gt;.yaml} in the workspace root
+ * (IKE-Network/ike-issues#973; shape settled 2026-08-10: one file per
+ * cycle, one row per released member, finalized by the cycle's
+ * workspace-root release).
+ *
+ * &lt;p&gt;{@code ws:record-release} appends a {@link MemberRelease} row each
+ * time a member releases; together with the member's manifest state
+ * transition (see
+ * {@link ManifestWriter#recordReleaseAlignment(String, String, String, String)})
+ * the two writes are the same manifest evolution: the record says what
+ * released, the state entry makes alignment and the release cascade obey
+ * it.
+ *
+ * &lt;p&gt;Instances are immutable; {@link #withMember(String, MemberRelease)}
+ * returns an updated copy. Member insertion order is preserved — the
+ * record file reads in release order.
+ *
+ * @param cycle   the cycle label, e.g. {@code komet-wsr-1}; never blank
+ * @param started when the cycle opened (opaque caller-supplied text,
+ *                typically an ISO date); null when unknown
+ * @param members released members in release order, keyed by subproject
+ *                name; never null, possibly empty
+ */
+public record ReleaseRecord(
+        String cycle,
+        String started,
+        Map&lt;String, MemberRelease&gt; members) {
+
+    /**
+     * One member's release within a cycle.
+     *
+     * @param version  the released (de-qualified) version, e.g.
+     *                 {@code 3.0.7}; never blank
+     * @param tag      the git release tag, e.g. {@code v3.0.7}; never blank
+     * @param sha      the commit the tag points at; never blank
+     * @param recorded when the row was written (opaque caller-supplied
+     *                 text, typically an ISO date); null when unknown
+     */
+    public record MemberRelease(String version, String tag, String sha,
+                                String recorded) {
+
+        /**
+         * Validate the row: version, tag, and sha are required.
+         *
+         * @throws ManifestException if version, tag, or sha is null or blank
+         */
+<span class="fc" id="L55">        public MemberRelease {</span>
+<span class="fc" id="L56">            requireNonBlank(version, &quot;version&quot;);</span>
+<span class="fc" id="L57">            requireNonBlank(tag, &quot;tag&quot;);</span>
+<span class="fc" id="L58">            requireNonBlank(sha, &quot;sha&quot;);</span>
+<span class="fc" id="L59">        }</span>
+    }
+
+    /**
+     * Validate and defensively copy: the cycle label is required and the
+     * member map is copied into an unmodifiable insertion-ordered map.
+     *
+     * @throws ManifestException if {@code cycle} is null or blank, or
+     *                           {@code members} is null
+     */
+<span class="fc" id="L69">    public ReleaseRecord {</span>
+<span class="fc" id="L70">        requireNonBlank(cycle, &quot;cycle&quot;);</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        if (members == null) {</span>
+<span class="fc" id="L72">            throw new ManifestException(&quot;members must not be null&quot;);</span>
+        }
+<span class="fc" id="L74">        members = Collections.unmodifiableMap(new LinkedHashMap&lt;&gt;(members));</span>
+<span class="fc" id="L75">    }</span>
+
+    /**
+     * Open a new, empty cycle record.
+     *
+     * @param cycle   the cycle label, e.g. {@code komet-wsr-1}
+     * @param started when the cycle opened (opaque caller-supplied text);
+     *                may be null
+     * @return an empty record for the cycle
+     * @throws ManifestException if {@code cycle} is null or blank
+     */
+    public static ReleaseRecord start(String cycle, String started) {
+<span class="fc" id="L87">        return new ReleaseRecord(cycle, started, new LinkedHashMap&lt;&gt;());</span>
+    }
+
+    /**
+     * Return a copy of this record with the given member's row added, or
+     * replaced when the member already has one (a member re-released
+     * within the cycle keeps a single row carrying the latest release).
+     * A replaced member keeps its original position; a new member appends.
+     *
+     * @param name    the subproject name; never blank
+     * @param release the member's release row
+     * @return a new record including the row
+     * @throws ManifestException if {@code name} is null or blank or
+     *                           {@code release} is null
+     */
+    public ReleaseRecord withMember(String name, MemberRelease release) {
+<span class="fc" id="L103">        requireNonBlank(name, &quot;name&quot;);</span>
+<span class="pc bpc" id="L104" title="1 of 2 branches missed.">        if (release == null) {</span>
+<span class="nc" id="L105">            throw new ManifestException(&quot;release must not be null&quot;);</span>
+        }
+<span class="fc" id="L107">        Map&lt;String, MemberRelease&gt; updated = new LinkedHashMap&lt;&gt;(members);</span>
+<span class="fc" id="L108">        updated.put(name, release);</span>
+<span class="fc" id="L109">        return new ReleaseRecord(cycle, started, updated);</span>
+    }
+
+    /**
+     * Reject a null or blank argument with a uniform message.
+     *
+     * @param value the argument value to check
+     * @param name  the argument name for the error message
+     * @throws ManifestException if {@code value} is null or blank
+     */
+    private static void requireNonBlank(String value, String name) {
+<span class="fc bfc" id="L120" title="All 4 branches covered.">        if (value == null || value.isBlank()) {</span>
+<span class="fc" id="L121">            throw new ManifestException(name + &quot; must not be null or blank&quot;);</span>
+        }
+<span class="fc" id="L123">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

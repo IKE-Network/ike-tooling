@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReleaseRecordFile.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">ReleaseRecordFile.java</span></div><h1>ReleaseRecordFile.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Reads and writes {@code releases/release-&lt;cycle&gt;.yaml} — the on-disk
+ * form of a {@link ReleaseRecord} (IKE-Network/ike-issues#973).
+ *
+ * &lt;p&gt;Unlike {@link ManifestWriter}, which performs comment-preserving
+ * surgical edits on the hand-maintained {@code workspace.yaml}, the
+ * release record is machine-owned ({@code ws:record-release} writes it,
+ * nothing hand-edits it), so this class renders the whole file from the
+ * model on every write — symmetric read/write over one canonical form,
+ * in the style of the checkpoint YAML files.
+ *
+ * &lt;p&gt;Scalar values that could parse as non-string YAML types (versions,
+ * shas, dates) are written quoted so a read-back always yields strings.
+ */
+public final class ReleaseRecordFile {
+
+    private ReleaseRecordFile() {}
+
+    /**
+     * The canonical record path for a cycle:
+     * {@code &lt;root&gt;/releases/release-&lt;cycle&gt;.yaml}.
+     *
+     * @param workspaceRoot the workspace root directory
+     * @param cycle         the cycle label, e.g. {@code komet-wsr-1}
+     * @return the record file path
+     * @throws ManifestException if {@code cycle} is null or blank
+     */
+    public static Path pathFor(Path workspaceRoot, String cycle) {
+<span class="pc bpc" id="L41" title="1 of 4 branches missed.">        if (cycle == null || cycle.isBlank()) {</span>
+<span class="fc" id="L42">            throw new ManifestException(&quot;cycle must not be null or blank&quot;);</span>
+        }
+<span class="fc" id="L44">        return workspaceRoot.resolve(&quot;releases&quot;)</span>
+<span class="fc" id="L45">                .resolve(&quot;release-&quot; + cycle + &quot;.yaml&quot;);</span>
+    }
+
+    /**
+     * Read a release record from disk.
+     *
+     * @param path the record file path
+     * @return the parsed record
+     * @throws ManifestException if the file cannot be read, is not a YAML
+     *                           map, or fails {@link ReleaseRecord}
+     *                           validation
+     */
+    public static ReleaseRecord read(Path path) {
+        Map&lt;String, Object&gt; raw;
+<span class="fc" id="L59">        try (Reader reader = Files.newBufferedReader(path,</span>
+                StandardCharsets.UTF_8)) {
+<span class="fc" id="L61">            Object loaded = new Yaml().load(reader);</span>
+<span class="fc bfc" id="L62" title="All 2 branches covered.">            if (!(loaded instanceof Map)) {</span>
+<span class="fc" id="L63">                throw new ManifestException(&quot;Release record &quot; + path</span>
+                        + &quot; is not a YAML map&quot;);
+            }
+            @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L67">            Map&lt;String, Object&gt; cast = (Map&lt;String, Object&gt;) loaded;</span>
+<span class="fc" id="L68">            raw = cast;</span>
+<span class="nc" id="L69">        } catch (IOException e) {</span>
+<span class="nc" id="L70">            throw new ManifestException(&quot;Cannot read release record &quot;</span>
+<span class="nc" id="L71">                    + path + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L72">        }</span>
+
+<span class="fc" id="L74">        String cycle = stringValue(raw.get(&quot;cycle&quot;));</span>
+<span class="fc" id="L75">        String started = stringValue(raw.get(&quot;started&quot;));</span>
+
+<span class="fc" id="L77">        Map&lt;String, ReleaseRecord.MemberRelease&gt; members = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L78">        Object membersRaw = raw.get(&quot;members&quot;);</span>
+<span class="pc bpc" id="L79" title="1 of 2 branches missed.">        if (membersRaw instanceof Map&lt;?, ?&gt; membersMap) {</span>
+<span class="fc bfc" id="L80" title="All 2 branches covered.">            for (Map.Entry&lt;?, ?&gt; entry : membersMap.entrySet()) {</span>
+<span class="fc" id="L81">                String name = stringValue(entry.getKey());</span>
+<span class="pc bpc" id="L82" title="1 of 2 branches missed.">                if (!(entry.getValue() instanceof Map&lt;?, ?&gt; row)) {</span>
+<span class="nc" id="L83">                    throw new ManifestException(&quot;Release record &quot; + path</span>
+                            + &quot;: member '&quot; + name + &quot;' is not a YAML map&quot;);
+                }
+<span class="fc" id="L86">                members.put(name, new ReleaseRecord.MemberRelease(</span>
+<span class="fc" id="L87">                        stringValue(row.get(&quot;version&quot;)),</span>
+<span class="fc" id="L88">                        stringValue(row.get(&quot;tag&quot;)),</span>
+<span class="fc" id="L89">                        stringValue(row.get(&quot;sha&quot;)),</span>
+<span class="fc" id="L90">                        stringValue(row.get(&quot;recorded&quot;))));</span>
+<span class="fc" id="L91">            }</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">        } else if (membersRaw != null) {</span>
+<span class="nc" id="L93">            throw new ManifestException(&quot;Release record &quot; + path</span>
+                    + &quot;: members is not a YAML map&quot;);
+        }
+
+<span class="fc" id="L97">        return new ReleaseRecord(cycle, started, members);</span>
+    }
+
+    /**
+     * Write a release record to disk, creating the {@code releases/}
+     * directory when absent. The rendered form is deterministic for a
+     * given record, so re-writing an unchanged record is byte-stable.
+     *
+     * @param path   the record file path
+     * @param record the record to render
+     * @throws IOException if the directory or file cannot be written
+     */
+    public static void write(Path path, ReleaseRecord record)
+            throws IOException {
+<span class="fc" id="L111">        Path parent = path.getParent();</span>
+<span class="pc bpc" id="L112" title="1 of 2 branches missed.">        if (parent != null) {</span>
+<span class="fc" id="L113">            Files.createDirectories(parent);</span>
+        }
+<span class="fc" id="L115">        Files.writeString(path, render(record), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L116">    }</span>
+
+    /**
+     * Render a record to its canonical YAML text.
+     *
+     * @param record the record to render
+     * @return the YAML document text
+     */
+    static String render(ReleaseRecord record) {
+<span class="fc" id="L125">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L126">        sb.append(&quot;# release-&quot;).append(record.cycle()).append(&quot;.yaml — &quot;)</span>
+<span class="fc" id="L127">                .append(&quot;one release cycle of this working set.\n&quot;);</span>
+<span class="fc" id="L128">        sb.append(&quot;# Written by ws:record-release &quot;)</span>
+<span class="fc" id="L129">                .append(&quot;(IKE-Network/ike-issues#973); one file per cycle,\n&quot;);</span>
+<span class="fc" id="L130">        sb.append(&quot;# one row per released member. Do not hand-edit.\n&quot;);</span>
+<span class="fc" id="L131">        sb.append(&quot;\n&quot;);</span>
+<span class="fc" id="L132">        sb.append(&quot;cycle: &quot;).append(quoted(record.cycle())).append(&quot;\n&quot;);</span>
+<span class="fc bfc" id="L133" title="All 2 branches covered.">        if (record.started() != null) {</span>
+<span class="fc" id="L134">            sb.append(&quot;started: &quot;).append(quoted(record.started()))</span>
+<span class="fc" id="L135">                    .append(&quot;\n&quot;);</span>
+        }
+<span class="fc" id="L137">        sb.append(&quot;\n&quot;);</span>
+<span class="fc bfc" id="L138" title="All 2 branches covered.">        if (record.members().isEmpty()) {</span>
+<span class="fc" id="L139">            sb.append(&quot;members: {}\n&quot;);</span>
+<span class="fc" id="L140">            return sb.toString();</span>
+        }
+<span class="fc" id="L142">        sb.append(&quot;members:\n&quot;);</span>
+        for (Map.Entry&lt;String, ReleaseRecord.MemberRelease&gt; entry
+<span class="fc bfc" id="L144" title="All 2 branches covered.">                : record.members().entrySet()) {</span>
+<span class="fc" id="L145">            ReleaseRecord.MemberRelease row = entry.getValue();</span>
+<span class="fc" id="L146">            sb.append(&quot;  &quot;).append(entry.getKey()).append(&quot;:\n&quot;);</span>
+<span class="fc" id="L147">            sb.append(&quot;    version: &quot;).append(quoted(row.version()))</span>
+<span class="fc" id="L148">                    .append(&quot;\n&quot;);</span>
+<span class="fc" id="L149">            sb.append(&quot;    tag: &quot;).append(quoted(row.tag())).append(&quot;\n&quot;);</span>
+<span class="fc" id="L150">            sb.append(&quot;    sha: &quot;).append(quoted(row.sha())).append(&quot;\n&quot;);</span>
+<span class="pc bpc" id="L151" title="1 of 2 branches missed.">            if (row.recorded() != null) {</span>
+<span class="fc" id="L152">                sb.append(&quot;    recorded: &quot;).append(quoted(row.recorded()))</span>
+<span class="fc" id="L153">                        .append(&quot;\n&quot;);</span>
+            }
+<span class="fc" id="L155">        }</span>
+<span class="fc" id="L156">        return sb.toString();</span>
+    }
+
+    /**
+     * Quote a scalar for the rendered form so read-back always yields a
+     * string regardless of YAML's scalar typing rules.
+     *
+     * @param value the scalar text
+     * @return the double-quoted form
+     */
+    private static String quoted(String value) {
+<span class="fc" id="L167">        return &quot;\&quot;&quot; + value + &quot;\&quot;&quot;;</span>
+    }
+
+    /**
+     * Normalize a loaded YAML scalar to its string form. SnakeYAML types
+     * bare scalars (dates, integers); the record model is string-typed.
+     *
+     * @param value the loaded scalar, possibly null
+     * @return the string form, or null when {@code value} is null
+     */
+    private static String stringValue(Object value) {
+<span class="fc bfc" id="L178" title="All 2 branches covered.">        return value == null ? null : value.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
