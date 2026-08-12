@@ -231,11 +231,11 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     // ConstantBackedEnum.verify() — run from the static initializer
     // below — fails class-load if any constant and its mirror drift.
 
-    /** Mirror for {@link #CASCADE_EXPORT}. */
     /** Mirror for {@link #BUILD_REPORT_RATCHET_DRAFT}. */
     public static final String NAME_BUILD_REPORT_RATCHET_DRAFT = "build-report-ratchet-draft";
     /** Mirror for {@link #BUILD_REPORT_RATCHET_PUBLISH}. */
     public static final String NAME_BUILD_REPORT_RATCHET_PUBLISH = "build-report-ratchet-publish";
+    /** Mirror for {@link #CASCADE_EXPORT}. */
     public static final String NAME_CASCADE_EXPORT = "cascade-export";
     /** Mirror for {@link #CENTRAL_STAGE}. */
     public static final String NAME_CENTRAL_STAGE = "central-stage";
