@@ -178,6 +178,18 @@ interoperability
   RF2
   TINKAR
 
+multi-machine development
+  fencing token
+  git-state materialization
+  Jini leasing
+  lease renewal
+  machine identity
+  silent peer
+  single-writer
+  staleness horizon
+  takeover
+  working-set lease
+
 organizations
   IHTSDO
   NLM
