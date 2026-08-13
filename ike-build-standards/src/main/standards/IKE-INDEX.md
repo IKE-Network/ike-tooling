@@ -179,11 +179,13 @@ interoperability
   TINKAR
 
 multi-machine development
+  contested acquisition
   fencing token
   git-state materialization
   Jini leasing
   lease renewal
   machine identity
+  propagation window
   silent peer
   single-writer
   staleness horizon
