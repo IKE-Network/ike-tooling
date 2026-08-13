@@ -8,31 +8,40 @@ commit from IntelliJ, Claude Code, or the terminal. The system detects when git 
 is stale due to a commit on another machine, blocks unsafe operations with a clear
 message, and provides simple commands to reconcile.
 
-## Status (2026-06-09)
+## Status (2026-08-12) — hook half retired
 
-**Plugin half is live.** The ws goals write `.ike/vcs-state` on commit/push/feature-start —
-29 repos under `~/ike-dev` carry state files today.
+**This document is design history.** The hook half of the VCS bridge is retired; the
+coordination problem it addressed is now answered by working-set leases
+(`dev-working-set-lease` in ike-lab-documents, IKE-Network/ike-issues#1002), which put
+the invariant in a synced lease record enforced by a daemon, an IntelliJ plugin, and a
+Claude hook rather than in git hooks.
 
-**Hook half is parked.** The three hooks were installed 2026-04-24 without the execute
-bit (by a SetupMojo version predating `setExecutable`) and sat inert but noisy — git
-printed "hook was ignored" hints on every commit/push. On 2026-06-09 they were moved to
-`~/.git-hooks/staged/` on Komet-MacBook-16, pending `ike:sync` and the `ike:verify` VCS
-checks (neither exists in IkeGoal yet — pre-commit's block message references both).
+**Plugin half is still live.** The ws goals write `.ike/vcs-state` on
+commit/push/feature-start; repos under `~/ike-dev` carry state files and per-repo
+`.gitignore` entries for them. `ike:sync` and the `ike:verify` VCS checks were never
+implemented.
 
-**⚠️ Activation footgun.** Current SetupMojo *does* set the execute bit, so any
-`mvnw ike:setup` run installs LIVE hooks — auto-push included. Before running it:
+**What was removed (2026-08-12).** The three hooks never ran anywhere: installed
+2026-04-24 without the execute bit, they sat inert but noisy (git's "hook was ignored"
+hint on every commit), were parked to `~/.git-hooks/staged/` on 2026-06-09, and were
+deleted outright today per delete-unused-don't-deprecate. Both installation vectors went
+with them:
 
-1. Implement `ike:sync` and fold VCS checks into `ike:verify` (pre-commit's remediation
-   text must point at real goals).
-2. Refresh stale state files. At parking time, 9 repos had `vcs-state` ≠ HEAD and would
-   block their next commit: ike-tooling, ike-docs, ike-platform, ike-lab-documents,
-   komet-ws, ike-komet-wsr, and ike-komet-wsr/{komet-bom, komet-claude-plugin,
-   komet-desktop} — stale-state false positives from raw-git commits made while
-   post-commit was dormant, not real cross-machine divergence.
-3. Remember post-commit auto-push goes live in every `.ike` repo at once.
+- `ike:setup` / `SetupMojo` and the `/hooks/*` plugin resources — deleted. The goal
+  existed only to install these hooks and to write `~/.gitignore_global` entries
+  (`_git-init*`, now a retired concept; `.ike/vcs-state`, already covered per-repo).
+- The scaffold manifest's three `~/.git-hooks/*` entries and
+  `tool-owned/hooks/*` — deleted. These shipped parked at mode 600, which was the
+  careful form, but re-depositing them would have resurrected both the files and the
+  "hook was ignored" noise. The manifest's `core.hooksPath` entry stays: it declares the
+  hook *location*, which machines still use for their own hooks.
 
-**Mac Studio:** its `~/.git-hooks/` state was not verified (hooks dir doesn't sync) —
-check whether the three hooks exist there and park them the same way.
+Machine-local copies were archived to
+`~/ike-dev/notes/retired/git-hooks-bootstrap-komet-macbook-2026-08-12.tar.gz`. The Mac
+Studio never had them. If the bridge is ever revived, recover the hook bodies from git
+history (they lived at `ike-maven-plugin/src/main/resources/hooks/` and
+`ike-build-standards/src/main/scaffold/tool-owned/hooks/`) and settle the open
+prerequisites below first.
 
 ## Background and Design Decisions
 

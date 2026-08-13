@@ -208,9 +208,6 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "IKE Network landing page registration. Flags: "
                     + "-DupdateSite=false, -DupdateRegistration=false, "
                     + "-Dsite=removed (uninstall: deregister + cleanup)."),
-    /** {@code ike:setup} — one-time setup for an IKE development machine. */
-    SETUP(IkeGoal.NAME_SETUP, SetupMojo.class,
-            "One-time setup for an IKE development machine."),
     /** {@code ike:unpack-zip} — unpack a zip artifact into a target directory. */
     UNPACK_ZIP(IkeGoal.NAME_UNPACK_ZIP, UnpackZipMojo.class,
             "Unpack a zip artifact into a target directory."),
@@ -304,8 +301,6 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_SITE_DRAFT = "site-draft";
     /** Mirror for {@link #SITE_PUBLISH}. */
     public static final String NAME_SITE_PUBLISH = "site-publish";
-    /** Mirror for {@link #SETUP}. */
-    public static final String NAME_SETUP = "setup";
     /** Mirror for {@link #UNPACK_ZIP}. */
     public static final String NAME_UNPACK_ZIP = "unpack-zip";
     /** Mirror for {@link #VERIFY_RELEASE_PUBLISHED}. */
