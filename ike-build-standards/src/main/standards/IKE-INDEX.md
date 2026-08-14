@@ -180,12 +180,15 @@ interoperability
 
 multi-machine development
   contested acquisition
+  non-participant
+  onboarding
   fencing token
   git-state materialization
   Jini leasing
   lease renewal
   machine identity
   propagation window
+  safety net
   silent peer
   single-writer
   staleness horizon
