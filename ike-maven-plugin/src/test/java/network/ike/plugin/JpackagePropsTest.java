@@ -170,13 +170,17 @@ class JpackagePropsTest {
         // not the build clock (IKE-Network/ike-issues#996).
         BuildProps mac = JpackagePropsMojo.computeProps(
                 Instant.parse("2026-08-14T18:38:00Z"), "3.0.0",
-                "Mac OS X", "aarch64", "Komet Desktop {version}{s}");
+                "Mac OS X", "aarch64", "Komet Desktop {date} {hhmm}{s}",
+                "Komet Desktop {version}");
         assertEquals("3.0.0", mac.jpackageAppVersion());
+        // The release pattern is chosen for a release — the development
+        // pattern's timestamp never reaches a released installer's name.
         assertEquals("Komet Desktop 3.0.0", mac.jpackageAppName());
 
         BuildProps win = JpackagePropsMojo.computeProps(
                 Instant.parse("2026-08-14T18:38:00Z"), "3.0.0",
-                "Windows 11", "amd64", "Komet Desktop {version}{s}");
+                "Windows 11", "amd64", "Komet Desktop {date} {hhmm}{s}",
+                "Komet Desktop {version}");
         assertEquals("3.0.0", win.jpackageAppVersion());
         assertEquals("3.0.0.0", win.winAppVersion());
     }

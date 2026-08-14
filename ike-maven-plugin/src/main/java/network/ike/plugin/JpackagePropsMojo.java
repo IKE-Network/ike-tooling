@@ -73,6 +73,17 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
     private String appNamePattern;
 
     /**
+     * Application name pattern for a released build. A development build
+     * is identified by when it was built; a release is identified by its
+     * version, and naming it after a timestamp leaves an installer nobody
+     * can match to a release (IKE-Network/ike-issues#996). Same
+     * placeholders as {@link #appNamePattern}.
+     */
+    @Parameter(property = "jpackage.releaseAppNamePattern",
+               defaultValue = "Komet Desktop {version}")
+    private String releaseAppNamePattern;
+
+    /**
      * Explicit build timestamp (ISO-8601 instant, e.g. {@code 2026-04-08T19:01:00Z}).
      * Defaults to current time.
      */
@@ -96,7 +107,8 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
                 project.getVersion(),
                 System.getProperty("os.name", ""),
                 System.getProperty("os.arch", ""),
-                appNamePattern);
+                appNamePattern,
+                releaseAppNamePattern);
 
         ProjectManager pm = session.getService(ProjectManager.class);
         pm.setProperty(project, "build.date", props.buildDate());
@@ -192,6 +204,27 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
                                    String osName,
                                    String osArch,
                                    String appNamePattern) {
+        return computeProps(buildInstant, projectVersion, osName, osArch,
+                appNamePattern, appNamePattern);
+    }
+
+    /**
+     * Pure computation, choosing the name pattern by build kind.
+     *
+     * @param buildInstant           the build timestamp
+     * @param projectVersion         the Maven project version
+     * @param osName                 value of {@code os.name}
+     * @param osArch                 value of {@code os.arch}
+     * @param appNamePattern         pattern for a development build
+     * @param releaseAppNamePattern  pattern for a released build
+     * @return all computed properties
+     */
+    static BuildProps computeProps(Instant buildInstant,
+                                   String projectVersion,
+                                   String osName,
+                                   String osArch,
+                                   String appNamePattern,
+                                   String releaseAppNamePattern) {
         ZonedDateTime utc = buildInstant.atZone(ZoneOffset.UTC);
 
         // Timestamp properties
@@ -255,7 +288,9 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
 
         // App name from pattern
         String snapshotSuffix = isSnapshot ? "s" : "";
-        String jpackageAppName = appNamePattern
+        String namePattern = releaseAppVersion != null
+                ? releaseAppNamePattern : appNamePattern;
+        String jpackageAppName = namePattern
                 .replace("{date}", buildDisplayDate)
                 .replace("{hhmm}", buildHhmm)
                 .replace("{version}", releaseAppVersion != null
