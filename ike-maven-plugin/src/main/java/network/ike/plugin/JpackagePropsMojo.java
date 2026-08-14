@@ -11,6 +11,8 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 
@@ -61,6 +63,8 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
      * <ul>
      *   <li>{@code {date}} — display date (yyyy-MM-dd)</li>
      *   <li>{@code {hhmm}} — UTC time (leading-zero-stripped)</li>
+     *   <li>{@code {version}} — the released version for a release build,
+     *       the build-clock version for a development build</li>
      *   <li>{@code {s}} — "s" for SNAPSHOT, empty for release</li>
      * </ul>
      */
@@ -141,6 +145,38 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
             String winVersionBuild, String winVersionRevision
     ) {}
 
+
+    /**
+     * Reduce a released Maven version to something jpackage and the Windows
+     * installer will both accept: up to three dot-separated numbers, each
+     * within the MSI limits (major and minor 0-255, build 0-65535). A
+     * qualifier such as {@code -r1} is dropped, a single-segment version
+     * like {@code 1} becomes {@code 1.0.0}, and anything with no leading
+     * number at all yields {@code null} so the caller falls back to the
+     * build-clock scheme rather than emitting an installer jpackage would
+     * reject.
+     *
+     * @param projectVersion the released Maven version
+     * @return an installer-safe version, or {@code null} when none can be
+     *         derived
+     */
+    static String msiSafeVersion(String projectVersion) {
+        if (projectVersion == null || projectVersion.isBlank()) return null;
+        String[] raw = projectVersion.trim().split("[.\\-+_]");
+        List<Integer> numbers = new ArrayList<>();
+        for (String part : raw) {
+            if (!part.matches("\\d+")) break;
+            numbers.add(Integer.parseInt(part));
+            if (numbers.size() == 3) break;
+        }
+        if (numbers.isEmpty()) return null;
+        while (numbers.size() < 3) numbers.add(0);
+        int major = Math.min(numbers.get(0), 255);
+        int minor = Math.min(numbers.get(1), 255);
+        int build = Math.min(numbers.get(2), 65535);
+        return major + "." + minor + "." + build;
+    }
+
     /**
      * Pure computation of all properties — no Maven or system dependencies.
      *
@@ -203,16 +239,27 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
         boolean isSnapshot = projectVersion != null && projectVersion.endsWith("-SNAPSHOT");
         String buildQualifier = isSnapshot ? "777" : "0";
 
-        // JPackage version: Windows MSI requires Minor <= 255
-        String jpackageAppVersion = isWindows
-                ? buildYear + "." + buildMonth + "." + buildHhmm
-                : buildYear + "." + buildMonthday + "." + buildHhmm;
+        // JPackage version. A development build has no meaningful version
+        // of its own, so it is stamped with the build clock; a released
+        // build has exactly one right answer — the version it was released
+        // as — and stamping it with a timestamp instead leaves an installer
+        // nobody can match to a release (IKE-Network/ike-issues#996).
+        String releaseAppVersion = isSnapshot ? null
+                : msiSafeVersion(projectVersion);
+        String jpackageAppVersion = releaseAppVersion != null
+                ? releaseAppVersion
+                : isWindows
+                    // Windows MSI requires Minor <= 255
+                    ? buildYear + "." + buildMonth + "." + buildHhmm
+                    : buildYear + "." + buildMonthday + "." + buildHhmm;
 
         // App name from pattern
         String snapshotSuffix = isSnapshot ? "s" : "";
         String jpackageAppName = appNamePattern
                 .replace("{date}", buildDisplayDate)
                 .replace("{hhmm}", buildHhmm)
+                .replace("{version}", releaseAppVersion != null
+                        ? releaseAppVersion : jpackageAppVersion)
                 .replace("{s}", snapshotSuffix);
 
         // Windows version components
@@ -220,6 +267,13 @@ public class JpackagePropsMojo implements org.apache.maven.api.plugin.Mojo {
         String winVersionMinor = buildMonthday;
         String winVersionBuild = buildHhmm;
         String winVersionRevision = buildQualifier;
+        if (releaseAppVersion != null) {
+            String[] parts = releaseAppVersion.split("\\.");
+            winVersionMajor = parts[0];
+            winVersionMinor = parts.length > 1 ? parts[1] : "0";
+            winVersionBuild = parts.length > 2 ? parts[2] : "0";
+            winVersionRevision = "0";
+        }
         String winAppVersion = winVersionMajor + "." + winVersionMinor + "."
                 + winVersionBuild + "." + winVersionRevision;
 
