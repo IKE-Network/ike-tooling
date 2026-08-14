@@ -196,6 +196,15 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     SCAFFOLD_REVERT(IkeGoal.NAME_SCAFFOLD_REVERT, ScaffoldRevertMojo.class,
             "Undo a previous ike:scaffold-publish, leaving "
                     + "user-edited files alone."),
+    /** {@code ike:announce-draft} — preview a Zulip announcement (#1016). */
+    ANNOUNCE_DRAFT(IkeGoal.NAME_ANNOUNCE_DRAFT, IkeAnnounceDraftMojo.class,
+            "Preview an announcement to a Zulip stream: print the "
+                    + "destination and the exact message without posting."),
+    /** {@code ike:announce-publish} — post a Zulip announcement (#1016). */
+    ANNOUNCE_PUBLISH(IkeGoal.NAME_ANNOUNCE_PUBLISH, IkeAnnouncePublishMojo.class,
+            "Post an announcement to a Zulip stream. Credentials come "
+                    + "from ZULIP_BOT_EMAIL / ZULIP_BOT_TOKEN in the "
+                    + "environment, so the same goal runs locally and on CI."),
     /** {@code ike:site-draft} — report deployed-site drift (#398). */
     SITE_DRAFT(IkeGoal.NAME_SITE_DRAFT, IkeSiteDraftMojo.class,
             "Report drift in deployed-site state — version on "
@@ -297,7 +306,12 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_SCAFFOLD_PUBLISH = "scaffold-publish";
     /** Mirror for {@link #SCAFFOLD_REVERT}. */
     public static final String NAME_SCAFFOLD_REVERT = "scaffold-revert";
-    /** Mirror for {@link #SITE_DRAFT}. */
+    /** Goal name for {@link #ANNOUNCE_DRAFT}. */
+    public static final String NAME_ANNOUNCE_DRAFT = "announce-draft";
+    /** Goal name for {@link #ANNOUNCE_PUBLISH}. */
+    public static final String NAME_ANNOUNCE_PUBLISH = "announce-publish";
+    /** Goal name for {@link #SITE_DRAFT}. */
+/** Mirror for {@link #SITE_DRAFT}. */
     public static final String NAME_SITE_DRAFT = "site-draft";
     /** Mirror for {@link #SITE_PUBLISH}. */
     public static final String NAME_SITE_PUBLISH = "site-publish";
