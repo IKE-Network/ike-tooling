@@ -703,8 +703,27 @@ public class ReleaseSupport {
     private static final String BACKUP_SUFFIX = ".ike-backup";
 
     /**
-     * Find all {@code pom.xml} files under the git root, excluding
-     * {@code target/} directories and the {@code .mvn/} directory.
+     * Find all {@code pom.xml} files under the git root that belong to the
+     * project, excluding build output and dot-directories.
+     *
+     * <p>A POM inside a dot-directory is never part of the reactor being
+     * released. {@code .mvn/} was already excluded by name; the rule is
+     * generalised because the specific case that broke a release was
+     * {@code .claude/worktrees/}, where an orphaned agent worktree held a
+     * complete copy of the reactor. Its POMs were version-set along with the
+     * real ones and then staged, and {@code git add} refused them —
+     * <em>"The following paths are ignored by one of your .gitignore
+     * files"</em> — after the release branch had already been cut.
+     * IKE-Network/ike-issues#1014.
+     *
+     * <p>Dot-directories are the right rule rather than naming
+     * {@code .claude}: they are conventionally tool state, they are
+     * conventionally git-ignored, and the next tool to leave a tree behind
+     * should not break a release too.
+     *
+     * <p>Segments are matched whole rather than as substrings, so a
+     * directory legitimately named {@code mytarget} is no longer excluded
+     * for containing {@code target}.
      *
      * @param gitRoot the git repository root directory
      * @return list of discovered POM files
@@ -714,16 +733,29 @@ public class ReleaseSupport {
         try (Stream<Path> walk = Files.walk(gitRoot.toPath())) {
             return walk
                     .filter(p -> p.getFileName().toString().equals("pom.xml"))
-                    .filter(p -> {
-                        String rel = gitRoot.toPath().relativize(p).toString();
-                        return !rel.contains("target" + File.separator)
-                                && !rel.startsWith(".mvn" + File.separator);
-                    })
+                    .filter(p -> isProjectPom(gitRoot.toPath().relativize(p)))
                     .map(Path::toFile)
                     .collect(Collectors.toList());
         } catch (IOException e) {
             throw new MojoException("Failed to scan for POM files", e);
         }
+    }
+
+    /**
+     * Decides whether a POM found under the git root belongs to the project.
+     *
+     * @param relative the POM's path relative to the git root
+     * @return {@code false} when any directory above it is build output or a
+     *         dot-directory
+     */
+    static boolean isProjectPom(Path relative) {
+        for (int i = 0; i < relative.getNameCount() - 1; i++) {
+            String segment = relative.getName(i).toString();
+            if (segment.equals("target") || segment.startsWith(".")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
