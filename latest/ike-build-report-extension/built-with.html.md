@@ -6,7 +6,7 @@ canonical_url: https://ike.network/ike-tooling/ike-build-report-extension/built-
 
 # Built With
 
-Open-source software that `ike-build-report-extension` 246 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-build-report-extension` 247 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 

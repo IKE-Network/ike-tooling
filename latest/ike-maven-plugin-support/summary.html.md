@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin-support/summary.
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-maven-plugin-support |
-| Version | 246 |
+| Version | 247 |
 | Type | jar |
 | Java Version | 25 |

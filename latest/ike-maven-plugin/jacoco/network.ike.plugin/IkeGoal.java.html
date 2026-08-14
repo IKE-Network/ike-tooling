@@ -196,23 +196,32 @@ import java.util.Optional;
 <span class="fc" id="L196">    SCAFFOLD_REVERT(IkeGoal.NAME_SCAFFOLD_REVERT, ScaffoldRevertMojo.class,</span>
             &quot;Undo a previous ike:scaffold-publish, leaving &quot;
                     + &quot;user-edited files alone.&quot;),
+    /** {@code ike:announce-draft} — preview a Zulip announcement (#1016). */
+<span class="fc" id="L200">    ANNOUNCE_DRAFT(IkeGoal.NAME_ANNOUNCE_DRAFT, IkeAnnounceDraftMojo.class,</span>
+            &quot;Preview an announcement to a Zulip stream: print the &quot;
+                    + &quot;destination and the exact message without posting.&quot;),
+    /** {@code ike:announce-publish} — post a Zulip announcement (#1016). */
+<span class="fc" id="L204">    ANNOUNCE_PUBLISH(IkeGoal.NAME_ANNOUNCE_PUBLISH, IkeAnnouncePublishMojo.class,</span>
+            &quot;Post an announcement to a Zulip stream. Credentials come &quot;
+                    + &quot;from ZULIP_BOT_EMAIL / ZULIP_BOT_TOKEN in the &quot;
+                    + &quot;environment, so the same goal runs locally and on CI.&quot;),
     /** {@code ike:site-draft} — report deployed-site drift (#398). */
-<span class="fc" id="L200">    SITE_DRAFT(IkeGoal.NAME_SITE_DRAFT, IkeSiteDraftMojo.class,</span>
+<span class="fc" id="L209">    SITE_DRAFT(IkeGoal.NAME_SITE_DRAFT, IkeSiteDraftMojo.class,</span>
             &quot;Report drift in deployed-site state — version on &quot;
                     + &quot;server vs current project version, landing-page &quot;
                     + &quot;registration status — with copy-paste opt-out &quot;
                     + &quot;commands inline.&quot;),
     /** {@code ike:site-publish} — apply deployed-site convergence (#398). */
-<span class="fc" id="L206">    SITE_PUBLISH(IkeGoal.NAME_SITE_PUBLISH, IkeSitePublishMojo.class,</span>
+<span class="fc" id="L215">    SITE_PUBLISH(IkeGoal.NAME_SITE_PUBLISH, IkeSitePublishMojo.class,</span>
             &quot;Deploy the current version to gh-pages and update the &quot;
                     + &quot;IKE Network landing page registration. Flags: &quot;
                     + &quot;-DupdateSite=false, -DupdateRegistration=false, &quot;
                     + &quot;-Dsite=removed (uninstall: deregister + cleanup).&quot;),
     /** {@code ike:unpack-zip} — unpack a zip artifact into a target directory. */
-<span class="fc" id="L212">    UNPACK_ZIP(IkeGoal.NAME_UNPACK_ZIP, UnpackZipMojo.class,</span>
+<span class="fc" id="L221">    UNPACK_ZIP(IkeGoal.NAME_UNPACK_ZIP, UnpackZipMojo.class,</span>
             &quot;Unpack a zip artifact into a target directory.&quot;),
     /** {@code ike:verify-release-published} — verify all post-release publication targets (#374). */
-<span class="fc" id="L215">    VERIFY_RELEASE_PUBLISHED(IkeGoal.NAME_VERIFY_RELEASE_PUBLISHED,</span>
+<span class="fc" id="L224">    VERIFY_RELEASE_PUBLISHED(IkeGoal.NAME_VERIFY_RELEASE_PUBLISHED,</span>
             VerifyReleasePublishedMojo.class,
             &quot;Verify all post-release publication targets are &quot;
                     + &quot;reachable for the current project + version: &quot;
@@ -297,7 +306,12 @@ import java.util.Optional;
     public static final String NAME_SCAFFOLD_PUBLISH = &quot;scaffold-publish&quot;;
     /** Mirror for {@link #SCAFFOLD_REVERT}. */
     public static final String NAME_SCAFFOLD_REVERT = &quot;scaffold-revert&quot;;
-    /** Mirror for {@link #SITE_DRAFT}. */
+    /** Goal name for {@link #ANNOUNCE_DRAFT}. */
+    public static final String NAME_ANNOUNCE_DRAFT = &quot;announce-draft&quot;;
+    /** Goal name for {@link #ANNOUNCE_PUBLISH}. */
+    public static final String NAME_ANNOUNCE_PUBLISH = &quot;announce-publish&quot;;
+    /** Goal name for {@link #SITE_DRAFT}. */
+/** Mirror for {@link #SITE_DRAFT}. */
     public static final String NAME_SITE_DRAFT = &quot;site-draft&quot;;
     /** Mirror for {@link #SITE_PUBLISH}. */
     public static final String NAME_SITE_PUBLISH = &quot;site-publish&quot;;
@@ -320,12 +334,12 @@ import java.util.Optional;
         // mirror whose value is the kebab-case form of the constant
         // name. A drift here makes IkeGoal unloadable rather than
         // letting a stale @Mojo name reach plugin.xml.
-<span class="fc" id="L323">        ConstantBackedEnum.verify(IkeGoal.class,</span>
-<span class="fc" id="L324">                ConstantBackedEnum.defaultPrefix(),</span>
-<span class="fc" id="L325">                (g, v) -&gt; v.equals(</span>
-<span class="fc" id="L326">                        g.name().toLowerCase(Locale.ROOT).replace('_', '-')));</span>
-<span class="fc" id="L327">        BY_NAME = ConstantBackedEnum.index(IkeGoal.class);</span>
-<span class="fc" id="L328">    }</span>
+<span class="fc" id="L337">        ConstantBackedEnum.verify(IkeGoal.class,</span>
+<span class="fc" id="L338">                ConstantBackedEnum.defaultPrefix(),</span>
+<span class="fc" id="L339">                (g, v) -&gt; v.equals(</span>
+<span class="fc" id="L340">                        g.name().toLowerCase(Locale.ROOT).replace('_', '-')));</span>
+<span class="fc" id="L341">        BY_NAME = ConstantBackedEnum.index(IkeGoal.class);</span>
+<span class="fc" id="L342">    }</span>
 
     private final String goalName;
     private final Class&lt;? extends Mojo&gt; mojoClass;
@@ -333,11 +347,11 @@ import java.util.Optional;
 
     IkeGoal(String goalName,
             Class&lt;? extends Mojo&gt; mojoClass,
-<span class="fc" id="L336">            String description) {</span>
-<span class="fc" id="L337">        this.goalName = goalName;</span>
-<span class="fc" id="L338">        this.mojoClass = mojoClass;</span>
-<span class="fc" id="L339">        this.description = description;</span>
-<span class="fc" id="L340">    }</span>
+<span class="fc" id="L350">            String description) {</span>
+<span class="fc" id="L351">        this.goalName = goalName;</span>
+<span class="fc" id="L352">        this.mojoClass = mojoClass;</span>
+<span class="fc" id="L353">        this.description = description;</span>
+<span class="fc" id="L354">    }</span>
 
     /**
      * The bare goal name as it appears in {@code @Mojo(name = ...)}.
@@ -346,7 +360,7 @@ import java.util.Optional;
      */
     @Override
     public String goalName() {
-<span class="fc" id="L349">        return goalName;</span>
+<span class="fc" id="L363">        return goalName;</span>
     }
 
     /**
@@ -357,7 +371,7 @@ import java.util.Optional;
      */
     @Override
     public String literalName() {
-<span class="fc" id="L360">        return goalName;</span>
+<span class="fc" id="L374">        return goalName;</span>
     }
 
     /**
@@ -367,7 +381,7 @@ import java.util.Optional;
      */
     @Override
     public String pluginPrefix() {
-<span class="fc" id="L370">        return PLUGIN_PREFIX;</span>
+<span class="fc" id="L384">        return PLUGIN_PREFIX;</span>
     }
 
     /**
@@ -377,7 +391,7 @@ import java.util.Optional;
      */
     @Override
     public String qualified() {
-<span class="fc" id="L380">        return PLUGIN_PREFIX + &quot;:&quot; + goalName;</span>
+<span class="fc" id="L394">        return PLUGIN_PREFIX + &quot;:&quot; + goalName;</span>
     }
 
     /**
@@ -386,7 +400,7 @@ import java.util.Optional;
      * @return the mojo class
      */
     public Class&lt;? extends Mojo&gt; mojoClass() {
-<span class="fc" id="L389">        return mojoClass;</span>
+<span class="fc" id="L403">        return mojoClass;</span>
     }
 
     /**
@@ -396,7 +410,7 @@ import java.util.Optional;
      */
     @Override
     public String description() {
-<span class="nc" id="L399">        return description;</span>
+<span class="nc" id="L413">        return description;</span>
     }
 
     /**
@@ -405,7 +419,7 @@ import java.util.Optional;
      * @return {@code true} when this goal is a draft variant
      */
     public boolean isDraft() {
-<span class="nc" id="L408">        return goalName.endsWith(DRAFT_SUFFIX);</span>
+<span class="nc" id="L422">        return goalName.endsWith(DRAFT_SUFFIX);</span>
     }
 
     /**
@@ -414,7 +428,7 @@ import java.util.Optional;
      * @return {@code true} when this goal is a publish variant
      */
     public boolean isPublish() {
-<span class="nc" id="L417">        return goalName.endsWith(PUBLISH_SUFFIX);</span>
+<span class="nc" id="L431">        return goalName.endsWith(PUBLISH_SUFFIX);</span>
     }
 
     /**
@@ -423,13 +437,13 @@ import java.util.Optional;
      * @return the sibling goal, or empty if this goal is a singleton
      */
     public Optional&lt;IkeGoal&gt; pair() {
-<span class="nc bnc" id="L426" title="All 2 branches missed.">        if (isDraft()) {</span>
-<span class="nc" id="L427">            return byName(stripSuffix(goalName, DRAFT_SUFFIX) + PUBLISH_SUFFIX);</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">        if (isDraft()) {</span>
+<span class="nc" id="L441">            return byName(stripSuffix(goalName, DRAFT_SUFFIX) + PUBLISH_SUFFIX);</span>
         }
-<span class="nc bnc" id="L429" title="All 2 branches missed.">        if (isPublish()) {</span>
-<span class="nc" id="L430">            return byName(stripSuffix(goalName, PUBLISH_SUFFIX) + DRAFT_SUFFIX);</span>
+<span class="nc bnc" id="L443" title="All 2 branches missed.">        if (isPublish()) {</span>
+<span class="nc" id="L444">            return byName(stripSuffix(goalName, PUBLISH_SUFFIX) + DRAFT_SUFFIX);</span>
         }
-<span class="nc" id="L432">        return Optional.empty();</span>
+<span class="nc" id="L446">        return Optional.empty();</span>
     }
 
     /**
@@ -439,11 +453,11 @@ import java.util.Optional;
      * @return the matching goal, or empty if none
      */
     public static Optional&lt;IkeGoal&gt; byName(String goalName) {
-<span class="nc" id="L442">        return Optional.ofNullable(BY_NAME.get(goalName));</span>
+<span class="nc" id="L456">        return Optional.ofNullable(BY_NAME.get(goalName));</span>
     }
 
     private static String stripSuffix(String s, String suffix) {
-<span class="nc" id="L446">        return s.substring(0, s.length() - suffix.length());</span>
+<span class="nc" id="L460">        return s.substring(0, s.length() - suffix.length());</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

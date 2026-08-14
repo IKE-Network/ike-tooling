@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ModelObservations.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">ModelObservations.java</span></div><h1>ModelObservations.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
+/**
+ * Session-scoped bridge between the two dependency-injection systems
+ * this extension spans.
+ *
+ * &lt;p&gt;{@link BomImportModelObserver} is a new-API component
+ * ({@code maven-api-di}); {@link BuildReportSpy} is a classic sisu
+ * component. Maven instantiates them in &lt;em&gt;separate&lt;/em&gt; DI
+ * containers, so neither can inject the other — but both load from the
+ * single extension classloader, so static state is shared. The spy
+ * resets this bridge at {@code ProjectDiscoveryStarted} (before model
+ * building) and drains it at {@code SessionEnded}, which also keeps
+ * long-lived JVMs (the IDE's maven-server) from accumulating
+ * observations across sessions.&lt;/p&gt;
+ */
+public final class ModelObservations {
+
+    /**
+     * One file-stage model observation.
+     *
+     * @param groupId    the model's group id, parent-defaulted
+     * @param artifactId the model's artifact id
+     * @param version    the model's version, parent-defaulted
+     * @param pomFile    the POM file the model was read from
+     * @param bomImports the model's import-scoped POM dependencies
+     */
+    public record FileModel(
+            String groupId, String artifactId, String version, Path pomFile, List&lt;BomImport&gt; bomImports) {
+
+        /**
+         * Validates identity fields and defensively copies the imports.
+         *
+         * @param groupId    the model's group id, parent-defaulted
+         * @param artifactId the model's artifact id
+         * @param version    the model's version, parent-defaulted
+         * @param pomFile    the POM file the model was read from
+         * @param bomImports the model's import-scoped POM dependencies
+         */
+<span class="fc" id="L46">        public FileModel {</span>
+<span class="fc" id="L47">            Objects.requireNonNull(artifactId, &quot;artifactId&quot;);</span>
+<span class="fc" id="L48">            Objects.requireNonNull(pomFile, &quot;pomFile&quot;);</span>
+<span class="fc" id="L49">            bomImports = List.copyOf(bomImports);</span>
+<span class="fc" id="L50">        }</span>
+
+        /**
+         * Renders the observation's coordinates.
+         *
+         * @return {@code groupId:artifactId:version} with unknowns as {@code ?}
+         */
+        public String gav() {
+<span class="pc bpc" id="L58" title="1 of 2 branches missed.">            return (groupId == null ? &quot;?&quot; : groupId) + &quot;:&quot; + artifactId + &quot;:&quot;</span>
+<span class="pc bpc" id="L59" title="1 of 2 branches missed.">                    + (version == null ? &quot;?&quot; : version);</span>
+        }
+    }
+
+    /**
+     * One import-scoped POM dependency observed in a file model.
+     *
+     * @param groupId    the imported BOM's group id
+     * @param artifactId the imported BOM's artifact id
+     * @param version    the imported BOM's version, property-resolved
+     *                   against the declaring model where possible;
+     *                   {@code null} when unresolvable
+     * @param line       the declaration's line number, or {@code -1}
+     */
+<span class="fc" id="L73">    public record BomImport(String groupId, String artifactId, String version, int line) {</span>
+
+        /**
+         * Renders the import's coordinates.
+         *
+         * @return {@code groupId:artifactId:version} with unknowns as {@code ?}
+         */
+        public String gav() {
+<span class="pc bpc" id="L81" title="2 of 4 branches missed.">            return (groupId == null ? &quot;?&quot; : groupId) + &quot;:&quot; + (artifactId == null ? &quot;?&quot; : artifactId)</span>
+<span class="pc bpc" id="L82" title="1 of 2 branches missed.">                    + &quot;:&quot; + (version == null ? &quot;?&quot; : version);</span>
+        }
+    }
+
+<span class="nc" id="L86">    private static final ConcurrentLinkedQueue&lt;FileModel&gt; OBSERVATIONS = new ConcurrentLinkedQueue&lt;&gt;();</span>
+
+    private ModelObservations() {
+    }
+
+    /**
+     * Records one file-model observation; called by the model observer
+     * for every POM Maven reads from disk.
+     *
+     * @param observation the observation to record
+     */
+    public static void record(FileModel observation) {
+<span class="nc" id="L98">        OBSERVATIONS.add(Objects.requireNonNull(observation, &quot;observation&quot;));</span>
+<span class="nc" id="L99">    }</span>
+
+    /**
+     * Returns a snapshot of all observations recorded since the last
+     * {@link #reset()}.
+     *
+     * @return an immutable snapshot in record order
+     */
+    public static List&lt;FileModel&gt; snapshot() {
+<span class="nc" id="L108">        return List.copyOf(new ArrayList&lt;&gt;(OBSERVATIONS));</span>
+    }
+
+    /**
+     * Clears all observations; called at the start of each session so
+     * long-lived JVMs never carry observations across sessions.
+     */
+    public static void reset() {
+<span class="nc" id="L116">        OBSERVATIONS.clear();</span>
+<span class="nc" id="L117">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
