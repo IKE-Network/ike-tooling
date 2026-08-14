@@ -102,13 +102,13 @@ class ReleaseIntegrationTest {
         mojo.baseDir = tempDir.toFile();
         mojo.skipVerify = true;
         mojo.publish = true;
-        // Preflight now warns when MAVEN_GPG_PASSPHRASE is absent, which it
-        // is in any test JVM, and a warning aborts the release before the
-        // local phase runs (IKE-Network/ike-issues#1013). That is the point
-        // of the check — the failure lands before a tag is cut rather than
-        // after — so reaching the local phase here means saying so
-        // explicitly, exactly as an operator would.
-        mojo.ignoreWarnings = true;
+        // Preflight refuses a release it cannot sign, and no test JVM has
+        // MAVEN_GPG_PASSPHRASE (IKE-Network/ike-issues#1013). It is an
+        // error rather than a warning — IKE artifacts are always signed —
+        // so it cannot be waved through with ignoreWarnings. Say the true
+        // thing instead: this test deploys nowhere, and nothing signs when
+        // nothing deploys.
+        mojo.skipNexusDeploy = true;
 
         // The local phase should complete: branch, version, tag, merge, bump.
         // The external phase will fail (no remote, no Nexus). Catch and

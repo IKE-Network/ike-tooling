@@ -844,13 +844,13 @@ public final class ReleasePrep {
      * everything wrong (IKE-Network/ike-issues#428):
      * <ul>
      *   <li><b>errors</b> — git-push authentication, {@code gh} push
-     *       permission on {@code issueRepo}, a missing Maven wrapper.
-     *       Always abort the release; never ignorable.</li>
+     *       permission on {@code issueRepo}, a missing Maven wrapper, a
+     *       missing artifact-signing passphrase. Always abort the
+     *       release; never ignorable.</li>
      *   <li><b>warnings</b> — {@code gh} CLI unavailable, a missing
      *       {@code pending-release} label or release milestone,
-     *       commits with no issue trailer, a missing artifact-signing
-     *       passphrase. Abort the release too, unless
-     *       {@code -Dike.release.ignoreWarnings=true}.</li>
+     *       commits with no issue trailer. Abort the release too,
+     *       unless {@code -Dike.release.ignoreWarnings=true}.</li>
      * </ul>
      *
      * <p>Only invoked for a publish; draft mode skips this step.
@@ -1039,15 +1039,15 @@ public final class ReleasePrep {
         boolean willDeploy = !ctx.request().skipNexusDeploy()
                 || (ctx.request().publishToCentral()
                         && !ctx.request().skipCentralDeploy());
-        Optional<String> signingWarning = signingPassphraseWarning(
+        Optional<String> signingProblem = signingPassphraseError(
                 willDeploy, System.getenv("MAVEN_GPG_PASSPHRASE"));
         if (!willDeploy) {
             ctx.log().info("  Signing:     no deploy phase (not needed)");
-        } else if (signingWarning.isEmpty()) {
+        } else if (signingProblem.isEmpty()) {
             ctx.log().info("  Signing:     passphrase present  ✓");
         } else {
-            warnings.add(signingWarning.get());
-            ctx.log().warn("  Signing:     MAVEN_GPG_PASSPHRASE not set  ⚠");
+            errors.add(signingProblem.get());
+            ctx.log().error("  Signing:     MAVEN_GPG_PASSPHRASE not set  ✗");
         }
 
         // Report the complete preflight picture, then decide (#428).
@@ -1239,14 +1239,21 @@ public final class ReleasePrep {
      * sources or javadoc jars. Caught here, the release has simply not
      * started. IKE-Network/ike-issues#1013.
      *
+     * <p><strong>An error, not a warning</strong> (KEC, 2026-08-14: IKE
+     * artifacts are always signed). Warnings are bypassable with
+     * {@code -Dike.release.ignoreWarnings=true}, which exists so a release
+     * can ship through known site-lint drift; letting that same flag also
+     * wave through an unsigned artifact would make the signing policy
+     * advisory. A release that cannot sign does not proceed.
+     *
      * @param willDeploy whether any deploy phase will run; when it will
      *                   not, no signing happens and nothing is required
      * @param passphrase the value of {@code MAVEN_GPG_PASSPHRASE}, which
      *                   may be {@code null} or blank
-     * @return the warning to raise, or empty when signing can proceed
+     * @return the error to raise, or empty when signing can proceed
      */
-    static Optional<String> signingPassphraseWarning(boolean willDeploy,
-                                                     String passphrase) {
+    static Optional<String> signingPassphraseError(boolean willDeploy,
+                                                   String passphrase) {
         if (!willDeploy) {
             return Optional.empty();
         }
