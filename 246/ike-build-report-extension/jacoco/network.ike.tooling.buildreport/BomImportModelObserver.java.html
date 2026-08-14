@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BomImportModelObserver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">BomImportModelObserver.java</span></div><h1>BomImportModelObserver.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.maven.api.di.Named;
+import org.apache.maven.api.di.Singleton;
+import org.apache.maven.api.model.Dependency;
+import org.apache.maven.api.model.DependencyManagement;
+import org.apache.maven.api.model.InputLocation;
+import org.apache.maven.api.model.Model;
+import org.apache.maven.api.model.Parent;
+import org.apache.maven.api.spi.ModelTransformer;
+import org.apache.maven.api.spi.ModelTransformerException;
+
+/**
+ * Observes every file-stage model Maven reads and records reactor
+ * coordinates plus import-scoped POM dependencies into
+ * {@link ModelObservations}, for session-end cross-referencing by
+ * {@link BuildReportSpy}.
+ *
+ * &lt;p&gt;A pure observer: the model is always returned unchanged. This is
+ * a new-API component discovered through the {@code maven-api-di}
+ * annotation index — a separate DI container from the classic sisu
+ * container that hosts the spy, which is why the hand-off happens
+ * through the static bridge rather than injection.&lt;/p&gt;
+ */
+@Named(&quot;ike-build-report-model-observer&quot;)
+@Singleton
+public class BomImportModelObserver implements ModelTransformer {
+
+    /** Creates the observer. DI-only; not for direct construction. */
+<span class="nc" id="L35">    public BomImportModelObserver() {</span>
+<span class="nc" id="L36">    }</span>
+
+    /**
+     * Records the model's coordinates and BOM imports; never modifies
+     * the model.
+     *
+     * @param model the file-stage parsed Maven model
+     * @return the same model, always
+     * @throws ModelTransformerException never thrown; declared for SPI
+     *                                   conformance
+     */
+    @Override
+    public Model transformFileModel(Model model) throws ModelTransformerException {
+        try {
+<span class="nc" id="L50">            Path pomFile = model.getPomFile();</span>
+<span class="nc bnc" id="L51" title="All 2 branches missed.">            if (pomFile != null) {</span>
+<span class="nc" id="L52">                ModelObservations.record(new ModelObservations.FileModel(</span>
+<span class="nc" id="L53">                        groupId(model),</span>
+<span class="nc" id="L54">                        model.getArtifactId(),</span>
+<span class="nc" id="L55">                        version(model),</span>
+                        pomFile,
+<span class="nc" id="L57">                        bomImports(model)));</span>
+            }
+<span class="nc" id="L59">        } catch (Exception e) {</span>
+            // Observation must never interfere with model building.
+<span class="nc" id="L61">        }</span>
+<span class="nc" id="L62">        return model;</span>
+    }
+
+    private static String groupId(Model model) {
+<span class="nc bnc" id="L66" title="All 2 branches missed.">        if (model.getGroupId() != null) {</span>
+<span class="nc" id="L67">            return model.getGroupId();</span>
+        }
+<span class="nc" id="L69">        Parent parent = model.getParent();</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        return parent == null ? null : parent.getGroupId();</span>
+    }
+
+    private static String version(Model model) {
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (model.getVersion() != null) {</span>
+<span class="nc" id="L75">            return model.getVersion();</span>
+        }
+<span class="nc" id="L77">        Parent parent = model.getParent();</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        return parent == null ? null : parent.getVersion();</span>
+    }
+
+    private static List&lt;ModelObservations.BomImport&gt; bomImports(Model model) {
+<span class="nc" id="L82">        DependencyManagement management = model.getDependencyManagement();</span>
+<span class="nc bnc" id="L83" title="All 4 branches missed.">        if (management == null || management.getDependencies() == null) {</span>
+<span class="nc" id="L84">            return List.of();</span>
+        }
+<span class="nc" id="L86">        Map&lt;String, String&gt; properties = model.getProperties();</span>
+<span class="nc" id="L87">        List&lt;ModelObservations.BomImport&gt; imports = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        for (Dependency dependency : management.getDependencies()) {</span>
+<span class="nc bnc" id="L89" title="All 4 branches missed.">            if (!&quot;pom&quot;.equals(dependency.getType()) || !&quot;import&quot;.equals(dependency.getScope())) {</span>
+<span class="nc" id="L90">                continue;</span>
+            }
+<span class="nc" id="L92">            imports.add(new ModelObservations.BomImport(</span>
+<span class="nc" id="L93">                    ModelCrossReference.resolveVersion(dependency.getGroupId(), properties),</span>
+<span class="nc" id="L94">                    dependency.getArtifactId(),</span>
+<span class="nc" id="L95">                    ModelCrossReference.resolveVersion(dependency.getVersion(), properties),</span>
+<span class="nc" id="L96">                    lineOf(dependency)));</span>
+<span class="nc" id="L97">        }</span>
+<span class="nc" id="L98">        return imports;</span>
+    }
+
+    private static int lineOf(Dependency dependency) {
+<span class="nc" id="L102">        InputLocation location = dependency.getLocation(&quot;artifactId&quot;);</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        if (location == null) {</span>
+<span class="nc" id="L104">            location = dependency.getLocation(&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L106" title="All 2 branches missed.">        return location == null ? -1 : location.getLineNumber();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

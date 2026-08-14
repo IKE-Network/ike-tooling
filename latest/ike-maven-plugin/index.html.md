@@ -1,6 +1,6 @@
 ---
-date_published: 2026-08-11
-date_modified: 2026-08-11
+date_published: 2026-08-13
+date_modified: 2026-08-13
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/index.html
 ---
 
@@ -88,7 +88,6 @@ mvn ike:scaffold-publish
 | [ike:generate-bom](#generate-bom) | bom | Auto-generate a BOM POM from another module’s dependency management |
 | [scaffold-{draft,publish,revert}](#scaffold) | scaffold | Apply the workspace scaffold manifest (gitignore, hooks, IDE settings) |
 | [ike:inject-breadcrumb](#inject-breadcrumb) | site | Inject nav breadcrumbs into JaCoCo HTML reports |
-| [ike:setup](#setup) | setup | Install VCS bridge git hooks to `~/.git-hooks/` |
 | [ike:unpack-zip](#unpack-zip) | utility | Download + unpack a zip from a URL |
 | [ike:rename](#rename) | utility | Rename a file (replaces `exec-maven-plugin` calls to `mv`) |
 | [ike:codesign-natives](#codesign-natives) | native | Sign native libraries inside a jlink runtime image (macOS notarization) |
@@ -192,17 +191,13 @@ Apply (or revert) the workspace scaffold — the conventional non-source files t
 
 `scaffold-revert` undoes a previous `scaffold-publish` per the tier policy in the manifest (some files are tool-owned and revertible, others are tracked in version control and not touched on revert).
 
-## [#site-and-setup-goals](#site-and-setup-goals)Site and setup goals
+## [#site-goals_2](#site-goals_2)Site goals
 
-The AsciiDoc doc-rendering pipeline (`asciidoc`, `render-pdf`, `adocstudio`, `fix-svg`, `patch-docbook`, `prepare-renderer-output`, `copy-default-pdf`, `copy-docs`, `scan-logs`) moved to `ike-doc-maven-plugin` (`idoc:`) — see [the idoc plugin](https://ike.network/ike-docs/ike-doc-maven-plugin/)[11]. The two goals below stay in `ike-maven-plugin`: neither renders AsciiDoc.
+The AsciiDoc doc-rendering pipeline (`asciidoc`, `render-pdf`, `adocstudio`, `fix-svg`, `patch-docbook`, `prepare-renderer-output`, `copy-default-pdf`, `copy-docs`, `scan-logs`) moved to `ike-doc-maven-plugin` (`idoc:`) — see [the idoc plugin](https://ike.network/ike-docs/ike-doc-maven-plugin/)[11]. The goal below stays in `ike-maven-plugin`: it does not render AsciiDoc.
 
 ### [#ike-inject-breadcrumb](#ike-inject-breadcrumb)ike:inject-breadcrumb
 
 Inject navigation breadcrumbs and theme overrides into JaCoCo HTML reports so they fit visually with the rest of the Maven site.
-
-### [#ike-setup](#ike-setup)ike:setup
-
-Install the VCS bridge git hooks (pre-commit, post-commit, pre-push) to `~/.git-hooks/`. Run once per developer machine after first clone.
 
 ## [#native-packaging](#native-packaging)Native packaging
 
