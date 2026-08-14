@@ -848,8 +848,9 @@ public final class ReleasePrep {
      *       Always abort the release; never ignorable.</li>
      *   <li><b>warnings</b> — {@code gh} CLI unavailable, a missing
      *       {@code pending-release} label or release milestone,
-     *       commits with no issue trailer. Abort the release too,
-     *       unless {@code -Dike.release.ignoreWarnings=true}.</li>
+     *       commits with no issue trailer, a missing artifact-signing
+     *       passphrase. Abort the release too, unless
+     *       {@code -Dike.release.ignoreWarnings=true}.</li>
      * </ul>
      *
      * <p>Only invoked for a publish; draft mode skips this step.
@@ -1019,6 +1020,34 @@ public final class ReleasePrep {
             }
             ctx.log().warn("  Site lint:   " + siteFindings.size()
                     + " issue(s)");
+        }
+
+        // 9. Artifact-signing passphrase (IKE-Network/ike-issues#1013).
+        //    Every deploy phase runs `-P release,signArtifacts`, and that
+        //    profile's maven-gpg-plugin reads its passphrase from
+        //    MAVEN_GPG_PASSPHRASE — normally supplied by `op run
+        //    --env-file`. Without it the deploy dies at gpg:sign with
+        //    "Secret key is encrypted but no passphrase provided".
+        //
+        //    Checking it here is the whole point of preflight: unchecked,
+        //    the failure lands AFTER the local phase has branched,
+        //    versioned, tagged, merged and bumped, so recovery means a
+        //    manual deploy from the tag — and the obvious manual deploy
+        //    omits both profiles, publishing an artifact with no
+        //    signatures and no sources or javadoc jars. Caught here, the
+        //    release simply has not started yet.
+        boolean willDeploy = !ctx.request().skipNexusDeploy()
+                || (ctx.request().publishToCentral()
+                        && !ctx.request().skipCentralDeploy());
+        Optional<String> signingWarning = signingPassphraseWarning(
+                willDeploy, System.getenv("MAVEN_GPG_PASSPHRASE"));
+        if (!willDeploy) {
+            ctx.log().info("  Signing:     no deploy phase (not needed)");
+        } else if (signingWarning.isEmpty()) {
+            ctx.log().info("  Signing:     passphrase present  ✓");
+        } else {
+            warnings.add(signingWarning.get());
+            ctx.log().warn("  Signing:     MAVEN_GPG_PASSPHRASE not set  ⚠");
         }
 
         // Report the complete preflight picture, then decide (#428).
@@ -1193,6 +1222,44 @@ public final class ReleasePrep {
      * @return zero or more human-readable findings; empty if everything
      *         passes
      */
+    /**
+     * Decides whether the release is about to walk into a signing failure.
+     *
+     * <p>Every deploy phase runs {@code -P release,signArtifacts}, whose
+     * {@code maven-gpg-plugin} takes its passphrase from
+     * {@code MAVEN_GPG_PASSPHRASE} — normally supplied by {@code op run
+     * --env-file}. Without it the deploy dies at {@code gpg:sign} with
+     * <em>"Secret key is encrypted but no passphrase provided"</em>.
+     *
+     * <p>Catching that here is the whole point of preflight. Unchecked,
+     * the failure lands <em>after</em> the local phase has branched,
+     * versioned, tagged, merged and bumped, so recovery means a manual
+     * deploy from the tag — and the obvious manual deploy omits both
+     * profiles, quietly publishing an artifact with no signatures and no
+     * sources or javadoc jars. Caught here, the release has simply not
+     * started. IKE-Network/ike-issues#1013.
+     *
+     * @param willDeploy whether any deploy phase will run; when it will
+     *                   not, no signing happens and nothing is required
+     * @param passphrase the value of {@code MAVEN_GPG_PASSPHRASE}, which
+     *                   may be {@code null} or blank
+     * @return the warning to raise, or empty when signing can proceed
+     */
+    static Optional<String> signingPassphraseWarning(boolean willDeploy,
+                                                     String passphrase) {
+        if (!willDeploy) {
+            return Optional.empty();
+        }
+        if (passphrase != null && !passphrase.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of("MAVEN_GPG_PASSPHRASE is not set, and every deploy "
+                + "phase signs with -P release,signArtifacts. The deploy will "
+                + "fail at gpg:sign, after the tag has been cut. Run the "
+                + "release under: op run --env-file ~/.config/ike/release.env "
+                + "-- mvn ike:release-publish");
+    }
+
     static List<String> siteLintFindings(File gitRoot, String projectId) {
         List<String> findings = new ArrayList<>();
 
