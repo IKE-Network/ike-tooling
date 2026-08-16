@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ViewSpec.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">ViewSpec.java</span></div><h1>ViewSpec.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
+
+/**
+ * The view specification — dotted dimension keys mirroring the coordinate constituents
+ * (stamp, language, logic, navigation, edit), stating only what differs from the
+ * implementation's defaults (IKE-Network/ike-issues#849; normative schema:
+ * IKE-KNOWLEDGE-VIEW, IKE-Network/ike-issues#851).
+ *
+ * &lt;p&gt;Values are strings: concept dimensions carry {@link ConceptRef} forms, list
+ * dimensions carry comma-separated entries in preference order, and
+ * {@link #STAMP_POSITION_TIME} carries {@code latest} or an ISO-8601 instant. Keys are
+ * validated strictly against the published key set — an unknown key fails fast, so a
+ * typo never silently becomes a default.
+ *
+ * &lt;p&gt;Additional language coordinates (ordered fallbacks) use an index segment:
+ * {@code language.2.language}, {@code language.2.dialects}, … — the unindexed
+ * {@code language.*} keys are the primary language coordinate.
+ *
+ * &lt;p&gt;Resolution — turning dimension values into coordinate records against a store and
+ * its bindings — happens on the implementation side of the seam. This type is the
+ * portable, engine-ignorant carrier; implementations report the fully resolved effective
+ * view beside their outputs.
+ */
+public final class ViewSpec {
+
+    /** Allowed status values, comma-separated (closed value set, rendered verbatim). */
+    public static final String STAMP_ALLOWED_STATES = &quot;stamp.allowedStates&quot;;
+    /** Position time: {@code latest} or an ISO-8601 instant — pinning makes builds reproducible. */
+    public static final String STAMP_POSITION_TIME = &quot;stamp.position.time&quot;;
+    /** Position path ({@link ConceptRef}). */
+    public static final String STAMP_POSITION_PATH = &quot;stamp.position.path&quot;;
+    /** Included modules, comma-separated {@link ConceptRef}s; absent means any module. */
+    public static final String STAMP_MODULES = &quot;stamp.modules&quot;;
+    /** Excluded modules, comma-separated {@link ConceptRef}s. */
+    public static final String STAMP_EXCLUDED_MODULES = &quot;stamp.excludedModules&quot;;
+    /** Module priority order, comma-separated {@link ConceptRef}s. */
+    public static final String STAMP_MODULE_PRIORITY = &quot;stamp.modulePriority&quot;;
+
+    /** Language concept ({@link ConceptRef}). */
+    public static final String LANGUAGE_LANGUAGE = &quot;language.language&quot;;
+    /** Description patterns in preference order, comma-separated {@link ConceptRef}s. */
+    public static final String LANGUAGE_PATTERNS = &quot;language.patterns&quot;;
+    /** Description-type preference order, comma-separated {@link ConceptRef}s. */
+    public static final String LANGUAGE_DESCRIPTION_TYPES = &quot;language.descriptionTypes&quot;;
+    /** Dialect preference order, comma-separated {@link ConceptRef}s. */
+    public static final String LANGUAGE_DIALECTS = &quot;language.dialects&quot;;
+    /** Module preference order for language resolution, comma-separated {@link ConceptRef}s. */
+    public static final String LANGUAGE_MODULE_PREFERENCE = &quot;language.modulePreference&quot;;
+
+    /** Classifier concept ({@link ConceptRef}) — also the author of derived semantics. */
+    public static final String LOGIC_CLASSIFIER = &quot;logic.classifier&quot;;
+    /** Description-logic profile concept ({@link ConceptRef}). */
+    public static final String LOGIC_PROFILE = &quot;logic.profile&quot;;
+    /** Stated axioms pattern ({@link ConceptRef}). */
+    public static final String LOGIC_STATED_AXIOMS_PATTERN = &quot;logic.statedAxiomsPattern&quot;;
+    /** Inferred axioms pattern ({@link ConceptRef}). */
+    public static final String LOGIC_INFERRED_AXIOMS_PATTERN = &quot;logic.inferredAxiomsPattern&quot;;
+    /** Concept membership pattern ({@link ConceptRef}). */
+    public static final String LOGIC_CONCEPT_MEMBER_PATTERN = &quot;logic.conceptMemberPattern&quot;;
+    /** Stated navigation pattern ({@link ConceptRef}). */
+    public static final String LOGIC_STATED_NAVIGATION_PATTERN = &quot;logic.statedNavigationPattern&quot;;
+    /** Inferred navigation pattern ({@link ConceptRef}). */
+    public static final String LOGIC_INFERRED_NAVIGATION_PATTERN = &quot;logic.inferredNavigationPattern&quot;;
+    /** Navigation root concept ({@link ConceptRef}). */
+    public static final String LOGIC_ROOT = &quot;logic.root&quot;;
+
+    /** Navigation patterns to traverse, comma-separated {@link ConceptRef}s. */
+    public static final String NAVIGATION_PATTERNS = &quot;navigation.patterns&quot;;
+    /** Allowed vertex states, comma-separated (closed value set). */
+    public static final String NAVIGATION_VERTEX_STATES = &quot;navigation.vertexStates&quot;;
+
+    /** Author concept for authored content ({@link ConceptRef}). */
+    public static final String EDIT_AUTHOR = &quot;edit.author&quot;;
+    /** Default module for new content ({@link ConceptRef}) — where derived semantics land. */
+    public static final String EDIT_DEFAULT_MODULE = &quot;edit.defaultModule&quot;;
+    /** Destination module when modularizing ({@link ConceptRef}). */
+    public static final String EDIT_DESTINATION_MODULE = &quot;edit.destinationModule&quot;;
+    /** Default authoring path ({@link ConceptRef}). */
+    public static final String EDIT_DEFAULT_PATH = &quot;edit.defaultPath&quot;;
+    /** Promotion path ({@link ConceptRef}). */
+    public static final String EDIT_PROMOTION_PATH = &quot;edit.promotionPath&quot;;
+
+    /**
+     * Overrides the implementation's default bindings class for bare
+     * {@code #CONSTANT} references (fully qualified class name, not a
+     * {@link ConceptRef}).
+     */
+    public static final String REFS_DEFAULT_BINDING_CLASS = &quot;refs.defaultBindingClass&quot;;
+
+<span class="fc" id="L98">    private static final Set&lt;String&gt; KNOWN_KEYS = Set.of(</span>
+            STAMP_ALLOWED_STATES, STAMP_POSITION_TIME, STAMP_POSITION_PATH,
+            STAMP_MODULES, STAMP_EXCLUDED_MODULES, STAMP_MODULE_PRIORITY,
+            LANGUAGE_LANGUAGE, LANGUAGE_PATTERNS, LANGUAGE_DESCRIPTION_TYPES,
+            LANGUAGE_DIALECTS, LANGUAGE_MODULE_PREFERENCE,
+            LOGIC_CLASSIFIER, LOGIC_PROFILE, LOGIC_STATED_AXIOMS_PATTERN,
+            LOGIC_INFERRED_AXIOMS_PATTERN, LOGIC_CONCEPT_MEMBER_PATTERN,
+            LOGIC_STATED_NAVIGATION_PATTERN, LOGIC_INFERRED_NAVIGATION_PATTERN, LOGIC_ROOT,
+            NAVIGATION_PATTERNS, NAVIGATION_VERTEX_STATES,
+            EDIT_AUTHOR, EDIT_DEFAULT_MODULE, EDIT_DESTINATION_MODULE,
+            EDIT_DEFAULT_PATH, EDIT_PROMOTION_PATH,
+            REFS_DEFAULT_BINDING_CLASS);
+
+    /** Indexed fallback-language keys: {@code language.&lt;n&gt;.&lt;field&gt;} with n ≥ 2. */
+<span class="fc" id="L112">    private static final Pattern INDEXED_LANGUAGE_KEY = Pattern.compile(</span>
+            &quot;language\\.([2-9]|[1-9][0-9]+)\\.(language|patterns|descriptionTypes|dialects|modulePreference)&quot;);
+
+<span class="fc" id="L115">    private static final ViewSpec EMPTY = new ViewSpec(new TreeMap&lt;&gt;());</span>
+
+    private final TreeMap&lt;String, String&gt; dimensions;
+
+<span class="fc" id="L119">    private ViewSpec(TreeMap&lt;String, String&gt; dimensions) {</span>
+<span class="fc" id="L120">        this.dimensions = dimensions;</span>
+<span class="fc" id="L121">    }</span>
+
+    /**
+     * The empty specification — every dimension at the implementation's default.
+     *
+     * @return the empty spec
+     */
+    public static ViewSpec empty() {
+<span class="fc" id="L129">        return EMPTY;</span>
+    }
+
+    /**
+     * Creates a specification from dimension entries.
+     *
+     * @param dimensions dotted dimension keys to values
+     * @return the spec
+     * @throws IllegalArgumentException if a key is not in the published key set
+     *                                  (including the indexed-language forms) or a value
+     *                                  is null or blank
+     */
+    public static ViewSpec of(Map&lt;String, String&gt; dimensions) {
+<span class="fc" id="L142">        TreeMap&lt;String, String&gt; validated = new TreeMap&lt;&gt;();</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">        for (Map.Entry&lt;String, String&gt; entry : dimensions.entrySet()) {</span>
+<span class="fc" id="L144">            validated.put(requireKnownKey(entry.getKey()), requireValue(entry.getKey(), entry.getValue()));</span>
+<span class="fc" id="L145">        }</span>
+<span class="pc bpc" id="L146" title="1 of 2 branches missed.">        return validated.isEmpty() ? EMPTY : new ViewSpec(validated);</span>
+    }
+
+    /**
+     * Returns a copy of this spec with one dimension set.
+     *
+     * @param key   the dotted dimension key
+     * @param value the dimension value
+     * @return a new spec with the dimension applied
+     * @throws IllegalArgumentException if the key is unknown or the value blank
+     */
+    public ViewSpec withDimension(String key, String value) {
+<span class="fc" id="L158">        TreeMap&lt;String, String&gt; copy = new TreeMap&lt;&gt;(dimensions);</span>
+<span class="nc" id="L159">        copy.put(requireKnownKey(key), requireValue(key, value));</span>
+<span class="nc" id="L160">        return new ViewSpec(copy);</span>
+    }
+
+    /**
+     * Reads one dimension.
+     *
+     * @param key the dotted dimension key
+     * @return the value, if stated
+     */
+    public Optional&lt;String&gt; dimension(String key) {
+<span class="fc" id="L170">        return Optional.ofNullable(dimensions.get(key));</span>
+    }
+
+    /**
+     * All stated dimensions, sorted by key.
+     *
+     * @return an unmodifiable sorted view of the stated dimensions
+     */
+    public SortedMap&lt;String, String&gt; dimensions() {
+<span class="fc" id="L179">        return java.util.Collections.unmodifiableSortedMap(dimensions);</span>
+    }
+
+    /**
+     * Merges another spec over this one — the override's dimensions win.
+     *
+     * @param overrides the overriding spec
+     * @return the merged spec
+     */
+    public ViewSpec merge(ViewSpec overrides) {
+<span class="fc bfc" id="L189" title="All 2 branches covered.">        if (overrides.dimensions.isEmpty()) {</span>
+<span class="fc" id="L190">            return this;</span>
+        }
+<span class="fc" id="L192">        TreeMap&lt;String, String&gt; merged = new TreeMap&lt;&gt;(dimensions);</span>
+<span class="fc" id="L193">        merged.putAll(overrides.dimensions);</span>
+<span class="fc" id="L194">        return new ViewSpec(merged);</span>
+    }
+
+    /**
+     * Encodes the stated dimensions as properties, each key prefixed with the given
+     * prefix (the request codecs use {@code view.}).
+     *
+     * @param prefix the key prefix, typically ending in a dot; may be empty
+     * @return the encoded properties
+     */
+    public Properties toProperties(String prefix) {
+<span class="fc" id="L205">        Properties properties = new Properties();</span>
+<span class="fc bfc" id="L206" title="All 2 branches covered.">        for (Map.Entry&lt;String, String&gt; entry : dimensions.entrySet()) {</span>
+<span class="fc" id="L207">            properties.setProperty(prefix + entry.getKey(), entry.getValue());</span>
+<span class="fc" id="L208">        }</span>
+<span class="fc" id="L209">        return properties;</span>
+    }
+
+    /**
+     * Decodes a spec from properties, taking every key under the given prefix.
+     *
+     * @param properties the source properties
+     * @param prefix     the key prefix used at encoding time; may be empty
+     * @return the decoded spec
+     * @throws IllegalArgumentException if a prefixed key is not in the published key set
+     */
+    public static ViewSpec fromProperties(Properties properties, String prefix) {
+<span class="fc" id="L221">        TreeMap&lt;String, String&gt; dimensions = new TreeMap&lt;&gt;();</span>
+<span class="fc bfc" id="L222" title="All 2 branches covered.">        for (String name : properties.stringPropertyNames()) {</span>
+<span class="fc bfc" id="L223" title="All 2 branches covered.">            if (name.startsWith(prefix)) {</span>
+<span class="fc" id="L224">                String key = name.substring(prefix.length());</span>
+<span class="fc" id="L225">                dimensions.put(requireKnownKey(key), requireValue(key, properties.getProperty(name)));</span>
+            }
+<span class="fc" id="L227">        }</span>
+<span class="fc bfc" id="L228" title="All 2 branches covered.">        return dimensions.isEmpty() ? EMPTY : new ViewSpec(dimensions);</span>
+    }
+
+    private static String requireKnownKey(String key) {
+<span class="pc bpc" id="L232" title="1 of 6 branches missed.">        if (key == null || (!KNOWN_KEYS.contains(key) &amp;&amp; !INDEXED_LANGUAGE_KEY.matcher(key).matches())) {</span>
+<span class="fc" id="L233">            throw new IllegalArgumentException(&quot;Unknown view dimension key: \&quot;&quot; + key</span>
+                    + &quot;\&quot; — the valid keys are the IKE-KNOWLEDGE-VIEW standard's dimension keys &quot;
+<span class="fc" id="L235">                    + KNOWN_KEYS.stream().sorted().toList()</span>
+                    + &quot; plus indexed fallback languages language.&lt;n&gt;.&lt;field&gt; (n &gt;= 2)&quot;);
+        }
+<span class="fc" id="L238">        return key;</span>
+    }
+
+    private static String requireValue(String key, String value) {
+<span class="pc bpc" id="L242" title="1 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="fc" id="L243">            throw new IllegalArgumentException(&quot;View dimension \&quot;&quot; + key + &quot;\&quot; requires a value&quot;);</span>
+        }
+<span class="fc" id="L245">        return value.strip();</span>
+    }
+
+    @Override
+    public boolean equals(Object other) {
+<span class="pc bpc" id="L250" title="2 of 4 branches missed.">        return other instanceof ViewSpec spec &amp;&amp; dimensions.equals(spec.dimensions);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L255">        return dimensions.hashCode();</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L260">        return &quot;ViewSpec&quot; + dimensions;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,6 +1,6 @@
 ---
-date_published: 2026-08-13
-date_modified: 2026-08-13
+date_published: 2026-08-15
+date_modified: 2026-08-15
 canonical_url: https://ike.network/ike-tooling/licenses.html
 ---
 
