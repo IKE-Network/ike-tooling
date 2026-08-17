@@ -11,7 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Reads and writes {@code releases/release-<cycle>.yaml} — the on-disk
+ * Reads and writes {@code releases/release-<mission>.yaml} — the on-disk
  * form of a {@link ReleaseRecord} (IKE-Network/ike-issues#973).
  *
  * <p>Unlike {@link ManifestWriter}, which performs comment-preserving
@@ -29,20 +29,22 @@ public final class ReleaseRecordFile {
     private ReleaseRecordFile() {}
 
     /**
-     * The canonical record path for a cycle:
-     * {@code <root>/releases/release-<cycle>.yaml}.
+     * The canonical record path for a mission:
+     * {@code <root>/releases/release-<mission>.yaml}. The filename shape
+     * predates the cycle-to-mission rename and never said either word
+     * (IKE-Network/ike-issues#1038).
      *
      * @param workspaceRoot the workspace root directory
-     * @param cycle         the cycle label, e.g. {@code komet-wsr-1}
+     * @param mission       the mission label, e.g. {@code komet-wsr-1}
      * @return the record file path
-     * @throws ManifestException if {@code cycle} is null or blank
+     * @throws ManifestException if {@code mission} is null or blank
      */
-    public static Path pathFor(Path workspaceRoot, String cycle) {
-        if (cycle == null || cycle.isBlank()) {
-            throw new ManifestException("cycle must not be null or blank");
+    public static Path pathFor(Path workspaceRoot, String mission) {
+        if (mission == null || mission.isBlank()) {
+            throw new ManifestException("mission must not be null or blank");
         }
         return workspaceRoot.resolve("releases")
-                .resolve("release-" + cycle + ".yaml");
+                .resolve("release-" + mission + ".yaml");
     }
 
     /**
@@ -71,7 +73,13 @@ public final class ReleaseRecordFile {
                     + path + ": " + e.getMessage(), e);
         }
 
-        String cycle = stringValue(raw.get("cycle"));
+        // Records written before the cycle-to-mission rename carry a
+        // "cycle:" key; shipped records live in immutable tagged trees,
+        // so both spellings read forever (IKE-Network/ike-issues#1038).
+        String mission = stringValue(raw.get("mission"));
+        if (mission == null) {
+            mission = stringValue(raw.get("cycle"));
+        }
         String started = stringValue(raw.get("started"));
 
         Map<String, ReleaseRecord.MemberRelease> members = new LinkedHashMap<>();
@@ -94,7 +102,7 @@ public final class ReleaseRecordFile {
                     + ": members is not a YAML map");
         }
 
-        return new ReleaseRecord(cycle, started, members);
+        return new ReleaseRecord(mission, started, members);
     }
 
     /**
@@ -123,13 +131,13 @@ public final class ReleaseRecordFile {
      */
     static String render(ReleaseRecord record) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# release-").append(record.cycle()).append(".yaml — ")
-                .append("one release cycle of this working set.\n");
+        sb.append("# release-").append(record.mission()).append(".yaml — ")
+                .append("one release mission of this working set.\n");
         sb.append("# Written by ws:record-release ")
-                .append("(IKE-Network/ike-issues#973); one file per cycle,\n");
+                .append("(IKE-Network/ike-issues#973); one file per mission,\n");
         sb.append("# one row per released member. Do not hand-edit.\n");
         sb.append("\n");
-        sb.append("cycle: ").append(quoted(record.cycle())).append("\n");
+        sb.append("mission: ").append(quoted(record.mission())).append("\n");
         if (record.started() != null) {
             sb.append("started: ").append(quoted(record.started()))
                     .append("\n");

@@ -5,11 +5,20 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * One release cycle of a working set — the typed model behind
- * {@code releases/release-<cycle>.yaml} in the workspace root
+ * One release mission of a working set — the typed model behind
+ * {@code releases/release-<mission>.yaml} in the workspace root
  * (IKE-Network/ike-issues#973; shape settled 2026-08-10: one file per
- * cycle, one row per released member, finalized by the cycle's
+ * mission, one row per released member, finalized by the mission's
  * workspace-root release).
+ *
+ * <p><b>Terminology</b> (IKE-Network/ike-issues#1038, settled
+ * 2026-08-17): the working-set release iteration is a <em>mission</em>
+ * — numbered, launched on go/no-go, aborted by
+ * {@code ws:release-rollback}, reported by the record and its
+ * what-changed notes. "Cycle" now names only graph cycles. Records
+ * written before the rename carry a {@code cycle:} key; the reader
+ * accepts both spellings forever, since shipped records live in
+ * immutable tagged trees.
  *
  * <p>{@code ws:record-release} appends a {@link MemberRelease} row each
  * time a member releases; together with the member's manifest state
@@ -23,19 +32,19 @@ import java.util.Map;
  * returns an updated copy. Member insertion order is preserved — the
  * record file reads in release order.
  *
- * @param cycle   the cycle label, e.g. {@code komet-wsr-1}; never blank
- * @param started when the cycle opened (opaque caller-supplied text,
+ * @param mission the mission label, e.g. {@code komet-wsr-1}; never blank
+ * @param started when the mission opened (opaque caller-supplied text,
  *                typically an ISO date); null when unknown
  * @param members released members in release order, keyed by subproject
  *                name; never null, possibly empty
  */
 public record ReleaseRecord(
-        String cycle,
+        String mission,
         String started,
         Map<String, MemberRelease> members) {
 
     /**
-     * One member's release within a cycle.
+     * One member's release within a mission.
      *
      * @param version  the released (de-qualified) version, e.g.
      *                 {@code 3.0.7}; never blank
@@ -60,14 +69,14 @@ public record ReleaseRecord(
     }
 
     /**
-     * Validate and defensively copy: the cycle label is required and the
+     * Validate and defensively copy: the mission label is required and the
      * member map is copied into an unmodifiable insertion-ordered map.
      *
-     * @throws ManifestException if {@code cycle} is null or blank, or
+     * @throws ManifestException if {@code mission} is null or blank, or
      *                           {@code members} is null
      */
     public ReleaseRecord {
-        requireNonBlank(cycle, "cycle");
+        requireNonBlank(mission, "mission");
         if (members == null) {
             throw new ManifestException("members must not be null");
         }
@@ -75,22 +84,34 @@ public record ReleaseRecord(
     }
 
     /**
-     * Open a new, empty cycle record.
+     * The mission label under its pre-rename name, for callers not yet
+     * moved to {@link #mission()} (IKE-Network/ike-issues#1038).
      *
-     * @param cycle   the cycle label, e.g. {@code komet-wsr-1}
-     * @param started when the cycle opened (opaque caller-supplied text);
-     *                may be null
-     * @return an empty record for the cycle
-     * @throws ManifestException if {@code cycle} is null or blank
+     * @return the mission label
+     * @deprecated use {@link #mission()}
      */
-    public static ReleaseRecord start(String cycle, String started) {
-        return new ReleaseRecord(cycle, started, new LinkedHashMap<>());
+    @Deprecated(since = "249")
+    public String cycle() {
+        return mission;
+    }
+
+    /**
+     * Open a new, empty mission record.
+     *
+     * @param mission the mission label, e.g. {@code komet-wsr-1}
+     * @param started when the mission opened (opaque caller-supplied
+     *                text); may be null
+     * @return an empty record for the mission
+     * @throws ManifestException if {@code mission} is null or blank
+     */
+    public static ReleaseRecord start(String mission, String started) {
+        return new ReleaseRecord(mission, started, new LinkedHashMap<>());
     }
 
     /**
      * Return a copy of this record with the given member's row added, or
      * replaced when the member already has one (a member re-released
-     * within the cycle keeps a single row carrying the latest release).
+     * within the mission keeps a single row carrying the latest release).
      * A replaced member keeps its original position; a new member appends.
      *
      * @param name    the subproject name; never blank
@@ -106,7 +127,7 @@ public record ReleaseRecord(
         }
         Map<String, MemberRelease> updated = new LinkedHashMap<>(members);
         updated.put(name, release);
-        return new ReleaseRecord(cycle, started, updated);
+        return new ReleaseRecord(mission, started, updated);
     }
 
     /**

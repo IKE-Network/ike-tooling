@@ -25,10 +25,10 @@ class ReleaseRecordFileTest {
     }
 
     @Test
-    void pathFor_rejects_blank_cycle(@TempDir Path tmp) {
+    void pathFor_rejects_blank_mission(@TempDir Path tmp) {
         assertThatThrownBy(() -> ReleaseRecordFile.pathFor(tmp, " "))
                 .isInstanceOf(ManifestException.class)
-                .hasMessageContaining("cycle");
+                .hasMessageContaining("mission");
     }
 
     @Test
@@ -42,7 +42,7 @@ class ReleaseRecordFileTest {
         ReleaseRecordFile.write(path, record);
         ReleaseRecord loaded = ReleaseRecordFile.read(path);
 
-        assertThat(loaded.cycle()).isEqualTo("komet-wsr-1");
+        assertThat(loaded.mission()).isEqualTo("komet-wsr-1");
         assertThat(loaded.started()).isEqualTo("2026-08-10");
         assertThat(loaded.members()).containsOnlyKeys(
                 "komet-bom", "tinkar-schema");
@@ -81,10 +81,10 @@ class ReleaseRecordFileTest {
     }
 
     @Test
-    void empty_cycle_renders_and_reads_back_empty(@TempDir Path tmp)
+    void empty_mission_renders_and_reads_back_empty(@TempDir Path tmp)
             throws IOException {
-        Path path = ReleaseRecordFile.pathFor(tmp, "empty-cycle");
-        ReleaseRecordFile.write(path, ReleaseRecord.start("empty-cycle", null));
+        Path path = ReleaseRecordFile.pathFor(tmp, "empty-mission");
+        ReleaseRecordFile.write(path, ReleaseRecord.start("empty-mission", null));
 
         assertThat(Files.readString(path)).contains("members: {}");
         ReleaseRecord loaded = ReleaseRecordFile.read(path);
@@ -118,6 +118,37 @@ class ReleaseRecordFileTest {
         assertThat(Files.readString(path)).contains("started: \"2026-08-10\"");
         assertThat(ReleaseRecordFile.read(path).started())
                 .isEqualTo("2026-08-10");
+    }
+
+    /**
+     * Records written before the cycle-to-mission rename carry a
+     * {@code cycle:} key and live in immutable tagged trees — the
+     * reader accepts the old spelling forever
+     * (IKE-Network/ike-issues#1038).
+     */
+    @Test
+    void legacy_cycle_key_reads_as_the_mission(@TempDir Path tmp)
+            throws IOException {
+        Path path = tmp.resolve("release-legacy.yaml");
+        Files.writeString(path, """
+                cycle: "ike-komet-wsr-6"
+                started: "2026-08-16"
+                members: {}
+                """);
+        ReleaseRecord loaded = ReleaseRecordFile.read(path);
+        assertThat(loaded.mission()).isEqualTo("ike-komet-wsr-6");
+        assertThat(loaded.cycle()).isEqualTo("ike-komet-wsr-6");
+    }
+
+    /** New records carry the mission key, never the old spelling. */
+    @Test
+    void rendered_form_emits_mission_key(@TempDir Path tmp)
+            throws IOException {
+        Path path = ReleaseRecordFile.pathFor(tmp, "m1");
+        ReleaseRecordFile.write(path, ReleaseRecord.start("m1", null));
+        String text = Files.readString(path);
+        assertThat(text).contains("mission: \"m1\"");
+        assertThat(text).doesNotContain("\ncycle:");
     }
 
     @Test
@@ -163,10 +194,10 @@ class ReleaseRecordFileTest {
     }
 
     @Test
-    void record_validation_rejects_blank_cycle_and_null_members() {
+    void record_validation_rejects_blank_mission_and_null_members() {
         assertThatThrownBy(() -> ReleaseRecord.start(" ", null))
                 .isInstanceOf(ManifestException.class)
-                .hasMessageContaining("cycle");
+                .hasMessageContaining("mission");
         assertThatThrownBy(() -> new ReleaseRecord("c1", null, null))
                 .isInstanceOf(ManifestException.class)
                 .hasMessageContaining("members");
