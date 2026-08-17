@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ProjectCascadeIo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace.cascade</a> &gt; <span class="el_source">ProjectCascadeIo.java</span></div><h1>ProjectCascadeIo.java</h1><pre class="source lang-java linenums">package network.ike.workspace.cascade;
+
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * Reads a project's own {@code src/main/cascade/release-cascade.yaml}
+ * into a {@link ProjectCascade} (IKE-Network/ike-issues#420).
+ *
+ * &lt;p&gt;Each foundation project version-controls this file in its own
+ * git tree, so resolution is a plain on-disk read of a fixed path —
+ * no artifact resolution, no central manifest. {@link CascadeAssembler}
+ * stitches the per-project files into the full ordered graph.
+ *
+ * &lt;p&gt;Parsing is lenient about unknown top-level keys (forward
+ * compatibility) but strict about edge shape.
+ */
+public final class ProjectCascadeIo {
+
+    /** Conventional manifest file name. */
+    public static final String MANIFEST_NAME = &quot;release-cascade.yaml&quot;;
+
+    /**
+     * Conventional manifest location relative to a repository root —
+     * {@code src/main/cascade/release-cascade.yaml}. Every foundation
+     * project carries the file at this same relative path.
+     */
+    public static final String MANIFEST_RELATIVE_PATH =
+            &quot;src/main/cascade/&quot; + MANIFEST_NAME;
+
+    private ProjectCascadeIo() {}
+
+    /**
+     * Parses a per-project manifest from a file path.
+     *
+     * @param path path to the YAML manifest
+     * @return the parsed manifest
+     * @throws UncheckedIOException if the file cannot be read
+     * @throws IllegalArgumentException if the manifest is malformed
+     */
+    public static ProjectCascade read(Path path) {
+<span class="fc" id="L52">        try (Reader reader = Files.newBufferedReader(</span>
+                path, StandardCharsets.UTF_8)) {
+<span class="fc" id="L54">            return read(reader);</span>
+<span class="nc" id="L55">        } catch (IOException e) {</span>
+<span class="nc" id="L56">            throw new UncheckedIOException(</span>
+                    &quot;Cannot read release-cascade manifest: &quot; + path, e);
+        }
+    }
+
+    /**
+     * Parses a per-project manifest from an open reader.
+     *
+     * @param reader the YAML source
+     * @return the parsed manifest
+     * @throws IllegalArgumentException if the manifest is malformed
+     */
+    public static ProjectCascade read(Reader reader) {
+<span class="fc" id="L69">        Object root = new Yaml().load(reader);</span>
+<span class="pc bpc" id="L70" title="1 of 2 branches missed.">        if (!(root instanceof Map&lt;?, ?&gt; map)) {</span>
+<span class="nc" id="L71">            throw new IllegalArgumentException(</span>
+                    &quot;release-cascade.yaml must be a YAML mapping&quot;);
+        }
+<span class="fc bfc" id="L74" title="All 2 branches covered.">        int schema = map.get(&quot;schema&quot;) instanceof Number n</span>
+<span class="fc" id="L75">                ? n.intValue() : 1;</span>
+<span class="fc" id="L76">        boolean head = Boolean.TRUE.equals(map.get(&quot;head&quot;));</span>
+<span class="fc" id="L77">        boolean terminal = Boolean.TRUE.equals(map.get(&quot;terminal&quot;));</span>
+<span class="fc" id="L78">        List&lt;CascadeEdge&gt; upstream = readEdges(map.get(&quot;upstream&quot;));</span>
+<span class="fc" id="L79">        List&lt;CascadeEdge&gt; downstream = readEdges(map.get(&quot;downstream&quot;));</span>
+<span class="fc" id="L80">        return new ProjectCascade(schema, head, upstream,</span>
+                terminal, downstream);
+    }
+
+    /**
+     * Loads a per-project manifest from a path, degrading gracefully
+     * when no manifest is present.
+     *
+     * @param manifestPath the manifest path; may be {@code null}
+     * @return the parsed manifest, or empty if {@code manifestPath} is
+     *         {@code null} or does not point at a regular file
+     * @throws IllegalArgumentException if the manifest exists but is
+     *                                  malformed
+     */
+    public static Optional&lt;ProjectCascade&gt; load(Path manifestPath) {
+<span class="fc bfc" id="L95" title="All 4 branches covered.">        if (manifestPath == null || !Files.isRegularFile(manifestPath)) {</span>
+<span class="fc" id="L96">            return Optional.empty();</span>
+        }
+<span class="fc" id="L98">        return Optional.of(read(manifestPath));</span>
+    }
+
+    private static List&lt;CascadeEdge&gt; readEdges(Object raw) {
+<span class="fc" id="L102">        List&lt;CascadeEdge&gt; edges = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L103" title="All 2 branches covered.">        if (!(raw instanceof List&lt;?&gt; entries)) {</span>
+<span class="fc" id="L104">            return edges;</span>
+        }
+<span class="fc bfc" id="L106" title="All 2 branches covered.">        for (Object entry : entries) {</span>
+<span class="pc bpc" id="L107" title="1 of 2 branches missed.">            if (!(entry instanceof Map&lt;?, ?&gt; e)) {</span>
+<span class="nc" id="L108">                throw new IllegalArgumentException(</span>
+                        &quot;each cascade edge must be a mapping&quot;);
+            }
+            // The legacy 'version-property' YAML field is no longer
+            // consulted — CascadeEdge.versionProperty() derives the
+            // canonical G·A property name from the coordinates.
+            // Manifests that still carry it parse cleanly; the value
+            // is ignored. See IKE-Network/ike-issues#496.
+<span class="fc" id="L116">            edges.add(new CascadeEdge(</span>
+<span class="fc" id="L117">                    stringOrNull(e.get(&quot;groupId&quot;)),</span>
+<span class="fc" id="L118">                    stringOrNull(e.get(&quot;artifactId&quot;)),</span>
+<span class="fc" id="L119">                    stringOrNull(e.get(&quot;repo&quot;)),</span>
+<span class="fc" id="L120">                    stringOrNull(e.get(&quot;url&quot;)),</span>
+<span class="fc" id="L121">                    edgeKind(e.get(&quot;kind&quot;))));</span>
+<span class="fc" id="L122">        }</span>
+<span class="fc" id="L123">        return edges;</span>
+    }
+
+    private static String stringOrNull(Object value) {
+<span class="fc bfc" id="L127" title="All 2 branches covered.">        return value == null ? null : String.valueOf(value);</span>
+    }
+
+    /**
+     * Parses an optional {@code kind:} YAML value into an
+     * {@link EdgeKind}, case-insensitively. Returns {@code null}
+     * when the value is absent — {@link CascadeEdge}'s canonical
+     * constructor then defaults the field to
+     * {@link EdgeKind#DEPENDENCY}.
+     */
+    private static EdgeKind edgeKind(Object value) {
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">        if (value == null) {</span>
+<span class="fc" id="L139">            return null;</span>
+        }
+<span class="nc" id="L141">        String name = String.valueOf(value).trim();</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (name.isEmpty()) {</span>
+<span class="nc" id="L143">            return null;</span>
+        }
+        try {
+<span class="nc" id="L146">            return EdgeKind.valueOf(name.toUpperCase());</span>
+<span class="nc" id="L147">        } catch (IllegalArgumentException ex) {</span>
+<span class="nc" id="L148">            throw new IllegalArgumentException(</span>
+                    &quot;unknown cascade edge kind '&quot; + name
+                    + &quot;' — valid values are &quot;
+<span class="nc" id="L151">                    + java.util.Arrays.toString(EdgeKind.values()), ex);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

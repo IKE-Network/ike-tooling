@@ -1,12 +1,12 @@
 ---
-date_published: 2026-08-15
-date_modified: 2026-08-15
+date_published: 2026-08-16
+date_modified: 2026-08-16
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin-support/built-with.html
 ---
 
 # Built With
 
-Open-source software that `ike-maven-plugin-support` 248 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-maven-plugin-support` 249 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 

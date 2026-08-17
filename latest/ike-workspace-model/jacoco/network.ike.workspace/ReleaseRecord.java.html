@@ -5,11 +5,20 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * One release cycle of a working set — the typed model behind
- * {@code releases/release-&lt;cycle&gt;.yaml} in the workspace root
+ * One release mission of a working set — the typed model behind
+ * {@code releases/release-&lt;mission&gt;.yaml} in the workspace root
  * (IKE-Network/ike-issues#973; shape settled 2026-08-10: one file per
- * cycle, one row per released member, finalized by the cycle's
+ * mission, one row per released member, finalized by the mission's
  * workspace-root release).
+ *
+ * &lt;p&gt;&lt;b&gt;Terminology&lt;/b&gt; (IKE-Network/ike-issues#1038, settled
+ * 2026-08-17): the working-set release iteration is a &lt;em&gt;mission&lt;/em&gt;
+ * — numbered, launched on go/no-go, aborted by
+ * {@code ws:release-rollback}, reported by the record and its
+ * what-changed notes. &quot;Cycle&quot; now names only graph cycles. Records
+ * written before the rename carry a {@code cycle:} key; the reader
+ * accepts both spellings forever, since shipped records live in
+ * immutable tagged trees.
  *
  * &lt;p&gt;{@code ws:record-release} appends a {@link MemberRelease} row each
  * time a member releases; together with the member's manifest state
@@ -23,19 +32,19 @@ import java.util.Map;
  * returns an updated copy. Member insertion order is preserved — the
  * record file reads in release order.
  *
- * @param cycle   the cycle label, e.g. {@code komet-wsr-1}; never blank
- * @param started when the cycle opened (opaque caller-supplied text,
+ * @param mission the mission label, e.g. {@code komet-wsr-1}; never blank
+ * @param started when the mission opened (opaque caller-supplied text,
  *                typically an ISO date); null when unknown
  * @param members released members in release order, keyed by subproject
  *                name; never null, possibly empty
  */
 public record ReleaseRecord(
-        String cycle,
+        String mission,
         String started,
         Map&lt;String, MemberRelease&gt; members) {
 
     /**
-     * One member's release within a cycle.
+     * One member's release within a mission.
      *
      * @param version  the released (de-qualified) version, e.g.
      *                 {@code 3.0.7}; never blank
@@ -52,45 +61,57 @@ public record ReleaseRecord(
          *
          * @throws ManifestException if version, tag, or sha is null or blank
          */
-<span class="fc" id="L55">        public MemberRelease {</span>
-<span class="fc" id="L56">            requireNonBlank(version, &quot;version&quot;);</span>
-<span class="fc" id="L57">            requireNonBlank(tag, &quot;tag&quot;);</span>
-<span class="fc" id="L58">            requireNonBlank(sha, &quot;sha&quot;);</span>
-<span class="fc" id="L59">        }</span>
+<span class="fc" id="L64">        public MemberRelease {</span>
+<span class="fc" id="L65">            requireNonBlank(version, &quot;version&quot;);</span>
+<span class="fc" id="L66">            requireNonBlank(tag, &quot;tag&quot;);</span>
+<span class="fc" id="L67">            requireNonBlank(sha, &quot;sha&quot;);</span>
+<span class="fc" id="L68">        }</span>
     }
 
     /**
-     * Validate and defensively copy: the cycle label is required and the
+     * Validate and defensively copy: the mission label is required and the
      * member map is copied into an unmodifiable insertion-ordered map.
      *
-     * @throws ManifestException if {@code cycle} is null or blank, or
+     * @throws ManifestException if {@code mission} is null or blank, or
      *                           {@code members} is null
      */
-<span class="fc" id="L69">    public ReleaseRecord {</span>
-<span class="fc" id="L70">        requireNonBlank(cycle, &quot;cycle&quot;);</span>
-<span class="fc bfc" id="L71" title="All 2 branches covered.">        if (members == null) {</span>
-<span class="fc" id="L72">            throw new ManifestException(&quot;members must not be null&quot;);</span>
+<span class="fc" id="L78">    public ReleaseRecord {</span>
+<span class="fc" id="L79">        requireNonBlank(mission, &quot;mission&quot;);</span>
+<span class="fc bfc" id="L80" title="All 2 branches covered.">        if (members == null) {</span>
+<span class="fc" id="L81">            throw new ManifestException(&quot;members must not be null&quot;);</span>
         }
-<span class="fc" id="L74">        members = Collections.unmodifiableMap(new LinkedHashMap&lt;&gt;(members));</span>
-<span class="fc" id="L75">    }</span>
+<span class="fc" id="L83">        members = Collections.unmodifiableMap(new LinkedHashMap&lt;&gt;(members));</span>
+<span class="fc" id="L84">    }</span>
 
     /**
-     * Open a new, empty cycle record.
+     * The mission label under its pre-rename name, for callers not yet
+     * moved to {@link #mission()} (IKE-Network/ike-issues#1038).
      *
-     * @param cycle   the cycle label, e.g. {@code komet-wsr-1}
-     * @param started when the cycle opened (opaque caller-supplied text);
-     *                may be null
-     * @return an empty record for the cycle
-     * @throws ManifestException if {@code cycle} is null or blank
+     * @return the mission label
+     * @deprecated use {@link #mission()}
      */
-    public static ReleaseRecord start(String cycle, String started) {
-<span class="fc" id="L87">        return new ReleaseRecord(cycle, started, new LinkedHashMap&lt;&gt;());</span>
+    @Deprecated(since = &quot;249&quot;)
+    public String cycle() {
+<span class="fc" id="L95">        return mission;</span>
+    }
+
+    /**
+     * Open a new, empty mission record.
+     *
+     * @param mission the mission label, e.g. {@code komet-wsr-1}
+     * @param started when the mission opened (opaque caller-supplied
+     *                text); may be null
+     * @return an empty record for the mission
+     * @throws ManifestException if {@code mission} is null or blank
+     */
+    public static ReleaseRecord start(String mission, String started) {
+<span class="fc" id="L108">        return new ReleaseRecord(mission, started, new LinkedHashMap&lt;&gt;());</span>
     }
 
     /**
      * Return a copy of this record with the given member's row added, or
      * replaced when the member already has one (a member re-released
-     * within the cycle keeps a single row carrying the latest release).
+     * within the mission keeps a single row carrying the latest release).
      * A replaced member keeps its original position; a new member appends.
      *
      * @param name    the subproject name; never blank
@@ -100,13 +121,13 @@ public record ReleaseRecord(
      *                           {@code release} is null
      */
     public ReleaseRecord withMember(String name, MemberRelease release) {
-<span class="fc" id="L103">        requireNonBlank(name, &quot;name&quot;);</span>
-<span class="pc bpc" id="L104" title="1 of 2 branches missed.">        if (release == null) {</span>
-<span class="nc" id="L105">            throw new ManifestException(&quot;release must not be null&quot;);</span>
+<span class="fc" id="L124">        requireNonBlank(name, &quot;name&quot;);</span>
+<span class="pc bpc" id="L125" title="1 of 2 branches missed.">        if (release == null) {</span>
+<span class="nc" id="L126">            throw new ManifestException(&quot;release must not be null&quot;);</span>
         }
-<span class="fc" id="L107">        Map&lt;String, MemberRelease&gt; updated = new LinkedHashMap&lt;&gt;(members);</span>
-<span class="fc" id="L108">        updated.put(name, release);</span>
-<span class="fc" id="L109">        return new ReleaseRecord(cycle, started, updated);</span>
+<span class="fc" id="L128">        Map&lt;String, MemberRelease&gt; updated = new LinkedHashMap&lt;&gt;(members);</span>
+<span class="fc" id="L129">        updated.put(name, release);</span>
+<span class="fc" id="L130">        return new ReleaseRecord(mission, started, updated);</span>
     }
 
     /**
@@ -117,9 +138,9 @@ public record ReleaseRecord(
      * @throws ManifestException if {@code value} is null or blank
      */
     private static void requireNonBlank(String value, String name) {
-<span class="fc bfc" id="L120" title="All 4 branches covered.">        if (value == null || value.isBlank()) {</span>
-<span class="fc" id="L121">            throw new ManifestException(name + &quot; must not be null or blank&quot;);</span>
+<span class="fc bfc" id="L141" title="All 4 branches covered.">        if (value == null || value.isBlank()) {</span>
+<span class="fc" id="L142">            throw new ManifestException(name + &quot; must not be null or blank&quot;);</span>
         }
-<span class="fc" id="L123">    }</span>
+<span class="fc" id="L144">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
