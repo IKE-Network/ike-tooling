@@ -10,8 +10,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Tests for {@link WorkingSetResolver} (ike-issues#609): a single repo is a
- * working set of one; a {@code workspace.yaml} resolves to its subprojects
- * plus the workspace root, found by walking up from the start directory.
+ * working set of one; a manifest resolves to its subprojects plus the
+ * working-set root, found by walking up from the start directory. The
+ * fixtures below deliberately write the FORMER name, {@code
+ * workspace.yaml}, since reading it forever is the compatibility contract
+ * (ike-issues#1054).
  */
 class WorkingSetResolverTest {
 
@@ -42,7 +45,8 @@ class WorkingSetResolverTest {
 
         assertThat(ws.isWorkspace()).isTrue();
         assertThat(ws.manifest()).isNotNull();
-        assertThat(ws.manifest().getFileName().toString()).isEqualTo("workspace.yaml");
+        assertThat(ws.manifest().getFileName().toString())
+                .isEqualTo(WorkingSetResolver.LEGACY_MANIFEST_FILE);
         assertThat(ws.members()).extracting(WorkingSet.Member::name)
                 .containsExactly("lib-a", "lib-b", tempDir.getFileName().toString());
         // Subprojects first, then the aggregator (workspace root).
@@ -112,5 +116,51 @@ class WorkingSetResolverTest {
                     branch: main
                     version: "2.0.0-SNAPSHOT"
                 """);
+    }
+
+    /** The current name resolves the same way the former one does. */
+    @Test
+    void currentManifestNameResolves() throws Exception {
+        Files.writeString(tempDir.resolve(WorkingSetResolver.MANIFEST_FILE), """
+                version: "1.0"
+                subprojects:
+                  lib-a:
+                    repo: https://example.invalid/lib-a.git
+                """);
+
+        WorkingSet ws = WorkingSetResolver.resolve(tempDir);
+
+        assertThat(ws.isWorkspace()).isTrue();
+        assertThat(ws.manifest().getFileName().toString())
+                .isEqualTo("working-set.yaml");
+        assertThat(ws.members()).extracting(WorkingSet.Member::name)
+                .contains("lib-a");
+    }
+
+    /** With both present, the current name wins and nothing is ambiguous. */
+    @Test
+    void currentNameWinsOverFormerName() throws Exception {
+        Files.writeString(tempDir.resolve(WorkingSetResolver.MANIFEST_FILE),
+                "version: \"1.0\"\nsubprojects:\n  current:\n    repo: x\n");
+        Files.writeString(tempDir.resolve(WorkingSetResolver.LEGACY_MANIFEST_FILE),
+                "version: \"1.0\"\nsubprojects:\n  former:\n    repo: x\n");
+
+        assertThat(WorkingSetResolver.manifestIn(tempDir).getFileName().toString())
+                .isEqualTo("working-set.yaml");
+        assertThat(WorkingSetResolver.resolve(tempDir).members())
+                .extracting(WorkingSet.Member::name).contains("current")
+                .doesNotContain("former");
+    }
+
+    /** A writer touches the manifest that is there — never a second one. */
+    @Test
+    void writerTargetsTheExistingManifest() throws Exception {
+        assertThat(WorkingSetResolver.manifestToWrite(tempDir).getFileName()
+                .toString()).isEqualTo("working-set.yaml");
+
+        Files.writeString(tempDir.resolve(WorkingSetResolver.LEGACY_MANIFEST_FILE),
+                "version: \"1.0\"\n");
+        assertThat(WorkingSetResolver.manifestToWrite(tempDir).getFileName()
+                .toString()).isEqualTo("workspace.yaml");
     }
 }
