@@ -5,23 +5,66 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Resolves the {@link WorkingSet} a working-tree workspace operation acts
- * on, from a starting directory (IKE-Network/ike-issues#609, under #601).
+ * Resolves the {@link WorkingSet} a working-tree operation acts on, from a
+ * starting directory (IKE-Network/ike-issues#609, under #601).
  *
- * &lt;p&gt;Searches upward from the start directory for a {@code workspace.yaml}.
- * When one is found, the working set is that workspace — its declared
- * subprojects plus the workspace root. When none is found, the working set
- * is the single repository at the start directory: a working set of one.
+ * &lt;p&gt;Searches upward from the start directory for a manifest —
+ * {@value #MANIFEST_FILE}, or {@value #LEGACY_MANIFEST_FILE} in a working
+ * set the scaffold has not upgraded yet (ike-issues#1054). When one is
+ * found, the working set is what it declares: its subprojects plus the
+ * working-set root. When none is found, the working set is the single
+ * repository at the start directory: a working set of one.
  *
- * &lt;p&gt;This is the single home for the &quot;am I in a workspace, or a lone repo?&quot;
- * decision that working-tree goals otherwise each make for themselves — the
- * scattered {@code isWorkspaceMode()} + bare-mode branches the migration in
- * ike-issues#611 retires.
+ * &lt;p&gt;This is the single home for the &quot;am I in a declared working set, or a
+ * lone repo?&quot; decision that working-tree goals otherwise each make for
+ * themselves — the scattered {@code isWorkspaceMode()} + bare-mode branches
+ * the migration in ike-issues#611 retires.
  */
 public final class WorkingSetResolver {
 
-    /** The manifest file name searched for when walking up from a directory. */
-    public static final String MANIFEST_FILE = &quot;workspace.yaml&quot;;
+    /**
+     * The manifest file name — the thing it describes is a &lt;em&gt;working
+     * set&lt;/em&gt;, so that is what the file is called
+     * (IKE-Network/ike-issues#1054).
+     */
+    public static final String MANIFEST_FILE = &quot;working-set.yaml&quot;;
+
+    /**
+     * The manifest's former name. Read forever: manifests written before
+     * the rename live in tagged trees, and a working set is upgraded by
+     * the scaffold, not by every reader assuming it already happened.
+     */
+    public static final String LEGACY_MANIFEST_FILE = &quot;workspace.yaml&quot;;
+
+    /**
+     * The manifest already present in a directory — the current name
+     * preferred, the former name accepted.
+     *
+     * @param dir the directory to look in
+     * @return the existing manifest path, or {@code null} when the
+     *         directory holds neither
+     */
+    public static Path manifestIn(Path dir) {
+<span class="fc" id="L48">        Path current = dir.resolve(MANIFEST_FILE);</span>
+<span class="fc bfc" id="L49" title="All 2 branches covered.">        if (current.toFile().exists()) {</span>
+<span class="fc" id="L50">            return current;</span>
+        }
+<span class="fc" id="L52">        Path legacy = dir.resolve(LEGACY_MANIFEST_FILE);</span>
+<span class="fc bfc" id="L53" title="All 2 branches covered.">        return legacy.toFile().exists() ? legacy : null;</span>
+    }
+
+    /**
+     * Where a writer should write a directory's manifest: the file that is
+     * already there, or the current name when there is none. A writer must
+     * never introduce a second manifest beside an existing one.
+     *
+     * @param dir the working-set root directory
+     * @return the path to write
+     */
+    public static Path manifestToWrite(Path dir) {
+<span class="fc" id="L65">        Path existing = manifestIn(dir);</span>
+<span class="fc bfc" id="L66" title="All 2 branches covered.">        return existing != null ? existing : dir.resolve(MANIFEST_FILE);</span>
+    }
 
     private WorkingSetResolver() {}
 
@@ -29,13 +72,13 @@ public final class WorkingSetResolver {
      * Resolve the working set from a starting directory.
      *
      * @param startDir the directory to resolve from (typically the CWD)
-     * @return a workspace working set when a {@code workspace.yaml} is found
-     *         at or above {@code startDir}; otherwise the single-repository
+     * @return the declared working set when a manifest is found at or
+     *         above {@code startDir}; otherwise the single-repository
      *         working set rooted at {@code startDir}
      */
     public static WorkingSet resolve(Path startDir) {
-<span class="fc" id="L37">        Path manifest = findManifest(startDir);</span>
-<span class="fc bfc" id="L38" title="All 2 branches covered.">        return manifest == null ? singleRepo(startDir) : workspace(manifest);</span>
+<span class="fc" id="L80">        Path manifest = findManifest(startDir);</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">        return manifest == null ? singleRepo(startDir) : declared(manifest);</span>
     }
 
     /**
@@ -46,64 +89,67 @@ public final class WorkingSetResolver {
      * @return the single-repository working set
      */
     public static WorkingSet singleRepo(Path dir) {
-<span class="fc" id="L49">        Path root = dir.toAbsolutePath().normalize();</span>
-<span class="fc" id="L50">        String name = fileName(root);</span>
-<span class="fc" id="L51">        return new WorkingSet(root, null, name,</span>
-<span class="fc" id="L52">                List.of(WorkingSet.Member.aggregator(name, root)));</span>
+<span class="fc" id="L92">        Path root = dir.toAbsolutePath().normalize();</span>
+<span class="fc" id="L93">        String name = fileName(root);</span>
+<span class="fc" id="L94">        return new WorkingSet(root, null, name,</span>
+<span class="fc" id="L95">                List.of(WorkingSet.Member.aggregator(name, root)));</span>
     }
 
-    private static WorkingSet workspace(Path manifest) {
-<span class="fc" id="L56">        Path root = manifest.getParent();</span>
-<span class="fc" id="L57">        Manifest model = ManifestReader.read(manifest);</span>
-<span class="fc" id="L58">        List&lt;WorkingSet.Member&gt; members = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L59" title="All 2 branches covered.">        for (String name : model.subprojects().keySet()) {</span>
-<span class="fc" id="L60">            members.add(WorkingSet.Member.subproject(name, root.resolve(name)));</span>
-<span class="fc" id="L61">        }</span>
-<span class="fc" id="L62">        members.add(WorkingSet.Member.aggregator(fileName(root), root));</span>
-<span class="fc" id="L63">        return new WorkingSet(root, manifest, baseName(model, root),</span>
-<span class="fc" id="L64">                List.copyOf(members));</span>
+    private static WorkingSet declared(Path manifest) {
+<span class="fc" id="L99">        Path root = manifest.getParent();</span>
+<span class="fc" id="L100">        Manifest model = ManifestReader.read(manifest);</span>
+<span class="fc" id="L101">        List&lt;WorkingSet.Member&gt; members = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L102" title="All 2 branches covered.">        for (String name : model.subprojects().keySet()) {</span>
+<span class="fc" id="L103">            members.add(WorkingSet.Member.subproject(name, root.resolve(name)));</span>
+<span class="fc" id="L104">        }</span>
+<span class="fc" id="L105">        members.add(WorkingSet.Member.aggregator(fileName(root), root));</span>
+<span class="fc" id="L106">        return new WorkingSet(root, manifest, baseName(model, root),</span>
+<span class="fc" id="L107">                List.copyOf(members));</span>
     }
 
     /**
      * Resolve the working set's base name — the identity used for derived
      * names such as sibling directories. Prefers the manifest
-     * {@code workspace-root:} {@code artifactId} (schema 1.1+); falls back to
-     * the root directory name when absent (legacy 1.0 manifests).
+     * {@code workspace-root:} {@code artifactId} (schema 1.1+ — the key
+     * keeps its spelling; renaming a manifest key is a separate migration);
+     * falls back to the root directory name when absent (legacy 1.0
+     * manifests).
      *
      * @param model the parsed manifest
-     * @param root  the workspace root directory
-     * @return the workspace-root artifactId when present, else the directory
+     * @param root  the working-set root directory
+     * @return the declared root artifactId when present, else the directory
      *         name
      */
     private static String baseName(Manifest model, Path root) {
-<span class="fc" id="L79">        WorkspaceRoot wr = model.workspaceRoot();</span>
-<span class="pc bpc" id="L80" title="2 of 6 branches missed.">        if (wr != null &amp;&amp; wr.artifactId() != null &amp;&amp; !wr.artifactId().isBlank()) {</span>
-<span class="fc" id="L81">            return wr.artifactId();</span>
+<span class="fc" id="L124">        WorkspaceRoot wr = model.workspaceRoot();</span>
+<span class="pc bpc" id="L125" title="2 of 6 branches missed.">        if (wr != null &amp;&amp; wr.artifactId() != null &amp;&amp; !wr.artifactId().isBlank()) {</span>
+<span class="fc" id="L126">            return wr.artifactId();</span>
         }
-<span class="fc" id="L83">        return fileName(root);</span>
+<span class="fc" id="L128">        return fileName(root);</span>
     }
 
     /**
-     * Search upward from {@code startDir} for a {@code workspace.yaml}.
+     * Search upward from {@code startDir} for a manifest, under either
+     * name.
      *
      * @param startDir the directory to start the upward search from
      * @return the absolute manifest path, or {@code null} if none is found
      */
     static Path findManifest(Path startDir) {
-<span class="fc" id="L93">        Path dir = startDir.toAbsolutePath().normalize();</span>
-<span class="fc bfc" id="L94" title="All 2 branches covered.">        while (dir != null) {</span>
-<span class="fc" id="L95">            Path candidate = dir.resolve(MANIFEST_FILE);</span>
-<span class="fc bfc" id="L96" title="All 2 branches covered.">            if (candidate.toFile().exists()) {</span>
-<span class="fc" id="L97">                return candidate;</span>
+<span class="fc" id="L139">        Path dir = startDir.toAbsolutePath().normalize();</span>
+<span class="fc bfc" id="L140" title="All 2 branches covered.">        while (dir != null) {</span>
+<span class="fc" id="L141">            Path candidate = manifestIn(dir);</span>
+<span class="fc bfc" id="L142" title="All 2 branches covered.">            if (candidate != null) {</span>
+<span class="fc" id="L143">                return candidate;</span>
             }
-<span class="fc" id="L99">            dir = dir.getParent();</span>
-<span class="fc" id="L100">        }</span>
-<span class="fc" id="L101">        return null;</span>
+<span class="fc" id="L145">            dir = dir.getParent();</span>
+<span class="fc" id="L146">        }</span>
+<span class="fc" id="L147">        return null;</span>
     }
 
     private static String fileName(Path dir) {
-<span class="fc" id="L105">        Path name = dir.getFileName();</span>
-<span class="pc bpc" id="L106" title="1 of 2 branches missed.">        return name == null ? dir.toString() : name.toString();</span>
+<span class="fc" id="L151">        Path name = dir.getFileName();</span>
+<span class="pc bpc" id="L152" title="1 of 2 branches missed.">        return name == null ? dir.toString() : name.toString();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
