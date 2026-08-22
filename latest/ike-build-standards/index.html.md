@@ -1,6 +1,6 @@
 ---
-date_published: 2026-08-19
-date_modified: 2026-08-19
+date_published: 2026-08-21
+date_modified: 2026-08-21
 canonical_url: https://ike.network/ike-tooling/ike-build-standards/index.html
 ---
 
@@ -24,7 +24,7 @@ The artifact has no compiled code. It carries content only — seven classified 
 | `docs` | Human-readable convention documents in AsciiDoc format (`ike-workspace-conventions.adoc`, etc.) — same conventions, but rendered as proper documentation rather than instruction prose. | The IKE doc pipeline (where applicable) — readable in any AsciiDoc viewer. |
 | `config` | Shared static build configuration: `.editorconfig`, `checkstyle.xml`, `.stignore.template`. Files that should be byte-identical across every IKE workspace. | `ws:scaffold-publish` writes them to the workspace root via the ScaffoldConventionReconciler. |
 | `asciidoctorconfig` | The shared `.asciidoctorconfig` fragment that gives IDEs (IntelliJ, VS Code) a working AsciiDoc preview matching the build’s renderer. | Each consuming module unpacks it so live preview matches the Maven-rendered output. |
-| `scaffold` | The workspace scaffold manifest (`scaffold-manifest.yaml`) and its template files: gitignore blocks, the Maven wrapper, IDE settings, `.mvn/maven.config`. The manifest’s `standards-version` is filtered to `250` at assembly time so the consumed zip carries the concrete artifact version into the lockfile. | `ws:scaffold-{draft,publish}` consult the manifest to detect drift and apply upgrades via the ScaffoldConventionReconciler. |
+| `scaffold` | The workspace scaffold manifest (`scaffold-manifest.yaml`) and its template files: gitignore blocks, the Maven wrapper, IDE settings, `.mvn/maven.config`. The manifest’s `standards-version` is filtered to `251` at assembly time so the consumed zip carries the concrete artifact version into the lockfile. | `ws:scaffold-{draft,publish}` consult the manifest to detect drift and apply upgrades via the ScaffoldConventionReconciler. |
 | `site-theme` | Canonical Forest-theme `site.css` and `ike-logo.svg` for the Sentry Maven Site skin. Single source of truth for the ike.network theme — bumping a color here propagates to every consumer’s site on the next ike-tooling release. | `ike-parent’s `site-resources` profile (activated when `src/site/` exists) unpacks at `pre-site` into `target/generated-site/resources/`, which `maven-site-plugin` auto-merges into `target/site/`. See ike-issues#318. Hosted here rather than in `ike-doc-resources` so `ike-tooling’s own modules can consume it (#308) without inverting the release cascade. |
 | `built-with` | The platform-wide curated Built-With supplement (`supplement.yaml`) — Curated-narrative content that every project’s `built-with.html` page picks up so external consumers (`ike-lab-documents`, `doc-example`, `project-example`, etc.) get the same Curated section without authoring their own supplement. | `ike-parent’s `maven-dependency-plugin` unpacks at `initialize` into `target/built-with-supplement.yaml`. The `ike:built-with` mojo reads it as a third-priority fallback after the per-project and walk-up locations. See ike-issues#340. |
 

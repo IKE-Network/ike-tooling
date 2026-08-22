@@ -6,12 +6,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +38,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class ReportSession {
 
-<span class="nc" id="L38">    private static final Logger LOG = LoggerFactory.getLogger(ReportSession.class);</span>
+<span class="nc" id="L41">    private static final Logger LOG = LoggerFactory.getLogger(ReportSession.class);</span>
 
     /** System property that adds a DIAGNOSTIC section listing observed event types. */
     public static final String DEBUG_PROPERTY = &quot;ike.build.report.debug&quot;;
@@ -55,11 +58,32 @@ public final class ReportSession {
     /** Machine-readable observations sidecar, relative to the execution root. */
     public static final String OBSERVATIONS_RELATIVE_PATH = &quot;target/build-report-observations.yaml&quot;;
 
-<span class="nc" id="L58">    private static final List&lt;Finding&gt; FINDINGS = Collections.synchronizedList(new ArrayList&lt;&gt;());</span>
-<span class="nc" id="L59">    private static final Set&lt;String&gt; OBSERVED_EVENT_TYPES =</span>
-<span class="nc" id="L60">            Collections.synchronizedSet(new LinkedHashSet&lt;&gt;());</span>
+    /**
+     * Where receipts that demanded attention are kept, relative to the
+     * execution root.
+     *
+     * &lt;p&gt;The receipt at the root is overwritten every session, so a
+     * clean run silently erases the evidence for the failing run that
+     * preceded it — the reader goes looking and finds
+     * {@code gate: clean}. Sessions with findings therefore also leave
+     * a timestamped copy here (ike-issues#989).&lt;/p&gt;
+     */
+    public static final String HISTORY_RELATIVE_PATH = &quot;target/build-report-history&quot;;
+
+<span class="nc" id="L73">    private static final DateTimeFormatter ARCHIVE_STAMP =</span>
+<span class="nc" id="L74">            DateTimeFormatter.ofPattern(&quot;yyyyMMdd-HHmmss&quot;);</span>
+
+    /** How many archived receipts to keep before pruning the oldest. */
+    private static final int ARCHIVE_RETENTION = 20;
+
+<span class="nc" id="L79">    private static final List&lt;Finding&gt; FINDINGS = Collections.synchronizedList(new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L80">    private static final Set&lt;Path&gt; RESOLVED_POMS =</span>
+<span class="nc" id="L81">            Collections.synchronizedSet(new LinkedHashSet&lt;&gt;());</span>
+<span class="nc" id="L82">    private static final Set&lt;String&gt; OBSERVED_EVENT_TYPES =</span>
+<span class="nc" id="L83">            Collections.synchronizedSet(new LinkedHashSet&lt;&gt;());</span>
 
     private static volatile Path executionRoot;
+    private static volatile Path localRepository;
     private static volatile GateVerdict verdict;
 
     private ReportSession() {
@@ -70,12 +94,14 @@ public final class ReportSession {
      * so a long-lived JVM starts every session clean.
      */
     public static void reset() {
-<span class="nc" id="L73">        FINDINGS.clear();</span>
-<span class="nc" id="L74">        OBSERVED_EVENT_TYPES.clear();</span>
-<span class="nc" id="L75">        executionRoot = null;</span>
-<span class="nc" id="L76">        verdict = null;</span>
-<span class="nc" id="L77">        ModelObservations.reset();</span>
-<span class="nc" id="L78">    }</span>
+<span class="nc" id="L97">        FINDINGS.clear();</span>
+<span class="nc" id="L98">        RESOLVED_POMS.clear();</span>
+<span class="nc" id="L99">        OBSERVED_EVENT_TYPES.clear();</span>
+<span class="nc" id="L100">        executionRoot = null;</span>
+<span class="nc" id="L101">        localRepository = null;</span>
+<span class="nc" id="L102">        verdict = null;</span>
+<span class="nc" id="L103">        ModelObservations.reset();</span>
+<span class="nc" id="L104">    }</span>
 
     /**
      * Records one finding.
@@ -83,8 +109,32 @@ public final class ReportSession {
      * @param finding the finding to record
      */
     public static void addFinding(Finding finding) {
-<span class="nc" id="L86">        FINDINGS.add(finding);</span>
-<span class="nc" id="L87">    }</span>
+<span class="nc" id="L112">        FINDINGS.add(finding);</span>
+<span class="nc" id="L113">    }</span>
+
+    /**
+     * Records a dependency POM the session resolved, for session-end
+     * repository provenance.
+     *
+     * @param pomFile the resolved POM's path
+     */
+    public static void addResolvedPom(Path pomFile) {
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        if (pomFile != null) {</span>
+<span class="nc" id="L123">            RESOLVED_POMS.add(pomFile);</span>
+        }
+<span class="nc" id="L125">    }</span>
+
+    /**
+     * Captures the local repository's base directory once per session,
+     * which anchors the group id of a resolved POM.
+     *
+     * @param base the local repository's base directory
+     */
+    public static void captureLocalRepository(Path base) {
+<span class="nc bnc" id="L134" title="All 4 branches missed.">        if (localRepository == null &amp;&amp; base != null) {</span>
+<span class="nc" id="L135">            localRepository = base;</span>
+        }
+<span class="nc" id="L137">    }</span>
 
     /**
      * Records an observed event type for the DIAGNOSTIC section.
@@ -92,8 +142,8 @@ public final class ReportSession {
      * @param eventType a describing label for the event's type
      */
     public static void addEventType(String eventType) {
-<span class="nc" id="L95">        OBSERVED_EVENT_TYPES.add(eventType);</span>
-<span class="nc" id="L96">    }</span>
+<span class="nc" id="L145">        OBSERVED_EVENT_TYPES.add(eventType);</span>
+<span class="nc" id="L146">    }</span>
 
     /**
      * Captures the execution root once per session.
@@ -101,10 +151,10 @@ public final class ReportSession {
      * @param root the session's top directory
      */
     public static void captureRoot(Path root) {
-<span class="nc bnc" id="L104" title="All 4 branches missed.">        if (executionRoot == null &amp;&amp; root != null) {</span>
-<span class="nc" id="L105">            executionRoot = root;</span>
+<span class="nc bnc" id="L154" title="All 4 branches missed.">        if (executionRoot == null &amp;&amp; root != null) {</span>
+<span class="nc" id="L155">            executionRoot = root;</span>
         }
-<span class="nc" id="L107">    }</span>
+<span class="nc" id="L157">    }</span>
 
     /**
      * Finalizes the session exactly once: evaluates the ledger, writes
@@ -118,62 +168,115 @@ public final class ReportSession {
      * @return the session's gate verdict
      */
     public static synchronized GateVerdict finalizeAndWrite() {
-<span class="nc bnc" id="L121" title="All 2 branches missed.">        if (verdict != null) {</span>
-<span class="nc" id="L122">            return verdict;</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">        if (verdict != null) {</span>
+<span class="nc" id="L172">            return verdict;</span>
         }
-<span class="nc bnc" id="L124" title="All 2 branches missed.">        Path root = executionRoot != null ? executionRoot : Path.of(System.getProperty(&quot;user.dir&quot;));</span>
-<span class="nc" id="L125">        boolean skipRequested = Boolean.getBoolean(GATE_SKIP_PROPERTY);</span>
-<span class="nc" id="L126">        Ledger ledger = Ledger.empty();</span>
-<span class="nc" id="L127">        String ledgerNote = &quot;&quot;;</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        Path root = executionRoot != null ? executionRoot : Path.of(System.getProperty(&quot;user.dir&quot;));</span>
+<span class="nc" id="L175">        boolean skipRequested = Boolean.getBoolean(GATE_SKIP_PROPERTY);</span>
+<span class="nc" id="L176">        Ledger ledger = Ledger.empty();</span>
+<span class="nc" id="L177">        String ledgerNote = &quot;&quot;;</span>
         try {
-<span class="nc" id="L129">            ledger = Ledger.load(root.resolve(LEDGER_RELATIVE_PATH));</span>
-<span class="nc" id="L130">        } catch (IOException | IllegalArgumentException e) {</span>
-<span class="nc" id="L131">            ledgerNote = &quot;ledger &quot; + LEDGER_RELATIVE_PATH + &quot; not used: &quot; + e.getMessage();</span>
-<span class="nc" id="L132">        }</span>
+<span class="nc" id="L179">            ledger = Ledger.load(root.resolve(LEDGER_RELATIVE_PATH));</span>
+<span class="nc" id="L180">        } catch (IOException | IllegalArgumentException e) {</span>
+<span class="nc" id="L181">            ledgerNote = &quot;ledger &quot; + LEDGER_RELATIVE_PATH + &quot; not used: &quot; + e.getMessage();</span>
+<span class="nc" id="L182">        }</span>
 
         List&lt;Finding&gt; snapshot;
-<span class="nc" id="L135">        synchronized (FINDINGS) {</span>
-<span class="nc" id="L136">            snapshot = new ArrayList&lt;&gt;(FINDINGS);</span>
-<span class="nc" id="L137">        }</span>
-<span class="nc" id="L138">        snapshot.addAll(ModelCrossReference.findings(ModelObservations.snapshot(), root));</span>
+<span class="nc" id="L185">        synchronized (FINDINGS) {</span>
+<span class="nc" id="L186">            snapshot = new ArrayList&lt;&gt;(FINDINGS);</span>
+<span class="nc" id="L187">        }</span>
+<span class="nc" id="L188">        List&lt;ModelObservations.FileModel&gt; observations = ModelObservations.snapshot();</span>
+<span class="nc" id="L189">        snapshot.addAll(ModelCrossReference.findings(observations, root));</span>
+        // Provenance is derivable only now: repository events fire long
+        // before most POMs have been read.
+        List&lt;Path&gt; resolvedPoms;
+<span class="nc" id="L193">        synchronized (RESOLVED_POMS) {</span>
+<span class="nc" id="L194">            resolvedPoms = List.copyOf(RESOLVED_POMS);</span>
+<span class="nc" id="L195">        }</span>
+<span class="nc" id="L196">        snapshot = RepositoryProvenance.enrich(</span>
+                snapshot, observations, resolvedPoms, localRepository, root);
 
-<span class="nc" id="L140">        LedgerEvaluation evaluation = ledger.evaluate(snapshot);</span>
-<span class="nc" id="L141">        List&lt;LedgerEvaluation.AttentionItem&gt; gating = ledger.gatingAttention(evaluation);</span>
-<span class="nc bnc" id="L142" title="All 2 branches missed.">        boolean buildAlreadyFailed = !evaluation.failures().isEmpty();</span>
+<span class="nc" id="L199">        LedgerEvaluation evaluation = ledger.evaluate(snapshot);</span>
+<span class="nc" id="L200">        List&lt;LedgerEvaluation.AttentionItem&gt; gating = ledger.gatingAttention(evaluation);</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        boolean buildAlreadyFailed = !evaluation.failures().isEmpty();</span>
 
-<span class="nc" id="L144">        String note = composeNote(ledgerNote, ledger.mode(), skipRequested, gating,</span>
-<span class="nc" id="L145">                evaluation.attention().size(), buildAlreadyFailed);</span>
-<span class="nc" id="L146">        Path receiptFile = null;</span>
+<span class="nc" id="L203">        String note = composeNote(ledgerNote, ledger.mode(), skipRequested, gating,</span>
+<span class="nc" id="L204">                evaluation.attention().size(), buildAlreadyFailed);</span>
+<span class="nc" id="L205">        Path receiptFile = null;</span>
+<span class="nc" id="L206">        Path archiveFile = null;</span>
+<span class="nc" id="L207">        ZonedDateTime now = ZonedDateTime.now();</span>
         try {
-<span class="nc" id="L148">            String receipt = ReceiptRenderer.render(</span>
-<span class="nc" id="L149">                    toolVersion(), ZonedDateTime.now(), ledger.mode(), note, evaluation);</span>
-<span class="nc bnc" id="L150" title="All 2 branches missed.">            if (Boolean.getBoolean(DEBUG_PROPERTY)) {</span>
-<span class="nc" id="L151">                receipt = receipt + renderDiagnostic();</span>
+<span class="nc" id="L209">            String receipt = ReceiptRenderer.render(</span>
+<span class="nc" id="L210">                    toolVersion(), now, ledger.mode(), note, evaluation);</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">            if (Boolean.getBoolean(DEBUG_PROPERTY)) {</span>
+<span class="nc" id="L212">                receipt = receipt + renderDiagnostic();</span>
             }
-<span class="nc" id="L153">            receiptFile = root.resolve(RECEIPT_FILE_NAME);</span>
-<span class="nc" id="L154">            Files.writeString(receiptFile, receipt, StandardCharsets.UTF_8);</span>
-<span class="nc" id="L155">        } catch (Exception e) {</span>
-<span class="nc" id="L156">            LOG.warn(&quot;ike-build-report: could not write receipt: {}&quot;, e.toString());</span>
-<span class="nc" id="L157">            receiptFile = null;</span>
-<span class="nc" id="L158">        }</span>
+<span class="nc" id="L214">            receiptFile = root.resolve(RECEIPT_FILE_NAME);</span>
+<span class="nc" id="L215">            Files.writeString(receiptFile, receipt, StandardCharsets.UTF_8);</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">            if (evaluation.demandsAttention()) {</span>
+<span class="nc" id="L217">                archiveFile = archive(root, receipt, now);</span>
+            }
+<span class="nc" id="L219">        } catch (Exception e) {</span>
+<span class="nc" id="L220">            LOG.warn(&quot;ike-build-report: could not write receipt: {}&quot;, e.toString());</span>
+<span class="nc" id="L221">            receiptFile = null;</span>
+<span class="nc" id="L222">        }</span>
         try {
-<span class="nc" id="L160">            ObservationsFile.write(root.resolve(OBSERVATIONS_RELATIVE_PATH), evaluation, snapshot);</span>
-<span class="nc" id="L161">        } catch (Exception e) {</span>
-<span class="nc" id="L162">            LOG.warn(&quot;ike-build-report: could not write observations sidecar: {}&quot;, e.toString());</span>
-<span class="nc" id="L163">        }</span>
+<span class="nc" id="L224">            ObservationsFile.write(root.resolve(OBSERVATIONS_RELATIVE_PATH), evaluation, snapshot);</span>
+<span class="nc" id="L225">        } catch (Exception e) {</span>
+<span class="nc" id="L226">            LOG.warn(&quot;ike-build-report: could not write observations sidecar: {}&quot;, e.toString());</span>
+<span class="nc" id="L227">        }</span>
 
-<span class="nc bnc" id="L165" title="All 2 branches missed.">        if (evaluation.demandsAttention()) {</span>
-<span class="nc" id="L166">            LOG.warn(&quot;ike-build-report: {} failure(s), {} attention item(s) — see {}&quot;,</span>
-<span class="nc" id="L167">                    evaluation.failures().size(), evaluation.attention().size(),</span>
-<span class="nc bnc" id="L168" title="All 2 branches missed.">                    receiptFile != null ? receiptFile : RECEIPT_FILE_NAME);</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if (evaluation.demandsAttention()) {</span>
+<span class="nc" id="L230">            LOG.warn(&quot;ike-build-report: {} failure(s), {} attention item(s) — see {}{}&quot;,</span>
+<span class="nc" id="L231">                    evaluation.failures().size(), evaluation.attention().size(),</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">                    receiptFile != null ? receiptFile : RECEIPT_FILE_NAME,</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">                    archiveFile != null ? &quot; (archived copy: &quot; + archiveFile + &quot;)&quot; : &quot;&quot;);</span>
         } else {
-<span class="nc" id="L170">            LOG.info(&quot;ike-build-report: clean — receipt at {}&quot;,</span>
-<span class="nc bnc" id="L171" title="All 2 branches missed.">                    receiptFile != null ? receiptFile : RECEIPT_FILE_NAME);</span>
+<span class="nc" id="L235">            LOG.info(&quot;ike-build-report: clean — receipt at {}&quot;,</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">                    receiptFile != null ? receiptFile : RECEIPT_FILE_NAME);</span>
         }
 
-<span class="nc" id="L174">        verdict = new GateVerdict(ledger.mode(), gating, buildAlreadyFailed, skipRequested, receiptFile);</span>
-<span class="nc" id="L175">        return verdict;</span>
+<span class="nc" id="L239">        verdict = new GateVerdict(</span>
+<span class="nc" id="L240">                ledger.mode(), gating, buildAlreadyFailed, skipRequested, receiptFile, archiveFile);</span>
+<span class="nc" id="L241">        return verdict;</span>
     }
+
+    /**
+     * Keeps a timestamped copy of a receipt that demanded attention.
+     *
+     * &lt;p&gt;Never throws: losing the archive must not cost the caller the
+     * receipt it has already written.&lt;/p&gt;
+     *
+     * @param root      the execution root
+     * @param receipt   the rendered receipt
+     * @param timestamp the session-end time, which names the copy
+     * @return the archived path, or {@code null} when archiving failed
+     */
+    private static Path archive(Path root, String receipt, ZonedDateTime timestamp) {
+        try {
+<span class="nc" id="L257">            Path directory = root.resolve(HISTORY_RELATIVE_PATH);</span>
+<span class="nc" id="L258">            Files.createDirectories(directory);</span>
+<span class="nc" id="L259">            Path file = directory.resolve(ARCHIVE_STAMP.format(timestamp) + &quot;-&quot; + RECEIPT_FILE_NAME);</span>
+<span class="nc" id="L260">            Files.writeString(file, receipt, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L261">            prune(directory);</span>
+<span class="nc" id="L262">            return file;</span>
+<span class="nc" id="L263">        } catch (Exception e) {</span>
+<span class="nc" id="L264">            LOG.warn(&quot;ike-build-report: could not archive receipt: {}&quot;, e.toString());</span>
+<span class="nc" id="L265">            return null;</span>
+        }
+    }
+
+    private static void prune(Path directory) throws IOException {
+<span class="nc" id="L270">        try (Stream&lt;Path&gt; entries = Files.list(directory)) {</span>
+<span class="nc" id="L271">            List&lt;Path&gt; archived = entries</span>
+<span class="nc" id="L272">                    .filter(path -&gt; path.getFileName().toString().endsWith(RECEIPT_FILE_NAME))</span>
+<span class="nc" id="L273">                    .sorted(Comparator.comparing(path -&gt; path.getFileName().toString()))</span>
+<span class="nc" id="L274">                    .toList();</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">            for (int index = 0; index &lt; archived.size() - ARCHIVE_RETENTION; index++) {</span>
+<span class="nc" id="L276">                Files.deleteIfExists(archived.get(index));</span>
+            }
+        }
+<span class="nc" id="L279">    }</span>
 
     private static String composeNote(
             String ledgerNote,
@@ -182,53 +285,53 @@ public final class ReportSession {
             List&lt;LedgerEvaluation.AttentionItem&gt; gating,
             int totalAttention,
             boolean buildAlreadyFailed) {
-<span class="nc" id="L185">        StringBuilder note = new StringBuilder();</span>
-<span class="nc bnc" id="L186" title="All 2 branches missed.">        if (!ledgerNote.isBlank()) {</span>
-<span class="nc" id="L187">            note.append(ledgerNote);</span>
+<span class="nc" id="L288">        StringBuilder note = new StringBuilder();</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (!ledgerNote.isBlank()) {</span>
+<span class="nc" id="L290">            note.append(ledgerNote);</span>
         }
-<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (mode == LedgerMode.GATE) {</span>
-<span class="nc bnc" id="L190" title="All 2 branches missed.">            if (note.length() &gt; 0) {</span>
-<span class="nc" id="L191">                note.append('\n');</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">        if (mode == LedgerMode.GATE) {</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">            if (note.length() &gt; 0) {</span>
+<span class="nc" id="L294">                note.append('\n');</span>
             }
-<span class="nc bnc" id="L193" title="All 2 branches missed.">            if (skipRequested) {</span>
-<span class="nc" id="L194">                note.append(&quot;gate: SKIPPED for this invocation (-D&quot;)</span>
-<span class="nc" id="L195">                        .append(GATE_SKIP_PROPERTY).append(&quot;=true)&quot;);</span>
-<span class="nc bnc" id="L196" title="All 2 branches missed.">            } else if (buildAlreadyFailed) {</span>
-<span class="nc" id="L197">                note.append(&quot;gate: build already failed; gate does not double-fail&quot;);</span>
-<span class="nc bnc" id="L198" title="All 2 branches missed.">            } else if (!gating.isEmpty()) {</span>
-<span class="nc" id="L199">                note.append(&quot;gate: FAILING the build — &quot;).append(gating.size())</span>
-<span class="nc" id="L200">                        .append(&quot; gating attention item(s)&quot;);</span>
-<span class="nc bnc" id="L201" title="All 2 branches missed.">            } else if (totalAttention &gt; 0) {</span>
-<span class="nc" id="L202">                note.append(&quot;gate: passing — &quot;).append(totalAttention)</span>
-<span class="nc" id="L203">                        .append(&quot; attention item(s) exempted by entry mode: report&quot;);</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">            if (skipRequested) {</span>
+<span class="nc" id="L297">                note.append(&quot;gate: SKIPPED for this invocation (-D&quot;)</span>
+<span class="nc" id="L298">                        .append(GATE_SKIP_PROPERTY).append(&quot;=true)&quot;);</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">            } else if (buildAlreadyFailed) {</span>
+<span class="nc" id="L300">                note.append(&quot;gate: build already failed; gate does not double-fail&quot;);</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">            } else if (!gating.isEmpty()) {</span>
+<span class="nc" id="L302">                note.append(&quot;gate: FAILING the build — &quot;).append(gating.size())</span>
+<span class="nc" id="L303">                        .append(&quot; gating attention item(s)&quot;);</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">            } else if (totalAttention &gt; 0) {</span>
+<span class="nc" id="L305">                note.append(&quot;gate: passing — &quot;).append(totalAttention)</span>
+<span class="nc" id="L306">                        .append(&quot; attention item(s) exempted by entry mode: report&quot;);</span>
             } else {
-<span class="nc" id="L205">                note.append(&quot;gate: clean&quot;);</span>
+<span class="nc" id="L308">                note.append(&quot;gate: clean&quot;);</span>
             }
         }
-<span class="nc" id="L208">        return note.toString();</span>
+<span class="nc" id="L311">        return note.toString();</span>
     }
 
     private static String renderDiagnostic() {
-<span class="nc" id="L212">        StringBuilder out = new StringBuilder(&quot;\n## DIAGNOSTIC\n\n&quot;);</span>
-<span class="nc" id="L213">        synchronized (OBSERVED_EVENT_TYPES) {</span>
-<span class="nc bnc" id="L214" title="All 2 branches missed.">            for (String type : OBSERVED_EVENT_TYPES) {</span>
-<span class="nc" id="L215">                out.append(&quot;- &quot;).append(type).append('\n');</span>
-<span class="nc" id="L216">            }</span>
-<span class="nc" id="L217">        }</span>
-<span class="nc" id="L218">        return out.toString();</span>
+<span class="nc" id="L315">        StringBuilder out = new StringBuilder(&quot;\n## DIAGNOSTIC\n\n&quot;);</span>
+<span class="nc" id="L316">        synchronized (OBSERVED_EVENT_TYPES) {</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">            for (String type : OBSERVED_EVENT_TYPES) {</span>
+<span class="nc" id="L318">                out.append(&quot;- &quot;).append(type).append('\n');</span>
+<span class="nc" id="L319">            }</span>
+<span class="nc" id="L320">        }</span>
+<span class="nc" id="L321">        return out.toString();</span>
     }
 
     private static String toolVersion() {
-<span class="nc" id="L222">        try (InputStream in = ReportSession.class.getResourceAsStream(&quot;build-report.properties&quot;)) {</span>
-<span class="nc bnc" id="L223" title="All 2 branches missed.">            if (in != null) {</span>
-<span class="nc" id="L224">                Properties properties = new Properties();</span>
-<span class="nc" id="L225">                properties.load(in);</span>
-<span class="nc" id="L226">                return properties.getProperty(&quot;version&quot;, &quot;unknown&quot;);</span>
+<span class="nc" id="L325">        try (InputStream in = ReportSession.class.getResourceAsStream(&quot;build-report.properties&quot;)) {</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">            if (in != null) {</span>
+<span class="nc" id="L327">                Properties properties = new Properties();</span>
+<span class="nc" id="L328">                properties.load(in);</span>
+<span class="nc" id="L329">                return properties.getProperty(&quot;version&quot;, &quot;unknown&quot;);</span>
             }
-<span class="nc bnc" id="L228" title="All 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc bnc" id="L331" title="All 2 branches missed.">        } catch (IOException e) {</span>
             // fall through to unknown
-<span class="nc" id="L230">        }</span>
-<span class="nc" id="L231">        return &quot;unknown&quot;;</span>
+<span class="nc" id="L333">        }</span>
+<span class="nc" id="L334">        return &quot;unknown&quot;;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

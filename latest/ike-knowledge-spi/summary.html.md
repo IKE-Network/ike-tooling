@@ -1,6 +1,6 @@
 ---
-date_published: 2026-08-19
-date_modified: 2026-08-19
+date_published: 2026-08-21
+date_modified: 2026-08-21
 canonical_url: https://ike.network/ike-tooling/ike-knowledge-spi/summary.html
 ---
 
@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-knowledge-spi/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-knowledge-spi |
-| Version | 250 |
+| Version | 251 |
 | Type | jar |
 | Java Version | 25 |
