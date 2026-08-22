@@ -1,10 +1,15 @@
 package network.ike.plugin;
 
 import network.ike.support.enums.TypedMarker;
+import org.apache.maven.api.model.Model;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.Log;
+import org.apache.maven.model.v4.MavenStaxReader;
+
+import javax.xml.stream.XMLStreamException;
 
 import java.io.BufferedReader;
+import java.io.Reader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -384,21 +389,42 @@ public class ReleaseSupport {
      * @throws MojoException if the file cannot be read or has no version
      */
     public static String readPomVersion(File pomFile) throws MojoException {
-        try {
-            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
-
-            // Strip the <parent>...</parent> block so we don't match
-            // the parent version instead of the project version.
-            String stripped = content.replaceFirst(
-                    "(?s)<parent>.*?</parent>", "");
-            Matcher matcher = VERSION_PATTERN.matcher(stripped);
-            if (matcher.find()) {
-                return matcher.group(1);
-            }
+        // Own version only, deliberately — no parent fallback, unlike
+        // readPomGroupId. Inheriting a groupId is routine; a pom whose
+        // version these flows read (a release root, a module being
+        // labeled) without its own <version> is a condition to fail loud
+        // on, never to paper over with the parent's number. What #1068
+        // fixes here is the failure's reliability: the old
+        // strip-parent-then-first-regex-match could return whatever
+        // <version> came first in the rest of the file — a plugin pin, a
+        // dependency — instead of throwing.
+        Model model = readModel(pomFile);
+        String version = model.getVersion();
+        if (version == null) {
             throw new MojoException(
                     "Could not extract <version> from " + pomFile);
-        } catch (IOException e) {
-            throw new MojoException("Failed to read " + pomFile, e);
+        }
+        return version;
+    }
+
+    /**
+     * Parse a POM with Maven 4's own model reader — the coordinate
+     * readers below take effective values from the model rather than
+     * regex-matching text, which is what mis-derived an inherited
+     * groupId from the first stray {@code <groupId>} in the file
+     * (IKE-Network/ike-issues#1068).
+     *
+     * @param pomFile the POM file to parse
+     * @return the parsed model
+     * @throws MojoException if the file cannot be read or parsed
+     */
+    private static Model readModel(File pomFile) throws MojoException {
+        try (Reader reader = Files.newBufferedReader(pomFile.toPath(),
+                StandardCharsets.UTF_8)) {
+            return new MavenStaxReader().read(reader);
+        } catch (IOException | XMLStreamException e) {
+            throw new MojoException(
+                    "Failed to parse " + pomFile + ": " + e.getMessage(), e);
         }
     }
 
@@ -1881,41 +1907,36 @@ public class ReleaseSupport {
         return branch.replaceAll("[^a-zA-Z0-9/_.-]", "-");
     }
 
-    private static final Pattern ARTIFACT_ID_PATTERN =
-            Pattern.compile("<artifactId>([^<]+)</artifactId>");
-
-    private static final Pattern GROUP_ID_PATTERN =
-            Pattern.compile("<groupId>([^<]+)</groupId>");
-
     /**
-     * Read the project's own {@code <groupId>} from a POM file,
-     * skipping any {@code <groupId>} inside the {@code <parent>}
-     * block.
+     * Read the project's effective {@code <groupId>} from a POM file:
+     * the declared one, or — per Maven's inheritance rule — the
+     * {@code <parent>} block's when the project inherits it.
      *
-     * <p>Used by cascade self-identification (IKE-Network/ike-issues#402):
-     * a reactor-root POM declares its own {@code <groupId>}, which the
-     * release goals match against {@code release-cascade.yaml} entries.
+     * <p>Used by cascade self-identification (IKE-Network/ike-issues#402)
+     * and the release coherence gate (#705). The previous implementation
+     * stripped the parent block and regex-matched the <em>first
+     * remaining</em> {@code <groupId>} — for a root that inherits its
+     * group, that is whatever plugin or dependency declaration comes
+     * first, which sent release gates hunting for artifacts that do not
+     * exist (IKE-Network/ike-issues#1068).
      *
      * @param pomFile the POM file to read
-     * @return the group ID string
+     * @return the effective group ID
      * @throws MojoException if the file cannot be read or declares no
-     *                       own group ID
+     *                       group ID, own or inherited
      */
     public static String readPomGroupId(File pomFile) throws MojoException {
-        try {
-            String content = Files.readString(
-                    pomFile.toPath(), StandardCharsets.UTF_8);
-            String stripped = content.replaceFirst(
-                    "(?s)<parent>.*?</parent>", "");
-            Matcher matcher = GROUP_ID_PATTERN.matcher(stripped);
-            if (matcher.find()) {
-                return matcher.group(1);
-            }
-            throw new MojoException(
-                    "Could not extract <groupId> from " + pomFile);
-        } catch (IOException e) {
-            throw new MojoException("Failed to read " + pomFile, e);
+        Model model = readModel(pomFile);
+        String groupId = model.getGroupId();
+        if (groupId == null && model.getParent() != null) {
+            groupId = model.getParent().getGroupId();
         }
+        if (groupId == null) {
+            throw new MojoException(
+                    "Could not extract <groupId> from " + pomFile
+                            + " — none declared, own or inherited");
+        }
+        return groupId;
     }
 
     /**
@@ -1927,19 +1948,13 @@ public class ReleaseSupport {
      * @throws MojoException if the file cannot be read or has no artifact ID
      */
     public static String readPomArtifactId(File pomFile) throws MojoException {
-        try {
-            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);
-            String stripped = content.replaceFirst(
-                    "(?s)<parent>.*?</parent>", "");
-            Matcher matcher = ARTIFACT_ID_PATTERN.matcher(stripped);
-            if (matcher.find()) {
-                return matcher.group(1);
-            }
+        Model model = readModel(pomFile);
+        String artifactId = model.getArtifactId();
+        if (artifactId == null) {
             throw new MojoException(
                     "Could not extract <artifactId> from " + pomFile);
-        } catch (IOException e) {
-            throw new MojoException("Failed to read " + pomFile, e);
         }
+        return artifactId;
     }
 
     /**

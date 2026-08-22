@@ -304,6 +304,124 @@ class ReleaseSupportTest {
                 .isEqualTo("20");
     }
 
+    @Test
+    void readPomVersion_inherited_throwsReliably_neverAStrayMatch(
+            @TempDir Path tmpDir) throws Exception {
+        // Own version only: a version-less pom must fail loud (a release
+        // root silently adopting its parent's number would mis-release).
+        // The #1068 defect class made the failure UNRELIABLE — the old
+        // strip-parent-then-first-match returned the dependency's 99.99
+        // here instead of throwing.
+        File pom = writePom(tmpDir, """
+                <project>
+                    <parent>
+                        <groupId>network.ike</groupId>
+                        <artifactId>ike-reactor</artifactId>
+                        <version>7-SNAPSHOT</version>
+                    </parent>
+                    <artifactId>inheriting-module</artifactId>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.example</groupId>
+                            <artifactId>decoy</artifactId>
+                            <version>99.99</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """);
+
+        assertThatThrownBy(() -> ReleaseSupport.readPomVersion(pom))
+                .isInstanceOf(MojoException.class)
+                .hasMessageContaining("Could not extract <version>");
+    }
+
+    // ── readPomGroupId ──────────────────────────────────────────────
+
+    @Test
+    void readPomGroupId_prefersTheDeclaredOne(@TempDir Path tmpDir)
+            throws Exception {
+        File pom = writePom(tmpDir, """
+                <project>
+                    <parent>
+                        <groupId>network.ike</groupId>
+                        <artifactId>ike-base-parent</artifactId>
+                        <version>15</version>
+                    </parent>
+                    <groupId>network.ike.platform</groupId>
+                    <artifactId>ike-platform</artifactId>
+                    <version>1-SNAPSHOT</version>
+                </project>
+                """);
+
+        assertThat(ReleaseSupport.readPomGroupId(pom))
+                .isEqualTo("network.ike.platform");
+    }
+
+    @Test
+    void readPomGroupId_inherited_isTheParents_neverAStrayMatch(
+            @TempDir Path tmpDir) throws Exception {
+        // The exact #1068 shape: the root inherits its groupId, and the
+        // first <groupId> after the parent block is a plugin pin's. The
+        // old reader returned network.ike.tooling and sent the release
+        // coherence gate hunting for an artifact that does not exist.
+        File pom = writePom(tmpDir, """
+                <project>
+                    <parent>
+                        <groupId>network.ike</groupId>
+                        <artifactId>ike-base-parent</artifactId>
+                        <version>15</version>
+                    </parent>
+                    <artifactId>ike-lease</artifactId>
+                    <version>4-SNAPSHOT</version>
+                    <build>
+                        <plugins>
+                            <plugin>
+                                <groupId>network.ike.tooling</groupId>
+                                <artifactId>ike-maven-plugin</artifactId>
+                                <version>246</version>
+                            </plugin>
+                        </plugins>
+                    </build>
+                </project>
+                """);
+
+        assertThat(ReleaseSupport.readPomGroupId(pom))
+                .isEqualTo("network.ike");
+    }
+
+    @Test
+    void readPomGroupId_missingEverywhere_throws(@TempDir Path tmpDir)
+            throws Exception {
+        File pom = writePom(tmpDir, """
+                <project>
+                    <artifactId>groupless</artifactId>
+                    <version>1</version>
+                </project>
+                """);
+
+        assertThatThrownBy(() -> ReleaseSupport.readPomGroupId(pom))
+                .isInstanceOf(MojoException.class)
+                .hasMessageContaining("Could not extract <groupId>");
+    }
+
+    @Test
+    void readPomArtifactId_readsTheDeclaredOne(@TempDir Path tmpDir)
+            throws Exception {
+        File pom = writePom(tmpDir, """
+                <project>
+                    <parent>
+                        <groupId>network.ike</groupId>
+                        <artifactId>a-parent</artifactId>
+                        <version>1</version>
+                    </parent>
+                    <artifactId>the-module</artifactId>
+                </project>
+                """);
+
+        assertThat(ReleaseSupport.readPomArtifactId(pom))
+                .isEqualTo("the-module");
+    }
+
     // ── readPomArtifactId (file-based) ──────────────────────────────
 
     @Test
