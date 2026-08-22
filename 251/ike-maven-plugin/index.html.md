@@ -91,6 +91,24 @@ mvn ike:scaffold-publish
 | [ike:codesign-pkg](#codesign-pkg) | native | Re-sign `.app` inside `.pkg` to add JVM entitlements |
 | [ike:jpackage-props](#jpackage-props) | native | Compute build timestamp, platform, JPackage version properties |
 | [ike:notarize](#notarize) | native | Sign + notarize macOS installer packages (.pkg, .dmg) |
+| release-cascade | release | Release the whole foundation in dependency order, repinning as it goes |
+| release-changelog | release | Render a "What’s changed" changelog from a release’s commits and milestone |
+| central-stage | release | Version-pinned Maven Central staging: consumer POMs, BOM swap, JReleaser upload |
+| central-status | release | Report the status of asynchronous Maven Central deploys |
+| announce-{draft,publish} | announce | Preview / post an announcement to a Zulip stream |
+| build-report-ratchet-{draft,publish} | report | Tighten the build-report acceptance ledger against the current build |
+| built-with | site | Render a "Built With" page from the CycloneDX SBOM |
+| render-sbom-viewer | site | Render a web-friendly SBOM viewer page from the CycloneDX SBOM |
+| render-spdx-licenses | site | Render an SPDX-grouped `licenses.adoc` from the CycloneDX SBOM |
+| inject-javadoc-theme | site | Overlay the IKE stylesheet onto a generated Javadoc tree |
+| kb-assemble | knowledge | Assemble a knowledge base from ordered knowledge artifacts |
+| knowledge-attach | knowledge | Attach produced knowledge artifacts to another reactor project |
+| knowledge-bindings | knowledge | Generate the bindings class for a ledger-form knowledge set |
+| knowledge-export | knowledge | Export a ledger-form knowledge set as a standalone protobuf artifact |
+| knowledge-verify | knowledge | Verify a knowledge artifact in a pristine store (round-trip gate) |
+| starter-set-create-{draft,publish} | genesis | Genesis of a new starter-set project |
+| cascade-export | inspection | Export the foundation release-cascade topology, machine-readable |
+| env | inspection | Print runtime environment diagnostics |
 | [ike:help](#help) | inspection | Discover available `ike:*` goals |
 
 ## [#release-goals](#release-goals)Release goals
