@@ -74,6 +74,11 @@ covering one topic: `MAVEN.md`, `IKE-DOC.md`, `IKE-DIAGRAMS.md`,
 `IKE-RELEASE.md`, etc.) and the
 [published index](https://ike.network/ike-tooling/ike-build-standards/).
 
+The proposal to bring the getREAL Program's strategy corpus onto
+this toolchain is in
+[`docs/strategy/getreal-docs-as-code.adoc`](docs/strategy/getreal-docs-as-code.adoc)
+([`IKE-Network/ike-issues#1070`](https://github.com/IKE-Network/ike-issues/issues/1070)).
+
 ## Links
 
 - **Documentation:** [`https://ike.network/ike-tooling/`](https://ike.network/ike-tooling/)

@@ -1,0 +1,374 @@
+= getREAL Program — Docs-as-Code Strategy
+:author: IKE Network
+:revdate: 2026-08-22
+:toc:
+:toclevels: 3
+:sectnums:
+:icons: font
+
+== Status
+
+*Draft proposal.*
+Tracked as https://github.com/IKE-Network/ike-issues/issues/1070[IKE-Network/ike-issues#1070].
+This document proposes that the getREAL Program manage its strategy corpus as code,
+on the documentation toolchain the IKE Network has already built, released, and operates.
+Nothing here changes any build; adoption begins only when the pilot in
+<<_adoption_roadmap,Adoption roadmap>> is approved.
+
+[NOTE]
+====
+Program-specific facts — the program's formal name expansion, mission statement,
+document inventory, and stakeholder list — are stated generically here
+and must be confirmed or corrected by program staff during review.
+The strategy itself does not depend on them:
+it applies to any standards-heavy, multi-stakeholder program
+whose strategy lives today in office-format documents.
+====
+
+== The problem
+
+A program strategy that lives in word processors and slide decks has predictable failure modes:
+
+* *No usable history.*
+  Versions are file copies with names like `strategy-final-v7-KEC-edits.docx`;
+  nobody can diff two of them, and the authoritative one is whichever was mailed most recently.
+* *No review discipline.*
+  Comments in the margin are not a change-control process;
+  there is no record of what was proposed, what was accepted, and why.
+* *Copy-paste drift.*
+  The same goals, definitions, and diagrams are restated in the strategy,
+  the roadmap, the briefing deck, and every response to a stakeholder —
+  and the restatements diverge the week after they are written.
+* *No provenance.*
+  When a paragraph summarizes a regulation or a standard,
+  the citation — and the license posture of the reuse — is carried by convention, if at all.
+* *Single-renderer lock-in.*
+  The document is its `.docx`; there is no path from one canonical source
+  to a browsable site, an archival PDF, and a machine-readable corpus.
+* *Opaque to machines.*
+  LLM assistants cannot reliably read, cite, or safely edit binary office formats,
+  so the fastest-growing class of contributor is locked out of the program's most important artifact.
+
+These are exactly the failure modes version control solved for source code.
+The proposal is to solve them the same way.
+
+== The thesis
+
+Manage the getREAL strategy corpus as code:
+
+1. *One canonical source.*
+   Every document is AsciiDoc under git.
+   Office formats, PDF, and HTML are rendered *outputs*, never inputs.
+2. *Change control identical to code.*
+   Proposals are branches, review is pull-request review,
+   decisions are tracked in the issue tracker,
+   and adopted text merges with a citable commit history.
+3. *Reuse instead of restatement.*
+   Shared content lives once, as topics;
+   the strategy, the roadmap, and each briefing are *assemblies*
+   that include the same topics at different depths.
+4. *Releases, not mailings.*
+   A strategy revision is a release:
+   a signed, versioned, immutable artifact that consumers pin,
+   exactly as they pin a library version.
+5. *One source, three audiences.*
+   Humans read the rendered site and PDFs;
+   build tooling validates structure and cross-references;
+   LLM agents read the same files directly and follow the same standards the humans do.
+
+== Why AsciiDoc
+
+The corpus format must support composition, not just formatting.
+AsciiDoc is the only mainstream lightweight format that provides, natively:
+
+* `include::` composition with `leveloffset` —
+  the mechanism that makes a topic library possible at all;
+* stable cross-references (`xref:`) with build-time resolution and warnings;
+* attributes and conditional text (`ifdef::`) —
+  one source can serve draft and published variants;
+* index terms (`indexterm:[]`) and back-of-book index generation for archival PDF;
+* quote blocks with attribution — load-bearing for fair-use handling of standards content;
+* multiple rendering backends (`html5`, `pdf`, `docbook5`) from one source.
+
+Markdown has none of the first five without dialect-specific extensions.
+Word and Google Docs fail the prior section entirely.
+This is the same conclusion the IKE Network reached for its own documentation,
+documented at length in `IKE-DOC.md` and the design rationale on the
+https://ike.network/ike-tooling/[ike-tooling site]
+(see "`Why this is not Spring's path`"):
+for a small team with cross-repo document dependencies and an already-built rendering pipeline,
+keeping every artifact — code and documentation — in one signed, versioned Maven pipeline
+is the rigorous choice.
+
+== What the program inherits, already built
+
+Nothing in this strategy requires new infrastructure.
+The IKE foundation publishes the complete toolchain to Maven Central,
+and it is exercised daily by the IKE Network's own documentation:
+
+[cols="1,2", options="header"]
+|===
+| Capability | Provided by
+
+| Zero-config doc pipeline
+| `ike-parent`'s `doc-pipeline` profile auto-activates on the existence of
+  `src/docs/asciidoc/` — a doc module's `<build>` block is empty by design.
+
+| Canonical source artifact
+| The `adoc` classifier ZIP (`<classifier>adoc</classifier><type>zip</type>`),
+  attached automatically, deployed to Nexus signed and versioned
+  (classifier-canonical shape, IKE-Network/ike-issues#321).
+
+| Topic library / assembly pattern
+| `topics/` module + assembly modules; assemblies depend on topic-library
+  `adoc` ZIPs and include fragments via the `{generated}` attribute.
+  Standards: `IKE-DOC.md`, `IKE-ASSEMBLY.md`, `IKE-ASCIIDOC-FRAGMENT.md`.
+
+| Rendering
+| `idoc:*` goals from `ike-doc-maven-plugin`: HTML, self-contained HTML,
+  and six PDF renderers (Prawn, FOP, WeasyPrint free; Prince, AH, XEP commercial),
+  selected per build with `-Dike.pdf.*` flags.
+
+| Diagrams
+| Server-side Kroki rendering of PlantUML and GraphViz blocks —
+  no local CLI tools; conventions in `IKE-DIAGRAMS.md`.
+
+| Controlled terminology
+| The Koncept inline macro `k:Name[]` (`koncept-asciidoc-extension`)
+  binds program terms to formal definitions and renders glossary-linked badges.
+
+| Reviewable diffs
+| The `semantic-linebreak` reformatter (ike-docs) normalizes every file to
+  semantic line breaks, so review diffs touch exactly the changed sentence.
+
+| Ingestion discipline
+| `IKE-INGEST.md`: a seven-step workflow for decomposing an existing document
+  into registered topics, plus an external-source matrix that fixes the
+  license posture per source type (internal / regulatory / standards / literature).
+
+| Topic catalog
+| `topic-registry.yaml` per `IKE-TOPIC-REGISTRY.md` —
+  every topic carries an ID, type, status, keywords, and summary;
+  redundancy is checked at ingestion time, not discovered later.
+
+| LLM instructions
+| `ike-build-standards`' `claude` classifier unpacks the standards into every
+  consuming project's `.claude/standards/` at `validate`,
+  so an agent opening the program repo applies the conventions automatically.
+
+| Release + publication
+| `ike:release-draft` / `ike:release-publish` (tag, GPG-signed deploy,
+  GitHub release), `ike:site-publish` for the rendered site;
+  the cross-repo cascade is assembled from per-repo manifests
+  (IKE-Network/ike-issues#420).
+|===
+
+*Precedent.*
+The https://ike.network/hl7-ig-corpus-example/[hl7-ig-corpus-example] project
+is a worked example of precisely the shape the program needs:
+a corpus of externally authored HL7 implementation guides
+ingested into a topic library (`ingest`, `topics` modules),
+recomposed into per-guide assemblies (`us-core`),
+and mined for cross-corpus analytics (`cross-ig-overlap`) —
+outputs that are impossible while the sources are opaque documents.
+`doc-example` and `ike-starter-set` provide the scaffold for a fresh reactor.
+
+== Target shape of the getREAL strategy corpus
+
+A single reactor, provisionally `getreal-documents`, following the standard structure
+from `IKE-INGEST.md`:
+
+[listing]
+----
+getreal-documents/                     reactor POM (packaging: pom)
+├── topics/                            the topic library (artifactId: topics)
+│   └── src/docs/asciidoc/
+│       ├── index.adoc                 all-topics HTML preview
+│       ├── topic-registry.yaml        topic catalog
+│       └── topics/
+│           ├── strategy/              vision, goals, principles, measures
+│           ├── governance/            charter, roles, decision process
+│           ├── roadmap/               phases, milestones, dependencies
+│           └── ext/                   ingested reference material
+│               ├── internal/            collaborator memoranda
+│               ├── regulatory/          federal guidance (public domain)
+│               └── standards/           HL7 / LOINC / SNOMED / ISO summaries
+│                                        (fair-use, per IKE-INGEST matrix)
+├── strategy/                          assembly: the Program Strategy document
+├── roadmap/                           assembly: the program roadmap
+├── briefing/                          assembly: stakeholder briefing
+└── compendium/                        assembly: validation target —
+                                       every published topic appears here
+----
+
+The flow from sources to deliverables:
+
+[listing]
+----
+authored topics ─┐
+                 ├─► topics/ (adoc zip, registry, index terms, koncepts)
+ingested sources ┘        │
+   (IKE-INGEST)           ├─► strategy   ─┐
+                          ├─► roadmap    ─┤   idoc:* renderers
+                          ├─► briefing   ─┼─► HTML site + PDF (archival)
+                          └─► compendium ─┘        │
+                                                   ├─► ike:release-publish
+                                                   │   signed artifacts → Nexus
+                                                   └─► ike:site-publish → web
+----
+
+Properties this shape buys:
+
+* *The strategy document is an assembly, not a file.*
+  Revising a goal statement edits one topic;
+  the strategy, the briefing, and the roadmap pick up the change on the next build,
+  and the diff shows exactly one sentence changed.
+* *External references carry their license posture in-band.*
+  Every ingested topic declares `:topic-provenance:`, `:topic-citation:`, and `:topic-license:`;
+  federal regulatory text is reproduced verbatim (public domain),
+  standards and literature are fair-use summaries,
+  and external topics are structurally barred from appearing inside assemblies.
+* *Program terminology becomes formal.*
+  Terms the program defines are authored once and referenced with `k:Name[]`,
+  rendering as glossary-linked badges in HTML and attributed phrases in print.
+  When the program's terminology graduates to formal concept management,
+  the koncept YAML is the natural binding point to a terminology service
+  (the `ike-knowledge-spi` module in `ike-tooling` exists for exactly this seam).
+* *A strategy revision is citable forever.*
+  Release _N_ of the strategy is a tagged, GPG-signed, immutable artifact;
+  a regulator, partner, or auditor can be pointed at the exact version
+  that was current on a given date, and reproduce its rendering.
+
+== Working the corpus
+
+*Authoring.*
+Fragments follow `IKE-ASCIIDOC-FRAGMENT.md`
+(comment header, attribute block, literal anchor, level-1 heading);
+prose is normalized with the `semantic-linebreak` tool
+so every subsequent edit is a one-line diff.
+IDE preview works without a build via each assembly's `.asciidoctorconfig`
+after one `mvn generate-sources`.
+
+*Review and decision flow.*
+A proposed change to the strategy is a branch and a pull request;
+discussion that changes direction is captured in the tracker
+(the program can use a dedicated tracker or a section of an existing one).
+Topic `status` attributes (`draft` → `proposed` → `review` → `published`)
+make the maturity of every section explicit —
+a reader can see which parts of the strategy are settled and which are in motion.
+
+*Ingestion.*
+Existing program documents enter through the `IKE-INGEST.md` workflow:
+import, normalize line structure, decompose into topics against the granularity rules,
+register in `topic-registry.yaml`, place, assemble, validate with `mvn clean verify`.
+External sources additionally pass the mandatory source-type classification
+before any content is processed,
+so the license posture is decided consciously and recorded, per document, every time.
+
+*Publication.*
+`mvn clean verify` renders HTML for every assembly;
+`-Dike.pdf.fop` (free) or `-Dike.pdf.prince` (commercial, best typography)
+produces the archival PDFs.
+`ike:release-publish` tags, signs, and deploys;
+`ike:site-publish` pushes the rendered site.
+The program chooses the cadence — released on decision points, not on a calendar.
+
+*LLM participation.*
+Because the corpus is plain text with in-band metadata,
+an agent can be asked to draft a topic, tighten a section, or run an ingestion —
+and its output is reviewed through the same pull-request gate as any human contribution.
+The `claude` classifier standards make the conventions self-enforcing:
+the repo itself instructs the agent that opens it.
+
+== Adoption roadmap
+
+Each phase has an explicit exit criterion; no phase starts until the prior one exits.
+
+*Phase 0 — pilot (one document).*
+Scaffold `getreal-documents` from the starter set.
+Ingest the current authoritative program strategy document per `IKE-INGEST.md`.
+Produce the HTML site and one PDF rendering, and circulate both to program leadership
+alongside the original.
+_Exit:_ leadership agrees the rendered strategy is a faithful, better-navigable
+replacement for the office-format original.
+
+*Phase 1 — corpus.*
+Ingest the remaining live program documents (roadmap, governance, briefings);
+build the compendium; establish the registry domains;
+stand up site publication.
+_Exit:_ every live program document builds from the topic library,
+and the compendium contains every published topic.
+
+*Phase 2 — governance switch.*
+Declare the AsciiDoc sources canonical.
+From this point office formats are rendered outputs or ingestion inputs, never masters;
+strategy revisions ship as releases.
+_Exit:_ the first strategy revision conducted entirely through
+branch → review → merge → release.
+
+*Phase 3 — semantics and analytics.*
+Bring program terminology under `k:Name[]` koncept coverage;
+add cross-document analytic assemblies on the `cross-ig-overlap` model
+(e.g., where the strategy, the roadmap, and external guidance
+address the same obligation);
+evaluate binding koncepts to a formal terminology service via `ike-knowledge-spi`.
+_Exit:_ program-defined terms resolve to exactly one definition corpus-wide.
+
+== Risks
+
+[cols="1,2", options="header"]
+|===
+| Risk | Mitigation
+
+| Contributors don't know AsciiDoc or git
+| The scaffold, the in-repo standards, and LLM assistance carry the mechanics;
+  a contributor's first pull request edits one sentence on one line.
+  The review gate catches convention misses without blocking the contribution.
+
+| Stakeholders expect Word/PDF deliverables
+| PDF and HTML are first-class rendered outputs.
+  Inbound office-format contributions are handled as ingestion inputs —
+  the workflow already covers `.docx`/`.pdf` conversion.
+
+| Commercial renderer licensing
+| Prawn, FOP, and WeasyPrint are free and sufficient for review builds;
+  commercial renderers (Prince, AH, XEP) are an optional upgrade
+  for final archival typography.
+
+| Copyright exposure from standards content
+| The `IKE-INGEST.md` external-source matrix makes the posture explicit and mandatory
+  per source type, with fair-use summaries — never reproduction —
+  for standards and literature, and in-band `:topic-license:` on every external topic.
+
+| The pilot stalls and two masters coexist
+| Phase 0 is scoped to a single document with a named exit criterion;
+  the governance switch (Phase 2) is the explicit, dated moment
+  after which office formats stop being masters.
+|===
+
+== Decision requested
+
+1. Approve Phase 0.
+2. Identify the current authoritative strategy source document to ingest.
+3. Choose the repository home for `getreal-documents`
+   (IKE-Network organization, or a program-owned organization consuming
+   the published IKE foundation from Maven Central).
+
+== References
+
+* `ike-build-standards/src/main/standards/` in this repository —
+  `IKE-DOC.md`, `IKE-INGEST.md`, `IKE-ASCIIDOC-FRAGMENT.md`, `IKE-ASSEMBLY.md`,
+  `IKE-TOPIC-DECOMPOSITION.md`, `IKE-TOPIC-REGISTRY.md`, `IKE-INDEX.md`,
+  `IKE-DIAGRAMS.md`, `IKE-CLASSIFIERS.md`
+* https://ike.network/ike-tooling/[ike-tooling site] — design rationale for the
+  classifier-canonical doc shape and the all-Maven publication model
+* https://ike.network/ike-docs/[ike-docs] — `idoc:*` renderers, koncept extension,
+  `semantic-linebreak`
+* https://ike.network/hl7-ig-corpus-example/[hl7-ig-corpus-example] —
+  the corpus-ingestion precedent
+* https://github.com/IKE-Network/ike-issues/issues/321[IKE-Network/ike-issues#321] —
+  classifier-canonical doc shape
+* https://github.com/IKE-Network/ike-issues/issues/420[IKE-Network/ike-issues#420] —
+  decentralized release-cascade manifests
+* https://github.com/IKE-Network/ike-issues/issues/1070[IKE-Network/ike-issues#1070] —
+  this proposal's tracking issue
