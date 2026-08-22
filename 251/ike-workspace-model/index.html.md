@@ -41,7 +41,7 @@ The denormalized fields (groupId, version) are kept in sync with the on-disk POM
 
 ## [#alignment-states](#alignment-states)Alignment states
 
-A subproject is in one of four alignment states at any moment:
+A subproject is in one of five alignment states at any moment:
 
 | State | Meaning |
 | --- | --- |
@@ -51,7 +51,7 @@ A subproject is in one of four alignment states at any moment:
 | **external-consumer** | `state="external-consumer"`. The subproject lives outside the workspace’s release cadence; we only consume it. Treated as read-only by alignment goals. |
 | **unrelated** | `state="unrelated"`. Co-located but not part of the workspace’s Maven graph. Excluded from all alignment operations. |
 
-The four-state model (ike-issues#233) replaces an earlier two-state design that conflated "released" and "checkpoint-tagged". Splitting them lets `ws:align-publish` and `ws:checkpoint-publish` have non-overlapping behavior without ambiguity.
+The alignment-state model (ike-issues#233) replaces an earlier two-state design that conflated "released" and "checkpoint-tagged". Splitting them lets `ws:align-publish` and `ws:checkpoint-publish` have non-overlapping behavior without ambiguity.
 
 ## [#branch-coherence](#branch-coherence)Branch coherence
 
@@ -59,10 +59,13 @@ A workspace-wide invariant: every checked-out subproject must be on the same git
 
 This invariant simplifies reasoning (the workspace state is one branch, not N) and makes it possible to release a coherent set of artifacts.
 
+The invariant is per working set. A **sibling working set** (`<parent>꞉<feature>`, created by `ws:feature-start-sibling-publish`) is not an opt-out but a second working set: every member inside it sits on `feature/<feature>` — coherently — while the parent working set stays coherently on its own branch. Isolation between the two comes from the directory boundary, not from mixed branches within one tree.
+
 ## [#used-by](#used-by)Used by
 
 - `ike-workspace-maven-plugin` — the `ws:*` goals, all of which read and (for publish variants) write the workspace model.
-- `ike-maven-plugin` — `ike:release-publish` writes the workspace VCS state file when invoked from a workspace context; `ike:release-status` reads it.
+- `ike-maven-plugin` — `ike:release-publish` writes the workspace VCS state file when invoked from a workspace context; `ws:release-status` reads it.
+- `ReleaseSupport` (in this module) is the shared release engine both plugins call. Since ike-tooling 251 it reads release coordinates from the Maven model (`MavenStaxReader`) rather than scanning POM text: the groupId falls back to the `<parent>` block when inherited, and the version is deliberately the project’s own only — a version-less release root fails loudly instead of adopting its parent’s number (ike-issues#1068).
 
 ## [#source](#source)Source
 

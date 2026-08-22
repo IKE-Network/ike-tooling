@@ -61,9 +61,6 @@ For workspace-spanning operations, the same IntelliJ pattern applies to the `ws:
 ## [#quick-start--command-line](#quick-start--command-line)Quick start — Command line
 
 ```
-# Diagnose any in-flight or partial release (read-only)
-mvn ike:release-status
-
 # Preview a release (writes a markdown report; no on-disk changes)
 mvn ike:release-draft
 

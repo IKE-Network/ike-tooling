@@ -68,7 +68,11 @@ Several `ws:` and `ike:` goals write a Markdown report next to the project root 
 
 ## [#command-line](#command-line)Command line
 
-*(Planned — shell setup, the `mvnw` wrapper, and common goal invocations will be documented here.)*
+Working-set coordination ships with the development folder itself — nothing to install beyond the IDE plugin:
+
+- `~/ike-dev/scripts/lease.sh` — the working-set lease CLI (`list`, `status <ws>`, `acquire`, `release`). It is a thin wrapper over the Java protocol core (`network.ike.lease.core`, the released `ike-lease` artifact); installing the IntelliJ plugin zip is what provisions the jar it execs. One writer per working set, enforced; opening a project in IntelliJ acquires the lease for you.
+- `MaterializeCli` — headless git-state repair for a synced tree: `java -cp <plugins>/ike-lease-plugin/lib/ike-lease-core-*.jar network.ike.lease.core.MaterializeCli materialize|verify|repair <ws>`. Normally unnecessary — the IDE open gesture materializes and aligns automatically.
+- The `mvnw` wrapper in each repository is the only Maven you need; Maven-4 workspaces require it (set IntelliJ’s Maven home to "Use Maven wrapper").
 
 ## [#vs-code](#vs-code)VS Code
 

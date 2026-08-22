@@ -29,9 +29,6 @@ Build tooling for the IKE Network: workspace management, release orchestration, 
 The most common single-repo operations:
 
 ```
-# Diagnose any in-flight or partial release (read-only)
-mvn ike:release-status
-
 # Preview a release (writes a markdown report; no on-disk changes)
 mvn ike:release-draft
 
