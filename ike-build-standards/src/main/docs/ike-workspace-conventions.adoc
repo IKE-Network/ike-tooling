@@ -64,19 +64,31 @@ allowing a failure to pass through every defense.
 The remedy is not to demand perfection from any single layer
 but to stack enough layers that alignment becomes improbable.
 
-The IKE Workspace convention applies four defensive layers:
+The IKE Workspace convention applies five defensive layers:
 
-=== Layer 1: Separate Workspace Directories
+=== Layer 1: Separate Working Sets — Siblings
 
-Each feature branch lives in its own directory — a full Git clone
-with a predictable name derived from the branch.
+Isolated feature work lives in its own working set: a *sibling*
+directory beside its parent workspace, named
+`<parent>꞉<feature>` (the separator is `꞉`, U+A789 — filesystem-legal
+where a plain colon is not), created by
+`ws:feature-start-sibling-publish` — never by hand-cloning.
 
 ----
-~/Projects/ike/
-  shield-terminology/         ← shield/terminology-refresh branch
-  stamp-coordinates/          ← stamp/coordinate-refactor branch
-  piqi-framework/             ← piqi/framework-update branch
+~/ike-dev/
+  ike-komet-wsr/                  ← the parent, on its mainline
+  ike-komet-wsr꞉issue-42/         ← sibling: branch feature/issue-42
+  ike-komet-wsr꞉terminology/      ← sibling: branch feature/terminology
 ----
+
+Every member inside the sibling sits on `feature/<feature>`, and its
+`origin` is the **local parent member path — never GitHub**
+(ike-issues#992). Per-issue WIP history is disposable and per-machine;
+the synced tree is the medium of exchange; the finish squashes into the
+sibling and fast-forwards the parent. A pre-push guard in both the IDE
+and the Claude fence refuses any push from a sibling to a non-local
+remote, and `ws:sibling-list` flags members still carrying the legacy
+remote-remote shape for repair.
 
 *What this defends against:*
 Working tree confusion — editing files on the wrong branch,
@@ -147,8 +159,9 @@ an artifact's version string tells you which branch produced it.
 
 *Where the holes are:*
 Someone could forget to set the branch-qualified version.
-The `ws:scaffold-init` goal automates this,
-but a manual `git clone` bypasses the goal.
+The sibling lifecycle goals automate this,
+but a manual `git clone` bypasses them — which is why sibling creation
+is `ws:feature-start-sibling-publish`, never a clone.
 
 === Layer 4: Syncthing with Git Isolation
 
@@ -168,10 +181,13 @@ and resume on the MacBook Pro with current source files,
 even if they have not committed or pushed.
 
 *Where the holes are:*
-Git history is not synchronized in real time.
-If the developer made commits on the Studio but did not push,
-the MacBook Pro has current _files_ but stale _history_.
-The developer must `git fetch` to synchronize history.
+Git history is not synchronized in real time —
+the other machine has current _files_ but stale or absent _history_.
+This hole is now closed mechanically at the open gesture: a bare tree
+is *materialized* (git metadata brought to it, tree untouched —
+ike-issues#1057), and stale refs are *aligned* to the branch/head
+stamps the previous holder wrote into the lease record
+(ike-issues#1069). Unpushed commits are surfaced, never chased.
 
 === The Stack
 
@@ -193,8 +209,22 @@ The developer must `git fetch` to synchronize history.
 
 |Syncthing + Git isolation
 |Stale files between machines
-|Git history not synced in real time
+|Git history not synced in real time (closed by materialization +
+ ref alignment at the open gesture)
+
+|Working-set leases
+|Two machines writing the same working set
+|A live takeover is a human decision; the fence fails open when the
+ machinery is absent
 |===
+
+The fifth layer is the strongest: every working set under `~/ike-dev`
+has **one writer at a time**, enforced by a synced lease record with
+epoch fencing (ike-issues#1002). Opening a project in IntelliJ is the
+acquisition gesture; a Claude `PreToolUse` fence denies writes to
+working sets leased elsewhere; a per-machine daemon reconciles at wake.
+Concurrency comes from holding *different* working sets on different
+machines — which is exactly what siblings (Layer 1) provide.
 
 No single layer is sufficient.
 Together,
@@ -381,19 +411,19 @@ coordinates them via the topological ordering in
 
 === Layout
 
-All IKE Workspaces for a given repository
-live under a common parent directory:
+All working sets live directly under the synced development root:
 
 ----
-~/Projects/ike/
-  <safe-branch-name>/        ← one directory per active branch
+~/ike-dev/
+  <workspace>/                    ← the parent, on its mainline
+  <workspace>꞉<feature>/          ← one sibling per active feature
 ----
 
-The safe branch name is derived from the Git branch name
-by replacing `/` with `-`.
-For example, `shield/terminology-refresh` becomes `shield-terminology-refresh`.
-
-The `main` branch workspace, if present, is named `main/`.
+The sibling directory name is the parent's name, the `꞉` separator,
+and the feature suffix; the branch inside is always
+`feature/<suffix>`. Directory name, branch, and origin wiring are all
+derived by `ws:feature-start-sibling-publish` — there is nothing to
+name by hand.
 
 === Creation
 
@@ -412,6 +442,9 @@ mvn ws:overview
 
 The goal is idempotent — safe to re-run any time a new subproject is
 declared in `workspace.yaml` to clone the declared-but-missing one.
+Sibling working sets are created by `ws:feature-start-sibling-publish`
+and removed by `ws:sibling-remove-publish` (or
+`-DdeleteSibling` on the finish) — never by scaffold or clone.
 Coordinated branching across subprojects (the original feature-flow
 use case for per-branch workspace directories) is now driven by
 `ws:feature-start-publish`, which creates `feature/<name>` in every
@@ -419,7 +452,7 @@ subproject with a consistent branch-qualified version.
 
 === Syncthing Configuration
 
-The workspace parent directory (`~/Projects/ike/`)
+The development root (`~/ike-dev/`)
 is configured as a Syncthing shared folder between machines.
 
 The `.stignore` file at that level excludes:
@@ -446,27 +479,19 @@ Key exclusions:
 
 === Cross-Machine Workflow
 
-The typical workflow for switching machines:
+Switching machines is the open gesture:
 
-. Work in a workspace on Machine A. Edit, build, test.
-  Syncthing propagates source file changes to Machine B in real time.
-. Walk to Machine B.
-  The working tree is current — even uncommitted changes are present.
-. Run `git fetch origin` to synchronize Git history
-  (only necessary if commits were made on Machine A).
-. Continue working.
-
-For a clean transition at a commit boundary:
-
-. On Machine A: `git commit` and `git push`.
-. On Machine B: `git pull`. Build and continue.
-
-For a mid-thought transition (uncommitted work):
-
-. On Machine A: just walk away.
-  Syncthing has already propagated the changes.
-. On Machine B: the files are there. Continue editing.
-. When ready to commit, commit normally.
+. Work in a working set on Machine A. Edit, build, test.
+  Syncthing propagates source file changes to the other machines in
+  real time; the lease record marks Machine A as the single writer.
+. Walk to Machine B and open the working set in IntelliJ.
+  The open *is* the acquisition: the lease transfers (confirmed
+  against the sync-propagation race; taking over a still-live lease is
+  a human decision the IDE asks), a bare tree is materialized, and
+  stale refs are aligned to where Machine A left them — the tree is
+  never touched, and uncommitted synced work appears as the ordinary
+  status delta.
+. Continue working. Commit and push normally when ready.
   Git operates on the local working tree,
   which Syncthing has kept current.
 
@@ -603,9 +628,6 @@ names default to a non-mutating preview.
 |`ike:release-{draft,publish}`
 |Single-repo release: tag, deploy to Nexus + komet.sh + GitHub Pages, bump to next SNAPSHOT
 
-|`ike:release-status`
-|Read-only diagnostic of any partial single-repo release
-
 |`ike:site-publish`
 |Ad-hoc site deploy + org-landing-page registration without re-releasing
 
@@ -619,7 +641,7 @@ names default to a non-mutating preview.
 Shared utility logic lives in `ReleaseSupport.java` in the
 `ike-workspace-model` module — both plugins consume it.
 
-For the comprehensive 50-goal `ws:*` reference plus narrative tour
+For the comprehensive `ws:*` goal reference (58 goals) plus narrative tour
 of how the goals connect, see
 https://ike.network/ike-platform/ike-workspace-maven-plugin/[the
 ws plugin documentation].

@@ -153,8 +153,7 @@ coordinated releases use `ws:release-publish` (the workspace plugin
 fans out across all release-pending subprojects in topological order).
 See the Workspace Release Orchestration section in `IKE-WORKSPACE.md`
 for the full workflow, including draft previews, cascade updates,
-and recovery from failures (`ike:release-status` /
-`ws:release-status`).
+and recovery from failures (`ws:release-status`).
 
 ## Foundation Release Cascade
 

@@ -389,7 +389,6 @@ Run `ws:help` for the complete auto-discovered list.
 | `ws:verify-convergence` | Transitive dependency convergence (slow) |
 | `ws:overview` | Dashboard: manifest, graph, status, cascade |
 | `ws:graph` | Print dependency graph (text or `-Dformat=dot`) |
-| `ws:cascade` | Show downstream impact of a change |
 | `ws:pull` | `git pull --rebase` across repos (requires clean trees) |
 | `ws:stignore` | Generate `.stignore` files for Syncthing |
 
@@ -417,10 +416,24 @@ in a single pass. Each reconciler can be individually disabled.
 |------|-------------|
 | `ws:feature-start-draft` / `-publish` | Create feature branch with qualified versions |
 | `ws:feature-finish-merge-draft` / `-publish` | No-ff merge (preserves history) |
-| `ws:feature-finish-squash-draft` / `-publish` | Squash merge (single commit) |
+| `ws:feature-finish-squash-draft` / `-publish` | Squash merge (single commit); in a sibling, also fast-forwards the parent; `-DdeleteSibling` removes the sibling after a receipt lands in the parent |
 | `ws:feature-abandon-draft` / `-publish` | Delete feature branch |
 | `ws:switch-draft` / `-publish` | Switch branch across workspace |
-| `ws:update-feature-draft` / `-publish` | Rebase feature onto main |
+| `ws:update-feature-draft` / `-publish` | Merge main into feature (rebase deliberately unsupported) |
+
+### Sibling Working Sets (isolated feature work)
+
+A sibling is a whole extra working set — `<parent>꞉<feature>` beside
+its parent, branch `feature/<feature>`, origin = the **local parent
+member paths, never GitHub** (ike-issues#992). Finish and release
+goals confirm the working-set lease first, and the finish short-holds
+the parent's lease while it fast-forwards.
+
+| Goal | Description |
+|------|-------------|
+| `ws:feature-start-sibling-draft` / `-publish` / `-publish-verify` | Create the sibling working set beside the parent |
+| `ws:sibling-list` | Inventory every sibling: git state, origin wiring, landed-ness |
+| `ws:sibling-remove-draft` / `-publish` | Assessed removal (unlanded work enumerated first) + lease GC |
 
 ### Release & Checkpoint
 
@@ -459,7 +472,6 @@ in a single pass. Each reconciler can be individually disabled.
 | `-Dforce=true` | feature-abandon, cleanup, remove | Skip confirmation prompt |
 | `-DdeleteRemote=true` | feature-abandon | Also delete remote branches |
 | `-DkeepBranch=true` | feature-finish-squash | Keep the feature branch (only valid when squashing) |
-| `-Dstrategy={merge,rebase}` | update-feature | Strategy for incorporating main into feature |
 
 ### Preflight Validation
 
