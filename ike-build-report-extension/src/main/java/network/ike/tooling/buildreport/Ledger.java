@@ -214,11 +214,13 @@ public final class Ledger {
         for (Map.Entry<String, List<Finding>> observed : warningsByKey.entrySet()) {
             AcceptedEntry entry = entriesByKey.remove(observed.getKey());
             long count = observed.getValue().size();
-            String sample = observed.getValue().get(0).detail();
+            List<Finding> observedFindings = observed.getValue();
             if (entry == null) {
-                attention.add(new LedgerEvaluation.AttentionItem(observed.getKey(), count, null, sample));
+                attention.add(new LedgerEvaluation.AttentionItem(
+                        observed.getKey(), count, null, observedFindings));
             } else if (count > entry.count()) {
-                attention.add(new LedgerEvaluation.AttentionItem(observed.getKey(), count, entry.count(), sample));
+                attention.add(new LedgerEvaluation.AttentionItem(
+                        observed.getKey(), count, entry.count(), observedFindings));
             } else if (count == entry.count()) {
                 accepted.add(new LedgerEvaluation.AcceptedStatus(entry, count));
             } else {

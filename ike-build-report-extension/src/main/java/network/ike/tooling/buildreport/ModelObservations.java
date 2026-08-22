@@ -25,17 +25,42 @@ public final class ModelObservations {
     /**
      * One file-stage model observation.
      *
-     * @param groupId    the model's group id, parent-defaulted
-     * @param artifactId the model's artifact id
-     * @param version    the model's version, parent-defaulted
-     * @param pomFile    the POM file the model was read from
-     * @param bomImports the model's import-scoped POM dependencies
+     * @param groupId      the model's group id, parent-defaulted
+     * @param artifactId   the model's artifact id
+     * @param version      the model's version, parent-defaulted
+     * @param pomFile      the POM file the model was read from
+     * @param bomImports   the model's import-scoped POM dependencies
+     * @param repositories the model's declared repositories, both
+     *                     {@code <repositories>} and
+     *                     {@code <pluginRepositories>}
      */
     public record FileModel(
-            String groupId, String artifactId, String version, Path pomFile, List<BomImport> bomImports) {
+            String groupId,
+            String artifactId,
+            String version,
+            Path pomFile,
+            List<BomImport> bomImports,
+            List<RepositoryDeclaration> repositories) {
 
         /**
-         * Validates identity fields and defensively copies the imports.
+         * Validates identity fields and defensively copies the lists.
+         *
+         * @param groupId      the model's group id, parent-defaulted
+         * @param artifactId   the model's artifact id
+         * @param version      the model's version, parent-defaulted
+         * @param pomFile      the POM file the model was read from
+         * @param bomImports   the model's import-scoped POM dependencies
+         * @param repositories the model's declared repositories
+         */
+        public FileModel {
+            Objects.requireNonNull(artifactId, "artifactId");
+            Objects.requireNonNull(pomFile, "pomFile");
+            bomImports = List.copyOf(bomImports);
+            repositories = repositories == null ? List.of() : List.copyOf(repositories);
+        }
+
+        /**
+         * Creates an observation with no repository declarations.
          *
          * @param groupId    the model's group id, parent-defaulted
          * @param artifactId the model's artifact id
@@ -43,10 +68,9 @@ public final class ModelObservations {
          * @param pomFile    the POM file the model was read from
          * @param bomImports the model's import-scoped POM dependencies
          */
-        public FileModel {
-            Objects.requireNonNull(artifactId, "artifactId");
-            Objects.requireNonNull(pomFile, "pomFile");
-            bomImports = List.copyOf(bomImports);
+        public FileModel(
+                String groupId, String artifactId, String version, Path pomFile, List<BomImport> bomImports) {
+            this(groupId, artifactId, version, pomFile, bomImports, List.of());
         }
 
         /**
@@ -80,6 +104,37 @@ public final class ModelObservations {
         public String gav() {
             return (groupId == null ? "?" : groupId) + ":" + (artifactId == null ? "?" : artifactId)
                     + ":" + (version == null ? "?" : version);
+        }
+    }
+
+    /**
+     * One repository declared by a file model.
+     *
+     * <p>Recorded for every POM Maven reads, not only workspace
+     * members, because the repositories that cause resolution failures
+     * are typically declared by a third-party dependency's POM rather
+     * than by anything in the workspace — the single most useful fact
+     * a reader of a repository finding needs, and one the resolver
+     * event itself does not carry.</p>
+     *
+     * @param id     the declared repository id, as written in the POM
+     * @param url    the declared repository URL
+     * @param plugin whether the declaration is a
+     *               {@code <pluginRepository>} rather than a
+     *               {@code <repository>}
+     */
+    public record RepositoryDeclaration(String id, String url, boolean plugin) {
+
+        /**
+         * Normalizes the declared fields.
+         *
+         * @param id     the declared repository id
+         * @param url    the declared repository URL
+         * @param plugin whether this is a plugin repository declaration
+         */
+        public RepositoryDeclaration {
+            id = id == null ? "" : id.strip();
+            url = url == null ? "" : url.strip();
         }
     }
 

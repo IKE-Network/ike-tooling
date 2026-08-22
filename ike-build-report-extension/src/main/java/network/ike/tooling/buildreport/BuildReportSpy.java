@@ -1,6 +1,9 @@
 package network.ike.tooling.buildreport;
 
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.inject.Named;
 import javax.inject.Singleton;
@@ -9,7 +12,9 @@ import org.apache.maven.eventspy.EventSpy;
 import org.apache.maven.execution.ExecutionEvent;
 import org.apache.maven.plugin.MojoExecution;
 import org.eclipse.aether.RepositoryEvent;
+import org.eclipse.aether.artifact.Artifact;
 import org.eclipse.aether.repository.ArtifactRepository;
+import org.eclipse.aether.repository.RemoteRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,22 +112,69 @@ public class BuildReportSpy implements EventSpy {
     }
 
     private void onRepositoryEvent(RepositoryEvent event) {
+        captureLocalRepository(event);
         List<Exception> exceptions = event.getExceptions();
         if (exceptions == null || exceptions.isEmpty()) {
+            recordResolvedPom(event);
             return;
         }
         boolean metadata = event.getMetadata() != null;
-        String subject = metadata ? "metadata" : "artifact";
+        String kind = metadata ? "metadata" : "artifact";
         String repositoryId = describeRepository(event.getRepository());
+        String repositoryUrl = describeRepositoryUrl(event.getRepository());
+        String subject = describeSubject(event);
+        // Key on the declared id, not the id the resolver reported:
+        // Maven 4 appends a SHA-1 of the repository definition, so a
+        // key carrying it would be unreadable and would break silently
+        // the day an upstream POM edits the repository's URL.
+        String key = "repository/" + kind + "-resolve-failed/"
+                + RepositoryProvenance.declaredId(repositoryId);
         for (Exception exception : exceptions) {
             if (isRoutineNegativeLookup(exception)) {
                 continue;
             }
+            String message = describeThrowable(exception);
+            Map<String, String> context = new LinkedHashMap<>();
+            context.put(Finding.CONTEXT_REPOSITORY_ID, repositoryId);
+            if (!repositoryUrl.isBlank()) {
+                context.put(Finding.CONTEXT_REPOSITORY_URL, repositoryUrl);
+            }
+            context.put(Finding.CONTEXT_SUBJECT, subject);
+            context.put(Finding.CONTEXT_ERROR, message);
             ReportSession.addFinding(new Finding(
                     FindingCategory.REPOSITORY,
                     Severity.WARNING,
-                    "repository/" + subject + "-resolve-failed/" + repositoryId,
-                    describeSubject(event) + ": " + describeThrowable(exception)));
+                    key,
+                    subject + ": " + message,
+                    context));
+        }
+    }
+
+    private void captureLocalRepository(RepositoryEvent event) {
+        if (event.getSession() != null && event.getSession().getLocalRepository() != null) {
+            ReportSession.captureLocalRepository(event.getSession().getLocalRepository().getBasePath());
+        }
+    }
+
+    /**
+     * Remembers every dependency POM the session resolved.
+     *
+     * <p>These are the only view the extension gets of third-party
+     * POMs: Maven applies the {@code ModelTransformer} SPI — the
+     * observer behind {@link ModelObservations} — to project models
+     * only, so a dependency's {@code <repositories>} block is invisible
+     * there. The resolved POM file is not, and it is what lets a
+     * repository finding name the dependency that asked for the
+     * repository.</p>
+     */
+    private void recordResolvedPom(RepositoryEvent event) {
+        Artifact artifact = event.getArtifact();
+        if (artifact == null || !"pom".equals(artifact.getExtension())) {
+            return;
+        }
+        Path path = artifact.getPath();
+        if (path != null) {
+            ReportSession.addResolvedPom(path);
         }
     }
 
@@ -168,6 +220,12 @@ public class BuildReportSpy implements EventSpy {
 
     private static String describeRepository(ArtifactRepository repository) {
         return repository == null ? "unknown" : repository.getId();
+    }
+
+    private static String describeRepositoryUrl(ArtifactRepository repository) {
+        return repository instanceof RemoteRepository remote && remote.getUrl() != null
+                ? remote.getUrl()
+                : "";
     }
 
     private static String describeSubject(RepositoryEvent event) {

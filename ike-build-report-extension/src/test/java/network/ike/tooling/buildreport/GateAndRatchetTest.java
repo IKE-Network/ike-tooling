@@ -69,8 +69,8 @@ class GateAndRatchetTest {
 
     @Test
     void skipAndAlreadyFailedAndReportModeNeverFail() {
-        LedgerEvaluation.AttentionItem item =
-                new LedgerEvaluation.AttentionItem("k", 1, null, "s");
+        LedgerEvaluation.AttentionItem item = new LedgerEvaluation.AttentionItem(
+                "k", 1, null, List.of(warning("k")));
 
         assertThat(new GateVerdict(LedgerMode.GATE, List.of(item), false, true, null)
                 .shouldFailBuild()).isFalse(); // escape hatch

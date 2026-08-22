@@ -49,8 +49,9 @@ class ReceiptRendererTest {
                 "- `execution/mojo-failed/maven-compiler-plugin:compile` — komet-desktop: compilation failed");
         assertThat(receipt).contains("## ATTENTION");
         assertThat(receipt).contains(
-                "- `repository/metadata-resolve-failed/private-assets` — observed 1, not accepted"
-                        + " — dev.ikm.elk metadata: authentication rejected");
+                "- `repository/metadata-resolve-failed/private-assets` — observed 1, not accepted");
+        assertThat(receipt).contains(
+                "  - occurrence 1/1 — dev.ikm.elk metadata: authentication rejected");
         assertThat(receipt).contains("failures: 1 · attention: 1");
     }
 
@@ -77,6 +78,48 @@ class ReceiptRendererTest {
         assertThat(receipt).contains("- `model/bom-import` — expected 2, observed 2 — accepted by design");
         assertThat(receipt).contains("## RATCHET");
         assertThat(receipt).contains("- `model/retired-warning` — expected 3, observed 0 — ledger can tighten");
+    }
+
+    @Test
+    void repositoryAttentionCarriesEvidenceAndRemediation() {
+        LedgerEvaluation evaluation = Ledger.empty().evaluate(List.of(
+                repositoryFinding("prefixes.txt: HTTP Status: 401"),
+                repositoryFinding("maven-metadata.xml: HTTP Status: 401")));
+
+        String receipt = ReceiptRenderer.render("249-SNAPSHOT", STAMP, LedgerMode.GATE, "", evaluation);
+
+        assertThat(receipt).contains(
+                "  - repository `spring-release-e22ad65be0b5fee6143d584bba6f2b61b37bb6bf`"
+                        + " at `https://repo.spring.io/release`");
+        assertThat(receipt).contains(
+                "  - declared by the POM of org.springdoc:springdoc-openapi:2.6.0"
+                        + " — a dependency, not this workspace");
+        assertThat(receipt).contains("  - occurrence 1/2 — prefixes.txt: HTTP Status: 401");
+        assertThat(receipt).contains("  - occurrence 2/2 — maven-metadata.xml: HTTP Status: 401");
+        assertThat(receipt).contains("## WHAT TO DO");
+        assertThat(receipt).contains("<blocked>true</blocked>");
+        assertThat(receipt).contains("-Dike.build.report.gate.skip=true");
+    }
+
+    @Test
+    void aCleanReceiptOffersNoRemediation() {
+        String receipt = ReceiptRenderer.render(
+                "249-SNAPSHOT", STAMP, LedgerMode.GATE, "gate: clean", Ledger.empty().evaluate(List.of()));
+
+        assertThat(receipt).doesNotContain("## WHAT TO DO");
+    }
+
+    private static Finding repositoryFinding(String detail) {
+        return new Finding(
+                FindingCategory.REPOSITORY, Severity.WARNING,
+                "repository/metadata-resolve-failed/spring-release", detail,
+                new java.util.LinkedHashMap<>(java.util.Map.of(
+                        Finding.CONTEXT_REPOSITORY_ID,
+                        "spring-release-e22ad65be0b5fee6143d584bba6f2b61b37bb6bf",
+                        Finding.CONTEXT_REPOSITORY_URL, "https://repo.spring.io/release",
+                        Finding.CONTEXT_DECLARED_BY,
+                        "declared by the POM of org.springdoc:springdoc-openapi:2.6.0"
+                                + " — a dependency, not this workspace")));
     }
 
     @Test

@@ -12,14 +12,21 @@ import org.apache.maven.api.model.DependencyManagement;
 import org.apache.maven.api.model.InputLocation;
 import org.apache.maven.api.model.Model;
 import org.apache.maven.api.model.Parent;
+import org.apache.maven.api.model.Repository;
 import org.apache.maven.api.spi.ModelTransformer;
 import org.apache.maven.api.spi.ModelTransformerException;
 
 /**
  * Observes every file-stage model Maven reads and records reactor
- * coordinates plus import-scoped POM dependencies into
- * {@link ModelObservations}, for session-end cross-referencing by
- * {@link BuildReportSpy}.
+ * coordinates, import-scoped POM dependencies, and declared
+ * repositories into {@link ModelObservations}, for session-end
+ * cross-referencing by {@link BuildReportSpy}.
+ *
+ * <p>Maven reads dependency POMs from the local repository through the
+ * same path as workspace POMs, so this observer sees third-party
+ * {@code <repositories>} declarations too — the raw material
+ * {@link RepositoryProvenance} turns into "who asked for this
+ * repository" on a repository finding.</p>
  *
  * <p>A pure observer: the model is always returned unchanged. This is
  * a new-API component discovered through the {@code maven-api-di}
@@ -54,7 +61,8 @@ public class BomImportModelObserver implements ModelTransformer {
                         model.getArtifactId(),
                         version(model),
                         pomFile,
-                        bomImports(model)));
+                        bomImports(model),
+                        repositories(model)));
             }
         } catch (Exception e) {
             // Observation must never interfere with model building.
@@ -76,6 +84,27 @@ public class BomImportModelObserver implements ModelTransformer {
         }
         Parent parent = model.getParent();
         return parent == null ? null : parent.getVersion();
+    }
+
+    private static List<ModelObservations.RepositoryDeclaration> repositories(Model model) {
+        List<ModelObservations.RepositoryDeclaration> declarations = new ArrayList<>();
+        collect(declarations, model.getRepositories(), false);
+        collect(declarations, model.getPluginRepositories(), true);
+        return declarations;
+    }
+
+    private static void collect(
+            List<ModelObservations.RepositoryDeclaration> into, List<Repository> declared, boolean plugin) {
+        if (declared == null) {
+            return;
+        }
+        for (Repository repository : declared) {
+            if (repository.getUrl() == null || repository.getUrl().isBlank()) {
+                continue;
+            }
+            into.add(new ModelObservations.RepositoryDeclaration(
+                    repository.getId(), repository.getUrl(), plugin));
+        }
     }
 
     private static List<ModelObservations.BomImport> bomImports(Model model) {

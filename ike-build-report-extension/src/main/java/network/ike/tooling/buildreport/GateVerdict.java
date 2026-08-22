@@ -23,13 +23,36 @@ import java.util.List;
  * @param receiptPath        where the receipt was written, for the
  *                           failure message; {@code null} when writing
  *                           failed
+ * @param archivePath        where the timestamped copy of a receipt
+ *                           demanding attention was kept, so a later
+ *                           clean run cannot erase the evidence;
+ *                           {@code null} when nothing was archived
  */
 public record GateVerdict(
         LedgerMode mode,
         List<LedgerEvaluation.AttentionItem> gatingAttention,
         boolean buildAlreadyFailed,
         boolean skipRequested,
-        Path receiptPath) {
+        Path receiptPath,
+        Path archivePath) {
+
+    /**
+     * Creates a verdict with no archived copy.
+     *
+     * @param mode               the ledger's declared enforcement posture
+     * @param gatingAttention    attention items that gate
+     * @param buildAlreadyFailed whether ERROR findings were observed
+     * @param skipRequested      whether the escape hatch property was set
+     * @param receiptPath        where the receipt was written
+     */
+    public GateVerdict(
+            LedgerMode mode,
+            List<LedgerEvaluation.AttentionItem> gatingAttention,
+            boolean buildAlreadyFailed,
+            boolean skipRequested,
+            Path receiptPath) {
+        this(mode, gatingAttention, buildAlreadyFailed, skipRequested, receiptPath, null);
+    }
 
     /**
      * Decides whether the gate should fail the build.
