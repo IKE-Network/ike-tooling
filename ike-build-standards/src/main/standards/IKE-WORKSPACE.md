@@ -390,6 +390,9 @@ Run `ws:help` for the complete auto-discovered list.
 | `ws:overview` | Dashboard: manifest, graph, status, cascade |
 | `ws:graph` | Print dependency graph (text or `-Dformat=dot`) |
 | `ws:pull` | `git pull --rebase` across repos (requires clean trees) |
+| `ws:refresh-main` | Refresh local main from origin/main across the workspace |
+| `ws:lint` | Surface preflight hygiene conditions (report-only) |
+| `ws:check-branch` | Defensive post-checkout hook — warn on out-of-band branch ops |
 | `ws:stignore` | Generate `.stignore` files for Syncthing |
 
 ### Manifest Management (convergence pattern)
@@ -420,6 +423,9 @@ in a single pass. Each reconciler can be individually disabled.
 | `ws:feature-abandon-draft` / `-publish` | Delete feature branch |
 | `ws:switch-draft` / `-publish` | Switch branch across workspace |
 | `ws:update-feature-draft` / `-publish` | Merge main into feature (rebase deliberately unsupported) |
+| `ws:feature-pr-draft` / `-publish` | One review PR per subproject, cross-linked as a set |
+| `ws:feature-track-draft` / `-publish` | Adopt an existing feature branch in selected subprojects |
+| `ws:cleanup-draft` / `-publish` | List / delete finished feature branches, local and remote |
 
 ### Sibling Working Sets (isolated feature work)
 
@@ -440,6 +446,8 @@ the parent's lease while it fast-forwards.
 | Goal | Description |
 |------|-------------|
 | `ws:release-draft` / `-publish` | Release release-pending members in dependency order |
+| `ws:record-release-draft` / `-publish` | Record a member's release (tag-aligned pin + `releases/` row) |
+| `ws:release-rollback-draft` / `-publish` | Roll back a failed release mission (unpushed commits/tags; all-or-nothing) |
 | `ws:checkpoint-draft` / `-publish` | Tag every member, record SHAs |
 | `ws:post-release` | Bump to next development version |
 | `ws:release-notes` | Generate notes from GitHub milestone |
