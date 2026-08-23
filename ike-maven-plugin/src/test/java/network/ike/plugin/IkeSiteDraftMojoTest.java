@@ -130,4 +130,41 @@ class IkeSiteDraftMojoTest {
                     + output);
         }
     }
+
+    // ── URL derivation (ike-issues#1074) ────────────────────────────
+
+    @org.junit.jupiter.api.Test
+    void githubUrl_prefers_explicit_then_scm_then_composition() {
+        org.assertj.core.api.Assertions.assertThat(
+                IkeSiteDraftMojo.deriveGithubUrl(
+                        "https://github.com/IKE-Network/explicit",
+                        "https://github.com/IKE-Network/from-scm",
+                        "artifact"))
+                .isEqualTo("https://github.com/IKE-Network/explicit");
+        org.assertj.core.api.Assertions.assertThat(
+                IkeSiteDraftMojo.deriveGithubUrl(null,
+                        "https://github.com/IKE-Network/ike-lease-plugin.git",
+                        "ike-lease"))
+                .isEqualTo("https://github.com/IKE-Network/ike-lease-plugin");
+        org.assertj.core.api.Assertions.assertThat(
+                IkeSiteDraftMojo.deriveGithubUrl(null,
+                        "https://github.com/IKE-Network/ike-lease-plugin/",
+                        "ike-lease"))
+                .isEqualTo("https://github.com/IKE-Network/ike-lease-plugin");
+        org.assertj.core.api.Assertions.assertThat(
+                IkeSiteDraftMojo.deriveGithubUrl(null, null, "ike-tooling"))
+                .isEqualTo("https://github.com/IKE-Network/ike-tooling");
+    }
+
+    @org.junit.jupiter.api.Test
+    void siteUrl_follows_the_repository_name_not_the_artifactId() {
+        org.assertj.core.api.Assertions.assertThat(
+                IkeSiteDraftMojo.deriveSiteUrl(null,
+                        "https://github.com/IKE-Network/ike-lease-plugin"))
+                .isEqualTo("https://ike.network/ike-lease-plugin/");
+        org.assertj.core.api.Assertions.assertThat(
+                IkeSiteDraftMojo.deriveSiteUrl("https://example.org/x/",
+                        "https://github.com/IKE-Network/whatever"))
+                .isEqualTo("https://example.org/x/");
+    }
 }

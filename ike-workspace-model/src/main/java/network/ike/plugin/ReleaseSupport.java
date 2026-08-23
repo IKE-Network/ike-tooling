@@ -2418,6 +2418,31 @@ public class ReleaseSupport {
         return readPomElement(pomFile, "description");
     }
 
+    /**
+     * Reads the project's own browsable SCM URL ({@code <scm><url>}).
+     *
+     * <p>Model-based like the release-coordinate readers
+     * (IKE-Network/ike-issues#1068), so a URL-shaped string anywhere
+     * else in the POM can never stand in for the project's declared
+     * SCM. The project's own {@code <scm>} block only — no inheritance
+     * inference: the registration this feeds
+     * (IKE-Network/ike-issues#1074) wants the repository the release
+     * root itself declares.
+     *
+     * @param pomFile the POM file to read
+     * @return the declared SCM URL, or {@code null} when the POM has
+     *         no {@code <scm><url>}
+     * @throws MojoException if the POM cannot be parsed
+     */
+    public static String readPomScmUrl(File pomFile) throws MojoException {
+        Model model = readModel(pomFile);
+        if (model.getScm() == null) {
+            return null;
+        }
+        String url = model.getScm().getUrl();
+        return url == null || url.isBlank() ? null : url.trim();
+    }
+
     private static String readPomElement(File pomFile, String element)
             throws MojoException {
         try {

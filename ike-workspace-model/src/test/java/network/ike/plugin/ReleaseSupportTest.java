@@ -2369,4 +2369,39 @@ class ReleaseSupportTest {
         @Override public void error(Supplier<String> c) { System.err.println("[ERROR] " + c.get()); }
         @Override public void error(Supplier<String> c, Throwable e) { System.err.println("[ERROR] " + c.get()); }
     }
+
+    @Test
+    void readPomScmUrl_reads_the_declared_scm(@TempDir Path dir) throws Exception {
+        Path pom = dir.resolve("pom.xml");
+        Files.writeString(pom, """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>network.ike</groupId>
+                  <artifactId>ike-lease</artifactId>
+                  <version>6-SNAPSHOT</version>
+                  <scm>
+                    <url>https://github.com/IKE-Network/ike-lease-plugin</url>
+                  </scm>
+                </project>
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                ReleaseSupport.readPomScmUrl(pom.toFile()))
+                .isEqualTo("https://github.com/IKE-Network/ike-lease-plugin");
+    }
+
+    @Test
+    void readPomScmUrl_returns_null_without_scm(@TempDir Path dir) throws Exception {
+        Path pom = dir.resolve("pom.xml");
+        Files.writeString(pom, """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>network.ike</groupId>
+                  <artifactId>plain</artifactId>
+                  <version>1</version>
+                  <url>https://ike.network/decoy</url>
+                </project>
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                ReleaseSupport.readPomScmUrl(pom.toFile())).isNull();
+    }
 }

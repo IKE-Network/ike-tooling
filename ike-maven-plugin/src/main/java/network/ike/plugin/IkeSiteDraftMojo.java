@@ -221,15 +221,14 @@ public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
             resolvedDescription = ReleaseSupport.readPomDescription(rootPom);
         }
 
-        String resolvedSiteUrl = projectSiteUrl;
-        if (resolvedSiteUrl == null || resolvedSiteUrl.isBlank()) {
-            resolvedSiteUrl = "https://ike.network/" + projectId + "/";
-        }
-
-        String resolvedGithub = githubUrl;
-        if (resolvedGithub == null || resolvedGithub.isBlank()) {
-            resolvedGithub = "https://github.com/IKE-Network/" + projectId;
-        }
+        // GitHub first, site second: the site path on ike.network is the
+        // repository name, so both derive from the POM's own <scm><url>
+        // when the artifactId and the repository differ
+        // (IKE-Network/ike-issues#1074).
+        String resolvedGithub = deriveGithubUrl(githubUrl,
+                ReleaseSupport.readPomScmUrl(rootPom), projectId);
+        String resolvedSiteUrl = deriveSiteUrl(projectSiteUrl,
+                resolvedGithub);
 
         return new SiteContext(
                 gitRoot, projectId, version,
@@ -237,6 +236,50 @@ public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
                 resolvedSiteUrl, resolvedGithub,
                 srcRepo, srcBranch, pubRepo, pubBranch,
                 readReconcilerOptions(), getLog());
+    }
+
+    /**
+     * Resolves the registration's GitHub URL: the explicit parameter
+     * wins, then the POM's own {@code <scm><url>} (normalized — no
+     * trailing {@code .git} or slash), then the artifact-ID
+     * composition as the legacy fallback. The SCM step is what keeps a
+     * repository whose reactor artifactId differs from its repo name
+     * from registering a dead link (IKE-Network/ike-issues#1074).
+     *
+     * @param explicit  the {@code -DgithubUrl} override, may be null
+     * @param scmUrl    the POM's declared SCM URL, may be null
+     * @param projectId the reactor artifact ID
+     * @return the resolved GitHub repository URL
+     */
+    static String deriveGithubUrl(String explicit, String scmUrl,
+                                  String projectId) {
+        if (explicit != null && !explicit.isBlank()) {
+            return explicit.trim();
+        }
+        if (scmUrl != null && !scmUrl.isBlank()) {
+            return scmUrl.trim()
+                    .replaceFirst("\\.git$", "")
+                    .replaceFirst("/$", "");
+        }
+        return "https://github.com/IKE-Network/" + projectId;
+    }
+
+    /**
+     * Resolves the registration's public site URL: the explicit
+     * parameter wins, else {@code https://ike.network/<repo>/} where
+     * {@code <repo>} is the tail of the resolved GitHub URL — the
+     * gh-pages path is the repository name, not the artifactId.
+     *
+     * @param explicit  the {@code -DprojectSiteUrl} override, may be null
+     * @param githubUrl the already-resolved GitHub repository URL
+     * @return the resolved site URL, trailing slash included
+     */
+    static String deriveSiteUrl(String explicit, String githubUrl) {
+        if (explicit != null && !explicit.isBlank()) {
+            return explicit.trim();
+        }
+        String repo = githubUrl.substring(githubUrl.lastIndexOf('/') + 1);
+        return "https://ike.network/" + repo + "/";
     }
 
     /**

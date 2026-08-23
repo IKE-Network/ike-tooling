@@ -492,20 +492,34 @@ public final class OrgSiteSupport {
             throw new MojoException("Could not read " + siteXml, e);
         }
 
+        // Menu URLs come from each fragment's own recorded headers —
+        // the registration already knows the true repository and site
+        // URLs, and composing them from the artifact ID produces dead
+        // links when the two differ (IKE-Network/ike-issues#1074).
+        // Header-less fragments fall back to the old composition.
+        java.util.function.Function<String, String> siteHref = id -> {
+            String recorded = fragmentHeader(fragmentDir, id, "project-url");
+            return recorded != null ? recorded
+                    : "https://ike.network/" + id + "/";
+        };
+        java.util.function.Function<String, String> sourceHref = id -> {
+            String recorded = fragmentHeader(fragmentDir, id, "github-url");
+            return recorded != null ? recorded : GH_ORG_URL + "/" + id;
+        };
+        java.util.function.Function<String, String> repoTitle = id -> {
+            String href = sourceHref.apply(id).replaceFirst("/$", "");
+            return href.substring(href.lastIndexOf('/') + 1);
+        };
+
         String updated = replaceMenu(original, "Foundation",
-                renderSiteMenu("Foundation", foundation,
-                        id -> "https://ike.network/" + id + "/",
+                renderSiteMenu("Foundation", foundation, siteHref,
                         OrgSiteSupport::displayTitle));
         updated = replaceMenu(updated, "Examples",
-                renderSiteMenu("Examples", examples,
-                        id -> "https://ike.network/" + id + "/",
-                        id -> id));
+                renderSiteMenu("Examples", examples, siteHref, repoTitle));
         List<String> all = new ArrayList<>(foundation);
         all.addAll(examples);
         updated = replaceMenu(updated, "Source",
-                renderSiteMenu("Source", all,
-                        id -> GH_ORG_URL + "/" + id,
-                        id -> id));
+                renderSiteMenu("Source", all, sourceHref, repoTitle));
 
         if (!updated.equals(original)) {
             try {
@@ -514,6 +528,38 @@ public final class OrgSiteSupport {
                 throw new MojoException("Could not write " + siteXml, e);
             }
         }
+    }
+
+    /**
+     * Read one {@code // <key>: <value>} header line from a
+     * registration fragment. Headers end at the first non-comment
+     * line, so a stray key inside body content can never match.
+     *
+     * @param fragmentDir the {@code projects/} directory
+     * @param artifactId  the fragment's id (its filename stem)
+     * @param key         the header key, without comment markers
+     * @return the header value, or {@code null} when the fragment or
+     *         the header is absent
+     */
+    static String fragmentHeader(Path fragmentDir, String artifactId,
+                                 String key) {
+        Path fragment = fragmentDir.resolve(artifactId + ".adoc");
+        String prefix = "// " + key + ":";
+        try {
+            for (String line : Files.readAllLines(fragment,
+                    StandardCharsets.UTF_8)) {
+                if (line.startsWith(prefix)) {
+                    String value = line.substring(prefix.length()).trim();
+                    return value.isEmpty() ? null : value;
+                }
+                if (!line.startsWith("//") && !line.isBlank()) {
+                    return null;
+                }
+            }
+        } catch (IOException e) {
+            return null;
+        }
+        return null;
     }
 
     /**

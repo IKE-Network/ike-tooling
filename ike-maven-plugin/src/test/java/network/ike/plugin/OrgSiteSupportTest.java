@@ -314,6 +314,63 @@ class OrgSiteSupportTest {
                 .isFalse();
     }
 
+    @Test
+    void regenerateSiteXml_uses_fragment_recorded_urls_over_composition() throws Exception {
+        File orgRoot = newOrgRepoWithFragments("doc-example");
+        // A fragment whose artifactId differs from its repository —
+        // the registration recorded the true URLs in its headers
+        // (ike-issues#1074).
+        Files.writeString(tempDir.resolve("projects/ike-lease.adoc"), """
+                // IKE Project Registration Fragment
+                // project-id: ike-lease
+                // project-url: https://ike.network/ike-lease-plugin/
+                // github-url: https://github.com/IKE-Network/ike-lease-plugin
+
+                = IKE Working-Set Leases
+                """);
+        Path siteXml = orgRoot.toPath().resolve("src/site/site.xml");
+        Files.createDirectories(siteXml.getParent());
+        Files.writeString(siteXml, """
+                <site><body>
+                    <menu name="Foundation"><item name="x" href="y"/></menu>
+                    <menu name="Examples"><item name="x" href="y"/></menu>
+                    <menu name="Source"><item name="x" href="y"/></menu>
+                </body></site>
+                """);
+
+        OrgSiteSupport.regenerateSiteXml(orgRoot);
+        String updated = Files.readString(siteXml);
+
+        // The recorded URLs win, and the label is the repository name.
+        assertThat(updated)
+                .contains("href=\"https://github.com/IKE-Network/ike-lease-plugin\"")
+                .contains("href=\"https://ike.network/ike-lease-plugin/\"")
+                .contains("<item name=\"ike-lease-plugin\"")
+                .doesNotContain("href=\"https://github.com/IKE-Network/ike-lease\"");
+
+        // The header-less fragment still falls back to composition.
+        assertThat(updated)
+                .contains("href=\"https://github.com/IKE-Network/doc-example\"")
+                .contains("href=\"https://ike.network/doc-example/\"");
+    }
+
+    @Test
+    void fragmentHeader_reads_only_the_leading_comment_block() throws Exception {
+        Path projects = Files.createDirectories(tempDir.resolve("frag"));
+        Files.writeString(projects.resolve("a.adoc"), """
+                // github-url: https://github.com/IKE-Network/real
+
+                = Body
+                // github-url: https://github.com/IKE-Network/decoy
+                """);
+        assertThat(OrgSiteSupport.fragmentHeader(projects, "a", "github-url"))
+                .isEqualTo("https://github.com/IKE-Network/real");
+        assertThat(OrgSiteSupport.fragmentHeader(projects, "a", "project-url"))
+                .isNull();
+        assertThat(OrgSiteSupport.fragmentHeader(projects, "absent", "github-url"))
+                .isNull();
+    }
+
     private File newOrgRepoWithFragments(String... artifactIds) throws Exception {
         Path projects = Files.createDirectories(
                 tempDir.resolve("projects"));
