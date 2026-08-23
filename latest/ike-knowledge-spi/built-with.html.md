@@ -6,7 +6,7 @@ canonical_url: https://ike.network/ike-tooling/ike-knowledge-spi/built-with.html
 
 # Built With
 
-Open-source software that `ike-knowledge-spi` 252 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-knowledge-spi` 253 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 

@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-build-report-extension/summar
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-build-report-extension |
-| Version | 252 |
+| Version | 253 |
 | Type | jar |
 | Java Version | 25 |

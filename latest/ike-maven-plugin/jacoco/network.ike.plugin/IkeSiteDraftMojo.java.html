@@ -221,22 +221,65 @@ public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
 <span class="nc" id="L221">            resolvedDescription = ReleaseSupport.readPomDescription(rootPom);</span>
         }
 
-<span class="nc" id="L224">        String resolvedSiteUrl = projectSiteUrl;</span>
-<span class="nc bnc" id="L225" title="All 4 branches missed.">        if (resolvedSiteUrl == null || resolvedSiteUrl.isBlank()) {</span>
-<span class="nc" id="L226">            resolvedSiteUrl = &quot;https://ike.network/&quot; + projectId + &quot;/&quot;;</span>
-        }
+        // GitHub first, site second: the site path on ike.network is the
+        // repository name, so both derive from the POM's own &lt;scm&gt;&lt;url&gt;
+        // when the artifactId and the repository differ
+        // (IKE-Network/ike-issues#1074).
+<span class="nc" id="L228">        String resolvedGithub = deriveGithubUrl(githubUrl,</span>
+<span class="nc" id="L229">                ReleaseSupport.readPomScmUrl(rootPom), projectId);</span>
+<span class="nc" id="L230">        String resolvedSiteUrl = deriveSiteUrl(projectSiteUrl,</span>
+                resolvedGithub);
 
-<span class="nc" id="L229">        String resolvedGithub = githubUrl;</span>
-<span class="nc bnc" id="L230" title="All 4 branches missed.">        if (resolvedGithub == null || resolvedGithub.isBlank()) {</span>
-<span class="nc" id="L231">            resolvedGithub = &quot;https://github.com/IKE-Network/&quot; + projectId;</span>
-        }
-
-<span class="nc" id="L234">        return new SiteContext(</span>
+<span class="nc" id="L233">        return new SiteContext(</span>
                 gitRoot, projectId, version,
                 resolvedName, resolvedDescription,
                 resolvedSiteUrl, resolvedGithub,
                 srcRepo, srcBranch, pubRepo, pubBranch,
-<span class="nc" id="L239">                readReconcilerOptions(), getLog());</span>
+<span class="nc" id="L238">                readReconcilerOptions(), getLog());</span>
+    }
+
+    /**
+     * Resolves the registration's GitHub URL: the explicit parameter
+     * wins, then the POM's own {@code &lt;scm&gt;&lt;url&gt;} (normalized — no
+     * trailing {@code .git} or slash), then the artifact-ID
+     * composition as the legacy fallback. The SCM step is what keeps a
+     * repository whose reactor artifactId differs from its repo name
+     * from registering a dead link (IKE-Network/ike-issues#1074).
+     *
+     * @param explicit  the {@code -DgithubUrl} override, may be null
+     * @param scmUrl    the POM's declared SCM URL, may be null
+     * @param projectId the reactor artifact ID
+     * @return the resolved GitHub repository URL
+     */
+    static String deriveGithubUrl(String explicit, String scmUrl,
+                                  String projectId) {
+<span class="pc bpc" id="L256" title="1 of 4 branches missed.">        if (explicit != null &amp;&amp; !explicit.isBlank()) {</span>
+<span class="fc" id="L257">            return explicit.trim();</span>
+        }
+<span class="pc bpc" id="L259" title="1 of 4 branches missed.">        if (scmUrl != null &amp;&amp; !scmUrl.isBlank()) {</span>
+<span class="fc" id="L260">            return scmUrl.trim()</span>
+<span class="fc" id="L261">                    .replaceFirst(&quot;\\.git$&quot;, &quot;&quot;)</span>
+<span class="fc" id="L262">                    .replaceFirst(&quot;/$&quot;, &quot;&quot;);</span>
+        }
+<span class="fc" id="L264">        return &quot;https://github.com/IKE-Network/&quot; + projectId;</span>
+    }
+
+    /**
+     * Resolves the registration's public site URL: the explicit
+     * parameter wins, else {@code https://ike.network/&lt;repo&gt;/} where
+     * {@code &lt;repo&gt;} is the tail of the resolved GitHub URL — the
+     * gh-pages path is the repository name, not the artifactId.
+     *
+     * @param explicit  the {@code -DprojectSiteUrl} override, may be null
+     * @param githubUrl the already-resolved GitHub repository URL
+     * @return the resolved site URL, trailing slash included
+     */
+    static String deriveSiteUrl(String explicit, String githubUrl) {
+<span class="pc bpc" id="L278" title="1 of 4 branches missed.">        if (explicit != null &amp;&amp; !explicit.isBlank()) {</span>
+<span class="fc" id="L279">            return explicit.trim();</span>
+        }
+<span class="fc" id="L281">        String repo = githubUrl.substring(githubUrl.lastIndexOf('/') + 1);</span>
+<span class="fc" id="L282">        return &quot;https://ike.network/&quot; + repo + &quot;/&quot;;</span>
     }
 
     /**
@@ -260,22 +303,22 @@ public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
      */
     static Optional&lt;String&gt; latestReleaseTag(File gitRoot) {
         try {
-<span class="fc" id="L263">            String out = ReleaseSupport.execCapture(gitRoot,</span>
+<span class="fc" id="L306">            String out = ReleaseSupport.execCapture(gitRoot,</span>
                     &quot;git&quot;, &quot;for-each-ref&quot;,
                     &quot;--sort=-v:refname&quot;,
                     &quot;--count=1&quot;,
                     &quot;--format=%(refname:short)&quot;,
                     &quot;refs/tags/v*&quot;);
-<span class="pc bpc" id="L269" title="1 of 2 branches missed.">            String tag = out == null ? &quot;&quot; : out.trim();</span>
-<span class="fc bfc" id="L270" title="All 2 branches covered.">            if (tag.isEmpty()) {</span>
-<span class="fc" id="L271">                return Optional.empty();</span>
+<span class="pc bpc" id="L312" title="1 of 2 branches missed.">            String tag = out == null ? &quot;&quot; : out.trim();</span>
+<span class="fc bfc" id="L313" title="All 2 branches covered.">            if (tag.isEmpty()) {</span>
+<span class="fc" id="L314">                return Optional.empty();</span>
             }
-<span class="pc bpc" id="L273" title="1 of 2 branches missed.">            if (tag.startsWith(&quot;v&quot;)) {</span>
-<span class="fc" id="L274">                tag = tag.substring(1);</span>
+<span class="pc bpc" id="L316" title="1 of 2 branches missed.">            if (tag.startsWith(&quot;v&quot;)) {</span>
+<span class="fc" id="L317">                tag = tag.substring(1);</span>
             }
-<span class="pc bpc" id="L276" title="1 of 2 branches missed.">            return tag.isEmpty() ? Optional.empty() : Optional.of(tag);</span>
-<span class="fc" id="L277">        } catch (RuntimeException e) {</span>
-<span class="fc" id="L278">            return Optional.empty();</span>
+<span class="pc bpc" id="L319" title="1 of 2 branches missed.">            return tag.isEmpty() ? Optional.empty() : Optional.of(tag);</span>
+<span class="fc" id="L320">        } catch (RuntimeException e) {</span>
+<span class="fc" id="L321">            return Optional.empty();</span>
         }
     }
 
@@ -286,11 +329,11 @@ public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
      * uninstall switch.
      */
     private static SiteReconcilerOptions readReconcilerOptions() {
-<span class="nc" id="L289">        Map&lt;String, String&gt; flags = new HashMap&lt;&gt;();</span>
-<span class="nc bnc" id="L290" title="All 2 branches missed.">        for (String name : System.getProperties().stringPropertyNames()) {</span>
-<span class="nc" id="L291">            flags.put(name, System.getProperty(name));</span>
-<span class="nc" id="L292">        }</span>
-<span class="nc" id="L293">        return new SiteReconcilerOptions(flags);</span>
+<span class="nc" id="L332">        Map&lt;String, String&gt; flags = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L333" title="All 2 branches missed.">        for (String name : System.getProperties().stringPropertyNames()) {</span>
+<span class="nc" id="L334">            flags.put(name, System.getProperty(name));</span>
+<span class="nc" id="L335">        }</span>
+<span class="nc" id="L336">        return new SiteReconcilerOptions(flags);</span>
     }
 
     /**
@@ -299,24 +342,24 @@ public class IkeSiteDraftMojo implements org.apache.maven.api.plugin.Mojo {
      * shape to {@code ws:scaffold-draft}'s {@code printDriftReport}.
      */
     private void printDriftReport(SiteDriftReport report) {
-<span class="nc" id="L302">        getLog().info(&quot;&quot;);</span>
-<span class="nc bnc" id="L303" title="All 2 branches missed.">        if (!report.hasDrift()) {</span>
-<span class="nc" id="L304">            getLog().info(&quot;  ✓ &quot; + report.dimension());</span>
-<span class="nc" id="L305">            return;</span>
+<span class="nc" id="L345">        getLog().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">        if (!report.hasDrift()) {</span>
+<span class="nc" id="L347">            getLog().info(&quot;  ✓ &quot; + report.dimension());</span>
+<span class="nc" id="L348">            return;</span>
         }
-<span class="nc" id="L307">        getLog().info(&quot;  ⚠ &quot; + report.dimension());</span>
-<span class="nc bnc" id="L308" title="All 2 branches missed.">        if (!report.summary().isEmpty()) {</span>
-<span class="nc" id="L309">            getLog().info(&quot;     &quot; + report.summary());</span>
+<span class="nc" id="L350">        getLog().info(&quot;  ⚠ &quot; + report.dimension());</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">        if (!report.summary().isEmpty()) {</span>
+<span class="nc" id="L352">            getLog().info(&quot;     &quot; + report.summary());</span>
         }
-<span class="nc bnc" id="L311" title="All 2 branches missed.">        for (String line : report.detailLines()) {</span>
-<span class="nc" id="L312">            getLog().info(&quot;       &quot; + line);</span>
-<span class="nc" id="L313">        }</span>
-<span class="nc bnc" id="L314" title="All 2 branches missed.">        if (!report.defaultAction().isEmpty()) {</span>
-<span class="nc" id="L315">            getLog().info(&quot;     Default: &quot; + report.defaultAction());</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">        for (String line : report.detailLines()) {</span>
+<span class="nc" id="L355">            getLog().info(&quot;       &quot; + line);</span>
+<span class="nc" id="L356">        }</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">        if (!report.defaultAction().isEmpty()) {</span>
+<span class="nc" id="L358">            getLog().info(&quot;     Default: &quot; + report.defaultAction());</span>
         }
-<span class="nc bnc" id="L317" title="All 2 branches missed.">        if (!report.optOutCommand().isEmpty()) {</span>
-<span class="nc" id="L318">            getLog().info(&quot;     Opt out: &quot; + report.optOutCommand());</span>
+<span class="nc bnc" id="L360" title="All 2 branches missed.">        if (!report.optOutCommand().isEmpty()) {</span>
+<span class="nc" id="L361">            getLog().info(&quot;     Opt out: &quot; + report.optOutCommand());</span>
         }
-<span class="nc" id="L320">    }</span>
+<span class="nc" id="L363">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

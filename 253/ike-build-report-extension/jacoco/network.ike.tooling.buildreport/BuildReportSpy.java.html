@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BuildReportSpy.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">BuildReportSpy.java</span></div><h1>BuildReportSpy.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import javax.inject.Named;
+import javax.inject.Singleton;
+
+import org.apache.maven.eventspy.EventSpy;
+import org.apache.maven.execution.ExecutionEvent;
+import org.apache.maven.plugin.MojoExecution;
+import org.eclipse.aether.RepositoryEvent;
+import org.eclipse.aether.artifact.Artifact;
+import org.eclipse.aether.repository.ArtifactRepository;
+import org.eclipse.aether.repository.RemoteRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Routes structured build events into {@link ReportSession}, which
+ * writes the {@code ike꞉build-report.md} receipt at session end.
+ *
+ * &lt;p&gt;This spy never fails the build and never throws out of
+ * {@link #onEvent(Object)} — a collection error degrades to a log
+ * line, not a build problem. Gate enforcement, when armed, is
+ * {@link GateKeeper}'s job at {@code afterSessionEnd}; receipt
+ * writing is idempotent across the two components, whichever runs
+ * first.&lt;/p&gt;
+ *
+ * &lt;p&gt;Registered through the hand-written sisu index at
+ * {@code META-INF/sisu/javax.inject.Named}; see the module POM for the
+ * EventSpy-vs-new-API rationale.&lt;/p&gt;
+ */
+@Named(&quot;ike-build-report&quot;)
+@Singleton
+public class BuildReportSpy implements EventSpy {
+
+<span class="nc" id="L40">    private static final Logger LOG = LoggerFactory.getLogger(BuildReportSpy.class);</span>
+
+    /**
+     * Creates the spy; instantiated by the Maven container via the sisu
+     * index, never directly.
+     */
+<span class="nc" id="L46">    public BuildReportSpy() {}</span>
+
+    /**
+     * Initializes the spy; no context state is needed.
+     *
+     * @param context the spy context supplied by Maven
+     */
+    @Override
+    public void init(Context context) {
+        // The execution root is captured from SessionStarted instead —
+        // the context's working directory may differ under -f.
+<span class="nc" id="L57">    }</span>
+
+    /**
+     * Routes one build event into the collection model.
+     *
+     * @param event the event published by Maven or the resolver
+     */
+    @Override
+    public void onEvent(Object event) {
+        try {
+<span class="nc bnc" id="L67" title="All 2 branches missed.">            if (Boolean.getBoolean(ReportSession.DEBUG_PROPERTY)) {</span>
+<span class="nc" id="L68">                ReportSession.addEventType(describeEventType(event));</span>
+            }
+<span class="nc bnc" id="L70" title="All 2 branches missed.">            if (event instanceof ExecutionEvent) {</span>
+<span class="nc" id="L71">                onExecutionEvent((ExecutionEvent) event);</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">            } else if (event instanceof RepositoryEvent) {</span>
+<span class="nc" id="L73">                onRepositoryEvent((RepositoryEvent) event);</span>
+            }
+<span class="nc" id="L75">        } catch (Exception e) {</span>
+<span class="nc" id="L76">            LOG.warn(&quot;ike-build-report: event collection failed ({}); the receipt may be incomplete&quot;,</span>
+<span class="nc" id="L77">                    e.toString());</span>
+<span class="nc" id="L78">        }</span>
+<span class="nc" id="L79">    }</span>
+
+    /**
+     * Writes the receipt if the session ended without a
+     * {@code SessionEnded} event reaching this spy.
+     */
+    @Override
+    public void close() {
+<span class="nc" id="L87">        ReportSession.finalizeAndWrite();</span>
+<span class="nc" id="L88">    }</span>
+
+    private void onExecutionEvent(ExecutionEvent event) {
+<span class="nc bnc" id="L91" title="All 6 branches missed.">        switch (event.getType()) {</span>
+<span class="nc" id="L92">            case ProjectDiscoveryStarted -&gt; ReportSession.reset();</span>
+<span class="nc" id="L93">            case SessionStarted -&gt; captureExecutionRoot(event);</span>
+<span class="nc" id="L94">            case MojoFailed -&gt; ReportSession.addFinding(new Finding(</span>
+                    FindingCategory.EXECUTION,
+                    Severity.ERROR,
+<span class="nc" id="L97">                    &quot;execution/mojo-failed/&quot; + describeMojo(event.getMojoExecution()),</span>
+<span class="nc" id="L98">                    describeProject(event) + &quot;: &quot; + describeThrowable(event.getException())));</span>
+<span class="nc" id="L99">            case ProjectFailed -&gt; ReportSession.addFinding(new Finding(</span>
+                    FindingCategory.EXECUTION,
+                    Severity.ERROR,
+<span class="nc" id="L102">                    &quot;execution/project-failed/&quot; + describeProject(event),</span>
+<span class="nc" id="L103">                    describeThrowable(event.getException())));</span>
+            case SessionEnded -&gt; {
+<span class="nc" id="L105">                captureExecutionRoot(event);</span>
+<span class="nc" id="L106">                ReportSession.finalizeAndWrite();</span>
+<span class="nc" id="L107">            }</span>
+            default -&gt; {
+                // Successes, skips, and forks carry no receipt content.
+            }
+        }
+<span class="nc" id="L112">    }</span>
+
+    private void onRepositoryEvent(RepositoryEvent event) {
+<span class="nc" id="L115">        captureLocalRepository(event);</span>
+<span class="nc" id="L116">        List&lt;Exception&gt; exceptions = event.getExceptions();</span>
+<span class="nc bnc" id="L117" title="All 4 branches missed.">        if (exceptions == null || exceptions.isEmpty()) {</span>
+<span class="nc" id="L118">            recordResolvedPom(event);</span>
+<span class="nc" id="L119">            return;</span>
+        }
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        boolean metadata = event.getMetadata() != null;</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        String kind = metadata ? &quot;metadata&quot; : &quot;artifact&quot;;</span>
+<span class="nc" id="L123">        String repositoryId = describeRepository(event.getRepository());</span>
+<span class="nc" id="L124">        String repositoryUrl = describeRepositoryUrl(event.getRepository());</span>
+<span class="nc" id="L125">        String subject = describeSubject(event);</span>
+        // Key on the declared id, not the id the resolver reported:
+        // Maven 4 appends a SHA-1 of the repository definition, so a
+        // key carrying it would be unreadable and would break silently
+        // the day an upstream POM edits the repository's URL.
+<span class="nc" id="L130">        String key = &quot;repository/&quot; + kind + &quot;-resolve-failed/&quot;</span>
+<span class="nc" id="L131">                + RepositoryProvenance.declaredId(repositoryId);</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        for (Exception exception : exceptions) {</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">            if (isRoutineNegativeLookup(exception)) {</span>
+<span class="nc" id="L134">                continue;</span>
+            }
+<span class="nc" id="L136">            String message = describeThrowable(exception);</span>
+<span class="nc" id="L137">            Map&lt;String, String&gt; context = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L138">            context.put(Finding.CONTEXT_REPOSITORY_ID, repositoryId);</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">            if (!repositoryUrl.isBlank()) {</span>
+<span class="nc" id="L140">                context.put(Finding.CONTEXT_REPOSITORY_URL, repositoryUrl);</span>
+            }
+<span class="nc" id="L142">            context.put(Finding.CONTEXT_SUBJECT, subject);</span>
+<span class="nc" id="L143">            context.put(Finding.CONTEXT_ERROR, message);</span>
+<span class="nc" id="L144">            ReportSession.addFinding(new Finding(</span>
+                    FindingCategory.REPOSITORY,
+                    Severity.WARNING,
+                    key,
+                    subject + &quot;: &quot; + message,
+                    context));
+<span class="nc" id="L150">        }</span>
+<span class="nc" id="L151">    }</span>
+
+    private void captureLocalRepository(RepositoryEvent event) {
+<span class="nc bnc" id="L154" title="All 4 branches missed.">        if (event.getSession() != null &amp;&amp; event.getSession().getLocalRepository() != null) {</span>
+<span class="nc" id="L155">            ReportSession.captureLocalRepository(event.getSession().getLocalRepository().getBasePath());</span>
+        }
+<span class="nc" id="L157">    }</span>
+
+    /**
+     * Remembers every dependency POM the session resolved.
+     *
+     * &lt;p&gt;These are the only view the extension gets of third-party
+     * POMs: Maven applies the {@code ModelTransformer} SPI — the
+     * observer behind {@link ModelObservations} — to project models
+     * only, so a dependency's {@code &lt;repositories&gt;} block is invisible
+     * there. The resolved POM file is not, and it is what lets a
+     * repository finding name the dependency that asked for the
+     * repository.&lt;/p&gt;
+     */
+    private void recordResolvedPom(RepositoryEvent event) {
+<span class="nc" id="L171">        Artifact artifact = event.getArtifact();</span>
+<span class="nc bnc" id="L172" title="All 4 branches missed.">        if (artifact == null || !&quot;pom&quot;.equals(artifact.getExtension())) {</span>
+<span class="nc" id="L173">            return;</span>
+        }
+<span class="nc" id="L175">        Path path = artifact.getPath();</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (path != null) {</span>
+<span class="nc" id="L177">            ReportSession.addResolvedPom(path);</span>
+        }
+<span class="nc" id="L179">    }</span>
+
+    /**
+     * Distinguishes routine negative lookups (an artifact simply absent
+     * from one repository of several) from transfer-level failures such
+     * as authentication rejections, which are always report-worthy.
+     */
+    private static boolean isRoutineNegativeLookup(Exception exception) {
+<span class="nc" id="L187">        return exception.getClass().getSimpleName().endsWith(&quot;NotFoundException&quot;);</span>
+    }
+
+    private void captureExecutionRoot(ExecutionEvent event) {
+<span class="nc bnc" id="L191" title="All 2 branches missed.">        if (event.getSession() == null) {</span>
+<span class="nc" id="L192">            return;</span>
+        }
+<span class="nc" id="L194">        java.io.File rootDirectory = event.getSession().getRequest().getMultiModuleProjectDirectory();</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">        if (rootDirectory != null) {</span>
+<span class="nc" id="L196">            ReportSession.captureRoot(rootDirectory.toPath());</span>
+        }
+<span class="nc" id="L198">    }</span>
+
+    private static String describeEventType(Object event) {
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        if (event instanceof ExecutionEvent) {</span>
+<span class="nc" id="L202">            return &quot;ExecutionEvent.&quot; + ((ExecutionEvent) event).getType();</span>
+        }
+<span class="nc bnc" id="L204" title="All 2 branches missed.">        if (event instanceof RepositoryEvent) {</span>
+<span class="nc" id="L205">            return &quot;RepositoryEvent.&quot; + ((RepositoryEvent) event).getType();</span>
+        }
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        return event == null ? &quot;null&quot; : event.getClass().getName();</span>
+    }
+
+    private static String describeMojo(MojoExecution mojo) {
+<span class="nc bnc" id="L211" title="All 2 branches missed.">        if (mojo == null) {</span>
+<span class="nc" id="L212">            return &quot;unknown&quot;;</span>
+        }
+<span class="nc" id="L214">        return mojo.getPlugin().getArtifactId() + &quot;:&quot; + mojo.getGoal();</span>
+    }
+
+    private static String describeProject(ExecutionEvent event) {
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        return event.getProject() == null ? &quot;unknown&quot; : event.getProject().getArtifactId();</span>
+    }
+
+    private static String describeRepository(ArtifactRepository repository) {
+<span class="nc bnc" id="L222" title="All 2 branches missed.">        return repository == null ? &quot;unknown&quot; : repository.getId();</span>
+    }
+
+    private static String describeRepositoryUrl(ArtifactRepository repository) {
+<span class="nc bnc" id="L226" title="All 4 branches missed.">        return repository instanceof RemoteRepository remote &amp;&amp; remote.getUrl() != null</span>
+<span class="nc" id="L227">                ? remote.getUrl()</span>
+<span class="nc" id="L228">                : &quot;&quot;;</span>
+    }
+
+    private static String describeSubject(RepositoryEvent event) {
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        if (event.getMetadata() != null) {</span>
+<span class="nc" id="L233">            return String.valueOf(event.getMetadata());</span>
+        }
+<span class="nc bnc" id="L235" title="All 2 branches missed.">        if (event.getArtifact() != null) {</span>
+<span class="nc" id="L236">            return String.valueOf(event.getArtifact());</span>
+        }
+<span class="nc" id="L238">        return &quot;unknown&quot;;</span>
+    }
+
+    private static String describeThrowable(Throwable throwable) {
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        if (throwable == null) {</span>
+<span class="nc" id="L243">            return &quot;no exception detail&quot;;</span>
+        }
+<span class="nc" id="L245">        String message = throwable.getMessage();</span>
+<span class="nc bnc" id="L246" title="All 4 branches missed.">        return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : message;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

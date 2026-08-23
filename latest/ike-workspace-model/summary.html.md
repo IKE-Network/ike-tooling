@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-workspace-model/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-workspace-model |
-| Version | 252 |
+| Version | 253 |
 | Type | jar |
 | Java Version | 25 |

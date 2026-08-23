@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-knowledge-spi/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-knowledge-spi |
-| Version | 252 |
+| Version | 253 |
 | Type | jar |
 | Java Version | 25 |

@@ -1,0 +1,463 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IkeGoal.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">IkeGoal.java</span></div><h1>IkeGoal.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.support.GoalRef;
+import network.ike.support.enums.ConstantBackedEnum;
+import org.apache.maven.api.plugin.Mojo;
+
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * Compile-time identity for every {@code ike:*} goal in this plugin. Each
+ * value wraps the bare goal name, the mojo class that implements it, and
+ * a short human description. Draft/publish siblings expose each other
+ * through {@link #pair()}.
+ *
+ * &lt;p&gt;Parallels {@code network.ike.plugin.ws.WsGoal} in the ws plugin.
+ * Callers that invoke ike goals from Java — for subprocess exec, for
+ * report identification, for javadoc examples that survive a rename —
+ * should reference these enum values rather than string literals.
+ *
+ * &lt;p&gt;Implements {@link ConstantBackedEnum}: each constant is paired with
+ * a {@code public static final String NAME_*} mirror, and class-load
+ * verification keeps the two in lockstep. The mirror is a constant
+ * expression, so the {@code @Mojo(name = IkeGoal.NAME_*)} annotation can
+ * reference the enum as its single source of truth.
+ *
+ * &lt;p&gt;See issues #166 and #453.
+ */
+<span class="fc" id="L30">public enum IkeGoal implements GoalRef, ConstantBackedEnum {</span>
+
+    /** {@code ike:build-report-ratchet-draft} — preview downward ledger tightening. */
+<span class="fc" id="L33">    BUILD_REPORT_RATCHET_DRAFT(IkeGoal.NAME_BUILD_REPORT_RATCHET_DRAFT,</span>
+            BuildReportRatchetDraftMojo.class,
+            &quot;Preview tightening the build-report acceptance ledger &quot;
+                    + &quot;(.mvn/build-report.yaml) against the latest session's &quot;
+                    + &quot;observations sidecar. Downward only — accepting new or &quot;
+                    + &quot;grown findings stays a human edit (ike-issues#989).&quot;),
+    /** {@code ike:build-report-ratchet-publish} — apply downward ledger tightening. */
+<span class="fc" id="L40">    BUILD_REPORT_RATCHET_PUBLISH(IkeGoal.NAME_BUILD_REPORT_RATCHET_PUBLISH,</span>
+            BuildReportRatchetPublishMojo.class,
+            &quot;Tighten the build-report acceptance ledger to the latest &quot;
+                    + &quot;session's observations and rewrite it canonically. &quot;
+                    + &quot;Counts only move down; entries reaching 0 remain as &quot;
+                    + &quot;documented tripwires (ike-issues#989).&quot;),
+    /** {@code ike:cascade-export} — export the release cascade topology for CI. */
+<span class="fc" id="L47">    CASCADE_EXPORT(IkeGoal.NAME_CASCADE_EXPORT, IkeCascadeExportMojo.class,</span>
+            &quot;Export the foundation release cascade topology as JSON &quot;
+                    + &quot;or .properties so a CI meta-runner can generate &quot;
+                    + &quot;build-chain edges from release-cascade.yaml &quot;
+                    + &quot;instead of hand-wiring them.&quot;),
+    /** {@code ike:central-stage} — finalize a Central staging dir: prune + swap generated BOMs (#966). */
+<span class="fc" id="L53">    CENTRAL_STAGE(IkeGoal.NAME_CENTRAL_STAGE, CentralStageMojo.class,</span>
+            &quot;Finalize a Maven Central staging directory: prune &quot;
+                    + &quot;-build.pom artifacts and swap generated BOMs &quot;
+                    + &quot;over their staged stubs, re-signing and &quot;
+                    + &quot;verifying (#853/#966). Invoked version-pinned &quot;
+                    + &quot;by the async Central deploy sentinel script.&quot;),
+    /** {@code ike:central-status} — report async Maven Central deploy state (#484). */
+<span class="fc" id="L60">    CENTRAL_STATUS(IkeGoal.NAME_CENTRAL_STATUS, CentralStatusMojo.class,</span>
+            &quot;Report the status of asynchronous Maven Central deploys &quot;
+                    + &quot;spawned by ike:release-publish &quot;
+                    + &quot;-Dike.deploy.central.async=true. Walks the &quot;
+                    + &quot;sentinel cache (~/.cache/ike-release/) and &quot;
+                    + &quot;reports state, attempts, and log paths.&quot;),
+    /** {@code ike:codesign-natives} — sign macOS native binaries in a runtime image. */
+<span class="fc" id="L67">    CODESIGN_NATIVES(IkeGoal.NAME_CODESIGN_NATIVES, CodesignNativesMojo.class,</span>
+            &quot;Sign macOS native libraries and executables inside a runtime image.&quot;),
+    /** {@code ike:codesign-pkg} — sign a {@code .pkg} installer with Developer ID. */
+<span class="fc" id="L70">    CODESIGN_PKG(IkeGoal.NAME_CODESIGN_PKG, CodesignPkgMojo.class,</span>
+            &quot;Sign a .pkg installer with a Developer ID Installer certificate.&quot;),
+    /** {@code ike:env} — print runtime environment / terminal diagnostics. */
+<span class="fc" id="L73">    ENV(IkeGoal.NAME_ENV, IkeEnvMojo.class,</span>
+            &quot;Print runtime environment diagnostics — terminal/console &quot;
+                    + &quot;capability, stdin, and relevant system properties. &quot;
+                    + &quot;Run from both IntelliJ's Maven tool window and the &quot;
+                    + &quot;Terminal tool window to compare (ike-issues#385).&quot;),
+    /** {@code ike:generate-bom} — generate the auto-managed BOM. */
+<span class="fc" id="L79">    GENERATE_BOM(IkeGoal.NAME_GENERATE_BOM, GenerateBomMojo.class,</span>
+            &quot;Generate the auto-managed BOM from the current dependencyManagement.&quot;),
+    /** {@code ike:help} — list {@code ike:*} goals from the plugin descriptor. */
+<span class="fc" id="L82">    HELP(IkeGoal.NAME_HELP, IkeHelpMojo.class,</span>
+            &quot;List ike:* goals discovered from the plugin descriptor.&quot;),
+    /** {@code ike:inject-breadcrumb} — inject breadcrumbs into rendered HTML. */
+<span class="fc" id="L85">    INJECT_BREADCRUMB(IkeGoal.NAME_INJECT_BREADCRUMB, InjectBreadcrumbMojo.class,</span>
+            &quot;Inject breadcrumb navigation into rendered HTML.&quot;),
+    /** {@code ike:inject-javadoc-theme} — overlay the IKE green stylesheet on generated Javadoc apidocs. */
+<span class="fc" id="L88">    INJECT_JAVADOC_THEME(IkeGoal.NAME_INJECT_JAVADOC_THEME,</span>
+            InjectJavadocThemeMojo.class,
+            &quot;Overlay the IKE green stylesheet onto generated Javadoc apidocs.&quot;),
+    /** {@code ike:jpackage-props} — emit jpackage properties from reactor config. */
+<span class="fc" id="L92">    JPACKAGE_PROPS(IkeGoal.NAME_JPACKAGE_PROPS, JpackagePropsMojo.class,</span>
+            &quot;Emit jpackage properties files from reactor configuration.&quot;),
+    /** {@code ike:knowledge-bindings} — generate a knowledge set's bindings class. */
+<span class="fc" id="L95">    KNOWLEDGE_BINDINGS(IkeGoal.NAME_KNOWLEDGE_BINDINGS, KnowledgeBindingsMojo.class,</span>
+            &quot;Generate the bindings class for a ledger-form knowledge set: &quot;
+                    + &quot;discovers the project's KnowledgeSetSource on its dependency &quot;
+                    + &quot;classpath, composes it, writes the TinkarTerm-idiom &quot;
+                    + &quot;constants class into generated-sources, and registers &quot;
+                    + &quot;the source root (ike-issues#824).&quot;),
+    /** {@code ike:knowledge-export} — export a knowledge set as a standalone protobuf. */
+<span class="fc" id="L102">    KNOWLEDGE_EXPORT(IkeGoal.NAME_KNOWLEDGE_EXPORT, KnowledgeExportMojo.class,</span>
+            &quot;Export a ledger-form knowledge set as a full standalone protobuf &quot;
+                    + &quot;artifact: composes the project's KnowledgeSetSource, &quot;
+                    + &quot;replays into a fresh ephemeral store, exports the store, &quot;
+                    + &quot;and attaches the file under a declared classifier — &quot;
+                    + &quot;unreasoned-pb by default; changeset is reserved for &quot;
+                    + &quot;genuine deltas (ike-issues#824, #933).&quot;),
+    /** {@code ike:knowledge-attach} — attach knowledge artifacts under another reactor GAV. */
+<span class="fc" id="L110">    KNOWLEDGE_ATTACH(IkeGoal.NAME_KNOWLEDGE_ATTACH, KnowledgeAttachMojo.class,</span>
+            &quot;Attach produced knowledge artifacts to another reactor project — &quot;
+                    + &quot;typically the aggregator, so a set's released coordinate &quot;
+                    + &quot;reads &lt;aggregator&gt;:&lt;v&gt;:{unreasoned-pb|reasoned-pb} even &quot;
+                    + &quot;though a subproject produced the files; pair with &quot;
+                    + &quot;deployAtEnd/installAtEnd so late attachments publish &quot;
+                    + &quot;(ike-issues#933).&quot;),
+    /** {@code ike:knowledge-verify} — round-trip verify a knowledge artifact in a pristine store. */
+<span class="fc" id="L118">    KNOWLEDGE_VERIFY(IkeGoal.NAME_KNOWLEDGE_VERIFY, KnowledgeVerifyMojo.class,</span>
+            &quot;Verify a knowledge artifact in a pristine store: load it exactly &quot;
+                    + &quot;as a consumer's import would (manifest and count-equality &quot;
+                    + &quot;checks intact) over its declared base, optionally sweep &quot;
+                    + &quot;every reference for resolution, and fail the build on any &quot;
+                    + &quot;error finding (ike-issues#951).&quot;),
+    /** {@code ike:kb-assemble} — assemble a knowledge base from ordered artifacts. */
+<span class="fc" id="L125">    KB_ASSEMBLE(IkeGoal.NAME_KB_ASSEMBLE, KbAssembleMojo.class,</span>
+            &quot;Assemble a knowledge base from ordered knowledge artifacts — &quot;
+                    + &quot;base data plus change sets into a store, classified by &quot;
+                    + &quot;default — and optionally install it into a data-source &quot;
+                    + &quot;directory a knowledge browser reads (ike-issues#848).&quot;),
+    /** {@code ike:starter-set-create-draft} — preview a new starter-set project. */
+<span class="fc" id="L131">    STARTER_SET_CREATE_DRAFT(IkeGoal.NAME_STARTER_SET_CREATE_DRAFT, StarterSetCreateDraftMojo.class,</span>
+            &quot;Preview the genesis of a new starter-set project: the derived name &quot;
+                    + &quot;family, the semantic tag, the UUID posture, the file list, &quot;
+                    + &quot;and next-step commands. Side-effect-free (ike-issues#866).&quot;),
+    /** {@code ike:starter-set-create-publish} — create a new starter-set project. */
+<span class="fc" id="L136">    STARTER_SET_CREATE_PUBLISH(IkeGoal.NAME_STARTER_SET_CREATE_PUBLISH, StarterSetCreatePublishMojo.class,</span>
+            &quot;Genesis of a new starter-set project: mint the set's permanent &quot;
+                    + &quot;identity, materialize the five-module family from the &quot;
+                    + &quot;standards templates, bootstrap-commit, and verify the &quot;
+                    + &quot;generated project builds green (ike-issues#866).&quot;),
+    /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
+<span class="fc" id="L142">    NOTARIZE(IkeGoal.NAME_NOTARIZE, NotarizeMojo.class,</span>
+            &quot;Submit a .pkg or .app to Apple notary service and staple the ticket.&quot;),
+    /** {@code ike:release-draft} — preview releasing the current project. */
+<span class="fc" id="L145">    RELEASE_DRAFT(IkeGoal.NAME_RELEASE_DRAFT, ReleaseDraftMojo.class,</span>
+            &quot;Preview releasing the current project.&quot;),
+    /** {@code ike:release-publish} — release the current project (tag + publish). */
+<span class="fc" id="L148">    RELEASE_PUBLISH(IkeGoal.NAME_RELEASE_PUBLISH, ReleasePublishMojo.class,</span>
+            &quot;Release the current project (tag + publish).&quot;),
+    /** {@code ike:release-cascade} — release the whole foundation cascade in order. */
+<span class="fc" id="L151">    RELEASE_CASCADE(IkeGoal.NAME_RELEASE_CASCADE, IkeReleaseCascadeMojo.class,</span>
+            &quot;Walk the decentralized release cascade assembled from &quot;
+                    + &quot;the per-project release-cascade.yaml manifests &quot;
+                    + &quot;and run ike:release-publish on every foundation &quot;
+                    + &quot;repo that has unreleased changes, in topological &quot;
+                    + &quot;order.&quot;),
+    /** {@code ike:release-changelog} — render a release changelog for CI notifications (#699). */
+<span class="fc" id="L158">    RELEASE_CHANGELOG(IkeGoal.NAME_RELEASE_CHANGELOG, IkeReleaseChangelogMojo.class,</span>
+            &quot;Render a 'What's changed' changelog from the commits in a &quot;
+                    + &quot;release range — machinery filtered, each entry &quot;
+                    + &quot;annotated with its full owner/repo#N issue refs — &quot;
+                    + &quot;for a CI release notification to consume.&quot;),
+    /** {@code ike:rename} — rename output files to a canonical pattern. */
+<span class="fc" id="L164">    RENAME(IkeGoal.NAME_RENAME, RenameMojo.class,</span>
+            &quot;Rename output files to a canonical pattern.&quot;),
+    /** {@code ike:built-with} — generate a Built With page from the SBOM and a curated supplement (#336). */
+<span class="fc" id="L167">    BUILT_WITH(IkeGoal.NAME_BUILT_WITH, BuiltWithMojo.class,</span>
+            &quot;Generate a curated Built-With page from the CycloneDX &quot;
+                    + &quot;SBOM and an optional project-wide supplement &quot;
+                    + &quot;YAML. Replaces the legacy 'Third-Party Notices' &quot;
+                    + &quot;naming with a friendlier scannable label and &quot;
+                    + &quot;supports per-module rendering by walking up &quot;
+                    + &quot;the filesystem to find the reactor's &quot;
+                    + &quot;supplement.yaml.&quot;),
+    /** {@code ike:render-sbom-viewer} — generate dependencies.adoc from the CycloneDX SBOM (#341). */
+<span class="fc" id="L176">    RENDER_SBOM_VIEWER(IkeGoal.NAME_RENDER_SBOM_VIEWER, RenderSbomViewerMojo.class,</span>
+            &quot;Generate a Web-friendly dependencies.adoc page from &quot;
+                    + &quot;the CycloneDX SBOM with a sortable component &quot;
+                    + &quot;table. Maven Site renders it to &quot;
+                    + &quot;dependencies.html, replacing the auto-&quot;
+                    + &quot;generated dependency report.&quot;),
+    /** {@code ike:render-spdx-licenses} — generate licenses.adoc from the CycloneDX SBOM (#335). */
+<span class="fc" id="L183">    RENDER_SPDX_LICENSES(IkeGoal.NAME_RENDER_SPDX_LICENSES, RenderSpdxLicensesMojo.class,</span>
+            &quot;Generate an SPDX-grouped licenses.adoc page from the &quot;
+                    + &quot;CycloneDX SBOM. Maven Site renders it to &quot;
+                    + &quot;licenses.html with the project skin chrome.&quot;),
+    /** {@code ike:scaffold-draft} — preview ike-build-standards scaffold changes. */
+<span class="fc" id="L188">    SCAFFOLD_DRAFT(IkeGoal.NAME_SCAFFOLD_DRAFT, ScaffoldDraftMojo.class,</span>
+            &quot;Preview what ike:scaffold-publish would apply from the &quot;
+                    + &quot;ike-build-standards scaffold.&quot;),
+    /** {@code ike:scaffold-publish} — apply the scaffold to disk. */
+<span class="fc" id="L192">    SCAFFOLD_PUBLISH(IkeGoal.NAME_SCAFFOLD_PUBLISH, ScaffoldPublishMojo.class,</span>
+            &quot;Apply the ike-build-standards scaffold to disk and &quot;
+                    + &quot;update per-project and per-user lockfiles.&quot;),
+    /** {@code ike:scaffold-revert} — undo a previous scaffold-publish. */
+<span class="fc" id="L196">    SCAFFOLD_REVERT(IkeGoal.NAME_SCAFFOLD_REVERT, ScaffoldRevertMojo.class,</span>
+            &quot;Undo a previous ike:scaffold-publish, leaving &quot;
+                    + &quot;user-edited files alone.&quot;),
+    /** {@code ike:announce-draft} — preview a Zulip announcement (#1016). */
+<span class="fc" id="L200">    ANNOUNCE_DRAFT(IkeGoal.NAME_ANNOUNCE_DRAFT, IkeAnnounceDraftMojo.class,</span>
+            &quot;Preview an announcement to a Zulip stream: print the &quot;
+                    + &quot;destination and the exact message without posting.&quot;),
+    /** {@code ike:announce-publish} — post a Zulip announcement (#1016). */
+<span class="fc" id="L204">    ANNOUNCE_PUBLISH(IkeGoal.NAME_ANNOUNCE_PUBLISH, IkeAnnouncePublishMojo.class,</span>
+            &quot;Post an announcement to a Zulip stream. Credentials come &quot;
+                    + &quot;from ZULIP_BOT_EMAIL / ZULIP_BOT_TOKEN in the &quot;
+                    + &quot;environment, so the same goal runs locally and on CI.&quot;),
+    /** {@code ike:site-draft} — report deployed-site drift (#398). */
+<span class="fc" id="L209">    SITE_DRAFT(IkeGoal.NAME_SITE_DRAFT, IkeSiteDraftMojo.class,</span>
+            &quot;Report drift in deployed-site state — version on &quot;
+                    + &quot;server vs current project version, landing-page &quot;
+                    + &quot;registration status — with copy-paste opt-out &quot;
+                    + &quot;commands inline.&quot;),
+    /** {@code ike:site-publish} — apply deployed-site convergence (#398). */
+<span class="fc" id="L215">    SITE_PUBLISH(IkeGoal.NAME_SITE_PUBLISH, IkeSitePublishMojo.class,</span>
+            &quot;Deploy the current version to gh-pages and update the &quot;
+                    + &quot;IKE Network landing page registration. Flags: &quot;
+                    + &quot;-DupdateSite=false, -DupdateRegistration=false, &quot;
+                    + &quot;-Dsite=removed (uninstall: deregister + cleanup).&quot;),
+    /** {@code ike:unpack-zip} — unpack a zip artifact into a target directory. */
+<span class="fc" id="L221">    UNPACK_ZIP(IkeGoal.NAME_UNPACK_ZIP, UnpackZipMojo.class,</span>
+            &quot;Unpack a zip artifact into a target directory.&quot;),
+    /** {@code ike:verify-release-published} — verify all post-release publication targets (#374). */
+<span class="fc" id="L224">    VERIFY_RELEASE_PUBLISHED(IkeGoal.NAME_VERIFY_RELEASE_PUBLISHED,</span>
+            VerifyReleasePublishedMojo.class,
+            &quot;Verify all post-release publication targets are &quot;
+                    + &quot;reachable for the current project + version: &quot;
+                    + &quot;site (current/versioned/latest), org-site &quot;
+                    + &quot;landing, Nexus artifact, GitHub release tag. &quot;
+                    + &quot;Read-only; exits non-zero on any failure.&quot;);
+
+    // ── Mirror constants (ConstantBackedEnum) ───────────────────
+    // One public static final String per constant, named NAME_&lt;CONSTANT&gt;.
+    // These are the constant expressions referenced by @Mojo(name = ...)
+    // and by each enum constant's constructor call above (a forward
+    // reference to a constant variable, permitted by JLS 8.3.3).
+    // ConstantBackedEnum.verify() — run from the static initializer
+    // below — fails class-load if any constant and its mirror drift.
+
+    /** Mirror for {@link #BUILD_REPORT_RATCHET_DRAFT}. */
+    public static final String NAME_BUILD_REPORT_RATCHET_DRAFT = &quot;build-report-ratchet-draft&quot;;
+    /** Mirror for {@link #BUILD_REPORT_RATCHET_PUBLISH}. */
+    public static final String NAME_BUILD_REPORT_RATCHET_PUBLISH = &quot;build-report-ratchet-publish&quot;;
+    /** Mirror for {@link #CASCADE_EXPORT}. */
+    public static final String NAME_CASCADE_EXPORT = &quot;cascade-export&quot;;
+    /** Mirror for {@link #CENTRAL_STAGE}. */
+    public static final String NAME_CENTRAL_STAGE = &quot;central-stage&quot;;
+    /** Mirror for {@link #CENTRAL_STATUS}. */
+    public static final String NAME_CENTRAL_STATUS = &quot;central-status&quot;;
+    /** Mirror for {@link #CODESIGN_NATIVES}. */
+    public static final String NAME_CODESIGN_NATIVES = &quot;codesign-natives&quot;;
+    /** Mirror for {@link #CODESIGN_PKG}. */
+    public static final String NAME_CODESIGN_PKG = &quot;codesign-pkg&quot;;
+    /** Mirror for {@link #ENV}. */
+    public static final String NAME_ENV = &quot;env&quot;;
+    /** Mirror for {@link #GENERATE_BOM}. */
+    public static final String NAME_GENERATE_BOM = &quot;generate-bom&quot;;
+    /** Mirror for {@link #HELP}. */
+    public static final String NAME_HELP = &quot;help&quot;;
+    /** Mirror for {@link #INJECT_BREADCRUMB}. */
+    public static final String NAME_INJECT_BREADCRUMB = &quot;inject-breadcrumb&quot;;
+    /** Mirror for {@link #INJECT_JAVADOC_THEME}. */
+    public static final String NAME_INJECT_JAVADOC_THEME = &quot;inject-javadoc-theme&quot;;
+    /** Mirror for {@link #JPACKAGE_PROPS}. */
+    public static final String NAME_JPACKAGE_PROPS = &quot;jpackage-props&quot;;
+    /** Mirror for {@link #KNOWLEDGE_BINDINGS}. */
+    public static final String NAME_KNOWLEDGE_BINDINGS = &quot;knowledge-bindings&quot;;
+    /** Mirror for {@link #KNOWLEDGE_EXPORT}. */
+    public static final String NAME_KNOWLEDGE_EXPORT = &quot;knowledge-export&quot;;
+
+    /** The {@code knowledge-attach} goal name. */
+    public static final String NAME_KNOWLEDGE_ATTACH = &quot;knowledge-attach&quot;;
+
+    /** The {@code knowledge-verify} goal name. */
+    public static final String NAME_KNOWLEDGE_VERIFY = &quot;knowledge-verify&quot;;
+
+    /** Mirror for {@link #KB_ASSEMBLE}. */
+    public static final String NAME_KB_ASSEMBLE = &quot;kb-assemble&quot;;
+
+    /** Mirror for {@link #STARTER_SET_CREATE_DRAFT}. */
+    public static final String NAME_STARTER_SET_CREATE_DRAFT = &quot;starter-set-create-draft&quot;;
+
+    /** Mirror for {@link #STARTER_SET_CREATE_PUBLISH}. */
+    public static final String NAME_STARTER_SET_CREATE_PUBLISH = &quot;starter-set-create-publish&quot;;
+    /** Mirror for {@link #NOTARIZE}. */
+    public static final String NAME_NOTARIZE = &quot;notarize&quot;;
+    /** Mirror for {@link #RELEASE_DRAFT}. */
+    public static final String NAME_RELEASE_DRAFT = &quot;release-draft&quot;;
+    /** Mirror for {@link #RELEASE_PUBLISH}. */
+    public static final String NAME_RELEASE_PUBLISH = &quot;release-publish&quot;;
+    /** Mirror for {@link #RELEASE_CASCADE}. */
+    public static final String NAME_RELEASE_CASCADE = &quot;release-cascade&quot;;
+    /** Mirror for {@link #RELEASE_CHANGELOG}. */
+    public static final String NAME_RELEASE_CHANGELOG = &quot;release-changelog&quot;;
+    /** Mirror for {@link #RENAME}. */
+    public static final String NAME_RENAME = &quot;rename&quot;;
+    /** Mirror for {@link #BUILT_WITH}. */
+    public static final String NAME_BUILT_WITH = &quot;built-with&quot;;
+    /** Mirror for {@link #RENDER_SBOM_VIEWER}. */
+    public static final String NAME_RENDER_SBOM_VIEWER = &quot;render-sbom-viewer&quot;;
+    /** Mirror for {@link #RENDER_SPDX_LICENSES}. */
+    public static final String NAME_RENDER_SPDX_LICENSES = &quot;render-spdx-licenses&quot;;
+    /** Mirror for {@link #SCAFFOLD_DRAFT}. */
+    public static final String NAME_SCAFFOLD_DRAFT = &quot;scaffold-draft&quot;;
+    /** Mirror for {@link #SCAFFOLD_PUBLISH}. */
+    public static final String NAME_SCAFFOLD_PUBLISH = &quot;scaffold-publish&quot;;
+    /** Mirror for {@link #SCAFFOLD_REVERT}. */
+    public static final String NAME_SCAFFOLD_REVERT = &quot;scaffold-revert&quot;;
+    /** Goal name for {@link #ANNOUNCE_DRAFT}. */
+    public static final String NAME_ANNOUNCE_DRAFT = &quot;announce-draft&quot;;
+    /** Goal name for {@link #ANNOUNCE_PUBLISH}. */
+    public static final String NAME_ANNOUNCE_PUBLISH = &quot;announce-publish&quot;;
+    /** Goal name for {@link #SITE_DRAFT}. */
+/** Mirror for {@link #SITE_DRAFT}. */
+    public static final String NAME_SITE_DRAFT = &quot;site-draft&quot;;
+    /** Mirror for {@link #SITE_PUBLISH}. */
+    public static final String NAME_SITE_PUBLISH = &quot;site-publish&quot;;
+    /** Mirror for {@link #UNPACK_ZIP}. */
+    public static final String NAME_UNPACK_ZIP = &quot;unpack-zip&quot;;
+    /** Mirror for {@link #VERIFY_RELEASE_PUBLISHED}. */
+    public static final String NAME_VERIFY_RELEASE_PUBLISHED = &quot;verify-release-published&quot;;
+
+    /** Shared {@code ike:} prefix for all goals in this plugin. */
+    public static final String PLUGIN_PREFIX = &quot;ike&quot;;
+
+    private static final String DRAFT_SUFFIX = &quot;-draft&quot;;
+    private static final String PUBLISH_SUFFIX = &quot;-publish&quot;;
+
+    /** Reverse lookup by bare goal name; also a duplicate-literal guard. */
+    private static final Map&lt;String, IkeGoal&gt; BY_NAME;
+
+    static {
+        // Class-load guard: every constant must have a matching NAME_*
+        // mirror whose value is the kebab-case form of the constant
+        // name. A drift here makes IkeGoal unloadable rather than
+        // letting a stale @Mojo name reach plugin.xml.
+<span class="fc" id="L337">        ConstantBackedEnum.verify(IkeGoal.class,</span>
+<span class="fc" id="L338">                ConstantBackedEnum.defaultPrefix(),</span>
+<span class="fc" id="L339">                (g, v) -&gt; v.equals(</span>
+<span class="fc" id="L340">                        g.name().toLowerCase(Locale.ROOT).replace('_', '-')));</span>
+<span class="fc" id="L341">        BY_NAME = ConstantBackedEnum.index(IkeGoal.class);</span>
+<span class="fc" id="L342">    }</span>
+
+    private final String goalName;
+    private final Class&lt;? extends Mojo&gt; mojoClass;
+    private final String description;
+
+    IkeGoal(String goalName,
+            Class&lt;? extends Mojo&gt; mojoClass,
+<span class="fc" id="L350">            String description) {</span>
+<span class="fc" id="L351">        this.goalName = goalName;</span>
+<span class="fc" id="L352">        this.mojoClass = mojoClass;</span>
+<span class="fc" id="L353">        this.description = description;</span>
+<span class="fc" id="L354">    }</span>
+
+    /**
+     * The bare goal name as it appears in {@code @Mojo(name = ...)}.
+     *
+     * @return the bare goal name
+     */
+    @Override
+    public String goalName() {
+<span class="fc" id="L363">        return goalName;</span>
+    }
+
+    /**
+     * The String literal carried by this constant — the bare goal name.
+     * Satisfies {@link ConstantBackedEnum}.
+     *
+     * @return the bare goal name
+     */
+    @Override
+    public String literalName() {
+<span class="fc" id="L374">        return goalName;</span>
+    }
+
+    /**
+     * The {@code ike} plugin prefix — shared by every goal in this enum.
+     *
+     * @return {@link #PLUGIN_PREFIX}
+     */
+    @Override
+    public String pluginPrefix() {
+<span class="fc" id="L384">        return PLUGIN_PREFIX;</span>
+    }
+
+    /**
+     * The fully-qualified goal invocation, e.g. {@code &quot;ike:release-publish&quot;}.
+     *
+     * @return the fully-qualified goal invocation
+     */
+    @Override
+    public String qualified() {
+<span class="fc" id="L394">        return PLUGIN_PREFIX + &quot;:&quot; + goalName;</span>
+    }
+
+    /**
+     * The mojo class that implements this goal.
+     *
+     * @return the mojo class
+     */
+    public Class&lt;? extends Mojo&gt; mojoClass() {
+<span class="fc" id="L403">        return mojoClass;</span>
+    }
+
+    /**
+     * One-line human description of what this goal does.
+     *
+     * @return the human description
+     */
+    @Override
+    public String description() {
+<span class="nc" id="L413">        return description;</span>
+    }
+
+    /**
+     * True if this is the {@code -draft} counterpart of a draft/publish pair.
+     *
+     * @return {@code true} when this goal is a draft variant
+     */
+    public boolean isDraft() {
+<span class="nc" id="L422">        return goalName.endsWith(DRAFT_SUFFIX);</span>
+    }
+
+    /**
+     * True if this is the {@code -publish} counterpart of a draft/publish pair.
+     *
+     * @return {@code true} when this goal is a publish variant
+     */
+    public boolean isPublish() {
+<span class="nc" id="L431">        return goalName.endsWith(PUBLISH_SUFFIX);</span>
+    }
+
+    /**
+     * The paired draft/publish sibling, if this goal belongs to a pair.
+     *
+     * @return the sibling goal, or empty if this goal is a singleton
+     */
+    public Optional&lt;IkeGoal&gt; pair() {
+<span class="nc bnc" id="L440" title="All 2 branches missed.">        if (isDraft()) {</span>
+<span class="nc" id="L441">            return byName(stripSuffix(goalName, DRAFT_SUFFIX) + PUBLISH_SUFFIX);</span>
+        }
+<span class="nc bnc" id="L443" title="All 2 branches missed.">        if (isPublish()) {</span>
+<span class="nc" id="L444">            return byName(stripSuffix(goalName, PUBLISH_SUFFIX) + DRAFT_SUFFIX);</span>
+        }
+<span class="nc" id="L446">        return Optional.empty();</span>
+    }
+
+    /**
+     * Look up a goal by its bare name (e.g. {@code &quot;release-publish&quot;}).
+     *
+     * @param goalName the bare goal name, without the {@code ike:} prefix
+     * @return the matching goal, or empty if none
+     */
+    public static Optional&lt;IkeGoal&gt; byName(String goalName) {
+<span class="nc" id="L456">        return Optional.ofNullable(BY_NAME.get(goalName));</span>
+    }
+
+    private static String stripSuffix(String s, String suffix) {
+<span class="nc" id="L460">        return s.substring(0, s.length() - suffix.length());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
