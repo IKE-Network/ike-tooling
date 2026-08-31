@@ -66,9 +66,13 @@ import java.util.regex.Pattern;
  * <p>Usage:
  * <pre>
  *   mvn ike:release-cascade                       # release the cascade
- *   mvn ike:release-cascade -DpushRelease=false   # local-only dry of each
  *   mvn ike:release-cascade -Dike.release.cascade.basedir=/path/to/checkouts
  * </pre>
+ *
+ * <p>{@code -DpushRelease=false} is refused: no goal downstream reads
+ * the flag, so a "local-only dry" would in fact run full releases. A
+ * real dry-run mode is deferred to the post-#489 phase decomposition
+ * (IKE-Network/ike-issues#504).
  */
 @Mojo(name = IkeGoal.NAME_RELEASE_CASCADE, projectRequired = false, aggregator = true)
 public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
@@ -94,9 +98,12 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
     String cascadeBaseDir;
 
     /**
-     * Forwarded to {@code ike:release-publish} on each repo. When
-     * {@code false}, each release stays local (no tag/main push, no
-     * Nexus deploy from a pushed tag).
+     * Historically forwarded to {@code ike:release-publish} on each
+     * repo as a "local-only dry" switch — but no downstream goal reads
+     * it, so {@code false} would silently run full releases
+     * (IKE-Network/ike-issues#504). {@code false} is therefore refused
+     * up front; a real dry-run mode arrives with the post-#489 phase
+     * decomposition.
      */
     @Parameter(property = "pushRelease", defaultValue = "true")
     boolean pushRelease;
@@ -124,6 +131,20 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
 
     @Override
     protected GoalReportSpec runGoal() throws MojoException {
+        // #504: no downstream goal reads pushRelease, so false would
+        // silently run full releases while promising a local-only dry.
+        // Refuse loudly until the post-#489 dry-run mode exists.
+        if (!pushRelease) {
+            throw new MojoException("-DpushRelease=false is not"
+                    + " implemented: ike:release-publish does not read"
+                    + " the flag, and every release side effect (tag and"
+                    + " main pushes, Nexus/Central deploy, GitHub"
+                    + " Release, site publish) would run anyway. A real"
+                    + " dry-run mode is deferred to the post-#489 phase"
+                    + " decomposition — see IKE-Network/ike-issues#504."
+                    + " Drop the flag to run the cascade for real.");
+        }
+
         File startDir = baseDir != null ? baseDir : new File(".");
         File gitRoot = ReleaseSupport.gitRoot(startDir);
 
@@ -278,8 +299,7 @@ public class IkeReleaseCascadeMojo extends AbstractGoalMojo {
                 + IkeGoal.RELEASE_PUBLISH.qualified() + "...");
         try {
             ReleaseSupport.exec(dir, getLog(),
-                    mvn, IkeGoal.RELEASE_PUBLISH.qualified(),
-                    "-DpushRelease=" + pushRelease, "-B");
+                    mvn, IkeGoal.RELEASE_PUBLISH.qualified(), "-B");
             getLog().info("  ✓ Released " + name);
             getLog().info("");
             return new Outcome(name, Kind.RELEASED, null);
