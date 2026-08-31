@@ -74,7 +74,7 @@ cd <subproject>
 git checkout main
 git merge --no-ff release/<version> -m "merge: release <version>"
 # bump to next SNAPSHOT if not already done:
-mvn ike:post-release -DnewVersion=<next>-SNAPSHOT
+mvn ws:post-release -DnextVersion=<next>-SNAPSHOT
 git push origin main
 git push origin v<version>
 git branch -d release/<version>
