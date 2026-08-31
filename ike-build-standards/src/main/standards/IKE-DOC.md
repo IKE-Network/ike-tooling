@@ -464,6 +464,92 @@ include::{clinical-topics}/topics/clinical/workflow.adoc[leveloffset=+1]
 Each `.asciidoctorconfig` defines the attributes for its own dependencies.
 Attribute names are stable; values are project-local.
 
+## Doc-Diff Review Packets (`idoc:diff`)
+
+`mvn idoc:diff` generates and renders a review packet: every changed AsciiDoc
+fragment between two refs (or a ref and the working tree), marked inline with
+`[.diff-ins]`/`[.diff-del]` roles and composed into a book with a cover
+summary, Record of Changes, Change Glossary, Change Index, registry delta, and
+assembly scaffolding diffs. Both sides render through the *current* toolchain —
+the diff is of knowledge, never of the renderer.
+
+### Subproject granularity
+
+The goal works at the Maven subproject level and adapts to the module it runs
+in:
+
+- **Topics-library module** (its source root holds `topic-registry.yaml`): the
+  corpus packet — every changed fragment, the full registry delta including
+  each assembly's membership changes.
+- **Assembly module**: the *projection* of the corpus diff onto this assembly —
+  changed topics intersected with the assembly's flattened `topic-refs`
+  (assembly id defaults to the artifactId; override with
+  `-Dike.diff.assemblyId`), plus the module's own master-file scaffolding diff
+  and a membership delta for just this assembly. Topics deleted in range are
+  reported by the membership delta rather than projected.
+- **Aggregator**: fans out — a packet for every subproject able to generate
+  one; modules with no doc source skip silently.
+
+### Invocations
+
+```bash
+mvn idoc:diff                                    # HEAD vs working tree
+mvn idoc:diff -Dike.diff.from=v1.2.3             # tag vs working tree
+mvn idoc:diff -Dike.diff.from=A -Dike.diff.to=B  # any two commits
+```
+
+`ike.diff.to` accepts the `WORKTREE` pseudo-ref (the default). Useful
+switches:
+
+| Property | Default | Purpose |
+|---|---|---|
+| `ike.diff.topics` | *(unset)* | Comma-separated topic ids — restrict the packet to a share-scoped excerpt. For a scope you reuse, register a small assembly instead and let the projection do it permanently. |
+| `ike.diff.title` | `Documentation Review Packet` | Title of the generated packet document. |
+| `ike.diff.stamps` | `true` | Stamp each change boundary with its provenance coordinate as a reusable endnote; auto-suppressed when the whole packet carries a single stamp, which is then stated on the cover. |
+| `ike.diff.render` | `true` | `false` generates packet sources without the HTML/PDF renders. |
+
+Outputs land under `target/doc-diff/`: `asciidoc/` (the generated packet
+sources), `html/`, and `pdf/`.
+
+### Authoring `changes.yaml`
+
+A change is a named, first-class entity: id, title, one-line description,
+issue refs, and the files it touches. The manifest is looked up beside the
+module POM first, then at the repository work-tree root; an authored file
+always wins over derivation.
+
+```yaml
+changes:
+  - id: chg-asg-sweep
+    title: "ASG, not AST"
+    description: >
+      One reviewable sentence or two.
+    refs: [IKE-Network/ike-issues#648]
+    files:
+      - topics/src/docs/asciidoc/topics/arch/asg-substrate.adoc
+```
+
+For commit-to-commit comparisons without a manifest, change entities are
+derived by grouping the range's commits on their `Refs:`/`Fixes:` trailers —
+commits without a trailer become singleton changes named by their subject. A
+working-tree comparison without a manifest gets a single synthetic
+"uncommitted changes" entity. Share docs should author one narrative change
+entity rather than ship derived range noise.
+
+### Theme tiers
+
+After a pipeline build the PDF renders branded: the unpacked
+`ike-doc-resources` theme (which carries the diff roles) and the unpacked
+fonts under `target/fonts`. A bare run without those directories falls back to
+the bundled defaults — legible, unbranded. Diagram blocks inside marked topics
+render as source listings in this goal's output; full diagram fidelity comes
+from the regular pipeline render of a packet wired as a doc module.
+
+### IntelliJ
+
+The goal appears under each doc module's Maven Plugins node once the parent
+manages docs ≥ 74.
+
 ## Design rationale — why classifier, not custom packaging
 
 The shape above (path-conditional activation, `pom` packaging for
