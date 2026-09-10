@@ -666,175 +666,154 @@ class ReleaseSupportTest {
         assertThat(restored).isEmpty();
     }
 
-    // ── bakeAliasIndirections / unbakeAliasIndirections (#527) ───────
+    // ── findMissingAliasIndirections (#1094) ─────────────────────────
 
-    @Test
-    void bakeAliasIndirections_addsIndirectionForEachAliasShortName(
-            @TempDir Path tmpDir) throws Exception {
-        writePom(tmpDir, """
+    private static final String ALIAS_SOURCE_POM = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <project xmlns="http://maven.apache.org/POM/4.0.0">
+                <modelVersion>4.0.0</modelVersion>
+                <groupId>network.ike</groupId>
+                <artifactId>ike-base-parent</artifactId>
+                <version>16</version>
+                <properties>
+                    <network.ike__GA__ike-base-parent__VERSION>16</network.ike__GA__ike-base-parent__VERSION>
+                    <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
+                    <org.junit.jupiter__GA__junit-jupiter__VERSION>6.0.0</org.junit.jupiter__GA__junit-jupiter__VERSION>
+                    <org.junit.jupiter__GA__junit-jupiter__ALIAS>junit-jupiter.version,junit.version</org.junit.jupiter__GA__junit-jupiter__ALIAS>
+                </properties>
+            </project>
+            """;
+
+    private static void writeConsumerPom(Path gitRoot, String artifactId, String version,
+                                         String properties) throws IOException {
+        Path dir = gitRoot.resolve("target/project-local-repo/network.ike/" + artifactId + "/" + version);
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve(artifactId + "-" + version + "-consumer.pom"), """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <project xmlns="http://maven.apache.org/POM/4.0.0">
                     <modelVersion>4.0.0</modelVersion>
                     <groupId>network.ike</groupId>
-                    <artifactId>ike-base-parent</artifactId>
-                    <version>15-SNAPSHOT</version>
+                    <artifactId>%s</artifactId>
+                    <version>%s</version>
                     <properties>
-                        <network.ike__GA__ike-base-parent__VERSION>15-SNAPSHOT</network.ike__GA__ike-base-parent__VERSION>
-                        <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
+                %s
                     </properties>
                 </project>
-                """);
-
-        TestLog log = new TestLog();
-        List<File> modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
-
-        assertThat(modified).hasSize(1);
-        String content = Files.readString(modified.get(0).toPath(), StandardCharsets.UTF_8);
-        assertThat(content)
-                .contains("<ike-base-parent.version>"
-                        + "${network.ike__GA__ike-base-parent__VERSION}"
-                        + "</ike-base-parent.version>");
+                """.formatted(artifactId, version, properties), StandardCharsets.UTF_8);
     }
 
     @Test
-    void bakeAliasIndirections_handlesMultipleCommaSeparatedAliases(
+    void findMissingAliasIndirections_emptyWhenConsumerPomCarriesEveryAlias(
             @TempDir Path tmpDir) throws Exception {
-        writePom(tmpDir, """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                    <modelVersion>4.0.0</modelVersion>
-                    <groupId>org.example</groupId>
-                    <artifactId>test</artifactId>
-                    <version>1</version>
-                    <properties>
-                        <org.junit.jupiter__GA__junit-jupiter__VERSION>6.0.0</org.junit.jupiter__GA__junit-jupiter__VERSION>
-                        <org.junit.jupiter__GA__junit-jupiter__ALIAS>junit-jupiter.version,junit.version</org.junit.jupiter__GA__junit-jupiter__ALIAS>
-                    </properties>
-                </project>
-                """);
-
-        TestLog log = new TestLog();
-        List<File> modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
-
-        assertThat(modified).hasSize(1);
-        String content = Files.readString(modified.get(0).toPath(), StandardCharsets.UTF_8);
-        assertThat(content)
-                .contains("<junit-jupiter.version>"
-                        + "${org.junit.jupiter__GA__junit-jupiter__VERSION}"
-                        + "</junit-jupiter.version>")
-                .contains("<junit.version>"
-                        + "${org.junit.jupiter__GA__junit-jupiter__VERSION}"
-                        + "</junit.version>");
-    }
-
-    @Test
-    void bakeAliasIndirections_noOp_whenNoAliasDeclarations(
-            @TempDir Path tmpDir) throws Exception {
-        writePom(tmpDir, """
-                <project>
-                    <version>1</version>
-                    <properties>
-                        <some-other.version>2</some-other.version>
-                    </properties>
-                </project>
-                """);
-
-        TestLog log = new TestLog();
-        List<File> modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
-
-        assertThat(modified).isEmpty();
-    }
-
-    @Test
-    void bakeAliasIndirections_skipsAlreadyDeclaredIndirections(
-            @TempDir Path tmpDir) throws Exception {
-        // A project that already has a hand-written indirection should
-        // not be modified by bake (idempotent).
-        writePom(tmpDir, """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                    <modelVersion>4.0.0</modelVersion>
-                    <groupId>network.ike</groupId>
-                    <artifactId>ike-base-parent</artifactId>
-                    <version>15-SNAPSHOT</version>
-                    <properties>
-                        <network.ike__GA__ike-base-parent__VERSION>15-SNAPSHOT</network.ike__GA__ike-base-parent__VERSION>
-                        <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
+        writePom(tmpDir, ALIAS_SOURCE_POM);
+        writeConsumerPom(tmpDir, "ike-base-parent", "16", """
                         <ike-base-parent.version>${network.ike__GA__ike-base-parent__VERSION}</ike-base-parent.version>
-                    </properties>
-                </project>
-                """);
+                        <junit-jupiter.version>${org.junit.jupiter__GA__junit-jupiter__VERSION}</junit-jupiter.version>
+                        <junit.version>${org.junit.jupiter__GA__junit-jupiter__VERSION}</junit.version>""");
 
-        TestLog log = new TestLog();
-        List<File> modified = ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
-
-        assertThat(modified).isEmpty();
+        assertThat(ReleaseSupport.findMissingAliasIndirections(tmpDir.toFile(), "16")).isEmpty();
     }
 
     @Test
-    void unbakeAliasIndirections_removesGeneratedIndirections(
+    void findMissingAliasIndirections_namesEachShortNameAbsentFromConsumerPom(
             @TempDir Path tmpDir) throws Exception {
-        // Bake first, then unbake — should round-trip.
-        String source = """
+        writePom(tmpDir, ALIAS_SOURCE_POM);
+        writeConsumerPom(tmpDir, "ike-base-parent", "16", """
+                        <ike-base-parent.version>${network.ike__GA__ike-base-parent__VERSION}</ike-base-parent.version>""");
+
+        List<ReleaseSupport.AliasIndirectionGap> gaps =
+                ReleaseSupport.findMissingAliasIndirections(tmpDir.toFile(), "16");
+
+        assertThat(gaps).hasSize(2);
+        assertThat(gaps).extracting(ReleaseSupport.AliasIndirectionGap::shortName)
+                .containsExactly("junit-jupiter.version", "junit.version");
+        assertThat(gaps).extracting(ReleaseSupport.AliasIndirectionGap::kind)
+                .containsOnly(ReleaseSupport.AliasIndirectionGapKind.INDIRECTION_MISSING);
+        assertThat(gaps.get(0).describe())
+                .contains("pom.xml")
+                .contains("<junit-jupiter.version> is missing")
+                .contains("${org.junit.jupiter__GA__junit-jupiter__VERSION}");
+    }
+
+    @Test
+    void findMissingAliasIndirections_reportsIndirectionPointingElsewhere(
+            @TempDir Path tmpDir) throws Exception {
+        writePom(tmpDir, ALIAS_SOURCE_POM);
+        writeConsumerPom(tmpDir, "ike-base-parent", "16", """
+                        <ike-base-parent.version>15</ike-base-parent.version>
+                        <junit-jupiter.version>${org.junit.jupiter__GA__junit-jupiter__VERSION}</junit-jupiter.version>
+                        <junit.version>${org.junit.jupiter__GA__junit-jupiter__VERSION}</junit.version>""");
+
+        List<ReleaseSupport.AliasIndirectionGap> gaps =
+                ReleaseSupport.findMissingAliasIndirections(tmpDir.toFile(), "16");
+
+        assertThat(gaps).hasSize(1);
+        ReleaseSupport.AliasIndirectionGap gap = gaps.get(0);
+        assertThat(gap.kind()).isEqualTo(ReleaseSupport.AliasIndirectionGapKind.INDIRECTION_WRONG_VALUE);
+        assertThat(gap.shortName()).isEqualTo("ike-base-parent.version");
+        assertThat(gap.actual()).isEqualTo("15");
+        assertThat(gap.describe()).contains("is 15, expected ${network.ike__GA__ike-base-parent__VERSION}");
+    }
+
+    @Test
+    void findMissingAliasIndirections_reportsModuleWithoutConsumerPom(
+            @TempDir Path tmpDir) throws Exception {
+        writePom(tmpDir, ALIAS_SOURCE_POM);
+        // No target/project-local-repo at all — the install never produced one.
+
+        List<ReleaseSupport.AliasIndirectionGap> gaps =
+                ReleaseSupport.findMissingAliasIndirections(tmpDir.toFile(), "16");
+
+        assertThat(gaps).hasSize(1);
+        ReleaseSupport.AliasIndirectionGap gap = gaps.get(0);
+        assertThat(gap.kind()).isEqualTo(ReleaseSupport.AliasIndirectionGapKind.CONSUMER_POM_MISSING);
+        assertThat(gap.artifactId()).isEqualTo("ike-base-parent");
+        assertThat(gap.describe()).contains("no consumer POM in target/project-local-repo");
+    }
+
+    @Test
+    void findMissingAliasIndirections_ignoresPomsWithoutAliasDeclarations(
+            @TempDir Path tmpDir) throws Exception {
+        writePom(tmpDir, """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <project xmlns="http://maven.apache.org/POM/4.0.0">
                     <modelVersion>4.0.0</modelVersion>
                     <groupId>network.ike</groupId>
-                    <artifactId>ike-base-parent</artifactId>
-                    <version>15-SNAPSHOT</version>
+                    <artifactId>plain</artifactId>
+                    <version>1</version>
                     <properties>
-                        <network.ike__GA__ike-base-parent__VERSION>15-SNAPSHOT</network.ike__GA__ike-base-parent__VERSION>
-                        <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
+                        <junit.version>6.0.0</junit.version>
                     </properties>
                 </project>
-                """;
-        writePom(tmpDir, source);
+                """);
+        // No project-local repo either: nothing to check, nothing to refuse.
 
-        TestLog log = new TestLog();
-        ReleaseSupport.bakeAliasIndirections(tmpDir.toFile(), log);
-        Path pom = tmpDir.resolve("pom.xml");
-        String afterBake = Files.readString(pom, StandardCharsets.UTF_8);
-        assertThat(afterBake).contains("<ike-base-parent.version>");
-
-        List<File> unbaked = ReleaseSupport.unbakeAliasIndirections(tmpDir.toFile(), log);
-        assertThat(unbaked).hasSize(1);
-        String afterUnbake = Files.readString(pom, StandardCharsets.UTF_8);
-        assertThat(afterUnbake).doesNotContain("<ike-base-parent.version>");
-        assertThat(afterUnbake)
-                .contains("<network.ike__GA__ike-base-parent__VERSION>")
-                .contains("<network.ike__GA__ike-base-parent__ALIAS>");
+        assertThat(ReleaseSupport.findMissingAliasIndirections(tmpDir.toFile(), "1")).isEmpty();
     }
 
     @Test
-    void unbakeAliasIndirections_leavesHandWrittenIndirectionsAlone(
+    void findMissingAliasIndirections_doesNotExpectShortNameTheSourcePomDeclaresItself(
             @TempDir Path tmpDir) throws Exception {
-        // An indirection whose value differs from the expected
-        // canonical reference is hand-written; unbake must not
-        // touch it.
         writePom(tmpDir, """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <project xmlns="http://maven.apache.org/POM/4.0.0">
                     <modelVersion>4.0.0</modelVersion>
                     <groupId>network.ike</groupId>
                     <artifactId>ike-base-parent</artifactId>
-                    <version>15-SNAPSHOT</version>
+                    <version>16</version>
                     <properties>
-                        <network.ike__GA__ike-base-parent__VERSION>15-SNAPSHOT</network.ike__GA__ike-base-parent__VERSION>
+                        <network.ike__GA__ike-base-parent__VERSION>16</network.ike__GA__ike-base-parent__VERSION>
                         <network.ike__GA__ike-base-parent__ALIAS>ike-base-parent.version</network.ike__GA__ike-base-parent__ALIAS>
                         <ike-base-parent.version>14</ike-base-parent.version>
                     </properties>
                 </project>
                 """);
+        // The author's own literal passes through the extension untouched,
+        // so the consumer POM carrying that literal is the correct outcome.
+        writeConsumerPom(tmpDir, "ike-base-parent", "16", """
+                        <ike-base-parent.version>14</ike-base-parent.version>""");
 
-        TestLog log = new TestLog();
-        List<File> modified = ReleaseSupport.unbakeAliasIndirections(tmpDir.toFile(), log);
-
-        // Value "14" doesn't match the expected canonical reference,
-        // so unbake leaves it alone.
-        assertThat(modified).isEmpty();
-        Path pom = tmpDir.resolve("pom.xml");
-        String content = Files.readString(pom, StandardCharsets.UTF_8);
-        assertThat(content).contains("<ike-base-parent.version>14</ike-base-parent.version>");
+        assertThat(ReleaseSupport.findMissingAliasIndirections(tmpDir.toFile(), "16")).isEmpty();
     }
 
     // ── routeSubprocessLine ─────────────────────────────────────────

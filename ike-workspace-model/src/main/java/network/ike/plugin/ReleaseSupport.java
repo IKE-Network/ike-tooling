@@ -864,172 +864,166 @@ public class ReleaseSupport {
     }
 
     /**
-     * Bake {@code __ALIAS}-driven indirections into all POM files
-     * under the git root. For each property whose name ends in
-     * {@code __ALIAS} (carrying a comma-separated list of legacy
-     * short-name aliases), generates and adds a corresponding
-     * indirection property {@code <short>${G__GA__A__VERSION}</short>}
-     * to the same POM — unless the property is already declared.
-     *
-     * <p>This is the release-time materialization step: source poms
-     * declare the alias relationship via {@code __ALIAS} metadata
-     * only; the actual indirection lines (required for Maven
-     * property resolution) are added by release-publish to the
-     * tagged source pom, then removed by
-     * {@link #unbakeAliasIndirections} after the tag. See
-     * IKE-Network/ike-issues#527.
-     *
-     * @param gitRoot the git repository root directory
-     * @param log     Maven logger
-     * @return the list of POM files that were modified
-     * @throws MojoException if a file cannot be read or written
+     * Why a consumer POM can fall short of its source POM's
+     * {@code __ALIAS} declarations.
      */
-    public static List<File> bakeAliasIndirections(File gitRoot, Log log)
-            throws MojoException {
-        List<File> pomFiles = findPomFiles(gitRoot);
-        List<File> modified = new ArrayList<>();
-        String aliasSuffix = TypedMarker.ALIAS.token();
-        String versionSuffix = TypedMarker.VERSION.token();
-
-        for (File pom : pomFiles) {
-            try {
-                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);
-                Map<String, String> properties = PomRewriter.listProperties(content);
-                Map<String, String> indirectionsToAdd = new LinkedHashMap<>();
-
-                for (Map.Entry<String, String> entry : properties.entrySet()) {
-                    String name = entry.getKey();
-                    if (!name.endsWith(aliasSuffix)) {
-                        continue;
-                    }
-                    // <G>__GA__<A>__ALIAS → <G>__GA__<A>
-                    String coordPrefix = name.substring(0,
-                            name.length() - aliasSuffix.length());
-                    String canonical = coordPrefix + versionSuffix;
-                    String reference = "${" + canonical + "}";
-
-                    String aliasValue = entry.getValue();
-                    if (aliasValue == null || aliasValue.isBlank()) {
-                        continue;
-                    }
-                    for (String shortName : aliasValue.split(",")) {
-                        String trimmed = shortName.trim();
-                        if (trimmed.isEmpty() || properties.containsKey(trimmed)) {
-                            continue;
-                        }
-                        indirectionsToAdd.put(trimmed, reference);
-                    }
-                }
-
-                if (indirectionsToAdd.isEmpty()) {
-                    continue;
-                }
-
-                String updated = content;
-                for (Map.Entry<String, String> e : indirectionsToAdd.entrySet()) {
-                    updated = PomRewriter.addProperty(updated, e.getKey(), e.getValue());
-                }
-
-                if (updated.equals(content)) {
-                    continue;
-                }
-
-                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);
-                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();
-                log.info("  Baked " + indirectionsToAdd.size() + " indirection"
-                        + (indirectionsToAdd.size() == 1 ? "" : "s") + " in " + rel);
-                modified.add(pom);
-            } catch (IOException e) {
-                throw new MojoException(
-                        "Failed to bake __ALIAS indirections in " + pom, e);
-            }
-        }
-        return modified;
+    public enum AliasIndirectionGapKind {
+        /** No consumer POM for the module exists in the project-local repository. */
+        CONSUMER_POM_MISSING,
+        /** The short name is not declared in the consumer POM at all. */
+        INDIRECTION_MISSING,
+        /** The short name is declared but does not reference the canonical pin. */
+        INDIRECTION_WRONG_VALUE
     }
 
     /**
-     * Unbake {@code __ALIAS}-driven indirections from all POM files
-     * under the git root — the inverse of
-     * {@link #bakeAliasIndirections}. For each property whose name
-     * ends in {@code __ALIAS}, removes any corresponding indirection
-     * property whose value exactly matches the expected canonical
-     * reference {@code ${G__GA__A__VERSION}}. Indirection lines with
-     * different values (e.g. project-local hand-written ones) are
-     * left alone.
+     * One shortfall between a source POM's {@code __ALIAS} declarations
+     * and the consumer POM Maven produced for it.
      *
-     * <p>This is the post-tag removal step: after the release tag
-     * captures the baked state, the source pom is restored to its
-     * declarative-only form for the SNAPSHOT cycle. See
-     * IKE-Network/ike-issues#527.
+     * @param kind       what is wrong
+     * @param pomPath    the source POM, relative to the git root
+     * @param artifactId the module's artifactId
+     * @param shortName  the alias short name concerned; {@code null}
+     *                   when the consumer POM itself is missing
+     * @param expected   the canonical reference the short name must
+     *                   carry; {@code null} when the consumer POM is
+     *                   missing
+     * @param actual     the value found, or {@code null}
+     */
+    public record AliasIndirectionGap(AliasIndirectionGapKind kind,
+                                      String pomPath,
+                                      String artifactId,
+                                      String shortName,
+                                      String expected,
+                                      String actual) {
+
+        /**
+         * One line naming this gap, for a release refusal message.
+         *
+         * @return the description
+         */
+        public String describe() {
+            return switch (kind) {
+                case CONSUMER_POM_MISSING -> pomPath + " (" + artifactId
+                        + "): no consumer POM in target/project-local-repo";
+                case INDIRECTION_MISSING -> pomPath + ": <" + shortName
+                        + "> is missing (expected " + expected + ")";
+                case INDIRECTION_WRONG_VALUE -> pomPath + ": <" + shortName
+                        + "> is " + actual + ", expected " + expected;
+            };
+        }
+    }
+
+    /**
+     * Checks that every {@code __ALIAS} short name declared in a source
+     * POM under {@code gitRoot} reached that module's consumer POM as a
+     * {@code <short>${G__GA__A__VERSION}</short>} indirection.
+     *
+     * <p>Source POMs declare aliases as metadata only; the indirection
+     * lines are injected by {@code ike-version-management-extension}
+     * while Maven builds the consumer POM (IKE-Network/ike-issues#1094).
+     * Nothing in the release flow writes them. This check reads what the
+     * first {@code install} of the release actually produced — the
+     * {@code <artifactId>-<version>-consumer.pom} under
+     * {@code target/project-local-repo} — so a repository that declares
+     * aliases without registering the extension is refused rather than
+     * deployed with a POM its consumers cannot resolve against.
+     *
+     * <p>A short name the source POM already declares itself is not
+     * expected as an indirection: the author's value stands, as the
+     * extension leaves it alone too.
      *
      * @param gitRoot the git repository root directory
-     * @param log     Maven logger
-     * @return the list of POM files that were modified
-     * @throws MojoException if a file cannot be read or written
+     * @param version the version the consumer POMs were installed at
+     * @return every gap found; empty when all declared aliases are
+     *         present, or when no POM declares any
+     * @throws MojoException if a POM cannot be read
      */
-    public static List<File> unbakeAliasIndirections(File gitRoot, Log log)
+    public static List<AliasIndirectionGap> findMissingAliasIndirections(File gitRoot,
+                                                                         String version)
             throws MojoException {
-        List<File> pomFiles = findPomFiles(gitRoot);
-        List<File> modified = new ArrayList<>();
         String aliasSuffix = TypedMarker.ALIAS.token();
         String versionSuffix = TypedMarker.VERSION.token();
+        Path localRepo = gitRoot.toPath().resolve("target").resolve("project-local-repo");
+        List<AliasIndirectionGap> gaps = new ArrayList<>();
 
-        for (File pom : pomFiles) {
+        for (File pom : findPomFiles(gitRoot)) {
+            String content;
             try {
-                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);
-                Map<String, String> properties = PomRewriter.listProperties(content);
-                List<String> indirectionsToRemove = new ArrayList<>();
-
-                for (Map.Entry<String, String> entry : properties.entrySet()) {
-                    String name = entry.getKey();
-                    if (!name.endsWith(aliasSuffix)) {
-                        continue;
-                    }
-                    String coordPrefix = name.substring(0,
-                            name.length() - aliasSuffix.length());
-                    String canonical = coordPrefix + versionSuffix;
-                    String expectedReference = "${" + canonical + "}";
-
-                    String aliasValue = entry.getValue();
-                    if (aliasValue == null || aliasValue.isBlank()) {
-                        continue;
-                    }
-                    for (String shortName : aliasValue.split(",")) {
-                        String trimmed = shortName.trim();
-                        if (trimmed.isEmpty()) {
-                            continue;
-                        }
-                        String currentValue = properties.get(trimmed);
-                        if (expectedReference.equals(currentValue)) {
-                            indirectionsToRemove.add(trimmed);
-                        }
-                    }
-                }
-
-                if (indirectionsToRemove.isEmpty()) {
-                    continue;
-                }
-
-                String updated = content;
-                for (String name : indirectionsToRemove) {
-                    updated = PomRewriter.removeProperty(updated, name);
-                }
-
-                if (updated.equals(content)) {
-                    continue;
-                }
-
-                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);
-                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();
-                log.info("  Unbaked " + indirectionsToRemove.size() + " indirection"
-                        + (indirectionsToRemove.size() == 1 ? "" : "s") + " in " + rel);
-                modified.add(pom);
+                content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);
             } catch (IOException e) {
-                throw new MojoException(
-                        "Failed to unbake __ALIAS indirections in " + pom, e);
+                throw new MojoException("Failed to read " + pom, e);
+            }
+            Map<String, String> declared = PomRewriter.listProperties(content);
+            Map<String, String> expected = new LinkedHashMap<>();
+            for (Map.Entry<String, String> entry : declared.entrySet()) {
+                String name = entry.getKey();
+                String aliasValue = entry.getValue();
+                if (!name.endsWith(aliasSuffix) || aliasValue == null || aliasValue.isBlank()) {
+                    continue;
+                }
+                String canonical = name.substring(0, name.length() - aliasSuffix.length())
+                        + versionSuffix;
+                for (String shortName : aliasValue.split(",")) {
+                    String trimmed = shortName.trim();
+                    if (trimmed.isEmpty() || declared.containsKey(trimmed)) {
+                        continue;
+                    }
+                    expected.put(trimmed, "${" + canonical + "}");
+                }
+            }
+            if (expected.isEmpty()) {
+                continue;
+            }
+
+            String pomPath = gitRoot.toPath().relativize(pom.toPath()).toString();
+            String artifactId = readModel(pom).getArtifactId();
+            File consumerPom = findConsumerPom(localRepo, artifactId, version);
+            if (consumerPom == null) {
+                gaps.add(new AliasIndirectionGap(AliasIndirectionGapKind.CONSUMER_POM_MISSING,
+                        pomPath, artifactId, null, null, null));
+                continue;
+            }
+            Map<String, String> actual;
+            try {
+                actual = PomRewriter.listProperties(
+                        Files.readString(consumerPom.toPath(), StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                throw new MojoException("Failed to read " + consumerPom, e);
+            }
+            for (Map.Entry<String, String> e : expected.entrySet()) {
+                String value = actual.get(e.getKey());
+                if (value == null) {
+                    gaps.add(new AliasIndirectionGap(AliasIndirectionGapKind.INDIRECTION_MISSING,
+                            pomPath, artifactId, e.getKey(), e.getValue(), null));
+                } else if (!value.equals(e.getValue())) {
+                    gaps.add(new AliasIndirectionGap(AliasIndirectionGapKind.INDIRECTION_WRONG_VALUE,
+                            pomPath, artifactId, e.getKey(), e.getValue(), value));
+                }
             }
         }
-        return modified;
+        return gaps;
+    }
+
+    /**
+     * Locates {@code <artifactId>-<version>-consumer.pom} anywhere under
+     * the project-local repository, or {@code null} when the repository
+     * or the file does not exist.
+     */
+    private static File findConsumerPom(Path localRepo, String artifactId, String version)
+            throws MojoException {
+        if (!Files.isDirectory(localRepo)) {
+            return null;
+        }
+        String fileName = artifactId + "-" + version + "-consumer.pom";
+        try (Stream<Path> walk = Files.walk(localRepo)) {
+            return walk.filter(p -> p.getFileName().toString().equals(fileName))
+                    .map(Path::toFile)
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException e) {
+            throw new MojoException("Failed to scan " + localRepo, e);
+        }
     }
 
     /**

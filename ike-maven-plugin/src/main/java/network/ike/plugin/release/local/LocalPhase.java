@@ -17,6 +17,7 @@ import java.util.List;
  *   <li>B13 — cut {@code release/<version>} branch from main</li>
  *   <li>B14 — replace project-version refs, scan for surviving SNAPSHOTs</li>
  *   <li>B15 — first {@code mvn clean install} (Maven 4 consumer POM flatten + local install)</li>
+ *   <li>B15a — verify the installed consumer POMs carry every {@code __ALIAS} indirection</li>
  *   <li>B16 — pre-flight site build (catches javadoc errors before tag)</li>
  *   <li>B17 — release commit on {@code release/<version>}</li>
  *   <li>B18 — {@code git tag v<version>} — the irreversibility boundary</li>
@@ -68,11 +69,10 @@ public final class LocalPhase {
         List<File> resolvedPoms = cutBranchAndSetVersion(
                 input, releaseVersion, releaseBranch, rootPom);
 
-        List<File> bakedPoms = bakeIndirections();
-
         firstInstall();
+        verifyAliasIndirections(releaseVersion);
         preflightSite(input.oldVersion());
-        commitAndTag(resolvedPoms, bakedPoms, releaseVersion);
+        commitAndTag(resolvedPoms, releaseVersion);
         restoreReferences();
         mergeToMain(releaseBranch, releaseVersion);
         postBump(rootPom, nextVersion, releaseBranch);
@@ -235,12 +235,10 @@ public final class LocalPhase {
      * irreversibility boundary of the local phase.
      */
     private void commitAndTag(List<File> resolvedPoms,
-                               List<File> bakedPoms,
                                String releaseVersion) {
         File gitRoot = ctx.gitRoot();
         ReleaseSupport.exec(gitRoot, ctx.log(), "git", "add", "pom.xml");
         ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), resolvedPoms);
-        ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), bakedPoms);
         ReleaseSupport.exec(gitRoot, ctx.log(),
                 "git", "commit", "-m",
                 "release: set version to " + releaseVersion);
@@ -251,47 +249,61 @@ public final class LocalPhase {
     }
 
     /**
-     * Bakes {@code __ALIAS}-driven indirections into all POM files
-     * before the release tag (IKE-Network/ike-issues#527). Source
-     * poms declare the alias relationship via {@code __ALIAS}
-     * metadata only; this step materializes the corresponding
-     * {@code <short>${G__GA__A__VERSION}</short>} indirections into
-     * the tagged source pom so descendants without vm-ext can
-     * resolve legacy short-name references via Maven inheritance.
-     * {@link #restoreReferences} removes them after the tag.
+     * B15a — refuses the release when a consumer POM installed by B15
+     * lacks an {@code __ALIAS} short-name indirection its source POM
+     * declares.
      *
-     * @return the list of POM files modified by indirection bake
+     * <p>The indirections are injected by
+     * {@code ike-version-management-extension} while Maven builds the
+     * consumer POM (IKE-Network/ike-issues#1094); nothing in the release
+     * flow writes them. A repository that declares aliases but does not
+     * register the extension would otherwise deploy a POM its consumers
+     * cannot resolve against. Skipped with {@code skipVerify}, since no
+     * install ran.
+     *
+     * @param releaseVersion the version B15 installed
+     * @throws MojoException naming every missing indirection
      */
-    private List<File> bakeIndirections() {
-        File gitRoot = ctx.gitRoot();
-        ctx.log().info("Baking __ALIAS indirections:");
-        return ReleaseSupport.bakeAliasIndirections(gitRoot, ctx.log());
+    private void verifyAliasIndirections(String releaseVersion) {
+        if (ctx.request().skipVerify()) {
+            ctx.log().info("Skipping __ALIAS indirection check (-DskipVerify=true)");
+            return;
+        }
+        List<ReleaseSupport.AliasIndirectionGap> gaps =
+                ReleaseSupport.findMissingAliasIndirections(ctx.gitRoot(), releaseVersion);
+        if (gaps.isEmpty()) {
+            ctx.log().info("__ALIAS indirections present in installed consumer POMs.");
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        message.append(gaps.size()).append(" __ALIAS indirection")
+                .append(gaps.size() == 1 ? "" : "s")
+                .append(" declared in source POMs did not reach the consumer POM"
+                        + " Maven installed for this release:\n");
+        for (ReleaseSupport.AliasIndirectionGap gap : gaps) {
+            message.append("  ").append(gap.describe()).append('\n');
+        }
+        message.append("  Consumer POMs receive these lines from"
+                + " ike-version-management-extension at build time.\n"
+                + "  Register it in this repository's .mvn/extensions.xml"
+                + " (IKE-Network/ike-issues#1094) and re-run the release.");
+        throw new MojoException(message.toString());
     }
 
     /**
      * B19a — restores {@code ${project.version}} references that
-     * B14 substituted and removes the {@code __ALIAS} indirections
-     * that B14b baked (IKE-Network/ike-issues#527), then commits
-     * the restore on the release branch. The tag created by B18
-     * stays on the release commit (above this restore-commit), not
-     * on the restored commit.
+     * B14 substituted, then commits the restore on the release
+     * branch. The tag created by B18 stays on the release commit
+     * (above this restore-commit), not on the restored commit.
      */
     private void restoreReferences() {
         File gitRoot = ctx.gitRoot();
         ctx.log().info("Restoring ${project.version} references:");
         List<File> restoredPoms = ReleaseSupport.restoreBackups(gitRoot, ctx.log());
-        ctx.log().info("Unbaking __ALIAS indirections:");
-        List<File> unbakedPoms = ReleaseSupport.unbakeAliasIndirections(
-                gitRoot, ctx.log());
-        if (restoredPoms.isEmpty() && unbakedPoms.isEmpty()) {
+        if (restoredPoms.isEmpty()) {
             return;
         }
-        if (!restoredPoms.isEmpty()) {
-            ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), restoredPoms);
-        }
-        if (!unbakedPoms.isEmpty()) {
-            ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), unbakedPoms);
-        }
+        ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), restoredPoms);
         ReleaseSupport.exec(gitRoot, ctx.log(),
                 "git", "commit", "-m",
                 "release: restore source pom state");
