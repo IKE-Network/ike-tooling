@@ -163,12 +163,33 @@ public final class SiblingRepositoryKeyResolver
     private static Path gitRoot(Path start) {
         Path cursor = start;
         while (cursor != null) {
-            if (Files.exists(cursor.resolve(".git"))) {
+            if (hasGitEntry(cursor)) {
                 return cursor;
             }
             cursor = cursor.getParent();
         }
         return null;
+    }
+
+    /**
+     * Whether {@code dir} holds a real git entry: a {@code .git}
+     * directory with a {@code HEAD} inside it, or a {@code .git} file —
+     * the gitdir pointer a worktree or submodule carries. An empty
+     * {@code .git} directory is a husk a Syncthing-synced tree can carry
+     * in a subproject, and reading it as a repository root would give
+     * that subproject its own cascade key. Matches
+     * {@code VersionManagementTransformer.hasGitEntry} in
+     * ike-version-management-extension (IKE-Network/ike-issues#1094).
+     *
+     * @param dir the directory to test
+     * @return {@code true} when {@code dir} is a repository root
+     */
+    static boolean hasGitEntry(Path dir) {
+        Path git = dir.resolve(".git");
+        if (Files.isRegularFile(git)) {
+            return true;
+        }
+        return Files.isDirectory(git) && Files.exists(git.resolve("HEAD"));
     }
 
     private final Map<Path, RepositoryKey> repoKeyCache =

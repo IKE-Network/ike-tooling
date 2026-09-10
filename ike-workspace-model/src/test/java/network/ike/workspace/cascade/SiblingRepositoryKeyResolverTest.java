@@ -25,7 +25,7 @@ class SiblingRepositoryKeyResolverTest {
         // siblings/ike-tooling/pom.xml — declares <scm> and coords
         Path siblings = tmp.resolve("siblings");
         Path repo = siblings.resolve("ike-tooling");
-        Files.createDirectories(repo.resolve(".git"));
+        markGitRoot(repo);
         writePom(repo, "network.ike.tooling", "ike-tooling",
                 "https://github.com/IKE-Network/ike-tooling");
 
@@ -46,7 +46,7 @@ class SiblingRepositoryKeyResolverTest {
         // siblings/ike-tooling/ike-build-standards/pom.xml — no <scm>
         Path siblings = tmp.resolve("siblings");
         Path repo = siblings.resolve("ike-tooling");
-        Files.createDirectories(repo.resolve(".git"));
+        markGitRoot(repo);
         writePom(repo, "network.ike.tooling", "ike-tooling",
                 "https://github.com/IKE-Network/ike-tooling");
         Path sub = repo.resolve("ike-build-standards");
@@ -74,12 +74,12 @@ class SiblingRepositoryKeyResolverTest {
         Path siblings = tmp.resolve("siblings");
 
         Path tooling = siblings.resolve("ike-tooling");
-        Files.createDirectories(tooling.resolve(".git"));
+        markGitRoot(tooling);
         writePom(tooling, "network.ike.tooling", "ike-tooling",
                 "https://github.com/IKE-Network/ike-tooling");
 
         Path docs = siblings.resolve("ike-docs");
-        Files.createDirectories(docs.resolve(".git"));
+        markGitRoot(docs);
         writePom(docs, "network.ike.docs", "ike-docs",
                 "https://github.com/IKE-Network/ike-docs");
 
@@ -107,12 +107,12 @@ class SiblingRepositoryKeyResolverTest {
         Path siblings = tmp.resolve("siblings");
 
         Path outer = siblings.resolve("workspace-reactor-example");
-        Files.createDirectories(outer.resolve(".git"));
+        markGitRoot(outer);
         writePom(outer, "network.ike.examples", "workspace-reactor-example",
                 "https://github.com/IKE-Network/workspace-reactor-example");
 
         Path inner = outer.resolve("doc-example");
-        Files.createDirectories(inner.resolve(".git"));
+        markGitRoot(inner);
         writePom(inner, "network.ike.examples", "doc-example",
                 "https://github.com/IKE-Network/doc-example");
 
@@ -134,7 +134,7 @@ class SiblingRepositoryKeyResolverTest {
             throws IOException {
         Path siblings = tmp.resolve("siblings");
         Path repo = siblings.resolve("ike-tooling");
-        Files.createDirectories(repo.resolve(".git"));
+        markGitRoot(repo);
         writePom(repo, "network.ike.tooling", "ike-tooling",
                 "https://github.com/IKE-Network/ike-tooling");
 
@@ -158,7 +158,7 @@ class SiblingRepositoryKeyResolverTest {
             throws IOException {
         Path siblings = tmp.resolve("siblings");
         Path repo = siblings.resolve("ike-tooling");
-        Files.createDirectories(repo.resolve(".git"));
+        markGitRoot(repo);
         // Root POM declares coordinates but no <scm>.
         Files.writeString(repo.resolve("pom.xml"), """
                 <project>
@@ -181,7 +181,7 @@ class SiblingRepositoryKeyResolverTest {
             throws IOException {
         Path siblings = tmp.resolve("siblings");
         Path repo = siblings.resolve("ike-tooling");
-        Files.createDirectories(repo.resolve(".git"));
+        markGitRoot(repo);
         Files.writeString(repo.resolve("pom.xml"), """
                 <project>
                     <modelVersion>4.0.0</modelVersion>
@@ -207,7 +207,7 @@ class SiblingRepositoryKeyResolverTest {
             @TempDir Path tmp) throws IOException {
         Path siblings = tmp.resolve("siblings");
         Path repo = siblings.resolve("ike-tooling");
-        Files.createDirectories(repo.resolve(".git"));
+        markGitRoot(repo);
         writePom(repo, "network.ike.tooling", "ike-tooling",
                 "https://github.com/IKE-Network/ike-tooling");
         // Subproject omits <groupId> and inherits from <parent>.
@@ -241,7 +241,7 @@ class SiblingRepositoryKeyResolverTest {
         // build outputs that may contain stale copies of POMs.
         Path siblings = tmp.resolve("siblings");
         Path repo = siblings.resolve("ike-tooling");
-        Files.createDirectories(repo.resolve(".git"));
+        markGitRoot(repo);
         writePom(repo, "network.ike.tooling", "ike-tooling",
                 "https://github.com/IKE-Network/ike-tooling");
 
@@ -308,5 +308,39 @@ class SiblingRepositoryKeyResolverTest {
                 </project>
                 """.formatted(groupId, artifactId),
                 StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Fabricates a real git entry — {@code .git/HEAD} — so the resolver
+     * reads {@code dir} as a repository root. An empty {@code .git}
+     * directory would be treated as a husk (#1094).
+     */
+    private static void markGitRoot(Path dir) throws java.io.IOException {
+        Path git = dir.resolve(".git");
+        Files.createDirectories(git);
+        Files.writeString(git.resolve("HEAD"), "ref: refs/heads/main\n");
+    }
+
+    @org.junit.jupiter.api.Test
+    void empty_git_directory_is_a_husk_not_a_root(@TempDir Path tmp) throws Exception {
+        // siblings/ike-tooling is the real root; its subproject carries an
+        // empty .git husk left behind by a synced tree. The subproject
+        // must still inherit the root's repository key.
+        Path siblings = tmp.resolve("siblings");
+        Path repo = siblings.resolve("ike-tooling");
+        markGitRoot(repo);
+        writePom(repo, "network.ike.tooling", "ike-tooling",
+                "https://github.com/IKE-Network/ike-tooling");
+        Path sub = repo.resolve("ike-build-standards");
+        Files.createDirectories(sub.resolve(".git")); // husk: no HEAD inside
+        writeSubPom(sub, "network.ike.tooling", "ike-build-standards");
+
+        SiblingRepositoryKeyResolver resolver =
+                new SiblingRepositoryKeyResolver(siblings);
+
+        assertThat(resolver.resolve("network.ike.tooling", "ike-build-standards"))
+                .get()
+                .extracting(RepositoryKey::url)
+                .isEqualTo("https://github.com/IKE-Network/ike-tooling");
     }
 }
