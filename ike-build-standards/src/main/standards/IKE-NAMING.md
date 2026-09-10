@@ -72,7 +72,7 @@ inherit, depend on, or extend — keep the `ike-` prefix:
 | `ike-base-parent` | 0 | Root parent POM for foundation artifacts. |
 | `ike-java-support` | 0 | Enforced-zero-dependency value types (`ConstantBackedEnum`, `EnumDefinition`, `ReleasePolicy`). |
 | `ike-workspace-extension` | 0 | Maven 4 build extension consumed via `.mvn/extensions.xml`. |
-| `ike-version-management-extension` | 0 | Maven 4 build extension implementing the `${G·A}` version convention and release-policy validation. |
+| `ike-version-management-extension` | 0 | Maven 4 build extension enforcing the `${G__GA__A__VERSION}` typed-marker version convention: alias injection, unresolved-reference and typo checks, release-policy validation, reactor-root `<scm>`. |
 | `ike-tooling` | 1 | Reactor: `ike-maven-plugin`, `ike-bom-tools`, `ike-build-standards`, … |
 | `ike-docs` | 1 | Reactor: `ike-doc-maven-plugin`, `ike-doc-resources`, fonts, DocBook XSL. |
 | `ike-platform` | 1 | Reactor: `ike-parent`, `ike-bom`, `ike-workspace-maven-plugin`. |

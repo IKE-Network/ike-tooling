@@ -204,13 +204,13 @@ The current foundation members and their edges:
 
 | Repo | Tier | Upstream | Downstream |
 |---|---|---|---|
-| `ike-base-parent` | Tier 0 (apex) | _none — parent-inheritance bumps are not yet cascade-tracked, see #462_ | (every inheritor — but no cascade edges today; declares the canonical `${G·A}` pins) |
+| `ike-base-parent` | Tier 0 (apex) | _none — parent-inheritance bumps are not yet cascade-tracked, see #462_ | (every inheritor — but no cascade edges today; declares the canonical `__VERSION` pins and `__ALIAS` metadata) |
 | `ike-java-support` | Tier 0 (head) | _none — `head: true`_ | `ike-version-management-extension` (via compile-scope dep) |
 | `ike-workspace-extension` | Tier 0 (head) | _none today; ike-base-parent inheritance pending #462_ | `ike-platform` |
 | `ike-version-management-extension` | Tier 0 (head) | _none cascade-tracked; consumes `ike-java-support` at compile_ | _none — `terminal: true`_ |
 | `ike-tooling` | Tier 1 (head) | _none in this column today; ike-base-parent inheritance pending #462_ | `ike-docs`, `ike-platform` |
-| `ike-docs` | Tier 1 | `ike-tooling` (via `${network.ike.tooling·ike-tooling}`) | `ike-platform` |
-| `ike-platform` | Tier 1 (terminal) | `ike-tooling`, `ike-docs`, `ike-workspace-extension` (all via canonical `${G·A}` pins) | _none — `terminal: true`_ |
+| `ike-docs` | Tier 1 | `ike-tooling` (via `${network.ike.tooling__GA__ike-tooling__VERSION}`) | `ike-platform` |
+| `ike-platform` | Tier 1 (terminal) | `ike-tooling`, `ike-docs`, `ike-workspace-extension` (all via canonical `${G__GA__A__VERSION}` pins) | _none — `terminal: true`_ |
 
 ### Adding a new foundation artifact
 

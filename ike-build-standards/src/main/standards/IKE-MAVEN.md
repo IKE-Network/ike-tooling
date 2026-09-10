@@ -153,10 +153,11 @@ IKE-specific behavior-flag properties use the `ike.` prefix:
 
 ### Version pins
 
-Properties that pin Maven artifact versions follow the GA-encoded
-convention: property name is `<groupId·artifactId>` (U+00B7 MIDDLE
-DOT separator), value is the version. See `IKE-VERSIONS.md` for
-the full standard, rationale, migration policy, and alias rules.
+Properties that pin Maven artifact versions follow the typed-marker
+convention: property name is `<groupId>__GA__<artifactId>__VERSION`,
+value is the version; `__POLICY` and `__ALIAS` are the other facets.
+See `IKE-VERSIONS.md` for the full standard, rationale, migration
+policy, and alias rules.
 
 ## Version Strategy
 
