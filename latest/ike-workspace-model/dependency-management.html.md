@@ -1,6 +1,6 @@
 ---
-date_published: 2026-08-22
-date_modified: 2026-08-22
+date_published: 2026-09-16
+date_modified: 2026-09-16
 canonical_url: https://ike.network/ike-tooling/ike-workspace-model/dependency-management.html
 ---
 

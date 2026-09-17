@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KnowledgeServiceRunner.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KnowledgeServiceRunner.java</span></div><h1>KnowledgeServiceRunner.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.knowledge.spi.IkeServiceBootstrap;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+
+/**
+ * Runs a knowledge-pipeline service across the execution seam: writes the request
+ * properties file, launches {@code IkeServiceBootstrap} over the &lt;em&gt;project's&lt;/em&gt;
+ * runtime classpath, and reads back the result properties. The plugin stays free of any
+ * store engine — the implementation arrives as a use-site (or parent-default) dependency
+ * and is resolved by ServiceLoader inside the seam.
+ *
+ * &lt;p&gt;Forked by default: the engine's store lifecycle is JVM-global (a second start in
+ * one JVM fails), reasoner runs are heap-heavy, and a fork survives anything the
+ * implementation does short of misbehaving hardware. Child output streams live; any
+ * non-zero exit fails the build. The in-process mode exists for debugging — same
+ * classpath, same bootstrap, no process boundary.
+ *
+ * &lt;p&gt;The child inherits {@code --enable-preview} when the Maven JVM runs with it, so
+ * preview-compiled engine classes load in the fork exactly as they do in the build.
+ */
+final class KnowledgeServiceRunner {
+
+    private final Log log;
+
+    /**
+     * Creates a runner logging through the given mojo log.
+     *
+     * @param log the mojo's log
+     */
+<span class="nc" id="L47">    KnowledgeServiceRunner(Log log) {</span>
+<span class="nc" id="L48">        this.log = log;</span>
+<span class="nc" id="L49">    }</span>
+
+    /**
+     * Executes one service invocation across the seam.
+     *
+     * @param serviceInterfaceName the SPI service interface's fully qualified name
+     * @param request              the request properties (the record's wire form)
+     * @param classpath            the seam classpath: the project's runtime dependency
+     *                             paths plus its classes directory
+     * @param workDirectory        where the request and result files are written
+     * @param fork                 fork a child JVM (the default posture) or run
+     *                             in-process for debugging
+     * @param jvmArguments         extra child-JVM arguments (fork only)
+     * @return the result properties
+     * @throws MojoException if the seam cannot be launched, the child exits non-zero,
+     *                       or the result cannot be read
+     */
+    Properties run(String serviceInterfaceName, Properties request, List&lt;Path&gt; classpath,
+                   Path workDirectory, boolean fork, List&lt;String&gt; jvmArguments) {
+        try {
+<span class="nc" id="L69">            Files.createDirectories(workDirectory);</span>
+<span class="nc" id="L70">            String stem = serviceInterfaceName.substring(serviceInterfaceName.lastIndexOf('.') + 1);</span>
+<span class="nc" id="L71">            Path requestFile = workDirectory.resolve(stem + &quot;-request.properties&quot;);</span>
+<span class="nc" id="L72">            Path resultFile = workDirectory.resolve(stem + &quot;-result.properties&quot;);</span>
+<span class="nc" id="L73">            try (var out = Files.newOutputStream(requestFile)) {</span>
+<span class="nc" id="L74">                request.store(out, serviceInterfaceName + &quot; request&quot;);</span>
+            }
+<span class="nc" id="L76">            Files.deleteIfExists(resultFile);</span>
+
+<span class="nc bnc" id="L78" title="All 2 branches missed.">            if (fork) {</span>
+<span class="nc" id="L79">                runForked(serviceInterfaceName, classpath, requestFile, resultFile, jvmArguments);</span>
+            } else {
+<span class="nc" id="L81">                runInProcess(serviceInterfaceName, classpath, requestFile, resultFile);</span>
+            }
+
+<span class="nc" id="L84">            Properties result = new Properties();</span>
+<span class="nc" id="L85">            try (InputStream in = Files.newInputStream(resultFile)) {</span>
+<span class="nc" id="L86">                result.load(in);</span>
+            }
+<span class="nc" id="L88">            return result;</span>
+<span class="nc" id="L89">        } catch (IOException e) {</span>
+<span class="nc" id="L90">            throw new MojoException(&quot;Knowledge service seam I/O failed&quot;, e);</span>
+        }
+    }
+
+    private void runForked(String serviceInterfaceName, List&lt;Path&gt; classpath,
+                           Path requestFile, Path resultFile, List&lt;String&gt; jvmArguments) {
+<span class="nc" id="L96">        List&lt;String&gt; command = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L97">        command.add(Path.of(System.getProperty(&quot;java.home&quot;), &quot;bin&quot;, &quot;java&quot;).toString());</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (ManagementFactory.getRuntimeMXBean().getInputArguments().contains(&quot;--enable-preview&quot;)) {</span>
+<span class="nc" id="L99">            command.add(&quot;--enable-preview&quot;);</span>
+        }
+<span class="nc" id="L101">        command.addAll(jvmArguments);</span>
+<span class="nc" id="L102">        command.add(&quot;-cp&quot;);</span>
+<span class="nc" id="L103">        command.add(String.join(java.io.File.pathSeparator,</span>
+<span class="nc" id="L104">                classpath.stream().map(Path::toString).toList()));</span>
+<span class="nc" id="L105">        command.add(IkeServiceBootstrap.class.getName());</span>
+<span class="nc" id="L106">        command.add(serviceInterfaceName);</span>
+<span class="nc" id="L107">        command.add(requestFile.toString());</span>
+<span class="nc" id="L108">        command.add(resultFile.toString());</span>
+
+        try {
+<span class="nc" id="L111">            Process child = new ProcessBuilder(command).redirectErrorStream(true).start();</span>
+<span class="nc" id="L112">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="nc" id="L113">                    new InputStreamReader(child.getInputStream(), StandardCharsets.UTF_8))) {</span>
+<span class="nc" id="L114">                String line = reader.readLine();</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">                while (line != null) {</span>
+<span class="nc" id="L116">                    log.info(&quot;[seam] &quot; + line);</span>
+<span class="nc" id="L117">                    line = reader.readLine();</span>
+                }
+            }
+<span class="nc" id="L120">            int exit = child.waitFor();</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">            if (exit != 0) {</span>
+<span class="nc" id="L122">                throw new MojoException(&quot;Knowledge service &quot; + serviceInterfaceName</span>
+                        + &quot; failed in the forked seam (exit &quot; + exit + &quot;) — see the [seam] log&quot;
+                        + &quot; above; if the service was not found, declare the implementation&quot;
+                        + &quot; dependency (ike-knowledge-provider) at the use site or rely on the&quot;
+                        + &quot; parent default&quot;);
+            }
+<span class="nc" id="L128">        } catch (IOException e) {</span>
+<span class="nc" id="L129">            throw new MojoException(&quot;Cannot launch the knowledge service fork&quot;, e);</span>
+<span class="nc" id="L130">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L131">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L132">            throw new MojoException(&quot;Interrupted waiting for the knowledge service fork&quot;, e);</span>
+<span class="nc" id="L133">        }</span>
+<span class="nc" id="L134">    }</span>
+
+    private void runInProcess(String serviceInterfaceName, List&lt;Path&gt; classpath,
+                              Path requestFile, Path resultFile) {
+<span class="nc" id="L138">        List&lt;URL&gt; urls = new ArrayList&lt;&gt;();</span>
+        try {
+<span class="nc bnc" id="L140" title="All 2 branches missed.">            for (Path path : classpath) {</span>
+<span class="nc" id="L141">                urls.add(path.toUri().toURL());</span>
+<span class="nc" id="L142">            }</span>
+<span class="nc" id="L143">        } catch (Exception e) {</span>
+<span class="nc" id="L144">            throw new MojoException(&quot;Cannot assemble the in-process seam classpath&quot;, e);</span>
+<span class="nc" id="L145">        }</span>
+<span class="nc" id="L146">        ClassLoader originalContext = Thread.currentThread().getContextClassLoader();</span>
+<span class="nc" id="L147">        try (URLClassLoader loader = new URLClassLoader(&quot;ike-knowledge-seam&quot;,</span>
+<span class="nc" id="L148">                urls.toArray(new URL[0]), ClassLoader.getPlatformClassLoader())) {</span>
+<span class="nc" id="L149">            Thread.currentThread().setContextClassLoader(loader);</span>
+<span class="nc" id="L150">            Class&lt;?&gt; bootstrap = Class.forName(IkeServiceBootstrap.class.getName(), true, loader);</span>
+<span class="nc" id="L151">            Method main = bootstrap.getMethod(&quot;main&quot;, String[].class);</span>
+<span class="nc" id="L152">            main.invoke(null, (Object) new String[]{serviceInterfaceName,</span>
+<span class="nc" id="L153">                    requestFile.toString(), resultFile.toString()});</span>
+<span class="nc" id="L154">        } catch (java.lang.reflect.InvocationTargetException e) {</span>
+<span class="nc" id="L155">            throw new MojoException(&quot;Knowledge service &quot; + serviceInterfaceName</span>
+<span class="nc" id="L156">                    + &quot; failed in-process: &quot; + e.getCause().getMessage(), e.getCause());</span>
+<span class="nc" id="L157">        } catch (MojoException e) {</span>
+<span class="nc" id="L158">            throw e;</span>
+<span class="nc" id="L159">        } catch (Exception e) {</span>
+<span class="nc" id="L160">            throw new MojoException(&quot;Cannot run the knowledge service in-process&quot;, e);</span>
+        } finally {
+<span class="nc" id="L162">            Thread.currentThread().setContextClassLoader(originalContext);</span>
+        }
+<span class="nc" id="L164">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConsoleIkePrompter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin Support</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.support</a> &gt; <span class="el_source">ConsoleIkePrompter.java</span></div><h1>ConsoleIkePrompter.java</h1><pre class="source lang-java linenums">package network.ike.plugin.support;
+
+import org.apache.maven.api.plugin.Log;
+
+import java.io.BufferedReader;
+import java.io.Console;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+
+/**
+ * Environment-aware {@link IkePrompter} (IKE-Network/ike-issues#385).
+ *
+ * &lt;p&gt;Detects the input channel with {@link System#console()} and
+ * renders accordingly:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;&lt;b&gt;{@code System.console() != null}&lt;/b&gt; — a real terminal (a
+ *       shell, or IntelliJ's Terminal tool window). The label is
+ *       written and the input read through {@link Console}, so the
+ *       prompt renders &lt;em&gt;inline&lt;/em&gt; with the cursor.&lt;/li&gt;
+ *   &lt;li&gt;&lt;b&gt;{@code System.console() == null}&lt;/b&gt; — a piped runner
+ *       (IntelliJ's Maven tool window). The label is written through
+ *       the Maven {@link Log} — the one channel a piped IDE console
+ *       renders correctly and in order with {@code [INFO]} output —
+ *       and input is read from {@code System.in}. The label lands on
+ *       its own line: visible, ordered, answerable.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;The Maven 4 {@code Prompter} service is intentionally not used:
+ * it writes through JLine to raw file descriptors, uncoordinated with
+ * the logger, and misrenders in piped runners.
+ */
+public final class ConsoleIkePrompter implements IkePrompter {
+
+    private final Log log;
+    private final boolean interactive;
+    private BufferedReader pipedReader;
+
+    /**
+     * Creates a prompter.
+     *
+     * @param log         the Maven logger — used for the own-line
+     *                    label in the piped (non-console) case
+     * @param interactive whether Maven is in an interactive context;
+     *                    pass {@code false} for batch mode (the
+     *                    prompter then declines all prompts)
+     */
+<span class="nc" id="L51">    public ConsoleIkePrompter(Log log, boolean interactive) {</span>
+<span class="nc" id="L52">        this.log = log;</span>
+<span class="nc" id="L53">        this.interactive = interactive;</span>
+<span class="nc" id="L54">    }</span>
+
+    @Override
+    public boolean isInteractive() {
+<span class="nc" id="L58">        return interactive;</span>
+    }
+
+    @Override
+    public String prompt(String label) {
+<span class="nc bnc" id="L63" title="All 2 branches missed.">        if (!interactive) {</span>
+<span class="nc" id="L64">            return null;</span>
+        }
+<span class="nc" id="L66">        Console console = System.console();</span>
+        String line;
+<span class="nc bnc" id="L68" title="All 2 branches missed.">        if (console != null) {</span>
+            // Real terminal — inline prompt through the Console.
+<span class="nc" id="L70">            line = console.readLine(&quot;%s&quot;, label);</span>
+        } else {
+            // Piped runner — label through the logging channel,
+            // input from stdin (ike-issues#385).
+<span class="nc" id="L74">            log.info(label);</span>
+            try {
+<span class="nc" id="L76">                line = pipedReader().readLine();</span>
+<span class="nc" id="L77">            } catch (IOException e) {</span>
+<span class="nc" id="L78">                throw new UncheckedIOException(</span>
+                        &quot;Could not read input from System.in&quot;, e);
+<span class="nc" id="L80">            }</span>
+        }
+<span class="nc bnc" id="L82" title="All 4 branches missed.">        return (line == null || line.isBlank()) ? null : line.trim();</span>
+    }
+
+    @Override
+    public boolean confirm(String label, boolean defaultYes) {
+<span class="nc bnc" id="L87" title="All 2 branches missed.">        String suffix = defaultYes ? &quot; [Y/n]: &quot; : &quot; [y/N]: &quot;;</span>
+<span class="nc" id="L88">        String answer = prompt(label + suffix);</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">        if (answer == null) {</span>
+<span class="nc" id="L90">            return defaultYes;</span>
+        }
+<span class="nc bnc" id="L92" title="All 3 branches missed.">        return switch (answer.toLowerCase()) {</span>
+<span class="nc" id="L93">            case &quot;y&quot;, &quot;yes&quot; -&gt; true;</span>
+<span class="nc" id="L94">            case &quot;n&quot;, &quot;no&quot; -&gt; false;</span>
+<span class="nc" id="L95">            default -&gt; defaultYes;</span>
+        };
+    }
+
+    @Override
+    public String select(String label, List&lt;String&gt; options) {
+<span class="nc bnc" id="L101" title="All 4 branches missed.">        if (options == null || options.isEmpty()) {</span>
+<span class="nc" id="L102">            return null;</span>
+        }
+<span class="nc" id="L104">        log.info(label);</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        for (int i = 0; i &lt; options.size(); i++) {</span>
+<span class="nc" id="L106">            log.info(&quot;  &quot; + (i + 1) + &quot;) &quot; + options.get(i));</span>
+        }
+<span class="nc" id="L108">        String answer = prompt(&quot;Select [1-&quot; + options.size() + &quot;]: &quot;);</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">        if (answer == null) {</span>
+<span class="nc" id="L110">            return null;</span>
+        }
+        try {
+<span class="nc" id="L113">            int index = Integer.parseInt(answer.trim()) - 1;</span>
+<span class="nc bnc" id="L114" title="All 4 branches missed.">            return (index &gt;= 0 &amp;&amp; index &lt; options.size())</span>
+<span class="nc" id="L115">                    ? options.get(index) : null;</span>
+<span class="nc" id="L116">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L117">            return null;</span>
+        }
+    }
+
+    private BufferedReader pipedReader() {
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        if (pipedReader == null) {</span>
+<span class="nc" id="L123">            pipedReader = new BufferedReader(</span>
+                    new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        }
+<span class="nc" id="L126">        return pipedReader;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

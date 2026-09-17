@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReleaseContext.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release</a> &gt; <span class="el_source">ReleaseContext.java</span></div><h1>ReleaseContext.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release;
+
+import org.apache.maven.api.plugin.Log;
+
+import java.io.File;
+
+/**
+ * Per-invocation context carried through the release pipeline.
+ *
+ * &lt;p&gt;Bundles the resolved git root, Maven wrapper path, logger, and
+ * the {@link ReleaseRequest} (user-supplied inputs). Threaded through
+ * every release helper as a single parameter instead of positional
+ * {@code gitRoot}/{@code mvnw} arguments, so that downstream phase
+ * objects (FinalizePhase, NexusPhase, CentralPhase, ...) can be
+ * extracted with stable method signatures.
+ *
+ * &lt;p&gt;Two-stage construction: the context is built early in
+ * {@code runGoal()} with {@code mvnw} as {@code null} so that
+ * {@code ReleasePrep} (which doesn't need {@code mvnw}) can run
+ * against it. After {@code mvnw} is resolved, the mojo refines the
+ * context via {@link #withMvnw(File)} before any phase that does
+ * need the Maven wrapper runs (logAudit, LocalPhase, NexusPhase,
+ * CentralPhase, ...). Phases that don't need {@code mvnw} must not
+ * dereference it; those that do are guaranteed to run only after
+ * refinement.
+ *
+ * &lt;p&gt;Carved out of {@code ReleaseDraftMojo} during the Phase 4 P2
+ * prep commit (IKE-Network/ike-issues#489). Mutable per-invocation
+ * state (deploy attempt counts, async-spawn paths, etc.) lives on
+ * the {@code NexusOutcome} / {@code CentralOutcome} records on the
+ * mojo for now; a dedicated {@code ReleaseRunState} holder is
+ * introduced when the orchestrator lands.
+ *
+ * @param gitRoot the resolved git root for the project under release
+ * @param mvnw    the resolved {@code mvnw} wrapper script; {@code null}
+ *                until refined post-ReleasePrep via {@link #withMvnw(File)}
+ * @param log     the Maven plugin logger
+ * @param request the user-supplied release inputs
+ */
+<span class="fc" id="L40">public record ReleaseContext(File gitRoot, File mvnw, Log log, ReleaseRequest request) {</span>
+
+    /**
+     * Returns a copy of this context with {@code mvnw} replaced.
+     *
+     * &lt;p&gt;Used to refine the early-built ({@code mvnw == null}) context
+     * once the wrapper is resolved.
+     *
+     * @param mvnw the resolved Maven wrapper script
+     * @return a new {@code ReleaseContext} with the same {@code gitRoot},
+     *         {@code log}, and {@code request}, and the given {@code mvnw}
+     */
+    public ReleaseContext withMvnw(File mvnw) {
+<span class="fc" id="L53">        return new ReleaseContext(gitRoot, mvnw, log, request);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

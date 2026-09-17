@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AssembleResult.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">AssembleResult.java</span></div><h1>AssembleResult.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * What an assembly produced: per-input load summaries, the classification summary when
+ * classification ran, and the effective-view report the implementation wrote beside the
+ * store (every dimension fully resolved — the reproducibility record).
+ *
+ * @param loads               one summary per input artifact, in load order
+ * @param classification      the classification summary; empty when classification was
+ *                            skipped
+ * @param effectiveViewReport the effective-view report file, when the implementation
+ *                            produced one
+ * @param reasonedPbFile      the reasoned-protobuf export the assembly produced, when
+ *                            one was requested (IKE-Network/ike-issues#933)
+ */
+public record AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;ClassificationSummary&gt; classification,
+                             Optional&lt;Path&gt; effectiveViewReport, Optional&lt;Path&gt; reasonedPbFile) {
+
+    /**
+     * Validates and defensively copies the result.
+     *
+     * @param loads               one summary per input artifact, in load order
+     * @param classification      the classification summary
+     * @param effectiveViewReport the effective-view report file
+     * @throws NullPointerException if any component is null
+     */
+<span class="fc" id="L34">    public AssembleResult {</span>
+<span class="fc" id="L35">        loads = List.copyOf(Objects.requireNonNull(loads, &quot;loads&quot;));</span>
+<span class="fc" id="L36">        Objects.requireNonNull(classification, &quot;classification&quot;);</span>
+<span class="fc" id="L37">        Objects.requireNonNull(effectiveViewReport, &quot;effectiveViewReport&quot;);</span>
+<span class="fc" id="L38">        Objects.requireNonNull(reasonedPbFile, &quot;reasonedPbFile&quot;);</span>
+<span class="fc" id="L39">    }</span>
+
+    /**
+     * Creates a result without a reasoned-protobuf export — the pre-#933 shape, kept
+     * for source compatibility with existing callers.
+     *
+     * @param loads               one summary per input artifact, in load order
+     * @param classification      the classification summary
+     * @param effectiveViewReport the effective-view report file
+     */
+    public AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;ClassificationSummary&gt; classification,
+                          Optional&lt;Path&gt; effectiveViewReport) {
+<span class="fc" id="L51">        this(loads, classification, effectiveViewReport, Optional.empty());</span>
+<span class="fc" id="L52">    }</span>
+
+    /**
+     * Encodes this result in the seam wire format.
+     *
+     * @return the result properties
+     */
+    public Properties toProperties() {
+<span class="fc" id="L60">        Properties properties = new Properties();</span>
+<span class="fc bfc" id="L61" title="All 2 branches covered.">        for (int i = 0; i &lt; loads.size(); i++) {</span>
+<span class="fc" id="L62">            LoadSummary load = loads.get(i);</span>
+<span class="fc" id="L63">            PropCodec.put(properties, &quot;load.&quot; + (i + 1) + &quot;.artifact&quot;, load.artifact());</span>
+<span class="fc" id="L64">            PropCodec.putCounts(properties, &quot;load.&quot; + (i + 1) + &quot;.&quot;, load.counts());</span>
+        }
+<span class="fc" id="L66">        classification.ifPresent(summary -&gt; {</span>
+<span class="fc" id="L67">            PropCodec.put(properties, &quot;classification.service&quot;, summary.service());</span>
+<span class="fc" id="L68">            PropCodec.put(properties, &quot;classification.conceptCount&quot;, Long.toString(summary.conceptCount()));</span>
+<span class="fc" id="L69">            PropCodec.put(properties, &quot;classification.inferredChanges&quot;, Long.toString(summary.inferredChanges()));</span>
+<span class="fc" id="L70">            PropCodec.put(properties, &quot;classification.navigationChanges&quot;, Long.toString(summary.navigationChanges()));</span>
+<span class="fc" id="L71">            PropCodec.put(properties, &quot;classification.elapsedMillis&quot;, Long.toString(summary.elapsedMillis()));</span>
+<span class="fc" id="L72">        });</span>
+<span class="fc" id="L73">        PropCodec.putOptional(properties, &quot;effectiveViewReport&quot;, effectiveViewReport.map(Path::toString));</span>
+<span class="fc" id="L74">        PropCodec.putOptional(properties, &quot;reasonedPbFile&quot;, reasonedPbFile.map(Path::toString));</span>
+<span class="fc" id="L75">        return properties;</span>
+    }
+
+    /**
+     * Decodes a result from the seam wire format.
+     *
+     * @param properties the result properties
+     * @return the decoded result
+     * @throws IllegalArgumentException if present keys are malformed
+     */
+    public static AssembleResult fromProperties(Properties properties) {
+<span class="fc" id="L86">        int count = PropCodec.indexedCount(properties, &quot;load.&quot;, &quot;artifact&quot;);</span>
+<span class="fc" id="L87">        List&lt;LoadSummary&gt; loads = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L88" title="All 2 branches covered.">        for (int i = 1; i &lt;= count; i++) {</span>
+<span class="fc" id="L89">            loads.add(new LoadSummary(PropCodec.require(properties, &quot;load.&quot; + i + &quot;.artifact&quot;),</span>
+<span class="fc" id="L90">                    PropCodec.getCounts(properties, &quot;load.&quot; + i + &quot;.&quot;)));</span>
+        }
+<span class="fc" id="L92">        Optional&lt;ClassificationSummary&gt; classification =</span>
+<span class="fc" id="L93">                PropCodec.optional(properties, &quot;classification.service&quot;).map(service -&gt;</span>
+<span class="fc" id="L94">                        new ClassificationSummary(service,</span>
+<span class="fc" id="L95">                                PropCodec.requireLong(properties, &quot;classification.conceptCount&quot;),</span>
+<span class="fc" id="L96">                                PropCodec.requireLong(properties, &quot;classification.inferredChanges&quot;),</span>
+<span class="fc" id="L97">                                PropCodec.requireLong(properties, &quot;classification.navigationChanges&quot;),</span>
+<span class="fc" id="L98">                                PropCodec.requireLong(properties, &quot;classification.elapsedMillis&quot;)));</span>
+<span class="fc" id="L99">        return new AssembleResult(loads, classification,</span>
+<span class="fc" id="L100">                PropCodec.optionalPath(properties, &quot;effectiveViewReport&quot;),</span>
+<span class="fc" id="L101">                PropCodec.optionalPath(properties, &quot;reasonedPbFile&quot;));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

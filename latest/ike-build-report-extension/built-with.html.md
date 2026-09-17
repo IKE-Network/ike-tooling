@@ -1,12 +1,12 @@
 ---
-date_published: 2026-08-22
-date_modified: 2026-08-22
+date_published: 2026-09-16
+date_modified: 2026-09-16
 canonical_url: https://ike.network/ike-tooling/ike-build-report-extension/built-with.html
 ---
 
 # Built With
 
-Open-source software that `ike-build-report-extension` 253 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-build-report-extension` 254 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CentralStageMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">CentralStageMojo.java</span></div><h1>CentralStageMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import network.ike.plugin.release.central.CentralStaging;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * Finalize a Maven Central staging directory: prune the Maven 4
+ * {@code -build.pom} artifacts, swap generated BOMs over their staged
+ * stub POMs, re-sign, and verify (IKE-Network/ike-issues#853,
+ * IKE-Network/ike-issues#966).
+ *
+ * &lt;p&gt;Invoked by the async Central deploy sentinel script
+ * (IKE-Network/ike-issues#484) between its signed staging deploy and
+ * the JReleaser upload — always as a fully pinned
+ * {@code groupId:artifactId:version:central-stage} matching the plugin
+ * that rendered the script, never through the build's own plugin pin,
+ * which may lag one release behind (#966). The sync deploy path runs
+ * the same {@link CentralStaging} logic in-process without this goal.
+ *
+ * &lt;p&gt;Usage (as rendered into the sentinel script):
+ * &lt;pre&gt;
+ * mvn -N -B network.ike.tooling:ike-maven-plugin:242:central-stage \
+ *     -Dike.central.buildRoot=/path/to/worktree \
+ *     -Dike.central.stagingDir=/path/to/worktree/target/staging-deploy
+ * &lt;/pre&gt;
+ *
+ * &lt;p&gt;Fails (non-zero) when a swapped POM does not verify, so the
+ * sentinel script treats it as a retry-eligible cycle failure — a
+ * stub can no longer reach Central silently.
+ */
+@org.apache.maven.api.plugin.annotations.Mojo(
+        name = IkeGoal.NAME_CENTRAL_STAGE, projectRequired = false)
+public class CentralStageMojo implements Mojo {
+
+    /** Maven logger, injected by the plugin runtime. */
+    @Inject
+    Log log;
+
+    /** @return the injected Maven logger */
+<span class="nc" id="L49">    Log getLog() { return log; }</span>
+
+    /**
+     * The build root that produced the staged artifacts — the release
+     * worktree. Walked for {@code target/generated-bom.xml} outputs
+     * and must contain the {@code mvnw} wrapper used for the re-sign
+     * deploy.
+     */
+    @Parameter(property = &quot;ike.central.buildRoot&quot;, required = true)
+    String buildRoot;
+
+    /**
+     * The {@code staging-deploy} directory produced by the signed
+     * staging deploy — the bundle JReleaser uploads.
+     */
+    @Parameter(property = &quot;ike.central.stagingDir&quot;, required = true)
+    String stagingDir;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L68">    public CentralStageMojo() {}</span>
+
+    @Override
+    public void execute() {
+<span class="nc" id="L72">        Path root = requireDirectory(buildRoot, &quot;ike.central.buildRoot&quot;);</span>
+<span class="nc" id="L73">        Path staging = requireDirectory(stagingDir, &quot;ike.central.stagingDir&quot;);</span>
+<span class="nc" id="L74">        File mvnw = root.resolve(&quot;mvnw&quot;).toFile();</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        if (!mvnw.isFile()) {</span>
+<span class="nc" id="L76">            throw new MojoException(&quot;No mvnw wrapper at &quot; + mvnw</span>
+                    + &quot; — central-stage re-signs swapped BOMs through &quot;
+                    + &quot;the build root's own Maven wrapper&quot;);
+        }
+<span class="nc" id="L80">        CentralStaging.pruneBuildPoms(getLog(), staging);</span>
+<span class="nc" id="L81">        CentralStaging.swapGeneratedBoms(getLog(), root.toFile(), mvnw,</span>
+                staging);
+<span class="nc" id="L83">    }</span>
+
+    /**
+     * Resolves a required directory parameter, failing with the
+     * property name when it is absent or not a directory.
+     *
+     * @param value    the configured parameter value
+     * @param property the property name for the failure message
+     * @return the resolved directory path
+     * @throws MojoException when the value is not an existing directory
+     */
+    static Path requireDirectory(String value, String property) {
+<span class="fc" id="L95">        Path p = Paths.get(value);</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">        if (!Files.isDirectory(p)) {</span>
+<span class="fc" id="L97">            throw new MojoException(property + &quot;=&quot; + value</span>
+                    + &quot; is not an existing directory&quot;);
+        }
+<span class="fc" id="L100">        return p;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

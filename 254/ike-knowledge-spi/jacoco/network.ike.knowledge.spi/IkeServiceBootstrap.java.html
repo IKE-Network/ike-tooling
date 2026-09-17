@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IkeServiceBootstrap.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">IkeServiceBootstrap.java</span></div><h1>IkeServiceBootstrap.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * The generic forked-JVM entry point: resolves a knowledge service from the fork's
+ * classpath, materializes the typed request from a properties file, executes, and writes
+ * the typed result as a properties file. One bootstrap serves every service — the
+ * {@link KnowledgeService} codec bridge keeps it free of per-service knowledge.
+ *
+ * &lt;p&gt;Arguments: {@code &lt;serviceInterface&gt; &lt;requestFile&gt; &lt;resultFile&gt;}. The request file
+ * may carry the reserved top-level key {@code implementation} naming the implementation's
+ * simple class name when the classpath provides several.
+ *
+ * &lt;p&gt;Failure is signalled by throwing — the JVM exits non-zero and the invoking goal
+ * fails the build. Nothing here (and nothing in a well-behaved implementation) calls
+ * {@code System.exit}.
+ *
+ * &lt;p&gt;Resolution uses the context class loader — the {@code java -cp} fork this
+ * bootstrap is designed for. A module-path fork would additionally need the service
+ * bindings visible to the boot layer.
+ */
+public final class IkeServiceBootstrap {
+
+    /**
+     * The reserved top-level request key naming the implementation's simple class name
+     * when the classpath provides several. Goal-side writers use this constant; no
+     * request codec may use the key.
+     */
+    public static final String IMPLEMENTATION_KEY = &quot;implementation&quot;;
+
+    private IkeServiceBootstrap() {
+    }
+
+    /**
+     * Runs one service invocation.
+     *
+     * @param args {@code &lt;serviceInterface&gt; &lt;requestFile&gt; &lt;resultFile&gt;}
+     * @throws Exception if the arguments are invalid, the service or implementation
+     *                   cannot be resolved, the request is malformed, execution fails,
+     *                   or a file cannot be read or written
+     */
+    public static void main(String[] args) throws Exception {
+<span class="fc bfc" id="L50" title="All 2 branches covered.">        if (args.length != 3) {</span>
+<span class="fc" id="L51">            throw new IllegalArgumentException(</span>
+                    &quot;Usage: IkeServiceBootstrap &lt;serviceInterface&gt; &lt;requestFile&gt; &lt;resultFile&gt;&quot;);
+        }
+<span class="fc" id="L54">        Class&lt;?&gt; serviceInterface = Class.forName(args[0], true,</span>
+<span class="fc" id="L55">                Thread.currentThread().getContextClassLoader());</span>
+<span class="fc bfc" id="L56" title="All 2 branches covered.">        if (!KnowledgeService.class.isAssignableFrom(serviceInterface)) {</span>
+<span class="fc" id="L57">            throw new IllegalArgumentException(serviceInterface.getName()</span>
+<span class="fc" id="L58">                    + &quot; is not a &quot; + KnowledgeService.class.getName());</span>
+        }
+<span class="fc" id="L60">        Properties request = load(Path.of(args[1]));</span>
+<span class="fc" id="L61">        Optional&lt;String&gt; implementationName = PropCodec.optional(request, IMPLEMENTATION_KEY);</span>
+
+<span class="fc" id="L63">        Properties result = invoke(serviceInterface, implementationName, request);</span>
+
+<span class="fc" id="L65">        Path resultFile = Path.of(args[2]);</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        if (resultFile.toAbsolutePath().getParent() != null) {</span>
+<span class="fc" id="L67">            Files.createDirectories(resultFile.toAbsolutePath().getParent());</span>
+        }
+<span class="fc" id="L69">        try (OutputStream out = Files.newOutputStream(resultFile)) {</span>
+<span class="fc" id="L70">            result.store(out, serviceInterface.getSimpleName() + &quot; result&quot;);</span>
+        }
+<span class="fc" id="L72">    }</span>
+
+    /**
+     * Resolves and invokes the service — separated from {@link #main(String[])} so the
+     * mechanics are exercisable in-process.
+     *
+     * @param serviceInterface   the service interface to resolve
+     * @param implementationName the implementation selection, if any
+     * @param request            the request properties
+     * @return the result properties
+     */
+    @SuppressWarnings({&quot;unchecked&quot;, &quot;rawtypes&quot;})
+    static Properties invoke(Class&lt;?&gt; serviceInterface, Optional&lt;String&gt; implementationName,
+                             Properties request) {
+<span class="fc" id="L86">        KnowledgeService service = (KnowledgeService)</span>
+<span class="fc" id="L87">                KnowledgeServices.select(serviceInterface, implementationName);</span>
+<span class="fc" id="L88">        Object typedRequest = service.requestFromProperties(request);</span>
+<span class="fc" id="L89">        Object typedResult = service.execute(typedRequest);</span>
+<span class="fc" id="L90">        return service.resultToProperties(typedResult);</span>
+    }
+
+    private static Properties load(Path file) throws IOException {
+<span class="fc" id="L94">        Properties properties = new Properties();</span>
+<span class="fc" id="L95">        try (InputStream in = Files.newInputStream(file)) {</span>
+<span class="fc" id="L96">            properties.load(in);</span>
+        }
+<span class="fc" id="L98">        return properties;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

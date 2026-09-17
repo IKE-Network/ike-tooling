@@ -17,6 +17,7 @@ import java.util.List;
  *   &lt;li&gt;B13 — cut {@code release/&lt;version&gt;} branch from main&lt;/li&gt;
  *   &lt;li&gt;B14 — replace project-version refs, scan for surviving SNAPSHOTs&lt;/li&gt;
  *   &lt;li&gt;B15 — first {@code mvn clean install} (Maven 4 consumer POM flatten + local install)&lt;/li&gt;
+ *   &lt;li&gt;B15a — verify the installed consumer POMs carry every {@code __ALIAS} indirection&lt;/li&gt;
  *   &lt;li&gt;B16 — pre-flight site build (catches javadoc errors before tag)&lt;/li&gt;
  *   &lt;li&gt;B17 — release commit on {@code release/&lt;version&gt;}&lt;/li&gt;
  *   &lt;li&gt;B18 — {@code git tag v&lt;version&gt;} — the irreversibility boundary&lt;/li&gt;
@@ -42,9 +43,9 @@ public final class LocalPhase {
      *
      * @param ctx the per-invocation release context
      */
-<span class="fc" id="L45">    public LocalPhase(ReleaseContext ctx) {</span>
-<span class="fc" id="L46">        this.ctx = ctx;</span>
-<span class="fc" id="L47">    }</span>
+<span class="fc" id="L46">    public LocalPhase(ReleaseContext ctx) {</span>
+<span class="fc" id="L47">        this.ctx = ctx;</span>
+<span class="fc" id="L48">    }</span>
 
     /**
      * Executes the local release phase.
@@ -60,19 +61,18 @@ public final class LocalPhase {
      * @throws MojoException on any subprocess failure or surviving SNAPSHOT version
      */
     public LocalOutcome execute(LocalInput input) throws MojoException {
-<span class="fc" id="L63">        String releaseVersion = ctx.request().releaseVersion();</span>
-<span class="fc" id="L64">        String nextVersion = ctx.request().nextVersion();</span>
-<span class="fc" id="L65">        String releaseBranch = &quot;release/&quot; + releaseVersion;</span>
-<span class="fc" id="L66">        File rootPom = new File(ctx.gitRoot(), &quot;pom.xml&quot;);</span>
+<span class="fc" id="L64">        String releaseVersion = ctx.request().releaseVersion();</span>
+<span class="fc" id="L65">        String nextVersion = ctx.request().nextVersion();</span>
+<span class="fc" id="L66">        String releaseBranch = &quot;release/&quot; + releaseVersion;</span>
+<span class="fc" id="L67">        File rootPom = new File(ctx.gitRoot(), &quot;pom.xml&quot;);</span>
 
-<span class="fc" id="L68">        List&lt;File&gt; resolvedPoms = cutBranchAndSetVersion(</span>
+<span class="fc" id="L69">        List&lt;File&gt; resolvedPoms = cutBranchAndSetVersion(</span>
                 input, releaseVersion, releaseBranch, rootPom);
 
-<span class="fc" id="L71">        List&lt;File&gt; bakedPoms = bakeIndirections();</span>
-
-<span class="fc" id="L73">        firstInstall();</span>
+<span class="fc" id="L72">        firstInstall();</span>
+<span class="fc" id="L73">        verifyAliasIndirections(releaseVersion);</span>
 <span class="fc" id="L74">        preflightSite(input.oldVersion());</span>
-<span class="fc" id="L75">        commitAndTag(resolvedPoms, bakedPoms, releaseVersion);</span>
+<span class="fc" id="L75">        commitAndTag(resolvedPoms, releaseVersion);</span>
 <span class="fc" id="L76">        restoreReferences();</span>
 <span class="fc" id="L77">        mergeToMain(releaseBranch, releaseVersion);</span>
 <span class="fc" id="L78">        postBump(rootPom, nextVersion, releaseBranch);</span>
@@ -235,79 +235,91 @@ public final class LocalPhase {
      * irreversibility boundary of the local phase.
      */
     private void commitAndTag(List&lt;File&gt; resolvedPoms,
-                               List&lt;File&gt; bakedPoms,
                                String releaseVersion) {
-<span class="fc" id="L240">        File gitRoot = ctx.gitRoot();</span>
-<span class="fc" id="L241">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;add&quot;, &quot;pom.xml&quot;);</span>
-<span class="fc" id="L242">        ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), resolvedPoms);</span>
-<span class="fc" id="L243">        ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), bakedPoms);</span>
-<span class="fc" id="L244">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="fc" id="L239">        File gitRoot = ctx.gitRoot();</span>
+<span class="fc" id="L240">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;add&quot;, &quot;pom.xml&quot;);</span>
+<span class="fc" id="L241">        ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), resolvedPoms);</span>
+<span class="fc" id="L242">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                 &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,
                 &quot;release: set version to &quot; + releaseVersion);
 
-<span class="fc" id="L248">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="fc" id="L246">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                 &quot;git&quot;, &quot;tag&quot;, &quot;-a&quot;, &quot;v&quot; + releaseVersion,
                 &quot;-m&quot;, &quot;Release &quot; + releaseVersion);
-<span class="fc" id="L251">    }</span>
+<span class="fc" id="L249">    }</span>
 
     /**
-     * Bakes {@code __ALIAS}-driven indirections into all POM files
-     * before the release tag (IKE-Network/ike-issues#527). Source
-     * poms declare the alias relationship via {@code __ALIAS}
-     * metadata only; this step materializes the corresponding
-     * {@code &lt;short&gt;${G__GA__A__VERSION}&lt;/short&gt;} indirections into
-     * the tagged source pom so descendants without vm-ext can
-     * resolve legacy short-name references via Maven inheritance.
-     * {@link #restoreReferences} removes them after the tag.
+     * B15a — refuses the release when a consumer POM installed by B15
+     * lacks an {@code __ALIAS} short-name indirection its source POM
+     * declares.
      *
-     * @return the list of POM files modified by indirection bake
+     * &lt;p&gt;The indirections are injected by
+     * {@code ike-version-management-extension} while Maven builds the
+     * consumer POM (IKE-Network/ike-issues#1094); nothing in the release
+     * flow writes them. A repository that declares aliases but does not
+     * register the extension would otherwise deploy a POM its consumers
+     * cannot resolve against. Skipped with {@code skipVerify}, since no
+     * install ran.
+     *
+     * @param releaseVersion the version B15 installed
+     * @throws MojoException naming every missing indirection
      */
-    private List&lt;File&gt; bakeIndirections() {
-<span class="fc" id="L266">        File gitRoot = ctx.gitRoot();</span>
-<span class="fc" id="L267">        ctx.log().info(&quot;Baking __ALIAS indirections:&quot;);</span>
-<span class="fc" id="L268">        return ReleaseSupport.bakeAliasIndirections(gitRoot, ctx.log());</span>
+    private void verifyAliasIndirections(String releaseVersion) {
+<span class="pc bpc" id="L268" title="1 of 2 branches missed.">        if (ctx.request().skipVerify()) {</span>
+<span class="fc" id="L269">            ctx.log().info(&quot;Skipping __ALIAS indirection check (-DskipVerify=true)&quot;);</span>
+<span class="fc" id="L270">            return;</span>
+        }
+<span class="nc" id="L272">        List&lt;ReleaseSupport.AliasIndirectionGap&gt; gaps =</span>
+<span class="nc" id="L273">                ReleaseSupport.findMissingAliasIndirections(ctx.gitRoot(), releaseVersion);</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">        if (gaps.isEmpty()) {</span>
+<span class="nc" id="L275">            ctx.log().info(&quot;__ALIAS indirections present in installed consumer POMs.&quot;);</span>
+<span class="nc" id="L276">            return;</span>
+        }
+<span class="nc" id="L278">        StringBuilder message = new StringBuilder();</span>
+<span class="nc" id="L279">        message.append(gaps.size()).append(&quot; __ALIAS indirection&quot;)</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">                .append(gaps.size() == 1 ? &quot;&quot; : &quot;s&quot;)</span>
+<span class="nc" id="L281">                .append(&quot; declared in source POMs did not reach the consumer POM&quot;</span>
+                        + &quot; Maven installed for this release:\n&quot;);
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        for (ReleaseSupport.AliasIndirectionGap gap : gaps) {</span>
+<span class="nc" id="L284">            message.append(&quot;  &quot;).append(gap.describe()).append('\n');</span>
+<span class="nc" id="L285">        }</span>
+<span class="nc" id="L286">        message.append(&quot;  Consumer POMs receive these lines from&quot;</span>
+                + &quot; ike-version-management-extension at build time.\n&quot;
+                + &quot;  Register it in this repository's .mvn/extensions.xml&quot;
+                + &quot; (IKE-Network/ike-issues#1094) and re-run the release.&quot;);
+<span class="nc" id="L290">        throw new MojoException(message.toString());</span>
     }
 
     /**
      * B19a — restores {@code ${project.version}} references that
-     * B14 substituted and removes the {@code __ALIAS} indirections
-     * that B14b baked (IKE-Network/ike-issues#527), then commits
-     * the restore on the release branch. The tag created by B18
-     * stays on the release commit (above this restore-commit), not
-     * on the restored commit.
+     * B14 substituted, then commits the restore on the release
+     * branch. The tag created by B18 stays on the release commit
+     * (above this restore-commit), not on the restored commit.
      */
     private void restoreReferences() {
-<span class="fc" id="L280">        File gitRoot = ctx.gitRoot();</span>
-<span class="fc" id="L281">        ctx.log().info(&quot;Restoring ${project.version} references:&quot;);</span>
-<span class="fc" id="L282">        List&lt;File&gt; restoredPoms = ReleaseSupport.restoreBackups(gitRoot, ctx.log());</span>
-<span class="fc" id="L283">        ctx.log().info(&quot;Unbaking __ALIAS indirections:&quot;);</span>
-<span class="fc" id="L284">        List&lt;File&gt; unbakedPoms = ReleaseSupport.unbakeAliasIndirections(</span>
-<span class="fc" id="L285">                gitRoot, ctx.log());</span>
-<span class="pc bpc" id="L286" title="2 of 4 branches missed.">        if (restoredPoms.isEmpty() &amp;&amp; unbakedPoms.isEmpty()) {</span>
-<span class="fc" id="L287">            return;</span>
+<span class="fc" id="L300">        File gitRoot = ctx.gitRoot();</span>
+<span class="fc" id="L301">        ctx.log().info(&quot;Restoring ${project.version} references:&quot;);</span>
+<span class="fc" id="L302">        List&lt;File&gt; restoredPoms = ReleaseSupport.restoreBackups(gitRoot, ctx.log());</span>
+<span class="pc bpc" id="L303" title="1 of 2 branches missed.">        if (restoredPoms.isEmpty()) {</span>
+<span class="fc" id="L304">            return;</span>
         }
-<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (!restoredPoms.isEmpty()) {</span>
-<span class="nc" id="L290">            ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), restoredPoms);</span>
-        }
-<span class="nc bnc" id="L292" title="All 2 branches missed.">        if (!unbakedPoms.isEmpty()) {</span>
-<span class="nc" id="L293">            ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), unbakedPoms);</span>
-        }
-<span class="nc" id="L295">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L306">        ReleaseSupport.gitAddFiles(gitRoot, ctx.log(), restoredPoms);</span>
+<span class="nc" id="L307">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                 &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,
                 &quot;release: restore source pom state&quot;);
-<span class="nc" id="L298">    }</span>
+<span class="nc" id="L310">    }</span>
 
     /**
      * B19b — checks out {@code main} and merges
      * {@code release/&lt;version&gt;} with a no-fast-forward merge commit.
      */
     private void mergeToMain(String releaseBranch, String releaseVersion) {
-<span class="fc" id="L305">        File gitRoot = ctx.gitRoot();</span>
-<span class="fc" id="L306">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;checkout&quot;, &quot;main&quot;);</span>
-<span class="fc" id="L307">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="fc" id="L317">        File gitRoot = ctx.gitRoot();</span>
+<span class="fc" id="L318">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;checkout&quot;, &quot;main&quot;);</span>
+<span class="fc" id="L319">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                 &quot;git&quot;, &quot;merge&quot;, &quot;--no-ff&quot;, releaseBranch,
                 &quot;-m&quot;, &quot;merge: release &quot; + releaseVersion);
-<span class="fc" id="L310">    }</span>
+<span class="fc" id="L322">    }</span>
 
     /**
      * B19c — bumps the POM version to the next {@code -SNAPSHOT},
@@ -316,13 +328,13 @@ public final class LocalPhase {
      * and deletes the now-merged release branch.
      */
     private void postBump(File rootPom, String nextVersion, String releaseBranch) {
-<span class="fc" id="L319">        File gitRoot = ctx.gitRoot();</span>
-<span class="fc" id="L320">        ctx.log().info(&quot;&quot;);</span>
-<span class="fc" id="L321">        ctx.log().info(&quot;Bumping to next version: &quot; + nextVersion);</span>
+<span class="fc" id="L331">        File gitRoot = ctx.gitRoot();</span>
+<span class="fc" id="L332">        ctx.log().info(&quot;&quot;);</span>
+<span class="fc" id="L333">        ctx.log().info(&quot;Bumping to next version: &quot; + nextVersion);</span>
 
         // Re-read version after merge (it's the release version on main now)
-<span class="fc" id="L324">        String currentVersion = ReleaseSupport.readPomVersion(rootPom);</span>
-<span class="fc" id="L325">        ReleaseSupport.setPomVersion(rootPom, currentVersion, nextVersion);</span>
+<span class="fc" id="L336">        String currentVersion = ReleaseSupport.readPomVersion(rootPom);</span>
+<span class="fc" id="L337">        ReleaseSupport.setPomVersion(rootPom, currentVersion, nextVersion);</span>
 
         // Verify AND install the new SNAPSHOT (IKE-Network/ike-issues#486).
         // `install` (not just `verify`) puts the post-bump -SNAPSHOT in
@@ -330,16 +342,16 @@ public final class LocalPhase {
         // ike-maven-plugin to ${project.version} — can run the next
         // ike:* goal (or an ike:release-cascade walk to the next
         // member) without a manual `mvn install` first.
-<span class="fc" id="L333">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
-<span class="fc" id="L334">                ctx.mvnw().getAbsolutePath(), &quot;clean&quot;, &quot;install&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);</span>
+<span class="fc" id="L345">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="fc" id="L346">                ctx.mvnw().getAbsolutePath(), &quot;clean&quot;, &quot;install&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;);</span>
 
-<span class="fc" id="L336">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;add&quot;, &quot;pom.xml&quot;);</span>
-<span class="fc" id="L337">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="fc" id="L348">        ReleaseSupport.exec(gitRoot, ctx.log(), &quot;git&quot;, &quot;add&quot;, &quot;pom.xml&quot;);</span>
+<span class="fc" id="L349">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                 &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,
                 &quot;post-release: bump to &quot; + nextVersion);
 
-<span class="fc" id="L341">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="fc" id="L353">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
                 &quot;git&quot;, &quot;branch&quot;, &quot;-d&quot;, releaseBranch);
-<span class="fc" id="L343">    }</span>
+<span class="fc" id="L355">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

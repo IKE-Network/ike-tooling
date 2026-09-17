@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>StarterSetCreatePublishMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">StarterSetCreatePublishMojo.java</span></div><h1>StarterSetCreatePublishMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Genesis of a new starter-set project — the executing half of the
+ * {@code ike:starter-set-create-*} pair (IKE-Network/ike-issues#866): mints the set's
+ * permanent identity (unless supplied), materializes the five-module family from the
+ * standards templates, bootstrap-commits, and proves itself by building the generated
+ * project green before reporting success.
+ *
+ * &lt;p&gt;Run {@code ike:starter-set-create-draft} first — publish executes exactly what
+ * the draft showed. Genesis runs once: the target directory must not already exist.
+ *
+ * @since 235
+ */
+@Mojo(name = IkeGoal.NAME_STARTER_SET_CREATE_PUBLISH, projectRequired = false)
+public class StarterSetCreatePublishMojo extends StarterSetCreateParameters
+        implements org.apache.maven.api.plugin.Mojo {
+
+    /** Creates this goal instance. */
+<span class="fc" id="L52">    public StarterSetCreatePublishMojo() {}</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    @Inject
+    private Session session;
+
+    /**
+     * Skip the post-generation verification build (offline use); the generated
+     * project must then be built manually before first use.
+     */
+    @Parameter(property = &quot;skipVerify&quot;, defaultValue = &quot;false&quot;)
+    boolean skipVerify;
+
+    /**
+     * Mints, materializes, commits, and verifies the new starter-set project.
+     *
+     * @throws MojoException if the target exists, templates cannot be loaded, files
+     *                       cannot be written, or the verification build fails
+     */
+    @Override
+    public void execute() {
+<span class="nc" id="L75">        StarterSetPlan plan = plan(UUID.randomUUID().toString(), log, session);</span>
+<span class="nc" id="L76">        Map&lt;String, String&gt; templates = StarterSetCreateSupport.loadTemplates(session);</span>
+<span class="nc" id="L77">        Path target = targetDirectory(plan);</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (Files.exists(target)) {</span>
+<span class="nc" id="L79">            throw new MojoException(&quot;Genesis runs once — the target already exists: &quot; + target</span>
+                    + &quot;. Conformance of existing projects is the scaffold system's job.&quot;);
+        }
+
+<span class="nc" id="L83">        List&lt;String&gt; written = new ArrayList&lt;&gt;();</span>
+        try {
+<span class="nc bnc" id="L85" title="All 2 branches missed.">            for (Map.Entry&lt;String, String&gt; template : templates.entrySet()) {</span>
+<span class="nc" id="L86">                String relative = plan.targetPath(template.getKey());</span>
+<span class="nc" id="L87">                Path file = target.resolve(relative);</span>
+<span class="nc" id="L88">                Files.createDirectories(file.getParent());</span>
+<span class="nc" id="L89">                Files.writeString(file, plan.expand(template.getValue()), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L90">                written.add(relative);</span>
+<span class="nc" id="L91">            }</span>
+<span class="nc" id="L92">        } catch (IOException e) {</span>
+<span class="nc" id="L93">            throw new MojoException(&quot;Cannot materialize the starter-set project at &quot; + target, e);</span>
+<span class="nc" id="L94">        }</span>
+
+<span class="nc" id="L96">        run(target, &quot;git&quot;, &quot;init&quot;, &quot;-q&quot;, &quot;-b&quot;, &quot;main&quot;);</span>
+<span class="nc" id="L97">        List&lt;String&gt; add = new ArrayList&lt;&gt;(List.of(&quot;git&quot;, &quot;add&quot;));</span>
+<span class="nc" id="L98">        add.addAll(written);</span>
+<span class="nc" id="L99">        run(target, add.toArray(new String[0]));</span>
+<span class="nc" id="L100">        run(target, &quot;git&quot;, &quot;commit&quot;, &quot;-q&quot;, &quot;-m&quot;,</span>
+<span class="nc" id="L101">                &quot;Genesis of &quot; + plan.token(&quot;artifactRoot&quot;) + &quot; (&quot; + plan.token(&quot;setName&quot;) + &quot;)\n\n&quot;</span>
+                        + &quot;Generated by ike:starter-set-create-publish. Set identity (permanent):\n&quot;
+<span class="nc" id="L103">                        + plan.token(&quot;setUuid&quot;)</span>
+                        + &quot;\n\nRefs: IKE-Network/ike-issues#866&quot;);
+
+<span class="nc bnc" id="L106" title="All 2 branches missed.">        if (skipVerify) {</span>
+<span class="nc" id="L107">            log.warn(&quot;Verification build skipped (-DskipVerify) — build the project before first use.&quot;);</span>
+        } else {
+<span class="nc" id="L109">            log.info(&quot;Verifying the generated project (mvn test) ...&quot;);</span>
+<span class="nc" id="L110">            run(target, Path.of(System.getProperty(&quot;maven.home&quot;), &quot;bin&quot;, &quot;mvn&quot;).toString(),</span>
+                    &quot;test&quot;, &quot;-q&quot;);
+<span class="nc" id="L112">            log.info(&quot;Verification build green.&quot;);</span>
+        }
+
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        for (String line : StarterSetCreateSupport</span>
+<span class="nc" id="L116">                .report(plan, templates, target, false).split(&quot;\n&quot;)) {</span>
+<span class="nc" id="L117">            log.info(line);</span>
+        }
+<span class="nc" id="L119">        log.info(&quot;&quot;);</span>
+<span class="nc" id="L120">        log.info(&quot;SET IDENTITY MINTED (permanent, recorded in &quot; + plan.token(&quot;className&quot;)</span>
+<span class="nc" id="L121">                + &quot;.java): &quot; + plan.token(&quot;setUuid&quot;));</span>
+<span class="nc" id="L122">    }</span>
+
+    private void run(Path directory, String... command) {
+        try {
+<span class="nc" id="L126">            Process process = new ProcessBuilder(command)</span>
+<span class="nc" id="L127">                    .directory(directory.toFile())</span>
+<span class="nc" id="L128">                    .redirectErrorStream(true)</span>
+<span class="nc" id="L129">                    .start();</span>
+<span class="nc" id="L130">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="nc" id="L131">                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {</span>
+<span class="nc" id="L132">                String line = reader.readLine();</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">                while (line != null) {</span>
+<span class="nc" id="L134">                    log.info(&quot;[create] &quot; + line);</span>
+<span class="nc" id="L135">                    line = reader.readLine();</span>
+                }
+            }
+<span class="nc" id="L138">            int exit = process.waitFor();</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">            if (exit != 0) {</span>
+<span class="nc" id="L140">                throw new MojoException(&quot;Genesis step failed (exit &quot; + exit + &quot;): &quot;</span>
+<span class="nc" id="L141">                        + String.join(&quot; &quot;, command));</span>
+            }
+<span class="nc" id="L143">        } catch (IOException e) {</span>
+<span class="nc" id="L144">            throw new MojoException(&quot;Cannot run genesis step: &quot; + String.join(&quot; &quot;, command), e);</span>
+<span class="nc" id="L145">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L146">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L147">            throw new MojoException(&quot;Interrupted during genesis step&quot;, e);</span>
+<span class="nc" id="L148">        }</span>
+<span class="nc" id="L149">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

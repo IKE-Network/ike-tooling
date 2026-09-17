@@ -864,172 +864,166 @@ public class ReleaseSupport {
     }
 
     /**
-     * Bake {@code __ALIAS}-driven indirections into all POM files
-     * under the git root. For each property whose name ends in
-     * {@code __ALIAS} (carrying a comma-separated list of legacy
-     * short-name aliases), generates and adds a corresponding
-     * indirection property {@code &lt;short&gt;${G__GA__A__VERSION}&lt;/short&gt;}
-     * to the same POM — unless the property is already declared.
-     *
-     * &lt;p&gt;This is the release-time materialization step: source poms
-     * declare the alias relationship via {@code __ALIAS} metadata
-     * only; the actual indirection lines (required for Maven
-     * property resolution) are added by release-publish to the
-     * tagged source pom, then removed by
-     * {@link #unbakeAliasIndirections} after the tag. See
-     * IKE-Network/ike-issues#527.
-     *
-     * @param gitRoot the git repository root directory
-     * @param log     Maven logger
-     * @return the list of POM files that were modified
-     * @throws MojoException if a file cannot be read or written
+     * Why a consumer POM can fall short of its source POM's
+     * {@code __ALIAS} declarations.
      */
-    public static List&lt;File&gt; bakeAliasIndirections(File gitRoot, Log log)
-            throws MojoException {
-<span class="fc" id="L889">        List&lt;File&gt; pomFiles = findPomFiles(gitRoot);</span>
-<span class="fc" id="L890">        List&lt;File&gt; modified = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L891">        String aliasSuffix = TypedMarker.ALIAS.token();</span>
-<span class="fc" id="L892">        String versionSuffix = TypedMarker.VERSION.token();</span>
-
-<span class="fc bfc" id="L894" title="All 2 branches covered.">        for (File pom : pomFiles) {</span>
-            try {
-<span class="fc" id="L896">                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);</span>
-<span class="fc" id="L897">                Map&lt;String, String&gt; properties = PomRewriter.listProperties(content);</span>
-<span class="fc" id="L898">                Map&lt;String, String&gt; indirectionsToAdd = new LinkedHashMap&lt;&gt;();</span>
-
-<span class="fc bfc" id="L900" title="All 2 branches covered.">                for (Map.Entry&lt;String, String&gt; entry : properties.entrySet()) {</span>
-<span class="fc" id="L901">                    String name = entry.getKey();</span>
-<span class="fc bfc" id="L902" title="All 2 branches covered.">                    if (!name.endsWith(aliasSuffix)) {</span>
-<span class="fc" id="L903">                        continue;</span>
-                    }
-                    // &lt;G&gt;__GA__&lt;A&gt;__ALIAS → &lt;G&gt;__GA__&lt;A&gt;
-<span class="fc" id="L906">                    String coordPrefix = name.substring(0,</span>
-<span class="fc" id="L907">                            name.length() - aliasSuffix.length());</span>
-<span class="fc" id="L908">                    String canonical = coordPrefix + versionSuffix;</span>
-<span class="fc" id="L909">                    String reference = &quot;${&quot; + canonical + &quot;}&quot;;</span>
-
-<span class="fc" id="L911">                    String aliasValue = entry.getValue();</span>
-<span class="pc bpc" id="L912" title="2 of 4 branches missed.">                    if (aliasValue == null || aliasValue.isBlank()) {</span>
-<span class="nc" id="L913">                        continue;</span>
-                    }
-<span class="fc bfc" id="L915" title="All 2 branches covered.">                    for (String shortName : aliasValue.split(&quot;,&quot;)) {</span>
-<span class="fc" id="L916">                        String trimmed = shortName.trim();</span>
-<span class="pc bpc" id="L917" title="1 of 4 branches missed.">                        if (trimmed.isEmpty() || properties.containsKey(trimmed)) {</span>
-<span class="fc" id="L918">                            continue;</span>
-                        }
-<span class="fc" id="L920">                        indirectionsToAdd.put(trimmed, reference);</span>
-                    }
-<span class="fc" id="L922">                }</span>
-
-<span class="fc bfc" id="L924" title="All 2 branches covered.">                if (indirectionsToAdd.isEmpty()) {</span>
-<span class="fc" id="L925">                    continue;</span>
-                }
-
-<span class="fc" id="L928">                String updated = content;</span>
-<span class="fc bfc" id="L929" title="All 2 branches covered.">                for (Map.Entry&lt;String, String&gt; e : indirectionsToAdd.entrySet()) {</span>
-<span class="fc" id="L930">                    updated = PomRewriter.addProperty(updated, e.getKey(), e.getValue());</span>
-<span class="fc" id="L931">                }</span>
-
-<span class="pc bpc" id="L933" title="1 of 2 branches missed.">                if (updated.equals(content)) {</span>
-<span class="nc" id="L934">                    continue;</span>
-                }
-
-<span class="fc" id="L937">                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);</span>
-<span class="fc" id="L938">                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();</span>
-<span class="fc" id="L939">                log.info(&quot;  Baked &quot; + indirectionsToAdd.size() + &quot; indirection&quot;</span>
-<span class="fc bfc" id="L940" title="All 2 branches covered.">                        + (indirectionsToAdd.size() == 1 ? &quot;&quot; : &quot;s&quot;) + &quot; in &quot; + rel);</span>
-<span class="fc" id="L941">                modified.add(pom);</span>
-<span class="nc" id="L942">            } catch (IOException e) {</span>
-<span class="nc" id="L943">                throw new MojoException(</span>
-                        &quot;Failed to bake __ALIAS indirections in &quot; + pom, e);
-<span class="fc" id="L945">            }</span>
-<span class="fc" id="L946">        }</span>
-<span class="fc" id="L947">        return modified;</span>
+<span class="fc" id="L870">    public enum AliasIndirectionGapKind {</span>
+        /** No consumer POM for the module exists in the project-local repository. */
+<span class="fc" id="L872">        CONSUMER_POM_MISSING,</span>
+        /** The short name is not declared in the consumer POM at all. */
+<span class="fc" id="L874">        INDIRECTION_MISSING,</span>
+        /** The short name is declared but does not reference the canonical pin. */
+<span class="fc" id="L876">        INDIRECTION_WRONG_VALUE</span>
     }
 
     /**
-     * Unbake {@code __ALIAS}-driven indirections from all POM files
-     * under the git root — the inverse of
-     * {@link #bakeAliasIndirections}. For each property whose name
-     * ends in {@code __ALIAS}, removes any corresponding indirection
-     * property whose value exactly matches the expected canonical
-     * reference {@code ${G__GA__A__VERSION}}. Indirection lines with
-     * different values (e.g. project-local hand-written ones) are
-     * left alone.
+     * One shortfall between a source POM's {@code __ALIAS} declarations
+     * and the consumer POM Maven produced for it.
      *
-     * &lt;p&gt;This is the post-tag removal step: after the release tag
-     * captures the baked state, the source pom is restored to its
-     * declarative-only form for the SNAPSHOT cycle. See
-     * IKE-Network/ike-issues#527.
+     * @param kind       what is wrong
+     * @param pomPath    the source POM, relative to the git root
+     * @param artifactId the module's artifactId
+     * @param shortName  the alias short name concerned; {@code null}
+     *                   when the consumer POM itself is missing
+     * @param expected   the canonical reference the short name must
+     *                   carry; {@code null} when the consumer POM is
+     *                   missing
+     * @param actual     the value found, or {@code null}
+     */
+<span class="fc" id="L893">    public record AliasIndirectionGap(AliasIndirectionGapKind kind,</span>
+                                      String pomPath,
+                                      String artifactId,
+                                      String shortName,
+                                      String expected,
+                                      String actual) {
+
+        /**
+         * One line naming this gap, for a release refusal message.
+         *
+         * @return the description
+         */
+        public String describe() {
+<span class="fc bfc" id="L906" title="All 3 branches covered.">            return switch (kind) {</span>
+<span class="fc" id="L907">                case CONSUMER_POM_MISSING -&gt; pomPath + &quot; (&quot; + artifactId</span>
+                        + &quot;): no consumer POM in target/project-local-repo&quot;;
+<span class="fc" id="L909">                case INDIRECTION_MISSING -&gt; pomPath + &quot;: &lt;&quot; + shortName</span>
+                        + &quot;&gt; is missing (expected &quot; + expected + &quot;)&quot;;
+<span class="fc" id="L911">                case INDIRECTION_WRONG_VALUE -&gt; pomPath + &quot;: &lt;&quot; + shortName</span>
+                        + &quot;&gt; is &quot; + actual + &quot;, expected &quot; + expected;
+            };
+        }
+    }
+
+    /**
+     * Checks that every {@code __ALIAS} short name declared in a source
+     * POM under {@code gitRoot} reached that module's consumer POM as a
+     * {@code &lt;short&gt;${G__GA__A__VERSION}&lt;/short&gt;} indirection.
+     *
+     * &lt;p&gt;Source POMs declare aliases as metadata only; the indirection
+     * lines are injected by {@code ike-version-management-extension}
+     * while Maven builds the consumer POM (IKE-Network/ike-issues#1094).
+     * Nothing in the release flow writes them. This check reads what the
+     * first {@code install} of the release actually produced — the
+     * {@code &lt;artifactId&gt;-&lt;version&gt;-consumer.pom} under
+     * {@code target/project-local-repo} — so a repository that declares
+     * aliases without registering the extension is refused rather than
+     * deployed with a POM its consumers cannot resolve against.
+     *
+     * &lt;p&gt;A short name the source POM already declares itself is not
+     * expected as an indirection: the author's value stands, as the
+     * extension leaves it alone too.
      *
      * @param gitRoot the git repository root directory
-     * @param log     Maven logger
-     * @return the list of POM files that were modified
-     * @throws MojoException if a file cannot be read or written
+     * @param version the version the consumer POMs were installed at
+     * @return every gap found; empty when all declared aliases are
+     *         present, or when no POM declares any
+     * @throws MojoException if a POM cannot be read
      */
-    public static List&lt;File&gt; unbakeAliasIndirections(File gitRoot, Log log)
+    public static List&lt;AliasIndirectionGap&gt; findMissingAliasIndirections(File gitRoot,
+                                                                         String version)
             throws MojoException {
-<span class="fc" id="L972">        List&lt;File&gt; pomFiles = findPomFiles(gitRoot);</span>
-<span class="fc" id="L973">        List&lt;File&gt; modified = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L974">        String aliasSuffix = TypedMarker.ALIAS.token();</span>
-<span class="fc" id="L975">        String versionSuffix = TypedMarker.VERSION.token();</span>
+<span class="fc" id="L945">        String aliasSuffix = TypedMarker.ALIAS.token();</span>
+<span class="fc" id="L946">        String versionSuffix = TypedMarker.VERSION.token();</span>
+<span class="fc" id="L947">        Path localRepo = gitRoot.toPath().resolve(&quot;target&quot;).resolve(&quot;project-local-repo&quot;);</span>
+<span class="fc" id="L948">        List&lt;AliasIndirectionGap&gt; gaps = new ArrayList&lt;&gt;();</span>
 
-<span class="fc bfc" id="L977" title="All 2 branches covered.">        for (File pom : pomFiles) {</span>
+<span class="fc bfc" id="L950" title="All 2 branches covered.">        for (File pom : findPomFiles(gitRoot)) {</span>
+            String content;
             try {
-<span class="fc" id="L979">                String content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);</span>
-<span class="fc" id="L980">                Map&lt;String, String&gt; properties = PomRewriter.listProperties(content);</span>
-<span class="fc" id="L981">                List&lt;String&gt; indirectionsToRemove = new ArrayList&lt;&gt;();</span>
-
-<span class="fc bfc" id="L983" title="All 2 branches covered.">                for (Map.Entry&lt;String, String&gt; entry : properties.entrySet()) {</span>
-<span class="fc" id="L984">                    String name = entry.getKey();</span>
-<span class="fc bfc" id="L985" title="All 2 branches covered.">                    if (!name.endsWith(aliasSuffix)) {</span>
-<span class="fc" id="L986">                        continue;</span>
-                    }
-<span class="fc" id="L988">                    String coordPrefix = name.substring(0,</span>
-<span class="fc" id="L989">                            name.length() - aliasSuffix.length());</span>
-<span class="fc" id="L990">                    String canonical = coordPrefix + versionSuffix;</span>
-<span class="fc" id="L991">                    String expectedReference = &quot;${&quot; + canonical + &quot;}&quot;;</span>
-
-<span class="fc" id="L993">                    String aliasValue = entry.getValue();</span>
-<span class="pc bpc" id="L994" title="2 of 4 branches missed.">                    if (aliasValue == null || aliasValue.isBlank()) {</span>
-<span class="nc" id="L995">                        continue;</span>
-                    }
-<span class="fc bfc" id="L997" title="All 2 branches covered.">                    for (String shortName : aliasValue.split(&quot;,&quot;)) {</span>
-<span class="fc" id="L998">                        String trimmed = shortName.trim();</span>
-<span class="pc bpc" id="L999" title="1 of 2 branches missed.">                        if (trimmed.isEmpty()) {</span>
-<span class="nc" id="L1000">                            continue;</span>
-                        }
-<span class="fc" id="L1002">                        String currentValue = properties.get(trimmed);</span>
-<span class="fc bfc" id="L1003" title="All 2 branches covered.">                        if (expectedReference.equals(currentValue)) {</span>
-<span class="fc" id="L1004">                            indirectionsToRemove.add(trimmed);</span>
-                        }
-                    }
-<span class="fc" id="L1007">                }</span>
-
-<span class="fc bfc" id="L1009" title="All 2 branches covered.">                if (indirectionsToRemove.isEmpty()) {</span>
-<span class="fc" id="L1010">                    continue;</span>
+<span class="fc" id="L953">                content = Files.readString(pom.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L954">            } catch (IOException e) {</span>
+<span class="nc" id="L955">                throw new MojoException(&quot;Failed to read &quot; + pom, e);</span>
+<span class="fc" id="L956">            }</span>
+<span class="fc" id="L957">            Map&lt;String, String&gt; declared = PomRewriter.listProperties(content);</span>
+<span class="fc" id="L958">            Map&lt;String, String&gt; expected = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L959" title="All 2 branches covered.">            for (Map.Entry&lt;String, String&gt; entry : declared.entrySet()) {</span>
+<span class="fc" id="L960">                String name = entry.getKey();</span>
+<span class="fc" id="L961">                String aliasValue = entry.getValue();</span>
+<span class="pc bpc" id="L962" title="2 of 6 branches missed.">                if (!name.endsWith(aliasSuffix) || aliasValue == null || aliasValue.isBlank()) {</span>
+<span class="nc" id="L963">                    continue;</span>
                 }
-
-<span class="fc" id="L1013">                String updated = content;</span>
-<span class="fc bfc" id="L1014" title="All 2 branches covered.">                for (String name : indirectionsToRemove) {</span>
-<span class="fc" id="L1015">                    updated = PomRewriter.removeProperty(updated, name);</span>
-<span class="fc" id="L1016">                }</span>
-
-<span class="pc bpc" id="L1018" title="1 of 2 branches missed.">                if (updated.equals(content)) {</span>
-<span class="nc" id="L1019">                    continue;</span>
+<span class="fc" id="L965">                String canonical = name.substring(0, name.length() - aliasSuffix.length())</span>
+                        + versionSuffix;
+<span class="fc bfc" id="L967" title="All 2 branches covered.">                for (String shortName : aliasValue.split(&quot;,&quot;)) {</span>
+<span class="fc" id="L968">                    String trimmed = shortName.trim();</span>
+<span class="pc bpc" id="L969" title="1 of 4 branches missed.">                    if (trimmed.isEmpty() || declared.containsKey(trimmed)) {</span>
+<span class="fc" id="L970">                        continue;</span>
+                    }
+<span class="fc" id="L972">                    expected.put(trimmed, &quot;${&quot; + canonical + &quot;}&quot;);</span>
                 }
+<span class="fc" id="L974">            }</span>
+<span class="fc bfc" id="L975" title="All 2 branches covered.">            if (expected.isEmpty()) {</span>
+<span class="fc" id="L976">                continue;</span>
+            }
 
-<span class="fc" id="L1022">                Files.writeString(pom.toPath(), updated, StandardCharsets.UTF_8);</span>
-<span class="fc" id="L1023">                String rel = gitRoot.toPath().relativize(pom.toPath()).toString();</span>
-<span class="fc" id="L1024">                log.info(&quot;  Unbaked &quot; + indirectionsToRemove.size() + &quot; indirection&quot;</span>
-<span class="pc bpc" id="L1025" title="1 of 2 branches missed.">                        + (indirectionsToRemove.size() == 1 ? &quot;&quot; : &quot;s&quot;) + &quot; in &quot; + rel);</span>
-<span class="fc" id="L1026">                modified.add(pom);</span>
-<span class="nc" id="L1027">            } catch (IOException e) {</span>
-<span class="nc" id="L1028">                throw new MojoException(</span>
-                        &quot;Failed to unbake __ALIAS indirections in &quot; + pom, e);
-<span class="fc" id="L1030">            }</span>
-<span class="fc" id="L1031">        }</span>
-<span class="fc" id="L1032">        return modified;</span>
+<span class="fc" id="L979">            String pomPath = gitRoot.toPath().relativize(pom.toPath()).toString();</span>
+<span class="fc" id="L980">            String artifactId = readModel(pom).getArtifactId();</span>
+<span class="fc" id="L981">            File consumerPom = findConsumerPom(localRepo, artifactId, version);</span>
+<span class="fc bfc" id="L982" title="All 2 branches covered.">            if (consumerPom == null) {</span>
+<span class="fc" id="L983">                gaps.add(new AliasIndirectionGap(AliasIndirectionGapKind.CONSUMER_POM_MISSING,</span>
+                        pomPath, artifactId, null, null, null));
+<span class="fc" id="L985">                continue;</span>
+            }
+            Map&lt;String, String&gt; actual;
+            try {
+<span class="fc" id="L989">                actual = PomRewriter.listProperties(</span>
+<span class="fc" id="L990">                        Files.readString(consumerPom.toPath(), StandardCharsets.UTF_8));</span>
+<span class="nc" id="L991">            } catch (IOException e) {</span>
+<span class="nc" id="L992">                throw new MojoException(&quot;Failed to read &quot; + consumerPom, e);</span>
+<span class="fc" id="L993">            }</span>
+<span class="fc bfc" id="L994" title="All 2 branches covered.">            for (Map.Entry&lt;String, String&gt; e : expected.entrySet()) {</span>
+<span class="fc" id="L995">                String value = actual.get(e.getKey());</span>
+<span class="fc bfc" id="L996" title="All 2 branches covered.">                if (value == null) {</span>
+<span class="fc" id="L997">                    gaps.add(new AliasIndirectionGap(AliasIndirectionGapKind.INDIRECTION_MISSING,</span>
+<span class="fc" id="L998">                            pomPath, artifactId, e.getKey(), e.getValue(), null));</span>
+<span class="fc bfc" id="L999" title="All 2 branches covered.">                } else if (!value.equals(e.getValue())) {</span>
+<span class="fc" id="L1000">                    gaps.add(new AliasIndirectionGap(AliasIndirectionGapKind.INDIRECTION_WRONG_VALUE,</span>
+<span class="fc" id="L1001">                            pomPath, artifactId, e.getKey(), e.getValue(), value));</span>
+                }
+<span class="fc" id="L1003">            }</span>
+<span class="fc" id="L1004">        }</span>
+<span class="fc" id="L1005">        return gaps;</span>
+    }
+
+    /**
+     * Locates {@code &lt;artifactId&gt;-&lt;version&gt;-consumer.pom} anywhere under
+     * the project-local repository, or {@code null} when the repository
+     * or the file does not exist.
+     */
+    private static File findConsumerPom(Path localRepo, String artifactId, String version)
+            throws MojoException {
+<span class="fc bfc" id="L1015" title="All 2 branches covered.">        if (!Files.isDirectory(localRepo)) {</span>
+<span class="fc" id="L1016">            return null;</span>
+        }
+<span class="fc" id="L1018">        String fileName = artifactId + &quot;-&quot; + version + &quot;-consumer.pom&quot;;</span>
+<span class="fc" id="L1019">        try (Stream&lt;Path&gt; walk = Files.walk(localRepo)) {</span>
+<span class="fc" id="L1020">            return walk.filter(p -&gt; p.getFileName().toString().equals(fileName))</span>
+<span class="fc" id="L1021">                    .map(Path::toFile)</span>
+<span class="fc" id="L1022">                    .findFirst()</span>
+<span class="fc" id="L1023">                    .orElse(null);</span>
+<span class="nc" id="L1024">        } catch (IOException e) {</span>
+<span class="nc" id="L1025">            throw new MojoException(&quot;Failed to scan &quot; + localRepo, e);</span>
+        }
     }
 
     /**
@@ -1042,18 +1036,18 @@ public class ReleaseSupport {
      */
     public static void gitAddFiles(File gitRoot, Log log, List&lt;File&gt; files)
             throws MojoException {
-<span class="fc bfc" id="L1045" title="All 2 branches covered.">        if (files.isEmpty()) return;</span>
-<span class="fc" id="L1046">        List&lt;String&gt; command = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L1047">        command.add(&quot;git&quot;);</span>
-<span class="fc" id="L1048">        command.add(&quot;add&quot;);</span>
-<span class="fc bfc" id="L1049" title="All 2 branches covered.">        for (File f : files) {</span>
-<span class="fc" id="L1050">            command.add(gitRoot.toPath().relativize(f.toPath()).toString());</span>
-<span class="fc" id="L1051">        }</span>
-<span class="fc" id="L1052">        exec(gitRoot, log, command.toArray(new String[0]));</span>
-<span class="fc" id="L1053">    }</span>
+<span class="fc bfc" id="L1039" title="All 2 branches covered.">        if (files.isEmpty()) return;</span>
+<span class="fc" id="L1040">        List&lt;String&gt; command = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1041">        command.add(&quot;git&quot;);</span>
+<span class="fc" id="L1042">        command.add(&quot;add&quot;);</span>
+<span class="fc bfc" id="L1043" title="All 2 branches covered.">        for (File f : files) {</span>
+<span class="fc" id="L1044">            command.add(gitRoot.toPath().relativize(f.toPath()).toString());</span>
+<span class="fc" id="L1045">        }</span>
+<span class="fc" id="L1046">        exec(gitRoot, log, command.toArray(new String[0]));</span>
+<span class="fc" id="L1047">    }</span>
 
-<span class="fc" id="L1055">    private static final DateTimeFormatter CHECKPOINT_DATE_FMT =</span>
-<span class="fc" id="L1056">            DateTimeFormatter.ofPattern(&quot;yyyyMMdd&quot;);</span>
+<span class="fc" id="L1049">    private static final DateTimeFormatter CHECKPOINT_DATE_FMT =</span>
+<span class="fc" id="L1050">            DateTimeFormatter.ofPattern(&quot;yyyyMMdd&quot;);</span>
 
     /**
      * Derive a checkpoint version from the current POM version.
@@ -1073,10 +1067,10 @@ public class ReleaseSupport {
      */
     public static String deriveCheckpointVersion(String pomVersion, File gitRoot)
             throws MojoException {
-<span class="fc" id="L1076">        String base = pomVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
-<span class="fc" id="L1077">        String date = LocalDate.now().format(CHECKPOINT_DATE_FMT);</span>
-<span class="fc" id="L1078">        String shortSha = execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--short&quot;, &quot;HEAD&quot;);</span>
-<span class="fc" id="L1079">        return base + &quot;-checkpoint.&quot; + date + &quot;.&quot; + shortSha;</span>
+<span class="fc" id="L1070">        String base = pomVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+<span class="fc" id="L1071">        String date = LocalDate.now().format(CHECKPOINT_DATE_FMT);</span>
+<span class="fc" id="L1072">        String shortSha = execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--short&quot;, &quot;HEAD&quot;);</span>
+<span class="fc" id="L1073">        return base + &quot;-checkpoint.&quot; + date + &quot;.&quot; + shortSha;</span>
     }
 
     /**
@@ -1088,10 +1082,10 @@ public class ReleaseSupport {
      */
     public static boolean tagExists(File gitRoot, String tagName) {
         try {
-<span class="fc" id="L1091">            execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--verify&quot;, &quot;refs/tags/&quot; + tagName);</span>
-<span class="fc" id="L1092">            return true;</span>
-<span class="fc" id="L1093">        } catch (MojoException _) {</span>
-<span class="fc" id="L1094">            return false;</span>
+<span class="fc" id="L1085">            execCapture(gitRoot, &quot;git&quot;, &quot;rev-parse&quot;, &quot;--verify&quot;, &quot;refs/tags/&quot; + tagName);</span>
+<span class="fc" id="L1086">            return true;</span>
+<span class="fc" id="L1087">        } catch (MojoException _) {</span>
+<span class="fc" id="L1088">            return false;</span>
         }
     }
 
@@ -1118,8 +1112,8 @@ public class ReleaseSupport {
      */
     public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath)
             throws MojoException {
-<span class="nc" id="L1121">        cleanRemoteSiteDir(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
-<span class="nc" id="L1122">    }</span>
+<span class="nc" id="L1115">        cleanRemoteSiteDir(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L1116">    }</span>
 
     /**
      * Overload accepting an explicit SSH command prefix — package-private
@@ -1135,15 +1129,15 @@ public class ReleaseSupport {
     public static void cleanRemoteSiteDir(File workDir, Log log, String remotePath,
                                     String... sshPrefix)
             throws MojoException {
-<span class="nc" id="L1138">        validateRemotePath(remotePath);</span>
-<span class="nc" id="L1139">        log.debug(&quot;Cleaning remote site: &quot; + remotePath);</span>
-<span class="nc" id="L1140">        String[] cmd = new String[sshPrefix.length + 3];</span>
-<span class="nc" id="L1141">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
-<span class="nc" id="L1142">        cmd[sshPrefix.length] = &quot;rm&quot;;</span>
-<span class="nc" id="L1143">        cmd[sshPrefix.length + 1] = &quot;-rf&quot;;</span>
-<span class="nc" id="L1144">        cmd[sshPrefix.length + 2] = remotePath;</span>
-<span class="nc" id="L1145">        exec(workDir, log, cmd);</span>
-<span class="nc" id="L1146">    }</span>
+<span class="nc" id="L1132">        validateRemotePath(remotePath);</span>
+<span class="nc" id="L1133">        log.debug(&quot;Cleaning remote site: &quot; + remotePath);</span>
+<span class="nc" id="L1134">        String[] cmd = new String[sshPrefix.length + 3];</span>
+<span class="nc" id="L1135">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="nc" id="L1136">        cmd[sshPrefix.length] = &quot;rm&quot;;</span>
+<span class="nc" id="L1137">        cmd[sshPrefix.length + 1] = &quot;-rf&quot;;</span>
+<span class="nc" id="L1138">        cmd[sshPrefix.length + 2] = remotePath;</span>
+<span class="nc" id="L1139">        exec(workDir, log, cmd);</span>
+<span class="nc" id="L1140">    }</span>
 
     /**
      * Atomically swap a newly deployed site into place on the server.
@@ -1166,8 +1160,8 @@ public class ReleaseSupport {
      */
     public static void swapRemoteSiteDir(File workDir, Log log, String remotePath)
             throws MojoException {
-<span class="nc" id="L1169">        swapRemoteSiteDir(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
-<span class="nc" id="L1170">    }</span>
+<span class="nc" id="L1163">        swapRemoteSiteDir(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L1164">    }</span>
 
     /**
      * Overload accepting an explicit SSH command prefix — package-private
@@ -1183,19 +1177,19 @@ public class ReleaseSupport {
     public static void swapRemoteSiteDir(File workDir, Log log, String remotePath,
                                    String... sshPrefix)
             throws MojoException {
-<span class="nc" id="L1186">        validateRemotePath(remotePath);</span>
-<span class="nc" id="L1187">        String staging = remotePath + &quot;.staging&quot;;</span>
-<span class="nc" id="L1188">        String old = remotePath + &quot;.old&quot;;</span>
+<span class="nc" id="L1180">        validateRemotePath(remotePath);</span>
+<span class="nc" id="L1181">        String staging = remotePath + &quot;.staging&quot;;</span>
+<span class="nc" id="L1182">        String old = remotePath + &quot;.old&quot;;</span>
 
-<span class="nc" id="L1190">        log.info(&quot;Swapping site: &quot; + staging + &quot; → &quot; + remotePath);</span>
-<span class="nc" id="L1191">        String[] cmd = new String[sshPrefix.length + 1];</span>
-<span class="nc" id="L1192">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
-<span class="nc" id="L1193">        cmd[sshPrefix.length] = &quot;rm -rf &quot; + old</span>
+<span class="nc" id="L1184">        log.info(&quot;Swapping site: &quot; + staging + &quot; → &quot; + remotePath);</span>
+<span class="nc" id="L1185">        String[] cmd = new String[sshPrefix.length + 1];</span>
+<span class="nc" id="L1186">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="nc" id="L1187">        cmd[sshPrefix.length] = &quot;rm -rf &quot; + old</span>
                 + &quot; &amp;&amp; (mv &quot; + remotePath + &quot; &quot; + old + &quot; 2&gt;/dev/null || true)&quot;
                 + &quot; &amp;&amp; mv &quot; + staging + &quot; &quot; + remotePath
                 + &quot; &amp;&amp; rm -rf &quot; + old;
-<span class="nc" id="L1197">        exec(workDir, log, cmd);</span>
-<span class="nc" id="L1198">    }</span>
+<span class="nc" id="L1191">        exec(workDir, log, cmd);</span>
+<span class="nc" id="L1192">    }</span>
 
     /**
      * Return the staging path for a site deploy (final path + &quot;.staging&quot;).
@@ -1204,7 +1198,7 @@ public class ReleaseSupport {
      * @return {@code diskPath} with {@code .staging} appended
      */
     public static String siteStagingPath(String diskPath) {
-<span class="fc" id="L1207">        return diskPath + &quot;.staging&quot;;</span>
+<span class="fc" id="L1201">        return diskPath + &quot;.staging&quot;;</span>
     }
 
     /**
@@ -1233,8 +1227,8 @@ public class ReleaseSupport {
     public static void updateLatestSymlink(File workDir, Log log,
                                            String remotePath)
             throws MojoException {
-<span class="nc" id="L1236">        updateLatestSymlink(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
-<span class="nc" id="L1237">    }</span>
+<span class="nc" id="L1230">        updateLatestSymlink(workDir, log, remotePath, &quot;ssh&quot;, SITE_SSH_HOST);</span>
+<span class="nc" id="L1231">    }</span>
 
     /**
      * Overload accepting an explicit SSH command prefix —
@@ -1250,21 +1244,21 @@ public class ReleaseSupport {
                                            String remotePath,
                                            String... sshPrefix)
             throws MojoException {
-<span class="fc" id="L1253">        validateRemotePath(remotePath);</span>
-<span class="fc" id="L1254">        String parent = parentDir(remotePath);</span>
-<span class="fc" id="L1255">        String leaf = leafName(remotePath);</span>
-<span class="pc bpc" id="L1256" title="3 of 6 branches missed.">        if (parent == null || leaf == null || leaf.isEmpty()) {</span>
-<span class="nc" id="L1257">            throw new MojoException(</span>
+<span class="fc" id="L1247">        validateRemotePath(remotePath);</span>
+<span class="fc" id="L1248">        String parent = parentDir(remotePath);</span>
+<span class="fc" id="L1249">        String leaf = leafName(remotePath);</span>
+<span class="pc bpc" id="L1250" title="3 of 6 branches missed.">        if (parent == null || leaf == null || leaf.isEmpty()) {</span>
+<span class="nc" id="L1251">            throw new MojoException(</span>
                     &quot;Cannot derive parent/leaf from site path: &quot; + remotePath);
         }
 
-<span class="fc" id="L1261">        log.info(&quot;Updating latest symlink: &quot; + parent + &quot;/latest -&gt; &quot; + leaf);</span>
-<span class="fc" id="L1262">        String[] cmd = new String[sshPrefix.length + 1];</span>
-<span class="fc" id="L1263">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
-<span class="fc" id="L1264">        cmd[sshPrefix.length] = &quot;cd &quot; + parent</span>
+<span class="fc" id="L1255">        log.info(&quot;Updating latest symlink: &quot; + parent + &quot;/latest -&gt; &quot; + leaf);</span>
+<span class="fc" id="L1256">        String[] cmd = new String[sshPrefix.length + 1];</span>
+<span class="fc" id="L1257">        System.arraycopy(sshPrefix, 0, cmd, 0, sshPrefix.length);</span>
+<span class="fc" id="L1258">        cmd[sshPrefix.length] = &quot;cd &quot; + parent</span>
                 + &quot; &amp;&amp; ln -snf &quot; + leaf + &quot; latest&quot;;
-<span class="fc" id="L1266">        exec(workDir, log, cmd);</span>
-<span class="fc" id="L1267">    }</span>
+<span class="fc" id="L1260">        exec(workDir, log, cmd);</span>
+<span class="fc" id="L1261">    }</span>
 
     /**
      * Compute the parent directory of a Unix-style absolute path
@@ -1274,11 +1268,11 @@ public class ReleaseSupport {
      * &lt;p&gt;Package-private for testing.
      */
     static String parentDir(String absPath) {
-<span class="fc" id="L1277">        int lastSlash = absPath.lastIndexOf('/');</span>
-<span class="fc bfc" id="L1278" title="All 2 branches covered.">        if (lastSlash &lt;= 0) return null;</span>
-<span class="fc" id="L1279">        String parent = absPath.substring(0, lastSlash);</span>
-<span class="fc bfc" id="L1280" title="All 2 branches covered.">        return parent.startsWith(SITE_DISK_BASE.replaceAll(&quot;/$&quot;, &quot;&quot;))</span>
-<span class="fc" id="L1281">                ? parent : null;</span>
+<span class="fc" id="L1271">        int lastSlash = absPath.lastIndexOf('/');</span>
+<span class="fc bfc" id="L1272" title="All 2 branches covered.">        if (lastSlash &lt;= 0) return null;</span>
+<span class="fc" id="L1273">        String parent = absPath.substring(0, lastSlash);</span>
+<span class="fc bfc" id="L1274" title="All 2 branches covered.">        return parent.startsWith(SITE_DISK_BASE.replaceAll(&quot;/$&quot;, &quot;&quot;))</span>
+<span class="fc" id="L1275">                ? parent : null;</span>
     }
 
     /**
@@ -1288,10 +1282,10 @@ public class ReleaseSupport {
      * &lt;p&gt;Package-private for testing.
      */
     static String leafName(String absPath) {
-<span class="fc bfc" id="L1291" title="All 2 branches covered.">        String trimmed = absPath.endsWith(&quot;/&quot;)</span>
-<span class="fc" id="L1292">                ? absPath.substring(0, absPath.length() - 1) : absPath;</span>
-<span class="fc" id="L1293">        int lastSlash = trimmed.lastIndexOf('/');</span>
-<span class="pc bpc" id="L1294" title="1 of 2 branches missed.">        return lastSlash &lt; 0 ? trimmed : trimmed.substring(lastSlash + 1);</span>
+<span class="fc bfc" id="L1285" title="All 2 branches covered.">        String trimmed = absPath.endsWith(&quot;/&quot;)</span>
+<span class="fc" id="L1286">                ? absPath.substring(0, absPath.length() - 1) : absPath;</span>
+<span class="fc" id="L1287">        int lastSlash = trimmed.lastIndexOf('/');</span>
+<span class="pc bpc" id="L1288" title="1 of 2 branches missed.">        return lastSlash &lt; 0 ? trimmed : trimmed.substring(lastSlash + 1);</span>
     }
 
     /**
@@ -1301,7 +1295,7 @@ public class ReleaseSupport {
      * @return {@code targetUrl} with {@code .staging} appended
      */
     public static String siteStagingUrl(String targetUrl) {
-<span class="fc" id="L1304">        return targetUrl + &quot;.staging&quot;;</span>
+<span class="fc" id="L1298">        return targetUrl + &quot;.staging&quot;;</span>
     }
 
     /**
@@ -1362,8 +1356,8 @@ public class ReleaseSupport {
                                                     String projectId,
                                                     String version)
             throws MojoException {
-<span class="pc bpc" id="L1365" title="1 of 2 branches missed.">        if (!Files.isDirectory(stagingDir)) {</span>
-<span class="nc" id="L1366">            throw new MojoException(</span>
+<span class="pc bpc" id="L1359" title="1 of 2 branches missed.">        if (!Files.isDirectory(stagingDir)) {</span>
+<span class="nc" id="L1360">            throw new MojoException(</span>
                     &quot;Staging directory does not exist: &quot; + stagingDir
                             + &quot;. Site build may have failed.&quot;);
         }
@@ -1373,8 +1367,8 @@ public class ReleaseSupport {
         // .nojekyll-only tree to gh-pages — silent publication of an
         // empty site. Now we fail loud so the caller (or an upstream
         // fallback to target/site/) gets a clear signal.
-<span class="pc bpc" id="L1376" title="1 of 2 branches missed.">        if (isEmptyDirectory(stagingDir)) {</span>
-<span class="fc" id="L1377">            throw new MojoException(</span>
+<span class="pc bpc" id="L1370" title="1 of 2 branches missed.">        if (isEmptyDirectory(stagingDir)) {</span>
+<span class="fc" id="L1371">            throw new MojoException(</span>
                     &quot;Staging directory is empty: &quot; + stagingDir
                             + &quot;. Site build produced no content. &quot;
                             + &quot;For single-module projects, mvn site:stage &quot;
@@ -1407,7 +1401,7 @@ public class ReleaseSupport {
         // the gh-pages /&lt;version&gt;/ subdir empty. The fix here is
         // simpler: if the per-version subdir exists, that's
         // unambiguously the source.
-<span class="nc" id="L1410">        Path effectiveStagingSource = stagingDir;</span>
+<span class="nc" id="L1404">        Path effectiveStagingSource = stagingDir;</span>
 
         // Detect URL-as-path staging (ike-issues#359). When a
         // multi-module reactor declares an https:// &lt;site&gt;&lt;url&gt;,
@@ -1421,15 +1415,15 @@ public class ReleaseSupport {
         // first so the existing version-nested (#337) and
         // parent-artifactId (#342) unwraps run against the
         // already-narrowed effective source.
-<span class="nc" id="L1424">        Path urlAsPathUnwrap = detectHttpsUrlStaging(stagingDir, projectId);</span>
-<span class="nc bnc" id="L1425" title="All 2 branches missed.">        if (urlAsPathUnwrap != null) {</span>
-<span class="nc" id="L1426">            log.info(&quot;  Detected https://-URL-as-path staging at &quot;</span>
+<span class="nc" id="L1418">        Path urlAsPathUnwrap = detectHttpsUrlStaging(stagingDir, projectId);</span>
+<span class="nc bnc" id="L1419" title="All 2 branches missed.">        if (urlAsPathUnwrap != null) {</span>
+<span class="nc" id="L1420">            log.info(&quot;  Detected https://-URL-as-path staging at &quot;</span>
                     + urlAsPathUnwrap
                     + &quot; — using it as the gh-pages source. (Project's &quot;
                     + &quot;&lt;site&gt;&lt;url&gt; is an https:// URL and maven-site-plugin &quot;
                     + &quot;stages content at target/staging/https:/&lt;host&gt;/&quot;
                     + &quot;&lt;projectId&gt;/; ike-issues#359.)&quot;);
-<span class="nc" id="L1432">            effectiveStagingSource = urlAsPathUnwrap;</span>
+<span class="nc" id="L1426">            effectiveStagingSource = urlAsPathUnwrap;</span>
         }
 
         // Capture the layer at which sibling submodule sites live
@@ -1439,18 +1433,18 @@ public class ReleaseSupport {
         // alongside the version dir, one level up from the final
         // narrowed source. For ike-tooling/ike-docs (no version in
         // URL) siblings live at the same layer. ike-issues#363.
-<span class="nc" id="L1442">        Path siblingSubmoduleLayer = effectiveStagingSource;</span>
+<span class="nc" id="L1436">        Path siblingSubmoduleLayer = effectiveStagingSource;</span>
 
-<span class="nc" id="L1444">        Path nestedVersionDir = effectiveStagingSource.resolve(version);</span>
-<span class="nc bnc" id="L1445" title="All 2 branches missed.">        if (Files.isDirectory(nestedVersionDir)</span>
-<span class="nc bnc" id="L1446" title="All 2 branches missed.">                &amp;&amp; !isEmptyDirectory(nestedVersionDir)) {</span>
-<span class="nc" id="L1447">            log.info(&quot;  Detected version-nested staging at &quot;</span>
+<span class="nc" id="L1438">        Path nestedVersionDir = effectiveStagingSource.resolve(version);</span>
+<span class="nc bnc" id="L1439" title="All 2 branches missed.">        if (Files.isDirectory(nestedVersionDir)</span>
+<span class="nc bnc" id="L1440" title="All 2 branches missed.">                &amp;&amp; !isEmptyDirectory(nestedVersionDir)) {</span>
+<span class="nc" id="L1441">            log.info(&quot;  Detected version-nested staging at &quot;</span>
                     + nestedVersionDir
                     + &quot; — using it as the gh-pages source. &quot;
                     + &quot;(Project's site.deploy.url contains the &quot;
                     + &quot;version segment so site:stage nested &quot;
                     + &quot;content under it; ike-issues#337.)&quot;);
-<span class="nc" id="L1453">            effectiveStagingSource = nestedVersionDir;</span>
+<span class="nc" id="L1447">            effectiveStagingSource = nestedVersionDir;</span>
         }
 
         // Detect parent-artifactId staging nesting (ike-issues#342).
@@ -1465,16 +1459,16 @@ public class ReleaseSupport {
         // a directory, and that directory contains a non-empty
         // subdirectory whose name matches projectId. Unwrap to
         // &lt;singleEntry&gt;/&lt;projectId&gt;/.
-<span class="nc" id="L1468">        Path parentArtifactUnwrap =</span>
-<span class="nc" id="L1469">                detectParentArtifactNesting(effectiveStagingSource, projectId);</span>
-<span class="nc bnc" id="L1470" title="All 2 branches missed.">        if (parentArtifactUnwrap != null) {</span>
-<span class="nc" id="L1471">            log.info(&quot;  Detected parent-artifactId staging nesting at &quot;</span>
+<span class="nc" id="L1462">        Path parentArtifactUnwrap =</span>
+<span class="nc" id="L1463">                detectParentArtifactNesting(effectiveStagingSource, projectId);</span>
+<span class="nc bnc" id="L1464" title="All 2 branches missed.">        if (parentArtifactUnwrap != null) {</span>
+<span class="nc" id="L1465">            log.info(&quot;  Detected parent-artifactId staging nesting at &quot;</span>
                     + parentArtifactUnwrap
                     + &quot; — using it as the gh-pages source. (Project &quot;
                     + &quot;has a &lt;parent&gt; block so site:stage nested &quot;
                     + &quot;content under &lt;parentArtifactId&gt;/&lt;artifactId&gt;/; &quot;
                     + &quot;ike-issues#342.)&quot;);
-<span class="nc" id="L1477">            effectiveStagingSource = parentArtifactUnwrap;</span>
+<span class="nc" id="L1471">            effectiveStagingSource = parentArtifactUnwrap;</span>
         }
 
         // Detect aggregated-reactor staging where the project's own
@@ -1494,66 +1488,66 @@ public class ReleaseSupport {
         // Orthogonal to #337 (version-nested) and #342 (parent-artifactId);
         // applies whenever the project's own subdir exists alongside
         // other top-level entries.
-<span class="nc" id="L1497">        Path aggregatedUnwrap =</span>
-<span class="nc" id="L1498">                detectAggregatedStaging(effectiveStagingSource, projectId);</span>
-<span class="nc bnc" id="L1499" title="All 2 branches missed.">        if (aggregatedUnwrap != null) {</span>
-<span class="nc" id="L1500">            log.info(&quot;  Detected aggregated-reactor staging at &quot;</span>
+<span class="nc" id="L1491">        Path aggregatedUnwrap =</span>
+<span class="nc" id="L1492">                detectAggregatedStaging(effectiveStagingSource, projectId);</span>
+<span class="nc bnc" id="L1493" title="All 2 branches missed.">        if (aggregatedUnwrap != null) {</span>
+<span class="nc" id="L1494">            log.info(&quot;  Detected aggregated-reactor staging at &quot;</span>
                     + effectiveStagingSource
                     + &quot; — using &quot; + aggregatedUnwrap
                     + &quot; as the gh-pages source. (Reactor site:stage &quot;
                     + &quot;flattened module sites at the staging root; &quot;
                     + &quot;ike-issues#351.)&quot;);
-<span class="nc" id="L1506">            effectiveStagingSource = aggregatedUnwrap;</span>
+<span class="nc" id="L1500">            effectiveStagingSource = aggregatedUnwrap;</span>
         }
 
-<span class="nc" id="L1509">        log.info(&quot;Publishing &quot; + projectId + &quot; site to gh-pages...&quot;);</span>
+<span class="nc" id="L1503">        log.info(&quot;Publishing &quot; + projectId + &quot; site to gh-pages...&quot;);</span>
 
         Path tempDir;
         try {
-<span class="nc" id="L1513">            tempDir = Files.createTempDirectory(&quot;ike-project-gh-pages-&quot;);</span>
-<span class="nc" id="L1514">        } catch (IOException e) {</span>
-<span class="nc" id="L1515">            throw new MojoException(</span>
+<span class="nc" id="L1507">            tempDir = Files.createTempDirectory(&quot;ike-project-gh-pages-&quot;);</span>
+<span class="nc" id="L1508">        } catch (IOException e) {</span>
+<span class="nc" id="L1509">            throw new MojoException(</span>
                     &quot;Could not create temp directory for gh-pages publish&quot;, e);
-<span class="nc" id="L1517">        }</span>
+<span class="nc" id="L1511">        }</span>
 
         try {
-<span class="nc" id="L1520">            File tempRoot = tempDir.toFile();</span>
+<span class="nc" id="L1514">            File tempRoot = tempDir.toFile();</span>
 
             // Try cloning the existing gh-pages branch so we preserve
             // history and any prior &lt;version&gt;/ subdirs. If the branch
             // doesn't yet exist on the remote (first publish), the
             // clone fails and we bootstrap with an orphan branch.
-<span class="nc" id="L1526">            boolean firstTimeBootstrap = false;</span>
+<span class="nc" id="L1520">            boolean firstTimeBootstrap = false;</span>
             try {
-<span class="nc" id="L1528">                exec(tempRoot, log, &quot;git&quot;, &quot;clone&quot;,</span>
+<span class="nc" id="L1522">                exec(tempRoot, log, &quot;git&quot;, &quot;clone&quot;,</span>
                         &quot;--branch&quot;, &quot;gh-pages&quot;,
                         &quot;--single-branch&quot;,
                         repoUrl, &quot;.&quot;);
-<span class="nc" id="L1532">                log.info(&quot;  Cloned existing gh-pages branch (additive publish)&quot;);</span>
-<span class="nc" id="L1533">            } catch (MojoException cloneFailed) {</span>
+<span class="nc" id="L1526">                log.info(&quot;  Cloned existing gh-pages branch (additive publish)&quot;);</span>
+<span class="nc" id="L1527">            } catch (MojoException cloneFailed) {</span>
                 // Most likely: the branch doesn't exist yet on this repo.
                 // Bootstrap: init + orphan checkout, then force-push at
                 // the end.
-<span class="nc" id="L1537">                log.info(&quot;  No existing gh-pages branch — bootstrapping &quot;</span>
+<span class="nc" id="L1531">                log.info(&quot;  No existing gh-pages branch — bootstrapping &quot;</span>
                         + &quot;with orphan checkout (first-time publish)&quot;);
-<span class="nc" id="L1539">                firstTimeBootstrap = true;</span>
+<span class="nc" id="L1533">                firstTimeBootstrap = true;</span>
                 // Clear any partial state from the failed clone attempt.
-<span class="nc" id="L1541">                try (Stream&lt;Path&gt; entries = Files.list(tempDir)) {</span>
-<span class="nc" id="L1542">                    entries.forEach(p -&gt; {</span>
-<span class="nc bnc" id="L1543" title="All 2 branches missed.">                        if (Files.isDirectory(p)) {</span>
-<span class="nc" id="L1544">                            deleteDirectory(p);</span>
+<span class="nc" id="L1535">                try (Stream&lt;Path&gt; entries = Files.list(tempDir)) {</span>
+<span class="nc" id="L1536">                    entries.forEach(p -&gt; {</span>
+<span class="nc bnc" id="L1537" title="All 2 branches missed.">                        if (Files.isDirectory(p)) {</span>
+<span class="nc" id="L1538">                            deleteDirectory(p);</span>
                         } else {
-<span class="nc" id="L1546">                            try { Files.delete(p); } catch (IOException ignore) {</span>
+<span class="nc" id="L1540">                            try { Files.delete(p); } catch (IOException ignore) {</span>
                                 // best effort
-<span class="nc" id="L1548">                            }</span>
+<span class="nc" id="L1542">                            }</span>
                         }
-<span class="nc" id="L1550">                    });</span>
-<span class="nc" id="L1551">                } catch (IOException ignore) {</span>
+<span class="nc" id="L1544">                    });</span>
+<span class="nc" id="L1545">                } catch (IOException ignore) {</span>
                     // best effort
-<span class="nc" id="L1553">                }</span>
-<span class="nc" id="L1554">                exec(tempRoot, log, &quot;git&quot;, &quot;init&quot;);</span>
-<span class="nc" id="L1555">                exec(tempRoot, log, &quot;git&quot;, &quot;checkout&quot;, &quot;--orphan&quot;, &quot;gh-pages&quot;);</span>
-<span class="nc" id="L1556">            }</span>
+<span class="nc" id="L1547">                }</span>
+<span class="nc" id="L1548">                exec(tempRoot, log, &quot;git&quot;, &quot;init&quot;);</span>
+<span class="nc" id="L1549">                exec(tempRoot, log, &quot;git&quot;, &quot;checkout&quot;, &quot;--orphan&quot;, &quot;gh-pages&quot;);</span>
+<span class="nc" id="L1550">            }</span>
 
             // Wipe root-level files and non-version subdirs before
             // overlaying the new release. Preserves .git/, the latest/
@@ -1561,11 +1555,11 @@ public class ReleaseSupport {
             // name starts with a digit (a versioned snapshot from a
             // prior release).
             try {
-<span class="nc" id="L1564">                wipeGhPagesRootForRepublish(tempDir, log);</span>
-<span class="nc" id="L1565">            } catch (IOException e) {</span>
-<span class="nc" id="L1566">                throw new MojoException(</span>
-<span class="nc" id="L1567">                        &quot;Failed to wipe root for republish: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L1568">            }</span>
+<span class="nc" id="L1558">                wipeGhPagesRootForRepublish(tempDir, log);</span>
+<span class="nc" id="L1559">            } catch (IOException e) {</span>
+<span class="nc" id="L1560">                throw new MojoException(</span>
+<span class="nc" id="L1561">                        &quot;Failed to wipe root for republish: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1562">            }</span>
 
             // (1) Copy staging to root — current release at /&lt;projectId&gt;/.
             //     Filter top-level version-prefixed entries (#337):
@@ -1576,44 +1570,44 @@ public class ReleaseSupport {
             //     coming through staging — version subdirs are managed
             //     explicitly by the caller (steps 2 and 3 below).
             try {
-<span class="nc" id="L1579">                copyDirectoryExcludingTopLevelVersionDirs(</span>
+<span class="nc" id="L1573">                copyDirectoryExcludingTopLevelVersionDirs(</span>
                         effectiveStagingSource, tempDir);
-<span class="nc" id="L1581">            } catch (IOException e) {</span>
-<span class="nc" id="L1582">                throw new MojoException(</span>
-<span class="nc" id="L1583">                        &quot;Failed to copy staging dir to root: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L1584">            }</span>
+<span class="nc" id="L1575">            } catch (IOException e) {</span>
+<span class="nc" id="L1576">                throw new MojoException(</span>
+<span class="nc" id="L1577">                        &quot;Failed to copy staging dir to root: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1578">            }</span>
 
             // (2) Copy staging to /&lt;version&gt;/ — preserved snapshot.
             //     Same filter: don't recursively nest prior version
             //     subdirs inside this release's versioned snapshot
             //     (the bug surfaced by ike-issues#337).
-<span class="nc" id="L1590">            Path versionDir = tempDir.resolve(version);</span>
-<span class="nc" id="L1591">            deleteDirectory(versionDir);</span>
+<span class="nc" id="L1584">            Path versionDir = tempDir.resolve(version);</span>
+<span class="nc" id="L1585">            deleteDirectory(versionDir);</span>
             try {
-<span class="nc" id="L1593">                Files.createDirectories(versionDir);</span>
-<span class="nc" id="L1594">                copyDirectoryExcludingTopLevelVersionDirs(</span>
+<span class="nc" id="L1587">                Files.createDirectories(versionDir);</span>
+<span class="nc" id="L1588">                copyDirectoryExcludingTopLevelVersionDirs(</span>
                         effectiveStagingSource, versionDir);
-<span class="nc" id="L1596">            } catch (IOException e) {</span>
-<span class="nc" id="L1597">                throw new MojoException(</span>
+<span class="nc" id="L1590">            } catch (IOException e) {</span>
+<span class="nc" id="L1591">                throw new MojoException(</span>
                         &quot;Failed to copy staging dir to versioned subdir &quot;
-<span class="nc" id="L1599">                                + versionDir + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L1600">            }</span>
+<span class="nc" id="L1593">                                + versionDir + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1594">            }</span>
 
             // (3) Replace /latest/ with the just-released content.
             //     Directory copy (not symlink) — GitHub Pages does not
             //     follow git symlinks reliably. Same version-dir
             //     filter as above.
-<span class="nc" id="L1606">            Path latestDir = tempDir.resolve(&quot;latest&quot;);</span>
-<span class="nc" id="L1607">            deleteDirectory(latestDir);</span>
+<span class="nc" id="L1600">            Path latestDir = tempDir.resolve(&quot;latest&quot;);</span>
+<span class="nc" id="L1601">            deleteDirectory(latestDir);</span>
             try {
-<span class="nc" id="L1609">                Files.createDirectories(latestDir);</span>
-<span class="nc" id="L1610">                copyDirectoryExcludingTopLevelVersionDirs(</span>
+<span class="nc" id="L1603">                Files.createDirectories(latestDir);</span>
+<span class="nc" id="L1604">                copyDirectoryExcludingTopLevelVersionDirs(</span>
                         effectiveStagingSource, latestDir);
-<span class="nc" id="L1612">            } catch (IOException e) {</span>
-<span class="nc" id="L1613">                throw new MojoException(</span>
+<span class="nc" id="L1606">            } catch (IOException e) {</span>
+<span class="nc" id="L1607">                throw new MojoException(</span>
                         &quot;Failed to copy staging dir to latest/: &quot;
-<span class="nc" id="L1615">                                + e.getMessage(), e);</span>
-<span class="nc" id="L1616">            }</span>
+<span class="nc" id="L1609">                                + e.getMessage(), e);</span>
+<span class="nc" id="L1610">            }</span>
 
             // (4) Publish sibling submodule subtrees (ike-issues#363).
             //     In a multi-module reactor with a per-artifactId or
@@ -1667,40 +1661,40 @@ public class ReleaseSupport {
             // Use a LinkedHashMap keyed by directory name to merge
             // hits and dedupe — the same sibling could theoretically
             // appear in multiple layers if a reactor mixes shapes.
-<span class="nc" id="L1670">            java.util.Map&lt;String, Path&gt; siblingByName =</span>
+<span class="nc" id="L1664">            java.util.Map&lt;String, Path&gt; siblingByName =</span>
                     new java.util.LinkedHashMap&lt;&gt;();
-<span class="nc bnc" id="L1672" title="All 2 branches missed.">            for (Path candidate : findSubmoduleSiteDirs(</span>
+<span class="nc bnc" id="L1666" title="All 2 branches missed.">            for (Path candidate : findSubmoduleSiteDirs(</span>
                     siblingSubmoduleLayer, effectiveStagingSource)) {
-<span class="nc" id="L1674">                siblingByName.putIfAbsent(</span>
-<span class="nc" id="L1675">                        candidate.getFileName().toString(), candidate);</span>
-<span class="nc" id="L1676">            }</span>
-<span class="nc bnc" id="L1677" title="All 2 branches missed.">            if (!stagingDir.equals(siblingSubmoduleLayer)) {</span>
-<span class="nc bnc" id="L1678" title="All 2 branches missed.">                for (Path candidate : findSubmoduleSiteDirs(</span>
+<span class="nc" id="L1668">                siblingByName.putIfAbsent(</span>
+<span class="nc" id="L1669">                        candidate.getFileName().toString(), candidate);</span>
+<span class="nc" id="L1670">            }</span>
+<span class="nc bnc" id="L1671" title="All 2 branches missed.">            if (!stagingDir.equals(siblingSubmoduleLayer)) {</span>
+<span class="nc bnc" id="L1672" title="All 2 branches missed.">                for (Path candidate : findSubmoduleSiteDirs(</span>
                         stagingDir, effectiveStagingSource)) {
-<span class="nc" id="L1680">                    siblingByName.putIfAbsent(</span>
-<span class="nc" id="L1681">                            candidate.getFileName().toString(), candidate);</span>
-<span class="nc" id="L1682">                }</span>
+<span class="nc" id="L1674">                    siblingByName.putIfAbsent(</span>
+<span class="nc" id="L1675">                            candidate.getFileName().toString(), candidate);</span>
+<span class="nc" id="L1676">                }</span>
             }
             // Layer (c): stagingDir/&lt;projectId&gt;/ — projectId-named
             // container that holds submodule sites as children.
-<span class="nc" id="L1686">            Path projectIdContainer = stagingDir.resolve(projectId);</span>
-<span class="nc bnc" id="L1687" title="All 2 branches missed.">            if (Files.isDirectory(projectIdContainer)</span>
-<span class="nc" id="L1688">                    &amp;&amp; !projectIdContainer.toAbsolutePath().normalize()</span>
-<span class="nc bnc" id="L1689" title="All 2 branches missed.">                            .equals(siblingSubmoduleLayer</span>
-<span class="nc" id="L1690">                                    .toAbsolutePath().normalize())) {</span>
-<span class="nc bnc" id="L1691" title="All 2 branches missed.">                for (Path candidate : findSubmoduleSiteDirs(</span>
+<span class="nc" id="L1680">            Path projectIdContainer = stagingDir.resolve(projectId);</span>
+<span class="nc bnc" id="L1681" title="All 2 branches missed.">            if (Files.isDirectory(projectIdContainer)</span>
+<span class="nc" id="L1682">                    &amp;&amp; !projectIdContainer.toAbsolutePath().normalize()</span>
+<span class="nc bnc" id="L1683" title="All 2 branches missed.">                            .equals(siblingSubmoduleLayer</span>
+<span class="nc" id="L1684">                                    .toAbsolutePath().normalize())) {</span>
+<span class="nc bnc" id="L1685" title="All 2 branches missed.">                for (Path candidate : findSubmoduleSiteDirs(</span>
                         projectIdContainer, effectiveStagingSource)) {
-<span class="nc" id="L1693">                    siblingByName.putIfAbsent(</span>
-<span class="nc" id="L1694">                            candidate.getFileName().toString(), candidate);</span>
-<span class="nc" id="L1695">                }</span>
+<span class="nc" id="L1687">                    siblingByName.putIfAbsent(</span>
+<span class="nc" id="L1688">                            candidate.getFileName().toString(), candidate);</span>
+<span class="nc" id="L1689">                }</span>
             }
-<span class="nc" id="L1697">            List&lt;Path&gt; siblings = new ArrayList&lt;&gt;(siblingByName.values());</span>
-<span class="nc bnc" id="L1698" title="All 2 branches missed.">            for (Path siblingSource : siblings) {</span>
-<span class="nc" id="L1699">                String moduleId = siblingSource.getFileName().toString();</span>
-<span class="nc bnc" id="L1700" title="All 2 branches missed.">                if (moduleId.equals(projectId)) continue;</span>
-<span class="nc" id="L1701">                Path siblingRootDest = tempDir.resolve(moduleId);</span>
-<span class="nc" id="L1702">                Path siblingVersionDest = tempDir.resolve(version)</span>
-<span class="nc" id="L1703">                        .resolve(moduleId);</span>
+<span class="nc" id="L1691">            List&lt;Path&gt; siblings = new ArrayList&lt;&gt;(siblingByName.values());</span>
+<span class="nc bnc" id="L1692" title="All 2 branches missed.">            for (Path siblingSource : siblings) {</span>
+<span class="nc" id="L1693">                String moduleId = siblingSource.getFileName().toString();</span>
+<span class="nc bnc" id="L1694" title="All 2 branches missed.">                if (moduleId.equals(projectId)) continue;</span>
+<span class="nc" id="L1695">                Path siblingRootDest = tempDir.resolve(moduleId);</span>
+<span class="nc" id="L1696">                Path siblingVersionDest = tempDir.resolve(version)</span>
+<span class="nc" id="L1697">                        .resolve(moduleId);</span>
                 // Submodules also need a latest/ alias so the
                 // canonical pattern &lt;site-root&gt;/latest/&lt;sub&gt;/ resolves.
                 // Step (3) above populates latest/ from
@@ -1712,73 +1706,73 @@ public class ReleaseSupport {
                 // here covers all three layers uniformly. Redundant
                 // for siblings already in latest/ from step (3), but
                 // the second copy is idempotent (same source).
-<span class="nc" id="L1715">                Path siblingLatestDest = tempDir.resolve(&quot;latest&quot;)</span>
-<span class="nc" id="L1716">                        .resolve(moduleId);</span>
-<span class="nc" id="L1717">                deleteDirectory(siblingRootDest);</span>
-<span class="nc" id="L1718">                deleteDirectory(siblingVersionDest);</span>
-<span class="nc" id="L1719">                deleteDirectory(siblingLatestDest);</span>
+<span class="nc" id="L1709">                Path siblingLatestDest = tempDir.resolve(&quot;latest&quot;)</span>
+<span class="nc" id="L1710">                        .resolve(moduleId);</span>
+<span class="nc" id="L1711">                deleteDirectory(siblingRootDest);</span>
+<span class="nc" id="L1712">                deleteDirectory(siblingVersionDest);</span>
+<span class="nc" id="L1713">                deleteDirectory(siblingLatestDest);</span>
                 try {
-<span class="nc" id="L1721">                    Files.createDirectories(siblingRootDest);</span>
-<span class="nc" id="L1722">                    Files.createDirectories(siblingVersionDest);</span>
-<span class="nc" id="L1723">                    Files.createDirectories(siblingLatestDest);</span>
-<span class="nc" id="L1724">                    copyDirectory(siblingSource, siblingRootDest);</span>
-<span class="nc" id="L1725">                    copyDirectory(siblingSource, siblingVersionDest);</span>
-<span class="nc" id="L1726">                    copyDirectory(siblingSource, siblingLatestDest);</span>
-<span class="nc" id="L1727">                } catch (IOException e) {</span>
-<span class="nc" id="L1728">                    throw new MojoException(</span>
+<span class="nc" id="L1715">                    Files.createDirectories(siblingRootDest);</span>
+<span class="nc" id="L1716">                    Files.createDirectories(siblingVersionDest);</span>
+<span class="nc" id="L1717">                    Files.createDirectories(siblingLatestDest);</span>
+<span class="nc" id="L1718">                    copyDirectory(siblingSource, siblingRootDest);</span>
+<span class="nc" id="L1719">                    copyDirectory(siblingSource, siblingVersionDest);</span>
+<span class="nc" id="L1720">                    copyDirectory(siblingSource, siblingLatestDest);</span>
+<span class="nc" id="L1721">                } catch (IOException e) {</span>
+<span class="nc" id="L1722">                    throw new MojoException(</span>
                             &quot;Failed to copy submodule subtree &quot;
                                     + siblingSource + &quot;: &quot;
-<span class="nc" id="L1731">                                    + e.getMessage(), e);</span>
-<span class="nc" id="L1732">                }</span>
-<span class="nc" id="L1733">                log.info(&quot;  Published submodule site: &quot; + moduleId);</span>
-<span class="nc" id="L1734">            }</span>
+<span class="nc" id="L1725">                                    + e.getMessage(), e);</span>
+<span class="nc" id="L1726">                }</span>
+<span class="nc" id="L1727">                log.info(&quot;  Published submodule site: &quot; + moduleId);</span>
+<span class="nc" id="L1728">            }</span>
 
             // .nojekyll — disable Jekyll preprocessing on rendered HTML.
-<span class="nc" id="L1737">            Path nojekyll = tempDir.resolve(&quot;.nojekyll&quot;);</span>
+<span class="nc" id="L1731">            Path nojekyll = tempDir.resolve(&quot;.nojekyll&quot;);</span>
             try {
-<span class="nc" id="L1739">                Files.writeString(nojekyll, &quot;&quot;);</span>
-<span class="nc" id="L1740">            } catch (IOException e) {</span>
-<span class="nc" id="L1741">                throw new MojoException(</span>
-<span class="nc" id="L1742">                        &quot;Failed to write .nojekyll marker: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L1743">            }</span>
+<span class="nc" id="L1733">                Files.writeString(nojekyll, &quot;&quot;);</span>
+<span class="nc" id="L1734">            } catch (IOException e) {</span>
+<span class="nc" id="L1735">                throw new MojoException(</span>
+<span class="nc" id="L1736">                        &quot;Failed to write .nojekyll marker: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1737">            }</span>
 
             // Defensive: never carry a per-repo CNAME — the org CNAME
             // (IKE-Network.github.io -&gt; ike.network) extends down.
             // If a stray CNAME ended up in the staging dir, drop it
             // (root copy only — versioned subdirs are also free of it
             // since their source was the same staging dir).
-<span class="nc" id="L1750">            Path strayCname = tempDir.resolve(&quot;CNAME&quot;);</span>
-<span class="nc bnc" id="L1751" title="All 2 branches missed.">            if (Files.exists(strayCname)) {</span>
+<span class="nc" id="L1744">            Path strayCname = tempDir.resolve(&quot;CNAME&quot;);</span>
+<span class="nc bnc" id="L1745" title="All 2 branches missed.">            if (Files.exists(strayCname)) {</span>
                 try {
-<span class="nc" id="L1753">                    Files.delete(strayCname);</span>
-<span class="nc" id="L1754">                    log.info(&quot;  Dropped stray CNAME from staging &quot;</span>
+<span class="nc" id="L1747">                    Files.delete(strayCname);</span>
+<span class="nc" id="L1748">                    log.info(&quot;  Dropped stray CNAME from staging &quot;</span>
                             + &quot;(per-project CNAMEs conflict with org CNAME)&quot;);
-<span class="nc" id="L1756">                } catch (IOException e) {</span>
-<span class="nc" id="L1757">                    throw new MojoException(</span>
-<span class="nc" id="L1758">                            &quot;Could not delete stray CNAME: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L1759">                }</span>
+<span class="nc" id="L1750">                } catch (IOException e) {</span>
+<span class="nc" id="L1751">                    throw new MojoException(</span>
+<span class="nc" id="L1752">                            &quot;Could not delete stray CNAME: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L1753">                }</span>
             }
 
-<span class="nc" id="L1762">            exec(tempRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
-<span class="nc" id="L1763">            exec(tempRoot, log, &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,</span>
+<span class="nc" id="L1756">            exec(tempRoot, log, &quot;git&quot;, &quot;add&quot;, &quot;-A&quot;);</span>
+<span class="nc" id="L1757">            exec(tempRoot, log, &quot;git&quot;, &quot;commit&quot;, &quot;-m&quot;,</span>
                     &quot;site: publish &quot; + projectId + &quot; &quot; + version);
-<span class="nc bnc" id="L1765" title="All 2 branches missed.">            if (firstTimeBootstrap) {</span>
-<span class="nc" id="L1766">                exec(tempRoot, log, &quot;git&quot;, &quot;push&quot;, &quot;--force&quot;,</span>
+<span class="nc bnc" id="L1759" title="All 2 branches missed.">            if (firstTimeBootstrap) {</span>
+<span class="nc" id="L1760">                exec(tempRoot, log, &quot;git&quot;, &quot;push&quot;, &quot;--force&quot;,</span>
                         repoUrl, &quot;gh-pages:gh-pages&quot;);
             } else {
-<span class="nc" id="L1769">                exec(tempRoot, log, &quot;git&quot;, &quot;push&quot;,</span>
+<span class="nc" id="L1763">                exec(tempRoot, log, &quot;git&quot;, &quot;push&quot;,</span>
                         repoUrl, &quot;gh-pages:gh-pages&quot;);
             }
 
-<span class="nc" id="L1773">            log.info(&quot;  Published:&quot;);</span>
-<span class="nc" id="L1774">            log.info(&quot;    Current:   https://ike.network/&quot; + projectId + &quot;/&quot;);</span>
-<span class="nc" id="L1775">            log.info(&quot;    Versioned: https://ike.network/&quot; + projectId</span>
+<span class="nc" id="L1767">            log.info(&quot;  Published:&quot;);</span>
+<span class="nc" id="L1768">            log.info(&quot;    Current:   https://ike.network/&quot; + projectId + &quot;/&quot;);</span>
+<span class="nc" id="L1769">            log.info(&quot;    Versioned: https://ike.network/&quot; + projectId</span>
                     + &quot;/&quot; + version + &quot;/&quot;);
-<span class="nc" id="L1777">            log.info(&quot;    Latest:    https://ike.network/&quot; + projectId + &quot;/latest/&quot;);</span>
+<span class="nc" id="L1771">            log.info(&quot;    Latest:    https://ike.network/&quot; + projectId + &quot;/latest/&quot;);</span>
         } finally {
-<span class="nc" id="L1779">            deleteDirectory(tempDir);</span>
+<span class="nc" id="L1773">            deleteDirectory(tempDir);</span>
         }
-<span class="nc" id="L1781">    }</span>
+<span class="nc" id="L1775">    }</span>
 
     /**
      * Wipe root-level files and non-version subdirs from a freshly
@@ -1806,29 +1800,29 @@ public class ReleaseSupport {
      */
     private static void wipeGhPagesRootForRepublish(Path repoDir, Log log)
             throws IOException {
-<span class="nc" id="L1809">        try (Stream&lt;Path&gt; entries = Files.list(repoDir)) {</span>
-<span class="nc" id="L1810">            entries.forEach(entry -&gt; {</span>
-<span class="nc" id="L1811">                String name = entry.getFileName().toString();</span>
-<span class="nc bnc" id="L1812" title="All 2 branches missed.">                if (&quot;.git&quot;.equals(name)) {</span>
-<span class="nc" id="L1813">                    return;</span>
+<span class="nc" id="L1803">        try (Stream&lt;Path&gt; entries = Files.list(repoDir)) {</span>
+<span class="nc" id="L1804">            entries.forEach(entry -&gt; {</span>
+<span class="nc" id="L1805">                String name = entry.getFileName().toString();</span>
+<span class="nc bnc" id="L1806" title="All 2 branches missed.">                if (&quot;.git&quot;.equals(name)) {</span>
+<span class="nc" id="L1807">                    return;</span>
                 }
-<span class="nc bnc" id="L1815" title="All 4 branches missed.">                if (Files.isDirectory(entry) &amp;&amp; isVersionDirName(name)) {</span>
-<span class="nc" id="L1816">                    log.debug(&quot;  Preserving versioned subdir: &quot; + name + &quot;/&quot;);</span>
-<span class="nc" id="L1817">                    return;</span>
+<span class="nc bnc" id="L1809" title="All 4 branches missed.">                if (Files.isDirectory(entry) &amp;&amp; isVersionDirName(name)) {</span>
+<span class="nc" id="L1810">                    log.debug(&quot;  Preserving versioned subdir: &quot; + name + &quot;/&quot;);</span>
+<span class="nc" id="L1811">                    return;</span>
                 }
-<span class="nc bnc" id="L1819" title="All 2 branches missed.">                if (Files.isDirectory(entry)) {</span>
-<span class="nc" id="L1820">                    deleteDirectory(entry);</span>
+<span class="nc bnc" id="L1813" title="All 2 branches missed.">                if (Files.isDirectory(entry)) {</span>
+<span class="nc" id="L1814">                    deleteDirectory(entry);</span>
                 } else {
                     try {
-<span class="nc" id="L1823">                        Files.delete(entry);</span>
-<span class="nc" id="L1824">                    } catch (IOException e) {</span>
-<span class="nc" id="L1825">                        log.warn(&quot;  Could not delete root file &quot;</span>
-<span class="nc" id="L1826">                                + name + &quot;: &quot; + e.getMessage());</span>
-<span class="nc" id="L1827">                    }</span>
+<span class="nc" id="L1817">                        Files.delete(entry);</span>
+<span class="nc" id="L1818">                    } catch (IOException e) {</span>
+<span class="nc" id="L1819">                        log.warn(&quot;  Could not delete root file &quot;</span>
+<span class="nc" id="L1820">                                + name + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L1821">                    }</span>
                 }
-<span class="nc" id="L1829">            });</span>
+<span class="nc" id="L1823">            });</span>
         }
-<span class="nc" id="L1831">    }</span>
+<span class="nc" id="L1825">    }</span>
 
     /**
      * Heuristic: does this directory name look like a release version?
@@ -1844,9 +1838,9 @@ public class ReleaseSupport {
      * @return {@code true} if the name looks like a version
      */
     static boolean isVersionDirName(String name) {
-<span class="fc bfc" id="L1847" title="All 2 branches covered.">        return name != null</span>
-<span class="fc bfc" id="L1848" title="All 2 branches covered.">                &amp;&amp; !name.isEmpty()</span>
-<span class="fc bfc" id="L1849" title="All 2 branches covered.">                &amp;&amp; Character.isDigit(name.charAt(0));</span>
+<span class="fc bfc" id="L1841" title="All 2 branches covered.">        return name != null</span>
+<span class="fc bfc" id="L1842" title="All 2 branches covered.">                &amp;&amp; !name.isEmpty()</span>
+<span class="fc bfc" id="L1843" title="All 2 branches covered.">                &amp;&amp; Character.isDigit(name.charAt(0));</span>
     }
 
     /**
@@ -1860,19 +1854,19 @@ public class ReleaseSupport {
      */
     public static void validateRemotePath(String remotePath)
             throws MojoException {
-<span class="fc bfc" id="L1863" title="All 2 branches covered.">        if (!remotePath.startsWith(SITE_DISK_BASE)) {</span>
-<span class="fc" id="L1864">            throw new MojoException(</span>
+<span class="fc bfc" id="L1857" title="All 2 branches covered.">        if (!remotePath.startsWith(SITE_DISK_BASE)) {</span>
+<span class="fc" id="L1858">            throw new MojoException(</span>
                     &quot;Refusing to delete — path does not start with &quot;
                             + SITE_DISK_BASE + &quot;: &quot; + remotePath);
         }
-<span class="fc" id="L1868">        String relative = remotePath.substring(SITE_DISK_BASE.length());</span>
-<span class="fc bfc" id="L1869" title="All 2 branches covered.">        long depth = relative.chars().filter(c -&gt; c == '/').count();</span>
-<span class="fc bfc" id="L1870" title="All 4 branches covered.">        if (relative.isBlank() || depth &lt; 1) {</span>
-<span class="fc" id="L1871">            throw new MojoException(</span>
+<span class="fc" id="L1862">        String relative = remotePath.substring(SITE_DISK_BASE.length());</span>
+<span class="fc bfc" id="L1863" title="All 2 branches covered.">        long depth = relative.chars().filter(c -&gt; c == '/').count();</span>
+<span class="fc bfc" id="L1864" title="All 4 branches covered.">        if (relative.isBlank() || depth &lt; 1) {</span>
+<span class="fc" id="L1865">            throw new MojoException(</span>
                     &quot;Refusing to delete — path too shallow (need project/type): &quot;
                             + remotePath);
         }
-<span class="fc" id="L1875">    }</span>
+<span class="fc" id="L1869">    }</span>
 
     /**
      * Resolve the on-disk site path for a given project, type, and
@@ -1886,11 +1880,11 @@ public class ReleaseSupport {
      */
     public static String siteDiskPath(String projectId, String siteType,
                                String subPath) {
-<span class="fc" id="L1889">        String path = SITE_DISK_BASE + projectId + &quot;/&quot; + siteType;</span>
-<span class="fc bfc" id="L1890" title="All 4 branches covered.">        if (subPath != null &amp;&amp; !subPath.isBlank()) {</span>
-<span class="fc" id="L1891">            path += &quot;/&quot; + subPath;</span>
+<span class="fc" id="L1883">        String path = SITE_DISK_BASE + projectId + &quot;/&quot; + siteType;</span>
+<span class="fc bfc" id="L1884" title="All 4 branches covered.">        if (subPath != null &amp;&amp; !subPath.isBlank()) {</span>
+<span class="fc" id="L1885">            path += &quot;/&quot; + subPath;</span>
         }
-<span class="fc" id="L1893">        return path;</span>
+<span class="fc" id="L1887">        return path;</span>
     }
 
     /**
@@ -1904,7 +1898,7 @@ public class ReleaseSupport {
     public static String branchToSitePath(String branch) {
         // Keep forward slashes for directory structure (feature/name → feature/name)
         // but sanitize anything dangerous
-<span class="fc" id="L1907">        return branch.replaceAll(&quot;[^a-zA-Z0-9/_.-]&quot;, &quot;-&quot;);</span>
+<span class="fc" id="L1901">        return branch.replaceAll(&quot;[^a-zA-Z0-9/_.-]&quot;, &quot;-&quot;);</span>
     }
 
     /**
@@ -1926,17 +1920,17 @@ public class ReleaseSupport {
      *                       group ID, own or inherited
      */
     public static String readPomGroupId(File pomFile) throws MojoException {
-<span class="fc" id="L1929">        Model model = readModel(pomFile);</span>
-<span class="fc" id="L1930">        String groupId = model.getGroupId();</span>
-<span class="fc bfc" id="L1931" title="All 4 branches covered.">        if (groupId == null &amp;&amp; model.getParent() != null) {</span>
-<span class="fc" id="L1932">            groupId = model.getParent().getGroupId();</span>
+<span class="fc" id="L1923">        Model model = readModel(pomFile);</span>
+<span class="fc" id="L1924">        String groupId = model.getGroupId();</span>
+<span class="fc bfc" id="L1925" title="All 4 branches covered.">        if (groupId == null &amp;&amp; model.getParent() != null) {</span>
+<span class="fc" id="L1926">            groupId = model.getParent().getGroupId();</span>
         }
-<span class="fc bfc" id="L1934" title="All 2 branches covered.">        if (groupId == null) {</span>
-<span class="fc" id="L1935">            throw new MojoException(</span>
+<span class="fc bfc" id="L1928" title="All 2 branches covered.">        if (groupId == null) {</span>
+<span class="fc" id="L1929">            throw new MojoException(</span>
                     &quot;Could not extract &lt;groupId&gt; from &quot; + pomFile
                             + &quot; — none declared, own or inherited&quot;);
         }
-<span class="fc" id="L1939">        return groupId;</span>
+<span class="fc" id="L1933">        return groupId;</span>
     }
 
     /**
@@ -1948,13 +1942,13 @@ public class ReleaseSupport {
      * @throws MojoException if the file cannot be read or has no artifact ID
      */
     public static String readPomArtifactId(File pomFile) throws MojoException {
-<span class="fc" id="L1951">        Model model = readModel(pomFile);</span>
-<span class="fc" id="L1952">        String artifactId = model.getArtifactId();</span>
-<span class="fc bfc" id="L1953" title="All 2 branches covered.">        if (artifactId == null) {</span>
-<span class="fc" id="L1954">            throw new MojoException(</span>
+<span class="fc" id="L1945">        Model model = readModel(pomFile);</span>
+<span class="fc" id="L1946">        String artifactId = model.getArtifactId();</span>
+<span class="fc bfc" id="L1947" title="All 2 branches covered.">        if (artifactId == null) {</span>
+<span class="fc" id="L1948">            throw new MojoException(</span>
                     &quot;Could not extract &lt;artifactId&gt; from &quot; + pomFile);
         }
-<span class="fc" id="L1957">        return artifactId;</span>
+<span class="fc" id="L1951">        return artifactId;</span>
     }
 
     /**
@@ -1976,14 +1970,14 @@ public class ReleaseSupport {
     public static String readPomProperty(File pomFile, String propertyName)
             throws MojoException {
         try {
-<span class="nc" id="L1979">            String content = Files.readString(</span>
-<span class="nc" id="L1980">                    pomFile.toPath(), StandardCharsets.UTF_8);</span>
-<span class="nc" id="L1981">            Matcher matcher = Pattern.compile(</span>
-<span class="nc" id="L1982">                    &quot;&lt;&quot; + Pattern.quote(propertyName) + &quot;&gt;([^&lt;]+)&lt;/&quot;</span>
-<span class="nc" id="L1983">                    + Pattern.quote(propertyName) + &quot;&gt;&quot;).matcher(content);</span>
-<span class="nc bnc" id="L1984" title="All 2 branches missed.">            return matcher.find() ? matcher.group(1) : null;</span>
-<span class="nc" id="L1985">        } catch (IOException e) {</span>
-<span class="nc" id="L1986">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+<span class="nc" id="L1973">            String content = Files.readString(</span>
+<span class="nc" id="L1974">                    pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L1975">            Matcher matcher = Pattern.compile(</span>
+<span class="nc" id="L1976">                    &quot;&lt;&quot; + Pattern.quote(propertyName) + &quot;&gt;([^&lt;]+)&lt;/&quot;</span>
+<span class="nc" id="L1977">                    + Pattern.quote(propertyName) + &quot;&gt;&quot;).matcher(content);</span>
+<span class="nc bnc" id="L1978" title="All 2 branches missed.">            return matcher.find() ? matcher.group(1) : null;</span>
+<span class="nc" id="L1979">        } catch (IOException e) {</span>
+<span class="nc" id="L1980">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
         }
     }
 
@@ -2003,11 +1997,11 @@ public class ReleaseSupport {
      * @throws MojoException if the directory cannot be listed
      */
     public static boolean isEmptyDirectory(Path dir) throws MojoException {
-<span class="fc" id="L2006">        try (Stream&lt;Path&gt; entries = Files.list(dir)) {</span>
-<span class="fc" id="L2007">            return entries.findAny().isEmpty();</span>
-<span class="nc" id="L2008">        } catch (IOException e) {</span>
-<span class="nc" id="L2009">            throw new MojoException(</span>
-<span class="nc" id="L2010">                    &quot;Could not list directory &quot; + dir + &quot;: &quot; + e.getMessage(),</span>
+<span class="fc" id="L2000">        try (Stream&lt;Path&gt; entries = Files.list(dir)) {</span>
+<span class="fc" id="L2001">            return entries.findAny().isEmpty();</span>
+<span class="nc" id="L2002">        } catch (IOException e) {</span>
+<span class="nc" id="L2003">            throw new MojoException(</span>
+<span class="nc" id="L2004">                    &quot;Could not list directory &quot; + dir + &quot;: &quot; + e.getMessage(),</span>
                     e);
         }
     }
@@ -2051,28 +2045,28 @@ public class ReleaseSupport {
     public static Path detectParentArtifactNesting(Path source,
                                                     String projectId)
             throws MojoException {
-<span class="pc bpc" id="L2054" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) {</span>
-<span class="nc" id="L2055">            return null;</span>
+<span class="pc bpc" id="L2048" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) {</span>
+<span class="nc" id="L2049">            return null;</span>
         }
-<span class="fc" id="L2057">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
-<span class="fc" id="L2058">            List&lt;Path&gt; topLevel = entries.toList();</span>
-<span class="fc bfc" id="L2059" title="All 2 branches covered.">            if (topLevel.size() != 1) {</span>
-<span class="fc" id="L2060">                return null;</span>
+<span class="fc" id="L2051">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
+<span class="fc" id="L2052">            List&lt;Path&gt; topLevel = entries.toList();</span>
+<span class="fc bfc" id="L2053" title="All 2 branches covered.">            if (topLevel.size() != 1) {</span>
+<span class="fc" id="L2054">                return null;</span>
             }
-<span class="fc" id="L2062">            Path single = topLevel.get(0);</span>
-<span class="fc bfc" id="L2063" title="All 2 branches covered.">            if (!Files.isDirectory(single)) {</span>
-<span class="fc" id="L2064">                return null;</span>
+<span class="fc" id="L2056">            Path single = topLevel.get(0);</span>
+<span class="fc bfc" id="L2057" title="All 2 branches covered.">            if (!Files.isDirectory(single)) {</span>
+<span class="fc" id="L2058">                return null;</span>
             }
-<span class="fc" id="L2066">            Path inner = single.resolve(projectId);</span>
-<span class="fc bfc" id="L2067" title="All 4 branches covered.">            if (!Files.isDirectory(inner) || isEmptyDirectory(inner)) {</span>
-<span class="fc" id="L2068">                return null;</span>
+<span class="fc" id="L2060">            Path inner = single.resolve(projectId);</span>
+<span class="fc bfc" id="L2061" title="All 4 branches covered.">            if (!Files.isDirectory(inner) || isEmptyDirectory(inner)) {</span>
+<span class="fc" id="L2062">                return null;</span>
             }
-<span class="fc" id="L2070">            return inner;</span>
-<span class="pc bpc" id="L2071" title="3 of 6 branches missed.">        } catch (IOException e) {</span>
-<span class="nc" id="L2072">            throw new MojoException(</span>
+<span class="fc" id="L2064">            return inner;</span>
+<span class="pc bpc" id="L2065" title="3 of 6 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L2066">            throw new MojoException(</span>
                     &quot;Could not inspect &quot; + source
                             + &quot; for parent-artifactId nesting: &quot;
-<span class="nc" id="L2075">                            + e.getMessage(), e);</span>
+<span class="nc" id="L2069">                            + e.getMessage(), e);</span>
         }
     }
 
@@ -2114,8 +2108,8 @@ public class ReleaseSupport {
     public static Path detectAggregatedStaging(Path source,
                                                 String projectId)
             throws MojoException {
-<span class="pc bpc" id="L2117" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) {</span>
-<span class="nc" id="L2118">            return null;</span>
+<span class="pc bpc" id="L2111" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) {</span>
+<span class="nc" id="L2112">            return null;</span>
         }
         // No multi-entry guard. The earlier &quot;count() &lt; 2 → return null&quot;
         // assumed the single-entry case was always parent-artifactId
@@ -2135,9 +2129,9 @@ public class ReleaseSupport {
         // fires in the legitimate &quot;content lives at staging/&lt;projectId&gt;/&quot;
         // case.
         // Check shallow first: source/&lt;projectId&gt;/
-<span class="fc" id="L2138">        Path shallow = source.resolve(projectId);</span>
-<span class="fc bfc" id="L2139" title="All 4 branches covered.">        if (Files.isDirectory(shallow) &amp;&amp; !isEmptyDirectory(shallow)) {</span>
-<span class="fc" id="L2140">            return shallow;</span>
+<span class="fc" id="L2132">        Path shallow = source.resolve(projectId);</span>
+<span class="fc bfc" id="L2133" title="All 4 branches covered.">        if (Files.isDirectory(shallow) &amp;&amp; !isEmptyDirectory(shallow)) {</span>
+<span class="fc" id="L2134">            return shallow;</span>
         }
         // Check one level deeper: source/&lt;anyDir&gt;/&lt;projectId&gt;/. This
         // catches the compound case where the workspace's own site is
@@ -2149,22 +2143,22 @@ public class ReleaseSupport {
         // candidate wins — staging/&lt;parentArtifactId&gt;/&lt;projectId&gt;/
         // is the only configuration that produces this layout in
         // practice, so we don't disambiguate.
-<span class="fc" id="L2152">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
-<span class="fc bfc" id="L2153" title="All 2 branches covered.">            for (Path top : entries.toList()) {</span>
-<span class="fc bfc" id="L2154" title="All 2 branches covered.">                if (!Files.isDirectory(top)) continue;</span>
-<span class="fc" id="L2155">                Path deeper = top.resolve(projectId);</span>
-<span class="fc bfc" id="L2156" title="All 2 branches covered.">                if (Files.isDirectory(deeper)</span>
-<span class="pc bpc" id="L2157" title="1 of 2 branches missed.">                        &amp;&amp; !isEmptyDirectory(deeper)) {</span>
-<span class="fc" id="L2158">                    return deeper;</span>
+<span class="fc" id="L2146">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
+<span class="fc bfc" id="L2147" title="All 2 branches covered.">            for (Path top : entries.toList()) {</span>
+<span class="fc bfc" id="L2148" title="All 2 branches covered.">                if (!Files.isDirectory(top)) continue;</span>
+<span class="fc" id="L2149">                Path deeper = top.resolve(projectId);</span>
+<span class="fc bfc" id="L2150" title="All 2 branches covered.">                if (Files.isDirectory(deeper)</span>
+<span class="pc bpc" id="L2151" title="1 of 2 branches missed.">                        &amp;&amp; !isEmptyDirectory(deeper)) {</span>
+<span class="fc" id="L2152">                    return deeper;</span>
                 }
-<span class="fc" id="L2160">            }</span>
-<span class="pc bpc" id="L2161" title="1 of 2 branches missed.">        } catch (IOException e) {</span>
-<span class="nc" id="L2162">            throw new MojoException(</span>
+<span class="fc" id="L2154">            }</span>
+<span class="pc bpc" id="L2155" title="1 of 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L2156">            throw new MojoException(</span>
                     &quot;Could not inspect &quot; + source
                             + &quot; for aggregated staging (deep): &quot;
-<span class="nc" id="L2165">                            + e.getMessage(), e);</span>
-<span class="fc" id="L2166">        }</span>
-<span class="fc" id="L2167">        return null;</span>
+<span class="nc" id="L2159">                            + e.getMessage(), e);</span>
+<span class="fc" id="L2160">        }</span>
+<span class="fc" id="L2161">        return null;</span>
     }
 
     /**
@@ -2211,29 +2205,29 @@ public class ReleaseSupport {
      */
     public static Path detectHttpsUrlStaging(Path source, String projectId)
             throws MojoException {
-<span class="pc bpc" id="L2214" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) return null;</span>
-<span class="fc" id="L2215">        Path scheme = source.resolve(&quot;https:&quot;);</span>
-<span class="fc bfc" id="L2216" title="All 2 branches covered.">        if (!Files.isDirectory(scheme)) {</span>
-<span class="fc" id="L2217">            scheme = source.resolve(&quot;http:&quot;);</span>
-<span class="pc bpc" id="L2218" title="1 of 2 branches missed.">            if (!Files.isDirectory(scheme)) return null;</span>
+<span class="pc bpc" id="L2208" title="1 of 2 branches missed.">        if (!Files.isDirectory(source)) return null;</span>
+<span class="fc" id="L2209">        Path scheme = source.resolve(&quot;https:&quot;);</span>
+<span class="fc bfc" id="L2210" title="All 2 branches covered.">        if (!Files.isDirectory(scheme)) {</span>
+<span class="fc" id="L2211">            scheme = source.resolve(&quot;http:&quot;);</span>
+<span class="pc bpc" id="L2212" title="1 of 2 branches missed.">            if (!Files.isDirectory(scheme)) return null;</span>
         }
         Path host;
-<span class="fc" id="L2221">        try (Stream&lt;Path&gt; hosts = Files.list(scheme)) {</span>
-<span class="fc" id="L2222">            List&lt;Path&gt; hostDirs = hosts.filter(Files::isDirectory).toList();</span>
-<span class="fc bfc" id="L2223" title="All 2 branches covered.">            if (hostDirs.size() != 1) return null;</span>
-<span class="fc" id="L2224">            host = hostDirs.get(0);</span>
-<span class="pc bpc" id="L2225" title="1 of 2 branches missed.">        } catch (IOException e) {</span>
-<span class="nc" id="L2226">            throw new MojoException(</span>
+<span class="fc" id="L2215">        try (Stream&lt;Path&gt; hosts = Files.list(scheme)) {</span>
+<span class="fc" id="L2216">            List&lt;Path&gt; hostDirs = hosts.filter(Files::isDirectory).toList();</span>
+<span class="fc bfc" id="L2217" title="All 2 branches covered.">            if (hostDirs.size() != 1) return null;</span>
+<span class="fc" id="L2218">            host = hostDirs.get(0);</span>
+<span class="pc bpc" id="L2219" title="1 of 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L2220">            throw new MojoException(</span>
                     &quot;Could not inspect &quot; + scheme
                             + &quot; for URL-as-path staging: &quot;
-<span class="nc" id="L2229">                            + e.getMessage(), e);</span>
-<span class="fc" id="L2230">        }</span>
-<span class="fc" id="L2231">        Path projectDir = host.resolve(projectId);</span>
-<span class="pc bpc" id="L2232" title="1 of 2 branches missed.">        if (!Files.isDirectory(projectDir)</span>
-<span class="fc bfc" id="L2233" title="All 2 branches covered.">                || isEmptyDirectory(projectDir)) {</span>
-<span class="fc" id="L2234">            return null;</span>
+<span class="nc" id="L2223">                            + e.getMessage(), e);</span>
+<span class="fc" id="L2224">        }</span>
+<span class="fc" id="L2225">        Path projectDir = host.resolve(projectId);</span>
+<span class="pc bpc" id="L2226" title="1 of 2 branches missed.">        if (!Files.isDirectory(projectDir)</span>
+<span class="fc bfc" id="L2227" title="All 2 branches covered.">                || isEmptyDirectory(projectDir)) {</span>
+<span class="fc" id="L2228">            return null;</span>
         }
-<span class="fc" id="L2236">        return projectDir;</span>
+<span class="fc" id="L2230">        return projectDir;</span>
     }
 
     /**
@@ -2261,29 +2255,29 @@ public class ReleaseSupport {
      */
     public static List&lt;Path&gt; findSubmoduleSiteDirs(Path layer, Path exclude)
             throws MojoException {
-<span class="fc" id="L2264">        List&lt;Path&gt; result = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L2265" title="All 2 branches covered.">        if (!Files.isDirectory(layer)) return result;</span>
-<span class="fc bfc" id="L2266" title="All 2 branches covered.">        Path excludeAbs = exclude == null ? null</span>
-<span class="fc" id="L2267">                : exclude.toAbsolutePath().normalize();</span>
-<span class="fc" id="L2268">        try (Stream&lt;Path&gt; entries = Files.list(layer)) {</span>
-<span class="fc bfc" id="L2269" title="All 2 branches covered.">            for (Path entry : entries.toList()) {</span>
-<span class="pc bpc" id="L2270" title="1 of 2 branches missed.">                if (!Files.isDirectory(entry)) continue;</span>
-<span class="fc bfc" id="L2271" title="All 2 branches covered.">                if (excludeAbs != null</span>
-<span class="fc" id="L2272">                        &amp;&amp; entry.toAbsolutePath().normalize()</span>
-<span class="fc bfc" id="L2273" title="All 2 branches covered.">                                .equals(excludeAbs)) {</span>
-<span class="fc" id="L2274">                    continue;</span>
+<span class="fc" id="L2258">        List&lt;Path&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L2259" title="All 2 branches covered.">        if (!Files.isDirectory(layer)) return result;</span>
+<span class="fc bfc" id="L2260" title="All 2 branches covered.">        Path excludeAbs = exclude == null ? null</span>
+<span class="fc" id="L2261">                : exclude.toAbsolutePath().normalize();</span>
+<span class="fc" id="L2262">        try (Stream&lt;Path&gt; entries = Files.list(layer)) {</span>
+<span class="fc bfc" id="L2263" title="All 2 branches covered.">            for (Path entry : entries.toList()) {</span>
+<span class="pc bpc" id="L2264" title="1 of 2 branches missed.">                if (!Files.isDirectory(entry)) continue;</span>
+<span class="fc bfc" id="L2265" title="All 2 branches covered.">                if (excludeAbs != null</span>
+<span class="fc" id="L2266">                        &amp;&amp; entry.toAbsolutePath().normalize()</span>
+<span class="fc bfc" id="L2267" title="All 2 branches covered.">                                .equals(excludeAbs)) {</span>
+<span class="fc" id="L2268">                    continue;</span>
                 }
-<span class="fc" id="L2276">                Path indexHtml = entry.resolve(&quot;index.html&quot;);</span>
-<span class="fc bfc" id="L2277" title="All 2 branches covered.">                if (Files.isRegularFile(indexHtml)) {</span>
-<span class="fc" id="L2278">                    result.add(entry);</span>
+<span class="fc" id="L2270">                Path indexHtml = entry.resolve(&quot;index.html&quot;);</span>
+<span class="fc bfc" id="L2271" title="All 2 branches covered.">                if (Files.isRegularFile(indexHtml)) {</span>
+<span class="fc" id="L2272">                    result.add(entry);</span>
                 }
-<span class="fc" id="L2280">            }</span>
-<span class="nc" id="L2281">        } catch (IOException e) {</span>
-<span class="nc" id="L2282">            throw new MojoException(</span>
+<span class="fc" id="L2274">            }</span>
+<span class="nc" id="L2275">        } catch (IOException e) {</span>
+<span class="nc" id="L2276">            throw new MojoException(</span>
                     &quot;Could not scan for submodule sites at &quot; + layer
-<span class="nc" id="L2284">                            + &quot;: &quot; + e.getMessage(), e);</span>
-<span class="fc" id="L2285">        }</span>
-<span class="fc" id="L2286">        return result;</span>
+<span class="nc" id="L2278">                            + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L2279">        }</span>
+<span class="fc" id="L2280">        return result;</span>
     }
 
     /**
@@ -2294,25 +2288,25 @@ public class ReleaseSupport {
      */
     public static void deleteDirectory(Path dir) {
         try {
-<span class="fc" id="L2297">            Files.walkFileTree(dir, new SimpleFileVisitor&lt;&gt;() {</span>
+<span class="fc" id="L2291">            Files.walkFileTree(dir, new SimpleFileVisitor&lt;&gt;() {</span>
                 @Override
                 public FileVisitResult visitFile(Path file,
                         BasicFileAttributes attrs) throws IOException {
-<span class="fc" id="L2301">                    Files.delete(file);</span>
-<span class="fc" id="L2302">                    return FileVisitResult.CONTINUE;</span>
+<span class="fc" id="L2295">                    Files.delete(file);</span>
+<span class="fc" id="L2296">                    return FileVisitResult.CONTINUE;</span>
                 }
 
                 @Override
                 public FileVisitResult postVisitDirectory(Path d,
                         IOException exc) throws IOException {
-<span class="fc" id="L2308">                    Files.delete(d);</span>
-<span class="fc" id="L2309">                    return FileVisitResult.CONTINUE;</span>
+<span class="fc" id="L2302">                    Files.delete(d);</span>
+<span class="fc" id="L2303">                    return FileVisitResult.CONTINUE;</span>
                 }
             });
-<span class="nc" id="L2312">        } catch (IOException e) {</span>
+<span class="nc" id="L2306">        } catch (IOException e) {</span>
             // Best-effort — log but don't fail
-<span class="fc" id="L2314">        }</span>
-<span class="fc" id="L2315">    }</span>
+<span class="fc" id="L2308">        }</span>
+<span class="fc" id="L2309">    }</span>
 
     /**
      * Recursively copy a directory tree.
@@ -2322,21 +2316,21 @@ public class ReleaseSupport {
      * @throws IOException if a file cannot be copied
      */
     public static void copyDirectory(Path source, Path target) throws IOException {
-<span class="fc" id="L2325">        try (Stream&lt;Path&gt; stream = Files.walk(source)) {</span>
-<span class="fc" id="L2326">            stream.forEach(src -&gt; {</span>
+<span class="fc" id="L2319">        try (Stream&lt;Path&gt; stream = Files.walk(source)) {</span>
+<span class="fc" id="L2320">            stream.forEach(src -&gt; {</span>
                 try {
-<span class="fc" id="L2328">                    Path dest = target.resolve(source.relativize(src));</span>
-<span class="fc bfc" id="L2329" title="All 2 branches covered.">                    if (Files.isDirectory(src)) {</span>
-<span class="fc" id="L2330">                        Files.createDirectories(dest);</span>
+<span class="fc" id="L2322">                    Path dest = target.resolve(source.relativize(src));</span>
+<span class="fc bfc" id="L2323" title="All 2 branches covered.">                    if (Files.isDirectory(src)) {</span>
+<span class="fc" id="L2324">                        Files.createDirectories(dest);</span>
                     } else {
-<span class="fc" id="L2332">                        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);</span>
+<span class="fc" id="L2326">                        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);</span>
                     }
-<span class="nc" id="L2334">                } catch (IOException e) {</span>
-<span class="nc" id="L2335">                    throw new RuntimeException(e);</span>
-<span class="fc" id="L2336">                }</span>
-<span class="fc" id="L2337">            });</span>
+<span class="nc" id="L2328">                } catch (IOException e) {</span>
+<span class="nc" id="L2329">                    throw new RuntimeException(e);</span>
+<span class="fc" id="L2330">                }</span>
+<span class="fc" id="L2331">            });</span>
         }
-<span class="fc" id="L2339">    }</span>
+<span class="fc" id="L2333">    }</span>
 
     /**
      * Recursively copy a directory tree, excluding top-level
@@ -2378,23 +2372,23 @@ public class ReleaseSupport {
      */
     public static void copyDirectoryExcludingTopLevelVersionDirs(
             Path source, Path target) throws IOException {
-<span class="fc" id="L2381">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
-<span class="fc bfc" id="L2382" title="All 2 branches covered.">            for (Path entry : (Iterable&lt;Path&gt;) entries::iterator) {</span>
-<span class="fc" id="L2383">                String name = entry.getFileName().toString();</span>
-<span class="fc bfc" id="L2384" title="All 4 branches covered.">                if (Files.isDirectory(entry) &amp;&amp; isVersionDirName(name)) {</span>
-<span class="fc" id="L2385">                    continue;</span>
+<span class="fc" id="L2375">        try (Stream&lt;Path&gt; entries = Files.list(source)) {</span>
+<span class="fc bfc" id="L2376" title="All 2 branches covered.">            for (Path entry : (Iterable&lt;Path&gt;) entries::iterator) {</span>
+<span class="fc" id="L2377">                String name = entry.getFileName().toString();</span>
+<span class="fc bfc" id="L2378" title="All 4 branches covered.">                if (Files.isDirectory(entry) &amp;&amp; isVersionDirName(name)) {</span>
+<span class="fc" id="L2379">                    continue;</span>
                 }
-<span class="fc" id="L2387">                Path dest = target.resolve(name);</span>
-<span class="fc bfc" id="L2388" title="All 2 branches covered.">                if (Files.isDirectory(entry)) {</span>
-<span class="fc" id="L2389">                    Files.createDirectories(dest);</span>
-<span class="fc" id="L2390">                    copyDirectory(entry, dest);</span>
+<span class="fc" id="L2381">                Path dest = target.resolve(name);</span>
+<span class="fc bfc" id="L2382" title="All 2 branches covered.">                if (Files.isDirectory(entry)) {</span>
+<span class="fc" id="L2383">                    Files.createDirectories(dest);</span>
+<span class="fc" id="L2384">                    copyDirectory(entry, dest);</span>
                 } else {
-<span class="fc" id="L2392">                    Files.copy(entry, dest,</span>
+<span class="fc" id="L2386">                    Files.copy(entry, dest,</span>
                             StandardCopyOption.REPLACE_EXISTING);
                 }
-<span class="fc" id="L2395">            }</span>
+<span class="fc" id="L2389">            }</span>
         }
-<span class="fc" id="L2397">    }</span>
+<span class="fc" id="L2391">    }</span>
 
     /**
      * Read the {@code &lt;name&gt;} element from a POM file.
@@ -2404,7 +2398,7 @@ public class ReleaseSupport {
      * @throws MojoException if the file cannot be read
      */
     public static String readPomName(File pomFile) throws MojoException {
-<span class="nc" id="L2407">        return readPomElement(pomFile, &quot;name&quot;);</span>
+<span class="nc" id="L2401">        return readPomElement(pomFile, &quot;name&quot;);</span>
     }
 
     /**
@@ -2415,7 +2409,7 @@ public class ReleaseSupport {
      * @throws MojoException if the file cannot be read
      */
     public static String readPomDescription(File pomFile) throws MojoException {
-<span class="nc" id="L2418">        return readPomElement(pomFile, &quot;description&quot;);</span>
+<span class="nc" id="L2412">        return readPomElement(pomFile, &quot;description&quot;);</span>
     }
 
     /**
@@ -2435,24 +2429,24 @@ public class ReleaseSupport {
      * @throws MojoException if the POM cannot be parsed
      */
     public static String readPomScmUrl(File pomFile) throws MojoException {
-<span class="fc" id="L2438">        Model model = readModel(pomFile);</span>
-<span class="fc bfc" id="L2439" title="All 2 branches covered.">        if (model.getScm() == null) {</span>
-<span class="fc" id="L2440">            return null;</span>
+<span class="fc" id="L2432">        Model model = readModel(pomFile);</span>
+<span class="fc bfc" id="L2433" title="All 2 branches covered.">        if (model.getScm() == null) {</span>
+<span class="fc" id="L2434">            return null;</span>
         }
-<span class="fc" id="L2442">        String url = model.getScm().getUrl();</span>
-<span class="pc bpc" id="L2443" title="2 of 4 branches missed.">        return url == null || url.isBlank() ? null : url.trim();</span>
+<span class="fc" id="L2436">        String url = model.getScm().getUrl();</span>
+<span class="pc bpc" id="L2437" title="2 of 4 branches missed.">        return url == null || url.isBlank() ? null : url.trim();</span>
     }
 
     private static String readPomElement(File pomFile, String element)
             throws MojoException {
         try {
-<span class="nc" id="L2449">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
-<span class="nc" id="L2450">            Pattern pattern = Pattern.compile(</span>
+<span class="nc" id="L2443">            String content = Files.readString(pomFile.toPath(), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L2444">            Pattern pattern = Pattern.compile(</span>
                     &quot;&lt;&quot; + element + &quot;&gt;([^&lt;]+)&lt;/&quot; + element + &quot;&gt;&quot;);
-<span class="nc" id="L2452">            Matcher matcher = pattern.matcher(content);</span>
-<span class="nc bnc" id="L2453" title="All 2 branches missed.">            return matcher.find() ? matcher.group(1).trim() : null;</span>
-<span class="nc" id="L2454">        } catch (IOException e) {</span>
-<span class="nc" id="L2455">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
+<span class="nc" id="L2446">            Matcher matcher = pattern.matcher(content);</span>
+<span class="nc bnc" id="L2447" title="All 2 branches missed.">            return matcher.find() ? matcher.group(1).trim() : null;</span>
+<span class="nc" id="L2448">        } catch (IOException e) {</span>
+<span class="nc" id="L2449">            throw new MojoException(&quot;Failed to read &quot; + pomFile, e);</span>
         }
     }
 }
