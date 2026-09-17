@@ -60,6 +60,7 @@ The `claude` classifier ships every file from
 | [`IKE-CLASSIFIERS.md`](src/main/standards/IKE-CLASSIFIERS.md) | Maven artifact classifier conventions (`adoc`, `prince`, `fop`, `claude`, etc.) |
 | [`IKE-INGEST.md`](src/main/standards/IKE-INGEST.md) | Ingest pipeline conventions (FHIR → ANF → Delta Lake) |
 | [`IKE-KNOWLEDGE.md`](src/main/standards/IKE-KNOWLEDGE.md) | Knowledge-layer conventions (terminology, concept models) |
+| [`IKE-LANGUAGE.md`](src/main/standards/IKE-LANGUAGE.md) | Plain language for concept definitions, design topics, guide chapters, and proposals to the architect |
 | [`IKE-RELEASE.md`](src/main/standards/IKE-RELEASE.md) | Release procedure conventions (foundation cascade, workspace cascade) |
 | [`IKE-RELEASE-RECOVERY.md`](src/main/standards/IKE-RELEASE-RECOVERY.md) | Recovery procedures when a release is interrupted mid-cascade |
 | [`IKE-SITE-XML.md`](src/main/standards/IKE-SITE-XML.md) | `site.xml` conventions (breadcrumbs, modules sidebar, href-identity dedupe) |
