@@ -91,6 +91,13 @@ name. "The construct ECL's `<` names."
   that takes the branch and never written down, and the binding records
   that as data."
 - Say what stays unbound and why, in one clause each.
+- HL7's ELM, the Expression Logical Model of the CQL specification, shares its
+  name with Elm, a programming language for browser user interfaces. Expand
+  the acronym once per document and add a footnote at that first mention
+  saying it is not the other one:
+  `footnote:[HL7's ELM, the Expression Logical Model of the Clinical Quality
+  Language specification, and not Elm, the programming language for browser
+  user interfaces.]`
 
 ## Proposals to the architect
 

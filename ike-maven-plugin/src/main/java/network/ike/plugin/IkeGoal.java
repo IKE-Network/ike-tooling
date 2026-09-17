@@ -98,6 +98,13 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "classpath, composes it, writes the TinkarTerm-idiom "
                     + "constants class into generated-sources, and registers "
                     + "the source root (ike-issues#824)."),
+    /** {@code ike:schema-import} — import an XML Schema signature as a ledger section. */
+    SCHEMA_IMPORT(IkeGoal.NAME_SCHEMA_IMPORT, SchemaImportMojo.class,
+            "Import an XML Schema signature as a ledger section: one concept per "
+                    + "named type with the schema's documentation as its definition "
+                    + "and the extension base as its is-a, one per argument position, "
+                    + "schema primitive, and enumerated value, plus a type-position "
+                    + "pattern; first used for HL7's ELM (ike-issues#1104)."),
     /** {@code ike:knowledge-export} — export a knowledge set as a standalone protobuf. */
     KNOWLEDGE_EXPORT(IkeGoal.NAME_KNOWLEDGE_EXPORT, KnowledgeExportMojo.class,
             "Export a ledger-form knowledge set as a full standalone protobuf "
@@ -267,6 +274,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_KNOWLEDGE_BINDINGS = "knowledge-bindings";
     /** Mirror for {@link #KNOWLEDGE_EXPORT}. */
     public static final String NAME_KNOWLEDGE_EXPORT = "knowledge-export";
+    /** The goal name of {@link #SCHEMA_IMPORT}. */
+    public static final String NAME_SCHEMA_IMPORT = "schema-import";
 
     /** The {@code knowledge-attach} goal name. */
     public static final String NAME_KNOWLEDGE_ATTACH = "knowledge-attach";
