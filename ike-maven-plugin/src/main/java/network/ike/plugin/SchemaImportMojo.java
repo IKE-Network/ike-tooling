@@ -33,12 +33,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Imports an XML Schema signature as a ledger section (IKE-Network/ike-issues#1104): reads
- * the schema files, one signature across all of them, and writes a KnowledgeSet section
+ * Imports an XML Schema as a ledger section, a node catalog (IKE-Network/ike-issues#1104): reads
+ * the schema files, one catalog across all of them, and writes a KnowledgeSet section
  * class in which every named type, argument position, schema primitive, and enumerated
  * value is a concept, with the schema's own documentation as each definition and the
  * extension base as the is-a. The first use is HL7's ELM, the Expression Logical Model of
- * the CQL specification, whose signature is five schemas.
+ * the CQL specification, whose catalog is five schemas.
  *
  * <p>The goal runs on demand, not in a lifecycle phase: the section it writes is source to
  * check in and regenerate when the pinned schema release changes, never to edit. It needs

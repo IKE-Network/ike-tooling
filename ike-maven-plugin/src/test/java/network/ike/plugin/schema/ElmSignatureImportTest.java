@@ -98,6 +98,14 @@ class ElmSignatureImportTest {
                 "IkeTerm.MODEL_CONCEPT"));
 
         assertThat(source).contains("set.concept(\"ELM Exists (ELM)\").at(inception)");
+        assertThat(source).contains("static final String ROOT_FQN = \"ELM node catalog (ELM)\";");
+        assertThat(source).doesNotContain("ELM signature (ELM)");
+        assertThat(source).contains("set.concept(\"ELM property form (ELM)\")");
+        assertThat(source).contains("set.concept(\"ELM edge form (ELM)\")");
+        assertThat(source).contains("set.concept(\"ELM form field (ELM)\")");
+        // Retrieve's dataType is an attribute, its codes an element: property form and edge form.
+        assertThat(source).containsPattern("Type position: ELM Retrieve dataType[^;]*propertyForm\\)");
+        assertThat(source).containsPattern("Type position: ELM Retrieve codes[^;]*edgeForm\\)");
         assertThat(source).contains("set.concept(\"ELM System Interval (ELM)\")");
         assertThat(source).contains("set.concept(\"ELM Interval (ELM)\")");
         assertThat(source).contains("set.concept(\"ELM external CqlToElmBase (ELM)\")");

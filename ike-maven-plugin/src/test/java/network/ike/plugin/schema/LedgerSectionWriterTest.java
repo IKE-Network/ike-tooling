@@ -135,9 +135,12 @@ class LedgerSectionWriterTest {
         assertThat(source).contains("set.concept(\"ELM DateTimePrecision Year (ELM)\")");
         assertThat(source).contains("set.pattern(TYPE_POSITION_PATTERN_FQN).at(inception)");
         assertThat(source).contains("IkeTerm.INTEGER_FIELD");
+        assertThat(source).contains("EntityProxy.Concept propertyForm = set.conceptRef(");
+        assertThat(source).contains("EntityProxy.Concept edgeForm = set.conceptRef(");
         assertThat(source).contains("set.uuidFor(\"Type position: ELM UnaryExpression operand\")");
         assertThat(source).contains("set.conceptRef(\"ELM operand position (ELM)\"), set.conceptRef(\"ELM Element (ELM)\"), 1, 1,");
-        assertThat(source).contains("\"The one operand.\")");
+        assertThat(source).contains("\"The one operand.\", edgeForm)");
+        assertThat(source).contains(", propertyForm)");
     }
 
     @Test

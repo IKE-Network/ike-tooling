@@ -98,9 +98,9 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "classpath, composes it, writes the TinkarTerm-idiom "
                     + "constants class into generated-sources, and registers "
                     + "the source root (ike-issues#824)."),
-    /** {@code ike:schema-import} — import an XML Schema signature as a ledger section. */
+    /** {@code ike:schema-import} — import an XML Schema as a ledger section, a node catalog. */
     SCHEMA_IMPORT(IkeGoal.NAME_SCHEMA_IMPORT, SchemaImportMojo.class,
-            "Import an XML Schema signature as a ledger section: one concept per "
+            "Import an XML Schema as a ledger section, a node catalog: one concept per "
                     + "named type with the schema's documentation as its definition "
                     + "and the extension base as its is-a, one per argument position, "
                     + "schema primitive, and enumerated value, plus a type-position "

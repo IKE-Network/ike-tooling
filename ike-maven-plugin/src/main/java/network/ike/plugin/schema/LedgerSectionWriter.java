@@ -31,11 +31,11 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
- * Writes a {@link SchemaSignature} as a ledger section in the KnowledgeSet DSL, the same
+ * Writes a {@link SchemaSignature} as a ledger section in the KnowledgeSet DSL, a node catalog, the same
  * shape the hand-written sections of a starter set have (IKE-Network/ike-issues#1104):
  * one concept per type with the schema's own documentation as its definition, is-a from
  * the extension base, one concept per argument position, per schema primitive, and per
- * type of another schema the signature refers to, one concept per enumeration and per
+ * type of another schema the catalog refers to, one concept per enumeration and per
  * enumerated value, and a type-position pattern whose semantics record, on each type, its
  * positions with their value type and cardinality.
  *
@@ -162,8 +162,8 @@ public final class LedgerSectionWriter {
         header(src, options, signature, positionsByName.size(), primitives.size(), externals.size(),
                 positionCount, valueCount);
         src.append("final class ").append(options.className()).append(" {\n\n");
-        src.append("    /** The family root: the signature itself. */\n");
-        src.append("    static final String ROOT_FQN = ").append(quote(naming.fqn("signature"))).append(";\n\n");
+        src.append("    /** The family root: the catalog itself. */\n");
+        src.append("    static final String ROOT_FQN = ").append(quote(naming.fqn("node catalog"))).append(";\n\n");
         src.append("    /** The pattern that records, on each type, its positions. */\n");
         src.append("    static final String TYPE_POSITION_PATTERN_FQN = ")
                 .append(quote(naming.fqn("type position pattern"))).append(";\n\n");
@@ -211,7 +211,7 @@ public final class LedgerSectionWriter {
         src.append("import dev.ikm.tinkar.entity.builder.KnowledgeSet;\n");
         src.append("import dev.ikm.tinkar.terms.EntityProxy;\n\n");
         src.append("/**\n");
-        src.append(" * The ").append(options.tag()).append(" signature as a ledger section, imported from ")
+        src.append(" * The ").append(options.tag()).append(" node catalog as a ledger section, imported from ")
                 .append(options.attribution()).append(", ").append(options.pin())
                 .append(", by {@code ike:schema-import} (IKE-Network/ike-issues#1104).\n");
         src.append(" * GENERATED FROM THE SCHEMAS: regenerate, never edit.\n");
@@ -227,22 +227,23 @@ public final class LedgerSectionWriter {
     private static void family(StringBuilder src, Naming naming, Options options, SchemaSignature signature,
                                int positionNames, int primitiveCount, int externalCount) {
         src.append("        // ── The family root and its parents ──\n");
-        concept(src, naming.fqn("signature"), naming.label("signature"),
-                "The signature of " + options.attribution() + ": its " + signature.types().size()
-                        + " node types, each with its base and its argument positions, its "
+        concept(src, naming.fqn("node catalog"), naming.label("node catalog"),
+                "The catalog of the node kinds of " + options.attribution() + ": each kind, what it"
+                        + " holds, and what each thing it holds may be. Its " + signature.types().size()
+                        + " node kinds, each with its base and its positions, its "
                         + positionNames + " position names, its " + primitiveCount
                         + " schema primitives, its " + externalCount
                         + (externalCount == 1 ? " type" : " types") + " of other schemas it refers to, and its "
                         + signature.enumerations().size()
                         + (signature.enumerations().size() == 1 ? " enumeration" : " enumerations")
                         + ", imported from " + options.pin()
-                        + " and regenerated from the schemas, never edited. A type is a kind of node a"
-                        + " tree in this language can have; a position is a named place in a node that"
+                        + " and regenerated from the schemas, never edited. A node kind is a kind of node"
+                        + " a tree in this language can have; a position is a named place in a node that"
                         + " holds a child or a value.",
                 options.rootParentExpression());
         src.append("        EntityProxy.Concept root = set.conceptRef(ROOT_FQN);\n\n");
         concept(src, naming.fqn("position"), naming.label("position"),
-                "An argument position of the signature: a named place in a node that holds a child"
+                "A position of the catalog: a named place in a node that holds a child"
                         + " or a value, such as operand or dataType, shared by every node type that has a"
                         + " position of that name. Which types have it, with what value type and how"
                         + " many, is recorded on each type by the type position pattern.",
@@ -251,14 +252,14 @@ public final class LedgerSectionWriter {
                 .append(quote(naming.fqn("position"))).append(");\n\n");
         concept(src, naming.fqn("primitive"), naming.label("primitive"),
                 "A value type the XML Schema language itself supplies, string or QName, rather"
-                        + " than a type of the signature: what a position holds when it holds a plain"
+                        + " than a node kind of the catalog: what a position holds when it holds a plain"
                         + " value and not a node.",
                 "root");
         src.append("        EntityProxy.Concept primitiveParent = set.conceptRef(")
                 .append(quote(naming.fqn("primitive"))).append(");\n\n");
         concept(src, naming.fqn("external type"), naming.label("external type"),
-                "A type declared by a schema outside this signature that a position or a base refers"
-                        + " to; the signature names it so that every reference resolves, and says no"
+                "A type declared by a schema outside this catalog that a position or a base refers"
+                        + " to; the catalog names it so that every reference resolves, and says no"
                         + " more about it than its name and its namespace.",
                 "root");
         src.append("        EntityProxy.Concept externalParent = set.conceptRef(")
@@ -268,26 +269,37 @@ public final class LedgerSectionWriter {
     private static void pattern(StringBuilder src, Naming naming, Options options) {
         src.append("        // ── The type position pattern: which positions each type has ──\n");
         concept(src, naming.fqn("type position"), naming.label("type position"),
-                "What a type position semantic is: one argument position of one node type, with the"
-                        + " type of value it holds, the fewest and the most values the schema allows, and"
-                        + " the schema's own note on that position for that type.",
+                "What a type position semantic is: one position of one node kind, with the"
+                        + " type of value it holds, the fewest and the most values the schema allows,"
+                        + " the schema's own note on that position for that kind, and its form: whether"
+                        + " our vertex holds it as a property or as an edge.",
                 "root");
-        concept(src, naming.fqn("signature structure"), naming.label("signature structure"),
+        concept(src, naming.fqn("catalog structure"), naming.label("catalog structure"),
                 "Why type positions are recorded: so that a tree can be checked against the"
-                        + " signature and a reader can know what each node may hold.",
+                        + " catalog and a reader can know what each node may hold.",
                 "root");
         src.append("        EntityProxy.Concept structure = set.conceptRef(")
-                .append(quote(naming.fqn("signature structure"))).append(");\n");
+                .append(quote(naming.fqn("catalog structure"))).append(");\n");
+        concept(src, naming.fqn("property form"), naming.label("property form"),
+                "The form of a position that holds a plain value, an attribute in the schema: our"
+                        + " vertex holds it as a property keyed by the position.",
+                "root");
+        concept(src, naming.fqn("edge form"), naming.label("edge form"),
+                "The form of a position that holds a node, an element in the schema: our vertex"
+                        + " holds it as an edge to the vertex below, named by the position.",
+                "root");
         String[][] fields = {
             {"position field", "The position a type position semantic is about."},
-            {"value type field", "The type of value that position holds on that type: a type of the"
-                    + " signature, a schema primitive, or a type of another schema."},
+            {"value type field", "The type of value that position holds on that type: a node kind of"
+                    + " the catalog, a schema primitive, or a type of another schema."},
             {"minimum field", "The fewest values the schema allows in that position, zero when it is"
                     + " optional."},
             {"maximum field", "The most values the schema allows in that position, or minus one when"
                     + " the schema sets no limit."},
             {"position note field", "The schema's own note on that position for that type, empty when"
                     + " the schema gives none."},
+            {"form field", "How our vertex holds that position on that type: the property form when"
+                    + " it holds a plain value, the edge form when it holds a node."},
         };
         for (String[] field : fields) {
             concept(src, naming.fqn(field[0]), naming.label(field[0]), field[1], "root");
@@ -304,7 +316,13 @@ public final class LedgerSectionWriter {
         src.append("                .field(set.conceptRef(").append(quote(naming.fqn("maximum field")))
                 .append("), structure, ").append(options.termsClass()).append(".INTEGER_FIELD)\n");
         src.append("                .field(set.conceptRef(").append(quote(naming.fqn("position note field")))
-                .append("), structure, ").append(options.termsClass()).append(".STRING);\n");
+                .append("), structure, ").append(options.termsClass()).append(".STRING)\n");
+        src.append("                .field(set.conceptRef(").append(quote(naming.fqn("form field")))
+                .append("), structure, ").append(options.termsClass()).append(".COMPONENT_FIELD);\n");
+        src.append("        EntityProxy.Concept propertyForm = set.conceptRef(")
+                .append(quote(naming.fqn("property form"))).append(");\n");
+        src.append("        EntityProxy.Concept edgeForm = set.conceptRef(")
+                .append(quote(naming.fqn("edge form"))).append(");\n");
         src.append("        EntityProxy.Pattern typePositions = set.patternRef(TYPE_POSITION_PATTERN_FQN);\n\n");
     }
 
@@ -324,7 +342,7 @@ public final class LedgerSectionWriter {
             String kindText = kinds.size() == 2 ? "an element on some types and an attribute on others"
                     : kinds.contains(PositionKind.ATTRIBUTE) ? "an attribute" : "a child element";
             String definition = "The argument position named " + name + ", " + kindText + ", on "
-                    + owners.size() + (owners.size() == 1 ? " node type" : " node types") + " of the signature."
+                    + owners.size() + (owners.size() == 1 ? " node kind" : " node kinds") + " of the catalog."
                     + naming.spellingNote(name);
             concept(src, naming.positionFqn(name), naming.positionLabel(name), definition, "positionParent");
         }
@@ -347,7 +365,7 @@ public final class LedgerSectionWriter {
         if (externals.isEmpty()) {
             return;
         }
-        src.append("        // ── Types of other schemas the signature refers to ──\n");
+        src.append("        // ── Types of other schemas the catalog refers to ──\n");
         for (TypeReference external : externals.values()) {
             concept(src, naming.externalFqn(external.name()), naming.externalLabel(external.name()),
                     "The type " + external.name() + " of the namespace " + external.namespace()
@@ -390,7 +408,8 @@ public final class LedgerSectionWriter {
                 src.append("                        set.conceptRef(").append(quote(naming.positionFqn(position.name())))
                         .append("), ").append(valueType).append(", ").append(position.minimum()).append(", ")
                         .append(position.maximum()).append(",\n");
-                src.append("                        ").append(quote(position.documentation())).append(')');
+                src.append("                        ").append(quote(position.documentation())).append(", ")
+                        .append(position.kind() == PositionKind.ATTRIBUTE ? "propertyForm" : "edgeForm").append(')');
             }
             src.append(";\n");
         }
