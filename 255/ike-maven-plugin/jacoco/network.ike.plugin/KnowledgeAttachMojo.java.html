@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KnowledgeAttachMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KnowledgeAttachMojo.java</span></div><h1>KnowledgeAttachMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.ProducedArtifact;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.ProjectManager;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+/**
+ * Attaches produced knowledge artifacts to &lt;em&gt;another&lt;/em&gt; reactor project — typically
+ * the aggregator — so a knowledge set's released coordinate carries the set's own name
+ * even though a subproject produced the files (IKE-Network/ike-issues#933). An
+ * aggregator builds before its subprojects and cannot run the exports itself; this goal
+ * runs in the producing subproject (after {@code ike:knowledge-export} and
+ * {@code ike:kb-assemble}) and attaches each file under the target project's GAV, so
+ * the released coordinate reads, for example,
+ * {@code network.ike.foundation:ike-starter-set:&lt;v&gt;:reasoned-pb}.
+ * &lt;p&gt;
+ * &lt;b&gt;Pair with {@code deployAtEnd}/{@code installAtEnd}.&lt;/b&gt; The target project's own
+ * {@code install}/{@code deploy} executions run at its reactor position — before this
+ * goal attaches — so the consuming reactor must configure
+ * {@code maven-install-plugin} {@code installAtEnd=true} and {@code maven-deploy-plugin}
+ * {@code deployAtEnd=true}; both defer publication to session end, where the late
+ * attachments are included. Without that pairing the attachments never publish — this
+ * goal cannot detect the misconfiguration, so it is stated loudly here and in the
+ * consuming POM.
+ */
+@Mojo(name = IkeGoal.NAME_KNOWLEDGE_ATTACH, defaultPhase = &quot;verify&quot;)
+public class KnowledgeAttachMojo implements org.apache.maven.api.plugin.Mojo {
+
+    /** Creates this goal instance. */
+<span class="fc" id="L54">    public KnowledgeAttachMojo() {}</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+    protected org.apache.maven.api.plugin.Log getLog() {
+<span class="nc" id="L65">        return log;</span>
+    }
+
+    @Inject
+    private Session session;
+
+    @Inject
+    private Project project;
+
+    /**
+     * The target project's groupId — the GAV the attachments publish under. Defaults to
+     * this project's own groupId (aggregator and subprojects usually share one).
+     */
+    @Parameter(property = &quot;ike.knowledgeAttach.targetGroupId&quot;,
+               defaultValue = &quot;${project.groupId}&quot;)
+    String targetGroupId;
+
+    /**
+     * The target project's artifactId — typically the aggregator whose name is the
+     * knowledge set's released coordinate.
+     */
+    @Parameter(property = &quot;ike.knowledgeAttach.targetArtifactId&quot;, required = true)
+    String targetArtifactId;
+
+    /**
+     * The attachments, each {@code &quot;&lt;classifier&gt; &lt;file&gt;&quot;} — mirroring the
+     * {@code ike:kb-assemble} input idiom of a marker followed by a spec. Example:
+     * {@code &lt;attachment&gt;reasoned-pb ${project.build.directory}/x-reasoned-pb.zip&lt;/attachment&gt;}.
+     * Extension is always {@code zip}.
+     */
+<span class="fc" id="L95">    @Parameter</span>
+<span class="fc" id="L96">    List&lt;String&gt; attachments = List.of();</span>
+
+    /**
+     * Skip attaching.
+     */
+    @Parameter(property = &quot;ike.knowledgeAttach.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /**
+     * Resolves the target reactor project and attaches each declared file under its
+     * GAV.
+     *
+     * @throws MojoException if the target project is not in the reactor, an attachment
+     *                       entry is malformed, or a declared file does not exist
+     */
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L113" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L114">            getLog().info(&quot;ike:knowledge-attach skipped (ike.knowledgeAttach.skip=true)&quot;);</span>
+<span class="nc" id="L115">            return;</span>
+        }
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        if (attachments.isEmpty()) {</span>
+<span class="nc" id="L118">            throw new MojoException(&quot;ike:knowledge-attach requires at least one&quot;</span>
+                    + &quot; &lt;attachments&gt;&lt;attachment&gt; entry (\&quot;&lt;classifier&gt; &lt;file&gt;\&quot;)&quot;);
+        }
+
+<span class="nc" id="L122">        Project target = session.getProjects().stream()</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">                .filter(candidate -&gt; candidate.getGroupId().equals(targetGroupId)</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">                        &amp;&amp; candidate.getArtifactId().equals(targetArtifactId))</span>
+<span class="nc" id="L125">                .findFirst()</span>
+<span class="nc" id="L126">                .orElseThrow(() -&gt; new MojoException(&quot;Attach target &quot; + targetGroupId + &quot;:&quot;</span>
+                        + targetArtifactId + &quot; is not in this reactor — ike:knowledge-attach&quot;
+                        + &quot; publishes under a reactor project's GAV (run from the full&quot;
+                        + &quot; reactor, not with -pl alone)&quot;));
+
+<span class="nc" id="L131">        ProjectManager projectManager = session.getService(ProjectManager.class);</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        for (String entry : attachments) {</span>
+<span class="nc" id="L133">            String stripped = entry.strip();</span>
+<span class="nc" id="L134">            int space = stripped.indexOf(' ');</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">            if (space &lt;= 0) {</span>
+<span class="nc" id="L136">                throw new MojoException(&quot;Attachment entry needs \&quot;&lt;classifier&gt; &lt;file&gt;\&quot;: &quot; + entry);</span>
+            }
+<span class="nc" id="L138">            String classifier = stripped.substring(0, space);</span>
+<span class="nc" id="L139">            Path file = Path.of(stripped.substring(space + 1).strip());</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">            if (!Files.isRegularFile(file)) {</span>
+<span class="nc" id="L141">                throw new MojoException(&quot;Attachment file does not exist: &quot; + file</span>
+                        + &quot; (classifier &quot; + classifier + &quot;) — run the producing goal first&quot;);
+            }
+<span class="nc" id="L144">            ProducedArtifact artifact = session.createProducedArtifact(</span>
+<span class="nc" id="L145">                    target.getGroupId(), target.getArtifactId(), target.getVersion(),</span>
+                    classifier, &quot;zip&quot;, &quot;zip&quot;);
+<span class="nc" id="L147">            projectManager.attachArtifact(target, artifact, file);</span>
+<span class="nc" id="L148">            getLog().info(&quot;Attached &quot; + file.getFileName() + &quot; under &quot; + target.getGroupId()</span>
+<span class="nc" id="L149">                    + &quot;:&quot; + target.getArtifactId() + &quot;:&quot; + target.getVersion()</span>
+                    + &quot; (classifier: &quot; + classifier + &quot;, extension: zip)&quot;);
+<span class="nc" id="L151">        }</span>
+<span class="nc" id="L152">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>XmlSchemaReader.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.schema</a> &gt; <span class="el_source">XmlSchemaReader.java</span></div><h1>XmlSchemaReader.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin.schema;
+
+import network.ike.plugin.schema.SchemaSignature.Enumeration;
+import network.ike.plugin.schema.SchemaSignature.Position;
+import network.ike.plugin.schema.SchemaSignature.PositionKind;
+import network.ike.plugin.schema.SchemaSignature.TypeDefinition;
+import network.ike.plugin.schema.SchemaSignature.TypeReference;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * Reads XML Schema files into a {@link SchemaSignature} with the JDK's own XML support and
+ * nothing else (IKE-Network/ike-issues#1104). It reads what a signature is: named complex
+ * types, their {@code extension base}, their documentation, their element and attribute
+ * positions, and named simple types that enumerate values. Schema features a signature
+ * does not need, choices, groups, and attribute groups, are refused rather than silently
+ * dropped, so that a schema outside the reader's reach fails loudly.
+ *
+ * &lt;p&gt;The reader is namespace-aware and matches schema elements by the XML Schema
+ * namespace, so the prefix a file uses, {@code xs} or {@code xsd}, does not matter. A
+ * type is identified by its namespace and its name: a bare reference resolves to the
+ * file's default namespace, or its target namespace when it declares none, and a prefixed
+ * reference through the file's own namespace declarations, so {@code xs:string} is a
+ * schema primitive and {@code a:CqlToElmBase} a type of another schema.
+ */
+public final class XmlSchemaReader {
+
+    private static final String XSD = XMLConstants.W3C_XML_SCHEMA_NS_URI;
+
+    private final DocumentBuilder builder;
+
+    /**
+     * Creates a reader with a secure, namespace-aware document builder.
+     *
+     * @throws IllegalStateException when the JDK cannot provide a document builder
+     */
+<span class="fc" id="L68">    public XmlSchemaReader() {</span>
+<span class="fc" id="L69">        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();</span>
+<span class="fc" id="L70">        factory.setNamespaceAware(true);</span>
+        try {
+<span class="fc" id="L72">            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);</span>
+<span class="fc" id="L73">            factory.setFeature(&quot;http://apache.org/xml/features/disallow-doctype-decl&quot;, true);</span>
+<span class="fc" id="L74">            this.builder = factory.newDocumentBuilder();</span>
+<span class="nc" id="L75">        } catch (ParserConfigurationException e) {</span>
+<span class="nc" id="L76">            throw new IllegalStateException(&quot;The JDK cannot provide a secure XML parser&quot;, e);</span>
+<span class="fc" id="L77">        }</span>
+<span class="fc" id="L78">    }</span>
+
+    /**
+     * Reads one or more schema files into a single signature, in the order given. Types
+     * are collected across all files, so a base declared in one file and extended in
+     * another resolves.
+     *
+     * @param schemas the schema files
+     * @return the signature the files declare
+     * @throws IOException      when a file cannot be read or is not well-formed XML
+     * @throws IllegalArgumentException when a file uses a schema feature the reader refuses
+     */
+    public SchemaSignature read(List&lt;Path&gt; schemas) throws IOException {
+<span class="fc" id="L91">        List&lt;TypeDefinition&gt; types = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L92">        List&lt;Enumeration&gt; enumerations = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L93">        Map&lt;TypeReference, Path&gt; seen = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        for (Path schema : schemas) {</span>
+<span class="fc" id="L95">            try (InputStream in = Files.newInputStream(schema)) {</span>
+<span class="fc" id="L96">                Document document = builder.parse(in);</span>
+<span class="fc" id="L97">                Element root = document.getDocumentElement();</span>
+<span class="fc" id="L98">                refuseUnsupported(root, schema);</span>
+<span class="fc" id="L99">                Namespaces namespaces = new Namespaces(root);</span>
+<span class="fc bfc" id="L100" title="All 2 branches covered.">                for (Element complexType : children(root, &quot;complexType&quot;)) {</span>
+<span class="fc" id="L101">                    TypeDefinition type = readType(complexType, namespaces);</span>
+<span class="fc" id="L102">                    Path earlier = seen.putIfAbsent(type.reference(), schema);</span>
+<span class="fc bfc" id="L103" title="All 2 branches covered.">                    if (earlier != null) {</span>
+<span class="fc" id="L104">                        throw new IllegalArgumentException(&quot;Type &quot; + type.name() + &quot; of namespace &quot;</span>
+<span class="fc" id="L105">                                + type.namespace() + &quot; is declared in &quot; + earlier + &quot; and again in &quot; + schema);</span>
+                    }
+<span class="fc" id="L107">                    types.add(type);</span>
+<span class="fc" id="L108">                }</span>
+<span class="fc bfc" id="L109" title="All 2 branches covered.">                for (Element simpleType : children(root, &quot;simpleType&quot;)) {</span>
+<span class="fc" id="L110">                    readEnumeration(simpleType, namespaces).ifPresent(enumerations::add);</span>
+<span class="fc" id="L111">                }</span>
+<span class="nc" id="L112">            } catch (org.xml.sax.SAXException e) {</span>
+<span class="nc" id="L113">                throw new IOException(&quot;Schema &quot; + schema + &quot; is not well-formed XML: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L114">            }</span>
+<span class="fc" id="L115">        }</span>
+<span class="fc" id="L116">        return new SchemaSignature(types, enumerations);</span>
+    }
+
+    private static void refuseUnsupported(Element root, Path schema) {
+<span class="fc bfc" id="L120" title="All 2 branches covered.">        for (String feature : List.of(&quot;choice&quot;, &quot;group&quot;, &quot;attributeGroup&quot;)) {</span>
+<span class="fc bfc" id="L121" title="All 2 branches covered.">            if (root.getElementsByTagNameNS(XSD, feature).getLength() &gt; 0) {</span>
+<span class="fc" id="L122">                throw new IllegalArgumentException(&quot;Schema &quot; + schema + &quot; uses xs:&quot; + feature</span>
+                        + &quot;, which the signature reader does not read&quot;);
+            }
+<span class="fc" id="L125">        }</span>
+<span class="fc" id="L126">    }</span>
+
+    private static TypeDefinition readType(Element complexType, Namespaces namespaces) {
+<span class="fc" id="L129">        String name = complexType.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L130">        boolean isAbstract = &quot;true&quot;.equals(complexType.getAttribute(&quot;abstract&quot;));</span>
+<span class="fc" id="L131">        String documentation = documentation(complexType);</span>
+<span class="fc" id="L132">        Optional&lt;TypeReference&gt; base = Optional.empty();</span>
+<span class="fc" id="L133">        Element content = complexType;</span>
+<span class="fc" id="L134">        Element complexContent = firstChild(complexType, &quot;complexContent&quot;);</span>
+<span class="fc bfc" id="L135" title="All 2 branches covered.">        if (complexContent != null) {</span>
+<span class="fc" id="L136">            Element extension = firstChild(complexContent, &quot;extension&quot;);</span>
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">            if (extension != null) {</span>
+<span class="fc" id="L138">                base = Optional.of(namespaces.resolve(extension.getAttribute(&quot;base&quot;)));</span>
+<span class="fc" id="L139">                content = extension;</span>
+            } else {
+<span class="nc" id="L141">                Element restriction = firstChild(complexContent, &quot;restriction&quot;);</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">                if (restriction != null) {</span>
+<span class="nc" id="L143">                    content = restriction;</span>
+                }
+            }
+        }
+<span class="fc" id="L147">        List&lt;Position&gt; positions = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L148">        Element sequence = firstChild(content, &quot;sequence&quot;);</span>
+<span class="fc bfc" id="L149" title="All 2 branches covered.">        if (sequence != null) {</span>
+<span class="fc bfc" id="L150" title="All 2 branches covered.">            for (Element element : children(sequence, &quot;element&quot;)) {</span>
+<span class="fc" id="L151">                positions.add(readElement(element, namespaces));</span>
+<span class="fc" id="L152">            }</span>
+        }
+<span class="fc bfc" id="L154" title="All 2 branches covered.">        for (Element attribute : children(content, &quot;attribute&quot;)) {</span>
+<span class="fc" id="L155">            positions.add(readAttribute(attribute, namespaces));</span>
+<span class="fc" id="L156">        }</span>
+<span class="fc" id="L157">        return new TypeDefinition(namespaces.target(), name, base, isAbstract, documentation, positions);</span>
+    }
+
+    private static Position readElement(Element element, Namespaces namespaces) {
+<span class="fc" id="L161">        String name = element.getAttribute(&quot;name&quot;);</span>
+<span class="fc bfc" id="L162" title="All 2 branches covered.">        TypeReference type = element.hasAttribute(&quot;type&quot;)</span>
+<span class="fc" id="L163">                ? namespaces.resolve(element.getAttribute(&quot;type&quot;)) : TypeReference.primitive(&quot;anyType&quot;);</span>
+<span class="fc bfc" id="L164" title="All 2 branches covered.">        int minimum = element.hasAttribute(&quot;minOccurs&quot;) ? Integer.parseInt(element.getAttribute(&quot;minOccurs&quot;)) : 1;</span>
+<span class="fc" id="L165">        int maximum = 1;</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">        if (element.hasAttribute(&quot;maxOccurs&quot;)) {</span>
+<span class="fc" id="L167">            String max = element.getAttribute(&quot;maxOccurs&quot;);</span>
+<span class="fc bfc" id="L168" title="All 2 branches covered.">            maximum = &quot;unbounded&quot;.equals(max) ? Position.UNBOUNDED : Integer.parseInt(max);</span>
+        }
+<span class="fc" id="L170">        return new Position(name, PositionKind.ELEMENT, type, minimum, maximum, documentation(element));</span>
+    }
+
+    private static Position readAttribute(Element attribute, Namespaces namespaces) {
+<span class="fc" id="L174">        String name = attribute.getAttribute(&quot;name&quot;);</span>
+<span class="pc bpc" id="L175" title="1 of 2 branches missed.">        TypeReference type = attribute.hasAttribute(&quot;type&quot;)</span>
+<span class="pc" id="L176">                ? namespaces.resolve(attribute.getAttribute(&quot;type&quot;)) : TypeReference.primitive(&quot;string&quot;);</span>
+<span class="fc bfc" id="L177" title="All 2 branches covered.">        int minimum = &quot;required&quot;.equals(attribute.getAttribute(&quot;use&quot;)) ? 1 : 0;</span>
+<span class="fc" id="L178">        return new Position(name, PositionKind.ATTRIBUTE, type, minimum, 1, documentation(attribute));</span>
+    }
+
+    private static Optional&lt;Enumeration&gt; readEnumeration(Element simpleType, Namespaces namespaces) {
+<span class="fc" id="L182">        Element restriction = firstChild(simpleType, &quot;restriction&quot;);</span>
+<span class="pc bpc" id="L183" title="1 of 2 branches missed.">        if (restriction == null) {</span>
+<span class="nc" id="L184">            return Optional.empty();</span>
+        }
+<span class="fc" id="L186">        List&lt;String&gt; values = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L187" title="All 2 branches covered.">        for (Element enumeration : children(restriction, &quot;enumeration&quot;)) {</span>
+<span class="fc" id="L188">            values.add(enumeration.getAttribute(&quot;value&quot;));</span>
+<span class="fc" id="L189">        }</span>
+<span class="fc bfc" id="L190" title="All 2 branches covered.">        if (values.isEmpty()) {</span>
+<span class="fc" id="L191">            return Optional.empty();</span>
+        }
+<span class="fc" id="L193">        return Optional.of(new Enumeration(namespaces.target(), simpleType.getAttribute(&quot;name&quot;),</span>
+<span class="fc" id="L194">                documentation(simpleType), values));</span>
+    }
+
+    /** One schema file's namespace declarations, for resolving the names it uses. */
+<span class="fc" id="L198">    private record Namespaces(String target, String defaultNamespace, Element root) {</span>
+        Namespaces(Element root) {
+<span class="pc bpc" id="L200" title="1 of 2 branches missed.">            this(root.hasAttribute(&quot;targetNamespace&quot;) ? root.getAttribute(&quot;targetNamespace&quot;) : &quot;&quot;,</span>
+<span class="fc" id="L201">                    root.lookupNamespaceURI(null), root);</span>
+<span class="fc" id="L202">        }</span>
+
+        /**
+         * Resolves a possibly prefixed name the way XML Schema does: a prefix through the
+         * file's declarations, no prefix through the default namespace, or the target
+         * namespace when the file declares no default.
+         */
+        TypeReference resolve(String qualified) {
+<span class="fc" id="L210">            int colon = qualified.indexOf(':');</span>
+<span class="fc bfc" id="L211" title="All 2 branches covered.">            if (colon &lt; 0) {</span>
+<span class="pc bpc" id="L212" title="1 of 2 branches missed.">                return new TypeReference(defaultNamespace != null ? defaultNamespace : target, qualified);</span>
+            }
+<span class="fc" id="L214">            String prefix = qualified.substring(0, colon);</span>
+<span class="fc" id="L215">            String local = qualified.substring(colon + 1);</span>
+<span class="fc" id="L216">            String namespace = root.lookupNamespaceURI(prefix);</span>
+<span class="pc bpc" id="L217" title="1 of 2 branches missed.">            if (namespace == null) {</span>
+<span class="nc" id="L218">                throw new IllegalArgumentException(&quot;Prefix &quot; + prefix + &quot; in &quot; + qualified</span>
+                        + &quot; is not declared by the schema&quot;);
+            }
+<span class="fc" id="L221">            return new TypeReference(namespace, local);</span>
+        }
+    }
+
+    private static String documentation(Element owner) {
+<span class="fc" id="L226">        Element annotation = firstChild(owner, &quot;annotation&quot;);</span>
+<span class="fc bfc" id="L227" title="All 2 branches covered.">        if (annotation == null) {</span>
+<span class="fc" id="L228">            return &quot;&quot;;</span>
+        }
+<span class="fc" id="L230">        StringBuilder text = new StringBuilder();</span>
+<span class="fc bfc" id="L231" title="All 2 branches covered.">        for (Element documentation : children(annotation, &quot;documentation&quot;)) {</span>
+<span class="pc bpc" id="L232" title="1 of 2 branches missed.">            if (text.length() &gt; 0) {</span>
+<span class="nc" id="L233">                text.append(' ');</span>
+            }
+<span class="fc" id="L235">            text.append(documentation.getTextContent());</span>
+<span class="fc" id="L236">        }</span>
+<span class="fc" id="L237">        return text.toString().replaceAll(&quot;\\s+&quot;, &quot; &quot;).trim();</span>
+    }
+
+    private static Element firstChild(Element parent, String localName) {
+<span class="fc bfc" id="L241" title="All 2 branches covered.">        for (Element child : children(parent, localName)) {</span>
+<span class="fc" id="L242">            return child;</span>
+        }
+<span class="fc" id="L244">        return null;</span>
+    }
+
+    private static List&lt;Element&gt; children(Element parent, String localName) {
+<span class="fc" id="L248">        List&lt;Element&gt; matches = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L249">        NodeList nodes = parent.getChildNodes();</span>
+<span class="fc bfc" id="L250" title="All 2 branches covered.">        for (int i = 0; i &lt; nodes.getLength(); i++) {</span>
+<span class="fc" id="L251">            Node node = nodes.item(i);</span>
+<span class="pc bpc" id="L252" title="1 of 4 branches missed.">            if (node.getNodeType() == Node.ELEMENT_NODE &amp;&amp; XSD.equals(node.getNamespaceURI())</span>
+<span class="fc bfc" id="L253" title="All 2 branches covered.">                    &amp;&amp; localName.equals(node.getLocalName())) {</span>
+<span class="fc" id="L254">                matches.add((Element) node);</span>
+            }
+        }
+<span class="fc" id="L257">        return matches;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

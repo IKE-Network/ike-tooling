@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GateKeeper.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">GateKeeper.java</span></div><h1>GateKeeper.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.util.List;
+import java.util.Map;
+
+import javax.inject.Named;
+import javax.inject.Singleton;
+
+import org.apache.maven.AbstractMavenLifecycleParticipant;
+import org.apache.maven.MavenExecutionException;
+import org.apache.maven.execution.MavenSession;
+
+/**
+ * Session-end gate enforcement (ike-issues#989).
+ *
+ * &lt;p&gt;At {@code afterSessionEnd} — after the receipt is on disk, thanks
+ * to {@link ReportSession#finalizeAndWrite()}'s idempotence — this
+ * participant fails the build when the ledger declares
+ * {@code mode: gate} and gating ATTENTION exists. It never fails a
+ * build that already failed, never enforces when the escape hatch
+ * property ({@value ReportSession#GATE_SKIP_PROPERTY}) is set, and the
+ * skip itself is recorded in the receipt. In {@code mode: report}
+ * this participant is a spectator.&lt;/p&gt;
+ */
+@Named(&quot;ike-build-report-gate&quot;)
+@Singleton
+public class GateKeeper extends AbstractMavenLifecycleParticipant {
+
+    /** How many occurrences of one key the console message shows. */
+    private static final int MAX_CONSOLE_OCCURRENCES = 3;
+
+    /** Creates the participant; instantiated by the sisu index, never directly. */
+<span class="nc" id="L33">    public GateKeeper() {</span>
+<span class="nc" id="L34">    }</span>
+
+    /**
+     * Enforces the gate verdict for the completed session.
+     *
+     * @param session the completed Maven session
+     * @throws MavenExecutionException when the gate fails the build
+     */
+    @Override
+    public void afterSessionEnd(MavenSession session) throws MavenExecutionException {
+<span class="nc" id="L44">        GateVerdict verdict = ReportSession.finalizeAndWrite();</span>
+<span class="nc bnc" id="L45" title="All 2 branches missed.">        if (!verdict.shouldFailBuild()) {</span>
+<span class="nc" id="L46">            return;</span>
+        }
+<span class="nc" id="L48">        StringBuilder message = new StringBuilder(512);</span>
+<span class="nc" id="L49">        message.append(&quot;ike-build-report gate: &quot;)</span>
+<span class="nc" id="L50">                .append(verdict.gatingAttention().size())</span>
+<span class="nc" id="L51">                .append(&quot; gating attention item(s)&quot;);</span>
+<span class="nc bnc" id="L52" title="All 2 branches missed.">        for (LedgerEvaluation.AttentionItem item : verdict.gatingAttention()) {</span>
+<span class="nc" id="L53">            message.append(&quot;\n  - &quot;).append(item.key()).append(&quot; — observed &quot;).append(item.observed());</span>
+<span class="nc bnc" id="L54" title="All 2 branches missed.">            if (item.expected() != null) {</span>
+<span class="nc" id="L55">                message.append(&quot;, accepted &quot;).append(item.expected());</span>
+            } else {
+<span class="nc" id="L57">                message.append(&quot;, not accepted&quot;);</span>
+            }
+<span class="nc" id="L59">            appendEvidence(message, item);</span>
+<span class="nc" id="L60">        }</span>
+<span class="nc" id="L61">        message.append(&quot;\nSee &quot;)</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">                .append(verdict.receiptPath() != null</span>
+<span class="nc" id="L63">                        ? verdict.receiptPath()</span>
+<span class="nc" id="L64">                        : ReportSession.RECEIPT_FILE_NAME)</span>
+<span class="nc" id="L65">                .append(&quot; for the full evidence and the options&quot;);</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">        if (verdict.archivePath() != null) {</span>
+<span class="nc" id="L67">            message.append(&quot;\nArchived, so a later clean run cannot overwrite it: &quot;)</span>
+<span class="nc" id="L68">                    .append(verdict.archivePath());</span>
+        }
+<span class="nc" id="L70">        message.append(&quot;\nAccept via &quot;).append(ReportSession.LEDGER_RELATIVE_PATH)</span>
+<span class="nc" id="L71">                .append(&quot;, or skip once with -D&quot;)</span>
+<span class="nc" id="L72">                .append(ReportSession.GATE_SKIP_PROPERTY).append(&quot;=true&quot;);</span>
+<span class="nc" id="L73">        throw new MavenExecutionException(message.toString(), (Throwable) null);</span>
+    }
+
+    /**
+     * Appends what the item actually was, under its summary line.
+     *
+     * &lt;p&gt;The console message is where most readers stop, so it carries
+     * the same identifying evidence as the receipt: the repository and
+     * its URL, who declared it, and the first occurrences verbatim. A
+     * key and a count alone left the reader with nothing to act on
+     * (ike-issues#989).&lt;/p&gt;
+     *
+     * @param message the message under construction
+     * @param item    the gating item to describe
+     */
+    private static void appendEvidence(StringBuilder message, LedgerEvaluation.AttentionItem item) {
+<span class="nc bnc" id="L89" title="All 2 branches missed.">        if (item.findings().isEmpty()) {</span>
+<span class="nc" id="L90">            return;</span>
+        }
+<span class="nc" id="L92">        Map&lt;String, String&gt; context = item.findings().get(0).context();</span>
+<span class="nc" id="L93">        String repositoryId = context.get(Finding.CONTEXT_REPOSITORY_ID);</span>
+<span class="nc" id="L94">        String url = context.get(Finding.CONTEXT_REPOSITORY_URL);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (repositoryId != null) {</span>
+<span class="nc" id="L96">            message.append(&quot;\n      repository &quot;).append(repositoryId);</span>
+<span class="nc bnc" id="L97" title="All 4 branches missed.">            if (url != null &amp;&amp; !url.isBlank()) {</span>
+<span class="nc" id="L98">                message.append(&quot; at &quot;).append(url);</span>
+            }
+        }
+<span class="nc" id="L101">        String declaredBy = context.get(Finding.CONTEXT_DECLARED_BY);</span>
+<span class="nc bnc" id="L102" title="All 4 branches missed.">        if (declaredBy != null &amp;&amp; !declaredBy.isBlank()) {</span>
+<span class="nc" id="L103">            message.append(&quot;\n      &quot;).append(declaredBy);</span>
+        }
+<span class="nc" id="L105">        List&lt;Finding&gt; findings = item.findings();</span>
+<span class="nc" id="L106">        int shown = Math.min(findings.size(), MAX_CONSOLE_OCCURRENCES);</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        for (int index = 0; index &lt; shown; index++) {</span>
+<span class="nc" id="L108">            String detail = findings.get(index).detail();</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">            if (!detail.isBlank()) {</span>
+<span class="nc" id="L110">                message.append(&quot;\n      &quot;).append(detail);</span>
+            }
+        }
+<span class="nc bnc" id="L113" title="All 2 branches missed.">        if (findings.size() &gt; shown) {</span>
+<span class="nc" id="L114">            message.append(&quot;\n      … and &quot;).append(findings.size() - shown)</span>
+<span class="nc" id="L115">                    .append(&quot; further occurrence(s) in the receipt&quot;);</span>
+        }
+<span class="nc" id="L117">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

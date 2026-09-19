@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>StaleSiteCleanupReconciler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.reconcile</a> &gt; <span class="el_source">StaleSiteCleanupReconciler.java</span></div><h1>StaleSiteCleanupReconciler.java</h1><pre class="source lang-java linenums">package network.ike.plugin.reconcile;
+
+import network.ike.plugin.ReleaseSupport;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.util.List;
+
+/**
+ * Reconciler that removes deployed-site directories from the legacy
+ * scpexe deploy server ({@link ReleaseSupport#SITE_DISK_BASE} on
+ * {@link ReleaseSupport#SITE_SSH_HOST}).
+ *
+ * &lt;p&gt;Subsumes the retired {@code ike:clean-site} goal
+ * (IKE-Network/ike-issues#398). Most projects no longer use the scpexe
+ * mirror (#304 retired it as the canonical distribution channel in
+ * favor of GitHub Pages), but the directory may still exist from
+ * before that change and shows up in {@code ike:site-publish -Dsite=removed}
+ * runs as cleanup work.
+ *
+ * &lt;p&gt;&lt;b&gt;Detect&lt;/b&gt;: read-only — does not SSH out to enumerate stale
+ * dirs (that would slow {@code site-draft} for every project even when
+ * nothing is wrong). Always reports {@link SiteDriftReport#noDrift}
+ * during a forward-deploy draft; the uninstall path (triggered by
+ * {@code -Dsite=removed}) is the only time stale cleanup is in scope.
+ *
+ * &lt;p&gt;&lt;b&gt;Apply&lt;/b&gt;: forward-deploy direction does nothing (this
+ * reconciler is uninstall-only). The forward {@link DeployedSiteReconciler}
+ * already publishes a fresh site.
+ *
+ * &lt;p&gt;&lt;b&gt;Uninstall&lt;/b&gt;: SSH out and remove
+ * {@code /srv/ike-site/&lt;projectId&gt;/} (the release subtree). The
+ * {@code .staging} / {@code .old} suffixes are handled by the same
+ * {@code ssh rm -rf} since they're inside the same project tree.
+ */
+public class StaleSiteCleanupReconciler implements SiteReconciler {
+
+    /** Creates this reconciler instance. */
+<span class="nc" id="L38">    public StaleSiteCleanupReconciler() {}</span>
+
+    @Override
+    public String dimension() {
+<span class="nc" id="L42">        return &quot;Stale deployed-site directories&quot;;</span>
+    }
+
+    @Override
+    public String optOutFlag() {
+<span class="nc" id="L47">        return &quot;cleanSite&quot;;</span>
+    }
+
+    @Override
+    public SiteDriftReport detect(SiteContext ctx) {
+        // No remote enumeration in detect — keep site-draft snappy.
+        // The uninstall path (-Dsite=removed) is the only place this
+        // reconciler runs work, and that path doesn't go through
+        // detect() at all.
+<span class="nc" id="L56">        return SiteDriftReport.noDrift(dimension());</span>
+    }
+
+    @Override
+    public void apply(SiteContext ctx) {
+        // Forward deploy: nothing to do. DeployedSiteReconciler
+        // publishes fresh content; the prior scpexe mirror was retired
+        // in #304 and no longer needs per-deploy cleanup.
+<span class="nc bnc" id="L64" title="All 2 branches missed.">        if (ctx.options().isOptedOut(optOutFlag())) {</span>
+<span class="nc" id="L65">            return;</span>
+        }
+<span class="nc" id="L67">    }</span>
+
+    @Override
+    public void uninstall(SiteContext ctx) {
+<span class="nc bnc" id="L71" title="All 2 branches missed.">        if (ctx.options().isOptedOut(optOutFlag())) {</span>
+<span class="nc" id="L72">            ctx.log().info(&quot;  &quot; + dimension() + &quot;: skipped (opted out via -D&quot;</span>
+<span class="nc" id="L73">                    + optOutFlag() + &quot;=false)&quot;);</span>
+<span class="nc" id="L74">            return;</span>
+        }
+<span class="nc" id="L76">        String projectId = ctx.projectId();</span>
+<span class="nc bnc" id="L77" title="All 4 branches missed.">        if (projectId == null || projectId.isBlank()) {</span>
+<span class="nc" id="L78">            ctx.log().info(&quot;  &quot; + dimension()</span>
+                    + &quot;: skipped (no project id)&quot;);
+<span class="nc" id="L80">            return;</span>
+        }
+<span class="nc" id="L82">        String remotePath = ReleaseSupport.SITE_DISK_BASE + projectId;</span>
+        try {
+<span class="nc" id="L84">            ReleaseSupport.cleanRemoteSiteDir(</span>
+<span class="nc" id="L85">                    ctx.gitRoot(), ctx.log(), remotePath);</span>
+<span class="nc" id="L86">            ctx.log().info(&quot;  &quot; + dimension()</span>
+                    + &quot;: removed &quot; + remotePath);
+<span class="nc" id="L88">        } catch (MojoException e) {</span>
+            // Likely &quot;host not reachable&quot; on machines without the
+            // wireguard / proxy SSH config. Non-fatal — most projects
+            // were never on the scpexe mirror.
+<span class="nc" id="L92">            ctx.log().info(&quot;  &quot; + dimension()</span>
+                    + &quot;: scpexe mirror cleanup skipped (&quot;
+<span class="nc" id="L94">                    + e.getMessage() + &quot;)&quot;);</span>
+<span class="nc" id="L95">        }</span>
+<span class="nc" id="L96">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

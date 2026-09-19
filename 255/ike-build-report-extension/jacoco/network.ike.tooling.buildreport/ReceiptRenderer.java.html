@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReceiptRenderer.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">ReceiptRenderer.java</span></div><h1>ReceiptRenderer.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+/**
+ * Renders a {@link LedgerEvaluation} as the {@code ike꞉build-report.md}
+ * receipt, in the house {@code ws꞉*.md} receipt style: a title line, a
+ * tool/version/timestamp line, then only the sections that have content.
+ */
+public final class ReceiptRenderer {
+
+<span class="fc" id="L18">    private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd HH:mm:ss&quot;);</span>
+
+    /** How many occurrences of one key the receipt lists before summarizing. */
+    private static final int MAX_OCCURRENCES = 5;
+
+    private ReceiptRenderer() {
+    }
+
+    /**
+     * Renders the receipt.
+     *
+     * @param toolVersion the extension version stamped under the title
+     * @param timestamp   the session-end time stamped under the title
+     * @param mode        the ledger's declared enforcement posture
+     * @param ledgerNote  a one-line ledger status (for example a parse
+     *                    failure); empty when the ledger loaded cleanly
+     * @param evaluation  the section content
+     * @return the receipt as Markdown
+     */
+    public static String render(
+            String toolVersion,
+            ZonedDateTime timestamp,
+            LedgerMode mode,
+            String ledgerNote,
+            LedgerEvaluation evaluation) {
+<span class="fc" id="L43">        Objects.requireNonNull(evaluation, &quot;evaluation&quot;);</span>
+<span class="fc" id="L44">        StringBuilder out = new StringBuilder(1024);</span>
+<span class="fc" id="L45">        out.append(&quot;# ike:build-report\n&quot;);</span>
+<span class="fc" id="L46">        out.append('_').append(STAMP.format(timestamp))</span>
+<span class="fc" id="L47">                .append(&quot; · ike-build-report-extension &quot;).append(toolVersion)</span>
+<span class="fc" id="L48">                .append(&quot; · mode: &quot;).append(mode.name().toLowerCase(java.util.Locale.ROOT))</span>
+<span class="fc" id="L49">                .append(&quot;_\n\n&quot;);</span>
+<span class="fc bfc" id="L50" title="All 2 branches covered.">        if (!ledgerNote.isBlank()) {</span>
+<span class="fc bfc" id="L51" title="All 2 branches covered.">            for (String line : ledgerNote.strip().split(&quot;\n&quot;)) {</span>
+<span class="fc" id="L52">                out.append(&quot;&gt; &quot;).append(line.strip()).append('\n');</span>
+            }
+<span class="fc" id="L54">            out.append('\n');</span>
+        }
+
+<span class="fc" id="L57">        renderFailures(out, evaluation.failures());</span>
+<span class="fc" id="L58">        renderAttention(out, evaluation.attention());</span>
+<span class="fc" id="L59">        renderAccepted(out, evaluation.accepted());</span>
+<span class="fc" id="L60">        renderRatchet(out, evaluation.ratchet());</span>
+<span class="fc" id="L61">        renderSummary(out, evaluation);</span>
+<span class="fc" id="L62">        renderRemediation(out, evaluation);</span>
+<span class="fc" id="L63">        return out.toString();</span>
+    }
+
+    private static void renderFailures(StringBuilder out, List&lt;Finding&gt; failures) {
+<span class="fc bfc" id="L67" title="All 2 branches covered.">        if (failures.isEmpty()) {</span>
+<span class="fc" id="L68">            return;</span>
+        }
+<span class="fc" id="L70">        out.append(&quot;## FAILURES\n\n&quot;);</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        for (Finding finding : failures) {</span>
+<span class="fc" id="L72">            out.append(&quot;- `&quot;).append(finding.key()).append(&quot;` — &quot;).append(finding.detail()).append('\n');</span>
+<span class="fc" id="L73">        }</span>
+<span class="fc" id="L74">        out.append('\n');</span>
+<span class="fc" id="L75">    }</span>
+
+    private static void renderAttention(StringBuilder out, List&lt;LedgerEvaluation.AttentionItem&gt; attention) {
+<span class="fc bfc" id="L78" title="All 2 branches covered.">        if (attention.isEmpty()) {</span>
+<span class="fc" id="L79">            return;</span>
+        }
+<span class="fc" id="L81">        out.append(&quot;## ATTENTION\n\n&quot;);</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">        for (LedgerEvaluation.AttentionItem item : attention) {</span>
+<span class="fc" id="L83">            out.append(&quot;- `&quot;).append(item.key()).append(&quot;` — observed &quot;).append(item.observed());</span>
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">            if (item.expected() == null) {</span>
+<span class="fc" id="L85">                out.append(&quot;, not accepted&quot;);</span>
+            } else {
+<span class="nc" id="L87">                out.append(&quot;, accepted &quot;).append(item.expected());</span>
+            }
+<span class="fc" id="L89">            out.append('\n');</span>
+<span class="fc" id="L90">            renderEvidence(out, item);</span>
+<span class="fc" id="L91">            renderOccurrences(out, item.findings());</span>
+<span class="fc" id="L92">        }</span>
+<span class="fc" id="L93">        out.append('\n');</span>
+<span class="fc" id="L94">    }</span>
+
+    /**
+     * Renders the structured context shared by an item's findings —
+     * what the thing is, and whose it is.
+     *
+     * &lt;p&gt;Only identifying context is promoted here; the per-occurrence
+     * subject and error stay with their occurrence lines, where the
+     * count makes them meaningful.&lt;/p&gt;
+     */
+    private static void renderEvidence(StringBuilder out, LedgerEvaluation.AttentionItem item) {
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">        if (item.findings().isEmpty()) {</span>
+<span class="nc" id="L106">            return;</span>
+        }
+<span class="fc" id="L108">        Map&lt;String, String&gt; context = item.findings().get(0).context();</span>
+<span class="fc" id="L109">        String repositoryId = context.get(Finding.CONTEXT_REPOSITORY_ID);</span>
+<span class="fc" id="L110">        String url = context.get(Finding.CONTEXT_REPOSITORY_URL);</span>
+<span class="fc bfc" id="L111" title="All 2 branches covered.">        if (repositoryId != null) {</span>
+<span class="fc" id="L112">            out.append(&quot;  - repository `&quot;).append(repositoryId).append('`');</span>
+<span class="pc bpc" id="L113" title="2 of 4 branches missed.">            if (url != null &amp;&amp; !url.isBlank()) {</span>
+<span class="fc" id="L114">                out.append(&quot; at `&quot;).append(url).append('`');</span>
+            }
+<span class="fc" id="L116">            out.append('\n');</span>
+        }
+<span class="fc" id="L118">        String declaredBy = context.get(Finding.CONTEXT_DECLARED_BY);</span>
+<span class="pc bpc" id="L119" title="1 of 4 branches missed.">        if (declaredBy != null &amp;&amp; !declaredBy.isBlank()) {</span>
+<span class="fc" id="L120">            out.append(&quot;  - &quot;).append(declaredBy).append('\n');</span>
+        }
+<span class="fc" id="L122">    }</span>
+
+    private static void renderOccurrences(StringBuilder out, List&lt;Finding&gt; findings) {
+<span class="fc" id="L125">        int shown = Math.min(findings.size(), MAX_OCCURRENCES);</span>
+<span class="fc bfc" id="L126" title="All 2 branches covered.">        for (int index = 0; index &lt; shown; index++) {</span>
+<span class="fc" id="L127">            String detail = findings.get(index).detail();</span>
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">            if (detail.isBlank()) {</span>
+<span class="nc" id="L129">                continue;</span>
+            }
+<span class="fc" id="L131">            out.append(&quot;  - occurrence &quot;).append(index + 1).append('/').append(findings.size())</span>
+<span class="fc" id="L132">                    .append(&quot; — &quot;).append(detail).append('\n');</span>
+        }
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">        if (findings.size() &gt; shown) {</span>
+<span class="nc" id="L135">            out.append(&quot;  - … and &quot;).append(findings.size() - shown)</span>
+<span class="nc" id="L136">                    .append(&quot; further occurrence(s)\n&quot;);</span>
+        }
+<span class="fc" id="L138">    }</span>
+
+    /**
+     * Renders the options a reader has for each family of finding
+     * present, so the receipt closes the loop it opens.
+     *
+     * &lt;p&gt;A finding that gates a build is only actionable if the reader
+     * knows the responses available; naming them here is what turns the
+     * receipt from a verdict into an instruction (ike-issues#989).&lt;/p&gt;
+     */
+    private static void renderRemediation(StringBuilder out, LedgerEvaluation evaluation) {
+<span class="fc" id="L149">        Set&lt;FindingCategory&gt; categories = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L150" title="All 2 branches covered.">        for (LedgerEvaluation.AttentionItem item : evaluation.attention()) {</span>
+<span class="pc bpc" id="L151" title="1 of 2 branches missed.">            if (item.category() != null) {</span>
+<span class="fc" id="L152">                categories.add(item.category());</span>
+            }
+<span class="fc" id="L154">        }</span>
+<span class="fc bfc" id="L155" title="All 2 branches covered.">        for (Finding failure : evaluation.failures()) {</span>
+<span class="fc" id="L156">            categories.add(failure.category());</span>
+<span class="fc" id="L157">        }</span>
+<span class="fc bfc" id="L158" title="All 2 branches covered.">        if (categories.isEmpty()) {</span>
+<span class="fc" id="L159">            return;</span>
+        }
+<span class="fc" id="L161">        out.append(&quot;\n## WHAT TO DO\n\n&quot;);</span>
+<span class="pc bpc" id="L162" title="1 of 2 branches missed.">        if (categories.contains(FindingCategory.REPOSITORY)) {</span>
+<span class="fc" id="L163">            out.append(&quot;Repository findings are transfer-level failures, not missing artifacts —\n&quot;);</span>
+<span class="fc" id="L164">            out.append(&quot;a repository the build could not talk to at all. Options, in the order\n&quot;);</span>
+<span class="fc" id="L165">            out.append(&quot;worth considering:\n\n&quot;);</span>
+<span class="fc" id="L166">            out.append(&quot;1. **Not yours** — when the repository was declared by a dependency's\n&quot;);</span>
+<span class="fc" id="L167">            out.append(&quot;   POM (the `declared by the POM of …` line above), no change in this\n&quot;);</span>
+<span class="fc" id="L168">            out.append(&quot;   workspace will remove it. Block it once, for every build, in\n&quot;);</span>
+<span class="fc" id="L169">            out.append(&quot;   `~/.m2/settings.xml`:\n\n&quot;);</span>
+<span class="fc" id="L170">            out.append(&quot;   ```xml\n&quot;);</span>
+<span class="fc" id="L171">            out.append(&quot;   &lt;mirror&gt;\n&quot;);</span>
+<span class="fc" id="L172">            out.append(&quot;     &lt;id&gt;block-EXAMPLE&lt;/id&gt;\n&quot;);</span>
+<span class="fc" id="L173">            out.append(&quot;     &lt;mirrorOf&gt;EXAMPLE&lt;/mirrorOf&gt;\n&quot;);</span>
+<span class="fc" id="L174">            out.append(&quot;     &lt;name&gt;unreachable; declared by a third-party POM&lt;/name&gt;\n&quot;);</span>
+<span class="fc" id="L175">            out.append(&quot;     &lt;url&gt;http://0.0.0.0/&lt;/url&gt;\n&quot;);</span>
+<span class="fc" id="L176">            out.append(&quot;     &lt;blocked&gt;true&lt;/blocked&gt;\n&quot;);</span>
+<span class="fc" id="L177">            out.append(&quot;   &lt;/mirror&gt;\n&quot;);</span>
+<span class="fc" id="L178">            out.append(&quot;   ```\n\n&quot;);</span>
+<span class="fc" id="L179">            out.append(&quot;2. **Yours** — fix the URL, the credentials, or the network path.\n&quot;);</span>
+<span class="fc" id="L180">            out.append(&quot;3. **Known and tolerated** — accept the key in `&quot;)</span>
+<span class="fc" id="L181">                    .append(ReportSession.LEDGER_RELATIVE_PATH)</span>
+<span class="fc" id="L182">                    .append(&quot;` with a\n   `count` and a `reason` that says why it is tolerable.\n\n&quot;);</span>
+        }
+<span class="pc bpc" id="L184" title="1 of 2 branches missed.">        if (categories.contains(FindingCategory.MODEL)) {</span>
+<span class="nc" id="L185">            out.append(&quot;Model findings are recomputed from the POMs themselves, not scraped\n&quot;);</span>
+<span class="nc" id="L186">            out.append(&quot;from Maven's log. Either change the declaration the finding names, or\n&quot;);</span>
+<span class="nc" id="L187">            out.append(&quot;accept the key in `&quot;).append(ReportSession.LEDGER_RELATIVE_PATH)</span>
+<span class="nc" id="L188">                    .append(&quot;` with a reason.\n\n&quot;);</span>
+        }
+<span class="fc bfc" id="L190" title="All 2 branches covered.">        if (categories.contains(FindingCategory.EXECUTION)) {</span>
+<span class="fc" id="L191">            out.append(&quot;Execution findings are build-breaking and are never absorbed by the\n&quot;);</span>
+<span class="fc" id="L192">            out.append(&quot;ledger — fix the failing goal.\n\n&quot;);</span>
+        }
+<span class="fc" id="L194">        out.append(&quot;To let one invocation through without changing anything, add\n&quot;);</span>
+<span class="fc" id="L195">        out.append(&quot;`-D&quot;).append(ReportSession.GATE_SKIP_PROPERTY).append(&quot;=true`;\n&quot;);</span>
+<span class="fc" id="L196">        out.append(&quot;the skip is recorded in this receipt.\n\n&quot;);</span>
+<span class="fc" id="L197">    }</span>
+
+    private static void renderAccepted(StringBuilder out, List&lt;LedgerEvaluation.AcceptedStatus&gt; accepted) {
+<span class="fc bfc" id="L200" title="All 2 branches covered.">        if (accepted.isEmpty()) {</span>
+<span class="fc" id="L201">            return;</span>
+        }
+<span class="fc" id="L203">        out.append(&quot;## ACCEPTED\n\n&quot;);</span>
+<span class="fc bfc" id="L204" title="All 2 branches covered.">        for (LedgerEvaluation.AcceptedStatus status : accepted) {</span>
+<span class="fc" id="L205">            out.append(&quot;- `&quot;).append(status.entry().key()).append(&quot;` — expected &quot;)</span>
+<span class="fc" id="L206">                    .append(status.entry().count()).append(&quot;, observed &quot;).append(status.observed());</span>
+<span class="pc bpc" id="L207" title="1 of 2 branches missed.">            if (!status.entry().reason().isBlank()) {</span>
+<span class="fc" id="L208">                out.append(&quot; — &quot;).append(status.entry().reason());</span>
+            }
+<span class="fc" id="L210">            out.append('\n');</span>
+<span class="fc" id="L211">        }</span>
+<span class="fc" id="L212">        out.append('\n');</span>
+<span class="fc" id="L213">    }</span>
+
+    private static void renderRatchet(StringBuilder out, List&lt;LedgerEvaluation.AcceptedStatus&gt; ratchet) {
+<span class="fc bfc" id="L216" title="All 2 branches covered.">        if (ratchet.isEmpty()) {</span>
+<span class="fc" id="L217">            return;</span>
+        }
+<span class="fc" id="L219">        out.append(&quot;## RATCHET\n\n&quot;);</span>
+<span class="fc bfc" id="L220" title="All 2 branches covered.">        for (LedgerEvaluation.AcceptedStatus status : ratchet) {</span>
+<span class="fc" id="L221">            out.append(&quot;- `&quot;).append(status.entry().key()).append(&quot;` — expected &quot;)</span>
+<span class="fc" id="L222">                    .append(status.entry().count()).append(&quot;, observed &quot;).append(status.observed())</span>
+<span class="fc" id="L223">                    .append(&quot; — ledger can tighten\n&quot;);</span>
+<span class="fc" id="L224">        }</span>
+<span class="fc" id="L225">        out.append('\n');</span>
+<span class="fc" id="L226">    }</span>
+
+    private static void renderSummary(StringBuilder out, LedgerEvaluation evaluation) {
+<span class="fc" id="L229">        out.append(&quot;## SUMMARY\n\n&quot;);</span>
+<span class="fc" id="L230">        out.append(&quot;failures: &quot;).append(evaluation.failures().size())</span>
+<span class="fc" id="L231">                .append(&quot; · attention: &quot;).append(evaluation.attention().size())</span>
+<span class="fc" id="L232">                .append(&quot; · accepted: &quot;).append(evaluation.accepted().size())</span>
+<span class="fc" id="L233">                .append(&quot; · ratchet: &quot;).append(evaluation.ratchet().size())</span>
+<span class="fc" id="L234">                .append('\n');</span>
+<span class="fc" id="L235">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,6 +1,6 @@
 ---
-date_published: 2026-09-16
-date_modified: 2026-09-16
+date_published: 2026-09-18
+date_modified: 2026-09-18
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/index.html
 ---
 
@@ -106,7 +106,7 @@ mvn ike:scaffold-publish
 | knowledge-bindings | knowledge | Generate the bindings class for a ledger-form knowledge set |
 | knowledge-export | knowledge | Export a ledger-form knowledge set as a standalone protobuf artifact |
 | knowledge-verify | knowledge | Verify a knowledge artifact in a pristine store (round-trip gate) |
-| schema-import | knowledge | Import an XML Schema signature as a ledger section (HL7 ELM first) |
+| schema-import | knowledge | Import an XML Schema as a ledger section, a node catalog (HL7 ELM first) |
 | starter-set-create-{draft,publish} | genesis | Genesis of a new starter-set project |
 | cascade-export | inspection | Export the foundation release-cascade topology, machine-readable |
 | env | inspection | Print runtime environment diagnostics |

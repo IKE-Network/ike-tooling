@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IkeAnnounceDraftMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">IkeAnnounceDraftMojo.java</span></div><h1>IkeAnnounceDraftMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+/**
+ * Preview an announcement to a Zulip stream without posting it
+ * (IKE-Network/ike-issues#1016).
+ *
+ * &lt;p&gt;Announcing is outward-facing — other people read the channel — so
+ * the draft form is not a convenience. It prints the destination and the
+ * exact message, so an operator can see what would be said before
+ * anything is said.
+ *
+ * &lt;p&gt;Credentials come from the environment ({@code ZULIP_BOT_EMAIL},
+ * {@code ZULIP_BOT_TOKEN}), which is what lets the same goal run locally
+ * under {@code op run} and on CI from its own parameters — the goal
+ * itself never holds a secret.
+ */
+@Mojo(name = IkeGoal.NAME_ANNOUNCE_DRAFT, projectRequired = false)
+public class IkeAnnounceDraftMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L37">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /** Zulip site base URL, e.g. {@code https://ike.zulipchat.com}. */
+    @Parameter(property = &quot;zulip.url&quot;, defaultValue = &quot;https://ike.zulipchat.com&quot;)
+    String zulipUrl;
+
+    /** Destination stream. */
+    @Parameter(property = &quot;zulip.stream&quot;, required = true)
+    String stream;
+
+    /** Destination topic within the stream. */
+    @Parameter(property = &quot;zulip.topic&quot;, required = true)
+    String topic;
+
+    /** Message body (Zulip-flavoured markdown). Ignored when {@link #contentFile} is set. */
+    @Parameter(property = &quot;zulip.content&quot;)
+    String content;
+
+    /** File holding the message body — the usual form for generated notes. */
+    @Parameter(property = &quot;zulip.contentFile&quot;)
+    String contentFile;
+
+    /**
+     * Internal toggle: {@code true} for {@code announce-publish},
+     * {@code false} for {@code announce-draft}.
+     */
+    @Parameter(property = &quot;publish&quot;, defaultValue = &quot;false&quot;)
+    boolean publish;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L67">    public IkeAnnounceDraftMojo() {}</span>
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc" id="L71">        AnnounceSupport.Announcement announcement =</span>
+<span class="nc" id="L72">                new AnnounceSupport.Announcement(trimTrailingSlash(zulipUrl),</span>
+<span class="nc" id="L73">                        stream, topic, resolveContent());</span>
+
+<span class="nc" id="L75">        String problem = AnnounceSupport.validate(announcement);</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        if (problem != null) {</span>
+<span class="nc" id="L77">            throw new MojoException(&quot;Cannot announce: &quot; + problem);</span>
+        }
+
+<span class="nc" id="L80">        getLog().info(&quot;&quot;);</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        getLog().info(publish ? IkeGoal.ANNOUNCE_PUBLISH.qualified()</span>
+<span class="nc" id="L82">                : IkeGoal.ANNOUNCE_DRAFT.qualified());</span>
+<span class="nc" id="L83">        getLog().info(&quot;══════════════════════════════════════════════════════════════&quot;);</span>
+<span class="nc" id="L84">        getLog().info(&quot;  To: &quot; + AnnounceSupport.destination(announcement));</span>
+<span class="nc" id="L85">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L86">        announcement.content().lines()</span>
+<span class="nc" id="L87">                .forEach(line -&gt; getLog().info(&quot;  │ &quot; + line));</span>
+<span class="nc" id="L88">        getLog().info(&quot;&quot;);</span>
+
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (!publish) {</span>
+<span class="nc" id="L91">            getLog().info(&quot;  [DRAFT] Nothing posted. Re-run as &quot;</span>
+<span class="nc" id="L92">                    + IkeGoal.ANNOUNCE_PUBLISH.qualified() + &quot; to post.&quot;);</span>
+<span class="nc" id="L93">            return;</span>
+        }
+
+<span class="nc" id="L96">        AnnounceSupport.BotIdentity bot = new AnnounceSupport.BotIdentity(</span>
+<span class="nc" id="L97">                requiredEnv(&quot;ZULIP_BOT_EMAIL&quot;), requiredEnv(&quot;ZULIP_BOT_TOKEN&quot;));</span>
+        try {
+<span class="nc" id="L99">            String response = AnnounceSupport.post(announcement, bot);</span>
+<span class="nc" id="L100">            getLog().info(&quot;  ✓ posted — &quot; + response);</span>
+<span class="nc" id="L101">        } catch (Exception e) {</span>
+<span class="nc" id="L102">            throw new MojoException(&quot;Announcement failed: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L103">        }</span>
+<span class="nc" id="L104">    }</span>
+
+    /**
+     * The message body, from the file when one is named.
+     *
+     * @return the resolved content
+     * @throws MojoException when the named file cannot be read
+     */
+    private String resolveContent() {
+<span class="nc bnc" id="L113" title="All 4 branches missed.">        if (contentFile == null || contentFile.isBlank()) return content;</span>
+        try {
+<span class="nc" id="L115">            return Files.readString(Path.of(contentFile), StandardCharsets.UTF_8);</span>
+<span class="nc" id="L116">        } catch (IOException e) {</span>
+<span class="nc" id="L117">            throw new MojoException(&quot;Cannot read zulip.contentFile &quot;</span>
+<span class="nc" id="L118">                    + contentFile + &quot;: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    /**
+     * Read a required credential from the environment, failing with the
+     * variable's name rather than an authentication error later.
+     *
+     * @param name the environment variable to read
+     * @return its value
+     * @throws MojoException when unset or empty
+     */
+    private static String requiredEnv(String name) {
+<span class="nc" id="L131">        String value = System.getenv(name);</span>
+<span class="nc bnc" id="L132" title="All 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="nc" id="L133">            throw new MojoException(name + &quot; is not set — locally this comes&quot;</span>
+                    + &quot; from `op run --env-file`, on CI from a project&quot;
+                    + &quot; parameter of the same name&quot;);
+        }
+<span class="nc" id="L137">        return value;</span>
+    }
+
+    private static String trimTrailingSlash(String url) {
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (url == null) return null;</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        return url.endsWith(&quot;/&quot;) ? url.substring(0, url.length() - 1) : url;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

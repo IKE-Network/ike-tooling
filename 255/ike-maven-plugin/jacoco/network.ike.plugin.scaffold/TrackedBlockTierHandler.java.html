@@ -1,0 +1,360 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TrackedBlockTierHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">TrackedBlockTierHandler.java</span></div><h1>TrackedBlockTierHandler.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Tier handler for {@link ScaffoldTier#TRACKED_BLOCK}.
+ *
+ * &lt;p&gt;Policy: same checksum-guarded refresh as
+ * {@link ScaffoldTier#TRACKED}, but only a bounded region inside the
+ * destination file is managed. The region is delimited by the
+ * {@code block-begin} and {@code block-end} line markers declared on
+ * the manifest entry. Content outside the markers belongs to the user
+ * and is never touched.
+ *
+ * &lt;p&gt;The {@code source} file in the scaffold zip contains only the
+ * block content (no markers). When publish installs a brand-new file,
+ * the markers are added around the template content.
+ *
+ * &lt;p&gt;The {@code appliedSha} / {@code templateSha} recorded in the
+ * lockfile for this tier are hashes of the block &lt;em&gt;content&lt;/em&gt;, not
+ * the whole file. That way edits to unmanaged regions do not look like
+ * drift on the managed block.
+ *
+ * &lt;h2&gt;Whitelist-style {@code .gitignore} awareness&lt;/h2&gt;
+ *
+ * &lt;p&gt;Workspaces that ignore everything by default and whitelist a
+ * curated set of files (signalled by a bare {@code *} or {@code **}
+ * line in the destination) need a different block payload — the
+ * blacklist patterns shipped in {@code source} would either silently
+ * have no effect or, worse, cause newly tracked scaffold files to be
+ * ignored. When the manifest entry sets
+ * {@code whitelist-block-content} (an inline string in extras) the
+ * handler substitutes that content for the {@code source} bytes when
+ * whitelist mode is detected on disk. When whitelist mode is detected
+ * but no {@code whitelist-block-content} is supplied, the entry is
+ * reported as user-managed (no write) so the publish run does not
+ * pollute the user's whitelist.
+ *
+ * &lt;h2&gt;Create-case seeding&lt;/h2&gt;
+ *
+ * &lt;p&gt;When the destination file does not exist yet and the caller
+ * supplies {@code createContent} (resolved from the manifest entry's
+ * {@code create-source} extra), the new file is seeded with that
+ * content followed by the managed block. This gives a brand-new repo
+ * bootstrapped via {@code ike:scaffold-publish} the full canonical
+ * template on day one (ike-issues#825) while keeping the #245 dedup
+ * semantics for existing files: the seed is written exactly once, is
+ * the user's from then on, and only the marker-delimited block is
+ * managed on subsequent runs. The lockfile hashes cover only the
+ * block content, so the seed never registers as drift.
+ */
+public final class TrackedBlockTierHandler implements TierHandler {
+
+    /**
+     * Construct a stateless tracked-block tier handler. Instances are
+     * safe to share across planning calls; all per-invocation state
+     * lives on method parameters.
+     */
+<span class="fc" id="L62">    public TrackedBlockTierHandler() {</span>
+<span class="fc" id="L63">    }</span>
+
+    @Override
+    public ScaffoldTier tier() {
+<span class="fc" id="L67">        return ScaffoldTier.TRACKED_BLOCK;</span>
+    }
+
+    @Override
+    public TierAction plan(
+            ManifestEntry entry,
+            Path resolvedDest,
+            byte[] currentContent,
+            byte[] templateContent,
+            byte[] createContent,
+            LockfileEntry priorEntry) {
+<span class="pc bpc" id="L78" title="1 of 2 branches missed.">        if (templateContent == null) {</span>
+<span class="nc" id="L79">            throw new ScaffoldException(</span>
+<span class="nc" id="L80">                    &quot;tracked-block entry '&quot; + entry.dest()</span>
+                            + &quot;' has no template content&quot;);
+        }
+<span class="fc" id="L83">        String beginMarker = stringExtra(entry, &quot;block-begin&quot;);</span>
+<span class="fc" id="L84">        String endMarker = stringExtra(entry, &quot;block-end&quot;);</span>
+<span class="pc bpc" id="L85" title="1 of 4 branches missed.">        if (beginMarker == null || beginMarker.isBlank()) {</span>
+<span class="fc" id="L86">            throw new ScaffoldException(</span>
+<span class="fc" id="L87">                    &quot;tracked-block entry '&quot; + entry.dest()</span>
+                            + &quot;' missing 'block-begin'&quot;);
+        }
+<span class="pc bpc" id="L90" title="2 of 4 branches missed.">        if (endMarker == null || endMarker.isBlank()) {</span>
+<span class="nc" id="L91">            throw new ScaffoldException(</span>
+<span class="nc" id="L92">                    &quot;tracked-block entry '&quot; + entry.dest()</span>
+                            + &quot;' missing 'block-end'&quot;);
+        }
+
+<span class="fc" id="L96">        String currentStr = str(currentContent);</span>
+
+        // Whitelist-mode awareness: when the destination is a
+        // whitelist-style ignore file (catch-all `*`/`**` line
+        // present), the blacklist patterns shipped in `source` would
+        // either be no-ops or silently mask scaffold-tracked files.
+        // Substitute `whitelist-block-content` from extras when
+        // supplied; otherwise leave the file alone and report as
+        // user-managed.
+<span class="fc bfc" id="L105" title="All 2 branches covered.">        boolean whitelistMode = currentContent != null</span>
+<span class="fc bfc" id="L106" title="All 2 branches covered.">                &amp;&amp; isWhitelistIgnoreFile(currentStr);</span>
+<span class="fc" id="L107">        String whitelistContent =</span>
+<span class="fc" id="L108">                stringExtra(entry, &quot;whitelist-block-content&quot;);</span>
+<span class="fc bfc" id="L109" title="All 4 branches covered.">        if (whitelistMode &amp;&amp; (whitelistContent == null</span>
+<span class="pc bpc" id="L110" title="1 of 2 branches missed.">                || whitelistContent.isBlank())) {</span>
+<span class="fc" id="L111">            return new TierAction.Skip(</span>
+                    entry, resolvedDest,
+                    &quot;whitelist-style ignore file; no &quot;
+                            + &quot;'whitelist-block-content' supplied — &quot;
+                            + &quot;leaving file alone&quot;,
+                    &quot;&quot;);
+        }
+
+<span class="fc bfc" id="L119" title="All 2 branches covered.">        String templateBlock = whitelistMode</span>
+<span class="fc" id="L120">                ? whitelistContent</span>
+<span class="fc" id="L121">                : str(templateContent);</span>
+<span class="fc" id="L122">        String templateBlockSha = Sha256.of(templateBlock);</span>
+
+        // Case 1: file does not exist yet — create it. With
+        // createContent supplied, seed the canonical template above
+        // the managed block (write-once; the seed belongs to the user
+        // afterwards and only the block stays managed — #825).
+        // Without it, the file holds just the managed block.
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        if (currentContent == null) {</span>
+<span class="fc" id="L130">            String seed = str(createContent);</span>
+            String newFile;
+            String reason;
+<span class="fc bfc" id="L133" title="All 2 branches covered.">            if (seed.isBlank()) {</span>
+<span class="fc" id="L134">                newFile = renderBlock(</span>
+                        beginMarker, templateBlock, endMarker);
+<span class="fc" id="L136">                reason = &quot;install new file with managed block&quot;;</span>
+            } else {
+<span class="fc" id="L138">                newFile = seed</span>
+<span class="fc bfc" id="L139" title="All 2 branches covered.">                        + (seed.endsWith(&quot;\n&quot;) ? &quot;&quot; : &quot;\n&quot;)</span>
+<span class="fc" id="L140">                        + renderBlock(</span>
+                                beginMarker, templateBlock, endMarker);
+<span class="fc" id="L142">                reason = &quot;install new file: seed canonical template&quot;</span>
+                        + &quot; + managed block&quot;;
+            }
+<span class="fc" id="L145">            byte[] out = newFile.getBytes(StandardCharsets.UTF_8);</span>
+<span class="fc" id="L146">            return new TierAction.Write(</span>
+                    entry, resolvedDest, out,
+                    templateBlockSha, templateBlockSha,
+                    TierAction.Write.Kind.INSTALL,
+                    reason);
+        }
+<span class="fc" id="L152">        BlockSlice slice =</span>
+<span class="fc" id="L153">                locate(currentStr, beginMarker, endMarker, entry);</span>
+
+        // Case 2: block absent in an existing file — append one.
+<span class="fc bfc" id="L156" title="All 2 branches covered.">        if (slice == null) {</span>
+<span class="fc" id="L157">            String newFile = currentStr</span>
+<span class="pc bpc" id="L158" title="1 of 4 branches missed.">                    + (currentStr.isEmpty() || currentStr.endsWith(&quot;\n&quot;)</span>
+<span class="fc" id="L159">                            ? &quot;&quot;</span>
+<span class="fc" id="L160">                            : &quot;\n&quot;)</span>
+<span class="fc" id="L161">                    + renderBlock(</span>
+                            beginMarker, templateBlock, endMarker);
+<span class="fc" id="L163">            byte[] out = newFile.getBytes(StandardCharsets.UTF_8);</span>
+<span class="fc" id="L164">            return new TierAction.Write(</span>
+                    entry, resolvedDest, out,
+                    templateBlockSha, templateBlockSha,
+                    TierAction.Write.Kind.INSTALL,
+                    &quot;append managed block&quot;);
+        }
+
+<span class="fc" id="L171">        String currentBlock = slice.content();</span>
+<span class="fc" id="L172">        String currentBlockSha = Sha256.of(currentBlock);</span>
+
+        // Case 3: block already matches the template.
+<span class="fc bfc" id="L175" title="All 2 branches covered.">        if (currentBlock.equals(templateBlock)) {</span>
+<span class="fc" id="L176">            return new TierAction.UpToDate(</span>
+                    entry, resolvedDest,
+                    templateBlockSha, currentBlockSha,
+                    &quot;up to date&quot;);
+        }
+
+        // Case 4: safe refresh — block still matches what we last wrote.
+<span class="fc bfc" id="L183" title="All 2 branches covered.">        if (priorEntry != null</span>
+<span class="pc bpc" id="L184" title="1 of 2 branches missed.">                &amp;&amp; priorEntry.appliedSha() != null</span>
+<span class="fc bfc" id="L185" title="All 2 branches covered.">                &amp;&amp; priorEntry.appliedSha().equals(currentBlockSha)) {</span>
+<span class="fc" id="L186">            String newFile = slice.before()</span>
+<span class="fc" id="L187">                    + renderBlock(</span>
+                            beginMarker, templateBlock, endMarker)
+<span class="fc" id="L189">                    + slice.after();</span>
+<span class="fc" id="L190">            byte[] out = newFile.getBytes(StandardCharsets.UTF_8);</span>
+<span class="fc" id="L191">            LineDiff.Counts c = LineDiff.counts(</span>
+                    currentBlock, templateBlock);
+<span class="fc" id="L193">            return new TierAction.Write(</span>
+                    entry, resolvedDest, out,
+                    templateBlockSha, templateBlockSha,
+                    TierAction.Write.Kind.UPDATE,
+<span class="fc" id="L197">                    &quot;refresh block (&quot; + c.shortForm() + &quot;)&quot;);</span>
+        }
+
+        // Case 5: user edited the block — skip with a block-level diff.
+<span class="fc" id="L201">        LineDiff.Counts c = LineDiff.counts(</span>
+                currentBlock, templateBlock);
+<span class="fc" id="L203">        String diff = LineDiff.unified(currentBlock, templateBlock);</span>
+<span class="fc" id="L204">        return new TierAction.Skip(</span>
+                entry, resolvedDest,
+<span class="fc bfc" id="L206" title="All 2 branches covered.">                (priorEntry == null</span>
+<span class="fc" id="L207">                        ? &quot;no prior lockfile entry&quot;</span>
+<span class="fc" id="L208">                        : &quot;user-edited block&quot;)</span>
+<span class="fc" id="L209">                        + &quot;; &quot; + c.shortForm(),</span>
+                diff);
+    }
+
+    // ── helpers ────────────────────────────────────────────────────
+
+    /**
+     * Detect whether an ignore-style file uses the whitelist
+     * convention: a top-level catch-all (a bare {@code *} or
+     * {@code **} line) that ignores everything by default, with
+     * {@code !pattern} entries to selectively whitelist files.
+     *
+     * &lt;p&gt;Comment and blank lines are ignored. The check is intentionally
+     * narrow — only a bare {@code *}/{@code **} (no surrounding text)
+     * counts. Files with patterns like {@code *.iml} or {@code build/*}
+     * are blacklist-mode and remain unaffected.
+     *
+     * @param content the file content as text; may be empty but not null
+     * @return {@code true} if the file matches the whitelist convention
+     */
+    static boolean isWhitelistIgnoreFile(String content) {
+<span class="pc bpc" id="L230" title="1 of 4 branches missed.">        if (content == null || content.isEmpty()) {</span>
+<span class="fc" id="L231">            return false;</span>
+        }
+<span class="fc bfc" id="L233" title="All 2 branches covered.">        for (String raw : content.split(&quot;\n&quot;)) {</span>
+<span class="fc" id="L234">            String t = stripLineEnding(raw).trim();</span>
+<span class="fc bfc" id="L235" title="All 4 branches covered.">            if (t.isEmpty() || t.startsWith(&quot;#&quot;)) {</span>
+<span class="fc" id="L236">                continue;</span>
+            }
+<span class="fc bfc" id="L238" title="All 4 branches covered.">            if (t.equals(&quot;*&quot;) || t.equals(&quot;**&quot;)) {</span>
+<span class="fc" id="L239">                return true;</span>
+            }
+        }
+<span class="fc" id="L242">        return false;</span>
+    }
+
+    /** A parsed managed-block slice within a larger file. */
+<span class="fc" id="L246">    private record BlockSlice(</span>
+            String before, String content, String after) {
+    }
+
+    private static BlockSlice locate(
+            String text, String begin, String end, ManifestEntry entry) {
+<span class="fc" id="L252">        List&lt;String&gt; lines = splitPreservingLineEndings(text);</span>
+<span class="fc" id="L253">        int beginIdx = -1;</span>
+<span class="fc" id="L254">        int endIdx = -1;</span>
+<span class="fc bfc" id="L255" title="All 2 branches covered.">        for (int i = 0; i &lt; lines.size(); i++) {</span>
+<span class="fc" id="L256">            String rawLine = lines.get(i);</span>
+<span class="fc" id="L257">            String trimmedLine = stripLineEnding(rawLine);</span>
+<span class="fc bfc" id="L258" title="All 4 branches covered.">            if (beginIdx &lt; 0 &amp;&amp; trimmedLine.equals(begin)) {</span>
+<span class="fc" id="L259">                beginIdx = i;</span>
+<span class="fc bfc" id="L260" title="All 4 branches covered.">            } else if (beginIdx &gt;= 0 &amp;&amp; trimmedLine.equals(end)) {</span>
+<span class="fc" id="L261">                endIdx = i;</span>
+<span class="fc" id="L262">                break;</span>
+            }
+        }
+<span class="pc bpc" id="L265" title="1 of 4 branches missed.">        if (beginIdx &lt; 0 &amp;&amp; endIdx &lt; 0) {</span>
+<span class="fc" id="L266">            return null;</span>
+        }
+<span class="pc bpc" id="L268" title="1 of 4 branches missed.">        if (beginIdx &gt;= 0 &amp;&amp; endIdx &lt; 0) {</span>
+<span class="fc" id="L269">            throw new ScaffoldException(</span>
+<span class="fc" id="L270">                    &quot;tracked-block entry '&quot; + entry.dest()</span>
+                            + &quot;': found '&quot; + begin
+                            + &quot;' but no matching '&quot; + end + &quot;'&quot;);
+        }
+        // Check for duplicate begin markers after the first block.
+<span class="fc bfc" id="L275" title="All 2 branches covered.">        for (int i = endIdx + 1; i &lt; lines.size(); i++) {</span>
+<span class="fc bfc" id="L276" title="All 2 branches covered.">            if (stripLineEnding(lines.get(i)).equals(begin)) {</span>
+<span class="fc" id="L277">                throw new ScaffoldException(</span>
+<span class="fc" id="L278">                        &quot;tracked-block entry '&quot; + entry.dest()</span>
+                                + &quot;': multiple '&quot; + begin
+                                + &quot;' markers found&quot;);
+            }
+        }
+        // `before` and `after` exclude the marker lines themselves —
+        // the caller will re-emit markers via renderBlock().
+<span class="fc" id="L285">        StringBuilder before = new StringBuilder();</span>
+<span class="fc bfc" id="L286" title="All 2 branches covered.">        for (int i = 0; i &lt; beginIdx; i++) {</span>
+<span class="fc" id="L287">            before.append(lines.get(i));</span>
+        }
+<span class="fc" id="L289">        StringBuilder content = new StringBuilder();</span>
+<span class="fc bfc" id="L290" title="All 2 branches covered.">        for (int i = beginIdx + 1; i &lt; endIdx; i++) {</span>
+<span class="fc" id="L291">            content.append(lines.get(i));</span>
+        }
+<span class="fc" id="L293">        StringBuilder after = new StringBuilder();</span>
+<span class="fc bfc" id="L294" title="All 2 branches covered.">        for (int i = endIdx + 1; i &lt; lines.size(); i++) {</span>
+<span class="fc" id="L295">            after.append(lines.get(i));</span>
+        }
+<span class="fc" id="L297">        return new BlockSlice(</span>
+<span class="fc" id="L298">                before.toString(),</span>
+<span class="fc" id="L299">                content.toString(),</span>
+<span class="fc" id="L300">                after.toString());</span>
+    }
+
+    private static String renderBlock(
+            String begin, String content, String end) {
+<span class="fc" id="L305">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L306">        sb.append(begin).append('\n');</span>
+<span class="fc" id="L307">        sb.append(content);</span>
+<span class="pc bpc" id="L308" title="2 of 4 branches missed.">        if (!content.isEmpty() &amp;&amp; !content.endsWith(&quot;\n&quot;)) {</span>
+<span class="nc" id="L309">            sb.append('\n');</span>
+        }
+<span class="fc" id="L311">        sb.append(end).append('\n');</span>
+<span class="fc" id="L312">        return sb.toString();</span>
+    }
+
+    /**
+     * Split like {@code text.lines()} but preserve the newline at the
+     * end of each produced line, so joining the pieces reproduces the
+     * original string byte-for-byte.
+     */
+    private static List&lt;String&gt; splitPreservingLineEndings(String s) {
+<span class="fc" id="L321">        List&lt;String&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L322" title="2 of 4 branches missed.">        if (s == null || s.isEmpty()) {</span>
+<span class="nc" id="L323">            return out;</span>
+        }
+<span class="fc" id="L325">        int start = 0;</span>
+<span class="fc bfc" id="L326" title="All 2 branches covered.">        for (int k = 0; k &lt; s.length(); k++) {</span>
+<span class="fc bfc" id="L327" title="All 2 branches covered.">            if (s.charAt(k) == '\n') {</span>
+<span class="fc" id="L328">                out.add(s.substring(start, k + 1));</span>
+<span class="fc" id="L329">                start = k + 1;</span>
+            }
+        }
+<span class="fc bfc" id="L332" title="All 2 branches covered.">        if (start &lt; s.length()) {</span>
+<span class="fc" id="L333">            out.add(s.substring(start));</span>
+        }
+<span class="fc" id="L335">        return out;</span>
+    }
+
+    private static String stripLineEnding(String s) {
+<span class="pc bpc" id="L339" title="1 of 2 branches missed.">        if (s.endsWith(&quot;\r\n&quot;)) {</span>
+<span class="nc" id="L340">            return s.substring(0, s.length() - 2);</span>
+        }
+<span class="fc bfc" id="L342" title="All 2 branches covered.">        if (s.endsWith(&quot;\n&quot;)) {</span>
+<span class="fc" id="L343">            return s.substring(0, s.length() - 1);</span>
+        }
+<span class="fc" id="L345">        return s;</span>
+    }
+
+    private static String stringExtra(
+            ManifestEntry entry, String key) {
+<span class="fc" id="L350">        Object v = entry.extras().get(key);</span>
+<span class="fc bfc" id="L351" title="All 2 branches covered.">        return v == null ? null : v.toString();</span>
+    }
+
+    private static String str(byte[] bytes) {
+<span class="fc bfc" id="L355" title="All 2 branches covered.">        return bytes == null</span>
+<span class="fc" id="L356">                ? &quot;&quot;</span>
+<span class="fc" id="L357">                : new String(bytes, StandardCharsets.UTF_8);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
