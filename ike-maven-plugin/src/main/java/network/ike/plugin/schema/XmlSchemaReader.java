@@ -98,13 +98,16 @@ public final class XmlSchemaReader {
                 refuseUnsupported(root, schema);
                 Namespaces namespaces = new Namespaces(root);
                 for (Element complexType : children(root, "complexType")) {
-                    TypeDefinition type = readType(complexType, namespaces);
-                    Path earlier = seen.putIfAbsent(type.reference(), schema);
-                    if (earlier != null) {
-                        throw new IllegalArgumentException("Type " + type.name() + " of namespace "
-                                + type.namespace() + " is declared in " + earlier + " and again in " + schema);
+                    List<TypeDefinition> declared = new ArrayList<>();
+                    declared.add(readType(complexType, namespaces, declared));
+                    for (TypeDefinition type : declared) {
+                        Path earlier = seen.putIfAbsent(type.reference(), schema);
+                        if (earlier != null) {
+                            throw new IllegalArgumentException("Type " + type.name() + " of namespace "
+                                    + type.namespace() + " is declared in " + earlier + " and again in " + schema);
+                        }
+                        types.add(type);
                     }
-                    types.add(type);
                 }
                 for (Element simpleType : children(root, "simpleType")) {
                     readEnumeration(simpleType, namespaces).ifPresent(enumerations::add);
@@ -125,7 +128,13 @@ public final class XmlSchemaReader {
         }
     }
 
-    private static TypeDefinition readType(Element complexType, Namespaces namespaces) {
+    /**
+     * Reads a named complex type. A type declared inline by one of its elements, without a name
+     * of its own, is read too and added to {@code inner}, named after the element that declares
+     * it: the schema's {@code Library} declares its {@code usings} inline, so that type is
+     * {@code Library usings}, and the element's position holds it (IKE-Network/ike-issues#1112).
+     */
+    private static TypeDefinition readType(Element complexType, Namespaces namespaces, List<TypeDefinition> inner) {
         String name = complexType.getAttribute("name");
         boolean isAbstract = "true".equals(complexType.getAttribute("abstract"));
         String documentation = documentation(complexType);
@@ -144,23 +153,41 @@ public final class XmlSchemaReader {
                 }
             }
         }
+        List<Position> positions = readPositions(content, name, namespaces, inner);
+        return new TypeDefinition(namespaces.target(), name, base, isAbstract, documentation, positions);
+    }
+
+    private static List<Position> readPositions(Element content, String ownerName, Namespaces namespaces,
+                                                List<TypeDefinition> inner) {
         List<Position> positions = new ArrayList<>();
         Element sequence = firstChild(content, "sequence");
         if (sequence != null) {
             for (Element element : children(sequence, "element")) {
-                positions.add(readElement(element, namespaces));
+                positions.add(readElement(element, ownerName, namespaces, inner));
             }
         }
         for (Element attribute : children(content, "attribute")) {
             positions.add(readAttribute(attribute, namespaces));
         }
-        return new TypeDefinition(namespaces.target(), name, base, isAbstract, documentation, positions);
+        return positions;
     }
 
-    private static Position readElement(Element element, Namespaces namespaces) {
+    private static Position readElement(Element element, String ownerName, Namespaces namespaces,
+                                        List<TypeDefinition> inner) {
         String name = element.getAttribute("name");
-        TypeReference type = element.hasAttribute("type")
-                ? namespaces.resolve(element.getAttribute("type")) : TypeReference.primitive("anyType");
+        TypeReference type;
+        Element inline = firstChild(element, "complexType");
+        if (element.hasAttribute("type")) {
+            type = namespaces.resolve(element.getAttribute("type"));
+        } else if (inline != null) {
+            String innerName = ownerName + " " + name;
+            List<Position> innerPositions = readPositions(inline, innerName, namespaces, inner);
+            inner.add(new TypeDefinition(namespaces.target(), innerName, Optional.empty(), false,
+                    documentation(element), innerPositions));
+            type = new TypeReference(namespaces.target(), innerName);
+        } else {
+            type = TypeReference.primitive("anyType");
+        }
         int minimum = element.hasAttribute("minOccurs") ? Integer.parseInt(element.getAttribute("minOccurs")) : 1;
         int maximum = 1;
         if (element.hasAttribute("maxOccurs")) {

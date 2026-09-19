@@ -54,7 +54,18 @@ class ElmSignatureImportTest {
     void theFourSchemasHoldTheSignatureCounts() throws IOException, URISyntaxException {
         SchemaSignature signature = elm();
 
-        assertThat(signature.types()).hasSize(23 + 215 + 27 + 5);
+        assertThat(signature.types()).hasSize(23 + 215 + 27 + 5 + 9);
+        // The nine containers of a library are the schemas' only unnamed types; each holds def, unbounded.
+        TypeDefinition statements = signature.types().stream()
+                .filter(type -> type.name().equals("Library statements")).findFirst().orElseThrow();
+        assertThat(statements.positions()).hasSize(1);
+        assertThat(statements.positions().get(0).name()).isEqualTo("def");
+        assertThat(statements.positions().get(0).maximum()).isEqualTo(Position.UNBOUNDED);
+        assertThat(statements.positions().get(0).valueType().name()).isEqualTo("ExpressionDef");
+        TypeDefinition library = signature.types().stream()
+                .filter(type -> type.name().equals("Library")).findFirst().orElseThrow();
+        assertThat(library.positions()).filteredOn(position -> position.name().equals("statements"))
+                .extracting(position -> position.valueType().name()).containsExactly("Library statements");
         assertThat(signature.enumerations()).extracting(Enumeration::name)
                 .contains("DateTimePrecision");
         assertThat(signature.types()).filteredOn(type -> type.name().equals("Interval"))

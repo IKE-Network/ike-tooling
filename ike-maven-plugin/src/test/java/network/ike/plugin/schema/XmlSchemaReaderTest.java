@@ -125,6 +125,49 @@ class XmlSchemaReaderTest {
     }
 
     @Test
+    void readsAnUnnamedInnerTypeAsAKindNamedAfterItsElement(@TempDir Path dir) throws IOException {
+        Path schema = dir.resolve("library.xsd");
+        Files.writeString(schema, """
+                <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:test"
+                           xmlns="urn:test" elementFormDefault="qualified">
+                  <xs:complexType name="UsingDef">
+                    <xs:attribute name="localIdentifier" type="xs:string" use="required"/>
+                  </xs:complexType>
+                  <xs:complexType name="Library">
+                    <xs:sequence>
+                      <xs:element name="usings" minOccurs="0">
+                        <xs:annotation><xs:documentation>Set of data models referenced.</xs:documentation></xs:annotation>
+                        <xs:complexType>
+                          <xs:sequence>
+                            <xs:element name="def" type="UsingDef" minOccurs="0" maxOccurs="unbounded"/>
+                          </xs:sequence>
+                        </xs:complexType>
+                      </xs:element>
+                    </xs:sequence>
+                  </xs:complexType>
+                </xs:schema>
+                """);
+
+        SchemaSignature signature = new XmlSchemaReader().read(List.of(schema));
+
+        assertThat(signature.types()).extracting(TypeDefinition::name)
+                .containsExactlyInAnyOrder("UsingDef", "Library", "Library usings");
+        TypeDefinition usings = signature.types().stream()
+                .filter(type -> type.name().equals("Library usings")).findFirst().orElseThrow();
+        assertThat(usings.base()).isEmpty();
+        assertThat(usings.isAbstract()).isFalse();
+        assertThat(usings.documentation()).isEqualTo("Set of data models referenced.");
+        assertThat(usings.positions()).containsExactly(
+                new Position("def", PositionKind.ELEMENT, new TypeReference("urn:test", "UsingDef"), 0,
+                        Position.UNBOUNDED, ""));
+        TypeDefinition library = signature.types().stream()
+                .filter(type -> type.name().equals("Library")).findFirst().orElseThrow();
+        assertThat(library.positions()).containsExactly(
+                new Position("usings", PositionKind.ELEMENT, new TypeReference("urn:test", "Library usings"), 0, 1,
+                        "Set of data models referenced."));
+    }
+
+    @Test
     void readsEnumerationsAndSkipsPlainRestrictions(@TempDir Path dir) throws IOException {
         Path schema = dir.resolve("small.xsd");
         Files.writeString(schema, SMALL);
