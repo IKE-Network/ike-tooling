@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FeatureName.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">FeatureName.java</span></div><h1>FeatureName.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.util.Objects;
+import java.util.regex.Pattern;
+
+/**
+ * Validated feature-name value — the {@code &lt;feature&gt;} portion of a
+ * branch name like {@code feature/&lt;feature&gt;} and the suffix portion
+ * of a sibling-clone directory name like
+ * {@code &lt;workspace&gt;-&lt;feature&gt;} (ike-issues#201, ike-issues#205).
+ *
+ * &lt;p&gt;Centralizes the regex enforcing &quot;filesystem-safe&quot; so the
+ * compiler can police a single typed entry point rather than
+ * scattered string templates at call sites
+ * (per the compiler-visibility principle).
+ *
+ * &lt;p&gt;Validation rules — syntactic only:
+ * &lt;ul&gt;
+ *   &lt;li&gt;Non-empty&lt;/li&gt;
+ *   &lt;li&gt;No path separators ({@code /}, {@code \})&lt;/li&gt;
+ *   &lt;li&gt;No whitespace&lt;/li&gt;
+ *   &lt;li&gt;No shell-metacharacter hazards
+ *       ({@code *}, {@code ?}, {@code [}, {@code ]}, {@code &quot;},
+ *       {@code '}, {@code $}, backtick)&lt;/li&gt;
+ *   &lt;li&gt;ASCII letters, digits, {@code -}, {@code _}, {@code .};
+ *       must start with a letter or digit&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;Uniqueness checks (does a sibling directory already exist?) are
+ * intentionally &lt;em&gt;not&lt;/em&gt; in this class — those depend on the
+ * caller's filesystem context and live in the calling Mojo.
+ */
+public final class FeatureName {
+
+    /**
+     * Syntactic validator. Anchored at both ends; rejects anything
+     * not matching the documented rule set.
+     */
+<span class="fc" id="L39">    private static final Pattern VALID =</span>
+<span class="fc" id="L40">            Pattern.compile(&quot;[A-Za-z0-9][A-Za-z0-9._-]*&quot;);</span>
+
+    /**
+     * Separator between the primary workspace name and the feature in a
+     * sibling directory name: U+A789 MODIFIER LETTER COLON ({@code ꞉}), not a
+     * hyphen. A hyphen makes the suffix ambiguous against a hyphenated
+     * artifactId ({@code ike-komet-wsr-installer-logs} — is the base
+     * {@code ike-komet-wsr} or {@code ike-komet-wsr-installer}?); {@code ꞉} is
+     * an unambiguous boundary that never appears in an artifactId and renders
+     * as a colon-like glyph. It is filesystem-safe — it is &lt;em&gt;not&lt;/em&gt; the
+     * reserved ASCII colon U+003A — and, having no NFC/NFD decomposition, it
+     * sidesteps the Syncthing cross-machine normalization hazard. Verified
+     * across APFS, git, Maven, and a live IntelliJ import (ike-issues#779).
+     */
+    public static final String SIBLING_SEPARATOR = &quot;꞉&quot;;
+
+    private final String value;
+
+<span class="fc" id="L58">    private FeatureName(String value) {</span>
+<span class="fc" id="L59">        this.value = value;</span>
+<span class="fc" id="L60">    }</span>
+
+    /**
+     * Validate {@code raw} and wrap it as a {@code FeatureName}.
+     *
+     * @param raw the candidate feature name (typically from a
+     *            {@code -Dfeature=&lt;name&gt;} command-line argument)
+     * @return a validated {@code FeatureName}
+     * @throws IllegalArgumentException if {@code raw} is null, empty,
+     *                                  or violates any documented rule
+     */
+    public static FeatureName of(String raw) {
+<span class="fc bfc" id="L72" title="All 4 branches covered.">        if (raw == null || raw.isEmpty()) {</span>
+<span class="fc" id="L73">            throw new IllegalArgumentException(</span>
+                    &quot;Feature name must be non-empty.&quot;);
+        }
+<span class="fc bfc" id="L76" title="All 2 branches covered.">        if (!VALID.matcher(raw).matches()) {</span>
+<span class="fc" id="L77">            throw new IllegalArgumentException(</span>
+                    &quot;Feature name '&quot; + raw + &quot;' is not filesystem-safe. &quot;
+                            + &quot;Allowed: ASCII letters, digits, '-', '_', '.'; &quot;
+                            + &quot;must start with a letter or digit; no path &quot;
+                            + &quot;separators, whitespace, or shell metacharacters.&quot;);
+        }
+<span class="fc" id="L83">        return new FeatureName(raw);</span>
+    }
+
+    /**
+     * The validated feature name as a string.
+     *
+     * @return the raw value (never null or empty)
+     */
+    public String value() {
+<span class="fc" id="L92">        return value;</span>
+    }
+
+    /**
+     * Compose the sibling-clone directory name for this feature inside
+     * the given primary workspace.
+     *
+     * &lt;p&gt;For {@code primaryWorkspaceName=&quot;ike-komet-wsr&quot;} and feature
+     * {@code &quot;reasoner&quot;}, returns {@code &quot;ike-komet-wsr꞉reasoner&quot;} — the
+     * primary name and feature joined by {@link #SIBLING_SEPARATOR} (꞉,
+     * U+A789), not a hyphen, so the feature suffix is unambiguous against a
+     * hyphenated artifactId.
+     *
+     * &lt;p&gt;This is the single approved place to construct sibling
+     * directory names — call sites must not concatenate strings
+     * directly (ike-issues#205).
+     *
+     * @param primaryWorkspaceName the primary workspace's directory
+     *                             name; must be non-null and non-empty
+     * @return {@code primaryWorkspaceName + SIBLING_SEPARATOR + value()}
+     * @throws IllegalArgumentException if {@code primaryWorkspaceName}
+     *                                  is null or empty
+     */
+    public String siblingDirectoryName(String primaryWorkspaceName) {
+<span class="fc bfc" id="L116" title="All 4 branches covered.">        if (primaryWorkspaceName == null || primaryWorkspaceName.isEmpty()) {</span>
+<span class="fc" id="L117">            throw new IllegalArgumentException(</span>
+                    &quot;Primary workspace name must be non-empty.&quot;);
+        }
+<span class="fc" id="L120">        return primaryWorkspaceName + SIBLING_SEPARATOR + value;</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="fc bfc" id="L125" title="All 4 branches covered.">        return (o instanceof FeatureName other) &amp;&amp; value.equals(other.value);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="fc" id="L130">        return Objects.hash(value);</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="fc" id="L135">        return value;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

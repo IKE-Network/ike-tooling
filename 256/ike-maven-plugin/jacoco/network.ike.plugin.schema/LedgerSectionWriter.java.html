@@ -1,0 +1,614 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LedgerSectionWriter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.schema</a> &gt; <span class="el_source">LedgerSectionWriter.java</span></div><h1>LedgerSectionWriter.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin.schema;
+
+import network.ike.plugin.schema.SchemaSignature.Enumeration;
+import network.ike.plugin.schema.SchemaSignature.Position;
+import network.ike.plugin.schema.SchemaSignature.PositionKind;
+import network.ike.plugin.schema.SchemaSignature.TypeDefinition;
+import network.ike.plugin.schema.SchemaSignature.TypeReference;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+
+/**
+ * Writes a {@link SchemaSignature} as a ledger section in the KnowledgeSet DSL, a node catalog, the same
+ * shape the hand-written sections of a starter set have (IKE-Network/ike-issues#1104):
+ * one concept per type with the schema's own documentation as its definition, is-a from
+ * the extension base, one concept per argument position, per schema primitive, and per
+ * type of another schema the catalog refers to, one concept per enumeration and per
+ * enumerated value, and a type-position pattern whose semantics record, on each type, its
+ * positions with their value type and cardinality.
+ *
+ * &lt;p&gt;Every label carries a prefix chosen per namespace, {@code ELM } for the expression
+ * nodes and {@code ELM System } for the System types, because koncept identifiers are
+ * derived from labels alone, a foundation already holds concepts named Concept, Code,
+ * Quantity, Interval, and List, and ELM itself declares an Interval in both of its
+ * namespaces. The generated class is a source file to check in and regenerate, never to
+ * edit.
+ */
+public final class LedgerSectionWriter {
+
+    private static final int FRAGMENT_WIDTH = 86;
+    private static final String INDENT = &quot;                        + \&quot;&quot;;
+
+    /**
+     * What the writer needs beyond the signature.
+     *
+     * @param packageName          the generated class's package
+     * @param className            the generated class's simple name
+     * @param tag                  the fully-qualified-name tag, {@code ELM}, written in
+     *                             parentheses after every label
+     * @param labelPrefix          the prefix labels carry when their namespace has no prefix
+     *                             of its own, {@code ELM }, also the prefix of the family's
+     *                             own concepts
+     * @param prefixByNamespace    the label prefix per namespace, {@code ELM System } for
+     *                             the System types; a namespace absent here uses
+     *                             {@code labelPrefix}
+     * @param attribution          who the definitions come from, for example {@code the ELM
+     *                             specification}
+     * @param pin                  the version the schemas were taken from, for example a
+     *                             repository tag
+     * @param stampExpression      the Java expression of the inception stamp, {@code
+     *                             Ike.INCEPTION}
+     * @param termsClass           the class holding field data-type constants, {@code IkeTerm}
+     * @param rootParentExpression the Java expression of the family root's parent, {@code
+     *                             IkeTerm.MODEL_CONCEPT}
+     */
+    public record Options(String packageName, String className, String tag, String labelPrefix,
+                          Map&lt;String, String&gt; prefixByNamespace, String attribution, String pin,
+                          String stampExpression, String termsClass, String rootParentExpression) {
+        /**
+         * Creates the options, copying the prefix map.
+         *
+         * @param packageName          the package
+         * @param className            the class name
+         * @param tag                  the tag
+         * @param labelPrefix          the default label prefix
+         * @param prefixByNamespace    the prefix per namespace
+         * @param attribution          the attribution
+         * @param pin                  the pin
+         * @param stampExpression      the stamp expression
+         * @param termsClass           the terms class
+         * @param rootParentExpression the root parent expression
+         */
+<span class="fc" id="L94">        public Options {</span>
+<span class="fc" id="L95">            labelPrefix = spaced(labelPrefix);</span>
+<span class="fc" id="L96">            Map&lt;String, String&gt; spacedPrefixes = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">            for (Map.Entry&lt;String, String&gt; entry : prefixByNamespace.entrySet()) {</span>
+<span class="fc" id="L98">                spacedPrefixes.put(entry.getKey(), spaced(entry.getValue()));</span>
+<span class="fc" id="L99">            }</span>
+<span class="fc" id="L100">            prefixByNamespace = Map.copyOf(spacedPrefixes);</span>
+<span class="fc" id="L101">        }</span>
+
+        /** A prefix ends with one space, so that a label reads as two words whether or not the caller typed the space. */
+        private static String spaced(String prefix) {
+<span class="fc" id="L105">            String trimmed = prefix.strip();</span>
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">            return trimmed.isEmpty() ? &quot;&quot; : trimmed + &quot; &quot;;</span>
+        }
+
+        String prefixFor(String namespace) {
+<span class="fc" id="L110">            return prefixByNamespace.getOrDefault(namespace, labelPrefix);</span>
+        }
+    }
+
+    private LedgerSectionWriter() {
+    }
+
+    /**
+     * Renders the signature as the source text of a ledger section.
+     *
+     * @param signature the signature to write
+     * @param options   the naming and wiring choices
+     * @return the Java source of the section class
+     */
+    public static String write(SchemaSignature signature, Options options) {
+<span class="fc" id="L125">        Naming naming = new Naming(options);</span>
+<span class="fc" id="L126">        List&lt;TypeDefinition&gt; ordered = topological(signature.types());</span>
+<span class="fc" id="L127">        Set&lt;TypeReference&gt; declared = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L128" title="All 2 branches covered.">        for (TypeDefinition type : signature.types()) {</span>
+<span class="fc" id="L129">            declared.add(type.reference());</span>
+<span class="fc" id="L130">        }</span>
+<span class="fc bfc" id="L131" title="All 2 branches covered.">        for (Enumeration enumeration : signature.enumerations()) {</span>
+<span class="fc" id="L132">            declared.add(new TypeReference(enumeration.namespace(), enumeration.name()));</span>
+<span class="fc" id="L133">        }</span>
+<span class="fc" id="L134">        Map&lt;String, List&lt;TypeDefinition&gt;&gt; positionsByName = new TreeMap&lt;&gt;();</span>
+<span class="fc" id="L135">        Set&lt;String&gt; primitives = new TreeSet&lt;&gt;();</span>
+<span class="fc" id="L136">        Map&lt;String, TypeReference&gt; externals = new TreeMap&lt;&gt;();</span>
+<span class="fc" id="L137">        int positionCount = 0;</span>
+<span class="fc bfc" id="L138" title="All 2 branches covered.">        for (TypeDefinition type : signature.types()) {</span>
+<span class="fc bfc" id="L139" title="All 2 branches covered.">            for (Position position : type.positions()) {</span>
+<span class="fc" id="L140">                positionsByName.computeIfAbsent(position.name(), ignored -&gt; new ArrayList&lt;&gt;()).add(type);</span>
+<span class="fc" id="L141">                TypeReference value = position.valueType();</span>
+<span class="fc bfc" id="L142" title="All 2 branches covered.">                if (value.isPrimitive()) {</span>
+<span class="fc" id="L143">                    primitives.add(value.name());</span>
+<span class="fc bfc" id="L144" title="All 2 branches covered.">                } else if (!declared.contains(value)) {</span>
+<span class="fc" id="L145">                    externals.put(value.name(), value);</span>
+                }
+<span class="fc" id="L147">                positionCount++;</span>
+<span class="fc" id="L148">            }</span>
+<span class="fc" id="L149">            type.base().ifPresent(base -&gt; {</span>
+<span class="pc bpc" id="L150" title="3 of 4 branches missed.">                if (!declared.contains(base) &amp;&amp; !base.isPrimitive()) {</span>
+<span class="nc" id="L151">                    externals.put(base.name(), base);</span>
+                }
+<span class="fc" id="L153">            });</span>
+<span class="fc" id="L154">        }</span>
+<span class="fc" id="L155">        int valueCount = 0;</span>
+<span class="fc bfc" id="L156" title="All 2 branches covered.">        for (Enumeration enumeration : signature.enumerations()) {</span>
+<span class="fc" id="L157">            valueCount += enumeration.values().size();</span>
+<span class="fc" id="L158">        }</span>
+
+<span class="fc" id="L160">        naming.spellApart(positionsByName.keySet());</span>
+<span class="fc" id="L161">        StringBuilder src = new StringBuilder();</span>
+<span class="fc" id="L162">        header(src, options, signature, positionsByName.size(), primitives.size(), externals.size(),</span>
+                positionCount, valueCount);
+<span class="fc" id="L164">        src.append(&quot;final class &quot;).append(options.className()).append(&quot; {\n\n&quot;);</span>
+<span class="fc" id="L165">        src.append(&quot;    /** The family root: the catalog itself. */\n&quot;);</span>
+<span class="fc" id="L166">        src.append(&quot;    static final String ROOT_FQN = &quot;).append(quote(naming.fqn(&quot;node catalog&quot;))).append(&quot;;\n\n&quot;);</span>
+<span class="fc" id="L167">        src.append(&quot;    /** The pattern that records, on each type, its positions. */\n&quot;);</span>
+<span class="fc" id="L168">        src.append(&quot;    static final String TYPE_POSITION_PATTERN_FQN = &quot;)</span>
+<span class="fc" id="L169">                .append(quote(naming.fqn(&quot;type position pattern&quot;))).append(&quot;;\n\n&quot;);</span>
+<span class="fc" id="L170">        src.append(&quot;    private &quot;).append(options.className()).append(&quot;() {\n    }\n\n&quot;);</span>
+<span class="fc" id="L171">        src.append(&quot;    /**\n     * Composes this section's declarations into the session.\n&quot;);</span>
+<span class="fc" id="L172">        src.append(&quot;     *\n     * @param set the knowledge set (the session)\n     */\n&quot;);</span>
+<span class="fc" id="L173">        src.append(&quot;    static void compose(KnowledgeSet set) {\n&quot;);</span>
+<span class="fc" id="L174">        src.append(&quot;        ActiveStamp inception = &quot;).append(options.stampExpression()).append(&quot;;\n\n&quot;);</span>
+
+<span class="fc" id="L176">        family(src, naming, options, signature, positionsByName.size(), primitives.size(), externals.size());</span>
+<span class="fc" id="L177">        pattern(src, naming, options);</span>
+<span class="fc" id="L178">        positions(src, naming, positionsByName);</span>
+<span class="fc" id="L179">        primitives(src, naming, primitives, options);</span>
+<span class="fc" id="L180">        externals(src, naming, externals, options);</span>
+<span class="fc" id="L181">        types(src, naming, options, ordered, declared);</span>
+<span class="fc" id="L182">        enumerations(src, naming, options, signature.enumerations());</span>
+
+<span class="fc" id="L184">        src.append(&quot;    }\n}\n&quot;);</span>
+<span class="fc" id="L185">        return src.toString();</span>
+    }
+
+    private static void header(StringBuilder src, Options options, SchemaSignature signature,
+                               int positionNames, int primitiveCount, int externalCount, int positionCount,
+                               int valueCount) {
+<span class="fc" id="L191">        src.append(&quot;&quot;&quot;</span>
+                /*
+                 * Copyright © 2026 IKE Network (support@ike.network)
+                 *
+                 * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+                 * you may not use this file except in compliance with the License.
+                 * You may obtain a copy of the License at
+                 *
+                 *     http://www.apache.org/licenses/LICENSE-2.0
+                 *
+                 * Unless required by applicable law or agreed to in writing, software
+                 * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+                 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+                 * See the License for the specific language governing permissions and
+                 * limitations under the License.
+                 */
+                &quot;&quot;&quot;);
+<span class="fc" id="L208">        src.append(&quot;package &quot;).append(options.packageName()).append(&quot;;\n\n&quot;);</span>
+<span class="fc" id="L209">        src.append(&quot;import dev.ikm.tinkar.common.id.PublicIds;\n&quot;);</span>
+<span class="fc" id="L210">        src.append(&quot;import dev.ikm.tinkar.entity.builder.ActiveStamp;\n&quot;);</span>
+<span class="fc" id="L211">        src.append(&quot;import dev.ikm.tinkar.entity.builder.KnowledgeSet;\n&quot;);</span>
+<span class="fc" id="L212">        src.append(&quot;import dev.ikm.tinkar.terms.EntityProxy;\n\n&quot;);</span>
+<span class="fc" id="L213">        src.append(&quot;/**\n&quot;);</span>
+<span class="fc" id="L214">        src.append(&quot; * The &quot;).append(options.tag()).append(&quot; node catalog as a ledger section, imported from &quot;)</span>
+<span class="fc" id="L215">                .append(options.attribution()).append(&quot;, &quot;).append(options.pin())</span>
+<span class="fc" id="L216">                .append(&quot;, by {@code ike:schema-import} (IKE-Network/ike-issues#1104).\n&quot;);</span>
+<span class="fc" id="L217">        src.append(&quot; * GENERATED FROM THE SCHEMAS: regenerate, never edit.\n&quot;);</span>
+<span class="fc" id="L218">        src.append(&quot; * &lt;p&gt;&quot;).append(signature.types().size()).append(&quot; types, &quot;)</span>
+<span class="fc" id="L219">                .append(positionNames).append(&quot; position names over &quot;).append(positionCount)</span>
+<span class="fc" id="L220">                .append(&quot; type positions, &quot;).append(primitiveCount).append(&quot; schema primitives, &quot;)</span>
+<span class="fc" id="L221">                .append(externalCount).append(&quot; types of other schemas referred to, &quot;)</span>
+<span class="fc" id="L222">                .append(signature.enumerations().size()).append(&quot; enumerations with &quot;)</span>
+<span class="fc" id="L223">                .append(valueCount).append(&quot; values.\n&quot;);</span>
+<span class="fc" id="L224">        src.append(&quot; */\n&quot;);</span>
+<span class="fc" id="L225">    }</span>
+
+    private static void family(StringBuilder src, Naming naming, Options options, SchemaSignature signature,
+                               int positionNames, int primitiveCount, int externalCount) {
+<span class="fc" id="L229">        src.append(&quot;        // ── The family root and its parents ──\n&quot;);</span>
+<span class="fc" id="L230">        concept(src, naming.fqn(&quot;node catalog&quot;), naming.label(&quot;node catalog&quot;),</span>
+<span class="fc" id="L231">                &quot;The catalog of the node kinds of &quot; + options.attribution() + &quot;: each kind, what it&quot;</span>
+<span class="fc" id="L232">                        + &quot; holds, and what each thing it holds may be. Its &quot; + signature.types().size()</span>
+                        + &quot; node kinds, each with its base and its positions, its &quot;
+                        + positionNames + &quot; position names, its &quot; + primitiveCount
+                        + &quot; schema primitives, its &quot; + externalCount
+<span class="fc bfc" id="L236" title="All 2 branches covered.">                        + (externalCount == 1 ? &quot; type&quot; : &quot; types&quot;) + &quot; of other schemas it refers to, and its &quot;</span>
+<span class="fc" id="L237">                        + signature.enumerations().size()</span>
+<span class="fc bfc" id="L238" title="All 2 branches covered.">                        + (signature.enumerations().size() == 1 ? &quot; enumeration&quot; : &quot; enumerations&quot;)</span>
+<span class="fc" id="L239">                        + &quot;, imported from &quot; + options.pin()</span>
+                        + &quot; and regenerated from the schemas, never edited. A node kind is a kind of node&quot;
+                        + &quot; a tree in this language can have; a position is a named place in a node that&quot;
+                        + &quot; holds a child or a value.&quot;,
+<span class="fc" id="L243">                options.rootParentExpression());</span>
+<span class="fc" id="L244">        src.append(&quot;        EntityProxy.Concept root = set.conceptRef(ROOT_FQN);\n\n&quot;);</span>
+<span class="fc" id="L245">        concept(src, naming.fqn(&quot;position&quot;), naming.label(&quot;position&quot;),</span>
+                &quot;A position of the catalog: a named place in a node that holds a child&quot;
+                        + &quot; or a value, such as operand or dataType, shared by every node type that has a&quot;
+                        + &quot; position of that name. Which types have it, with what value type and how&quot;
+                        + &quot; many, is recorded on each type by the type position pattern.&quot;,
+                &quot;root&quot;);
+<span class="fc" id="L251">        src.append(&quot;        EntityProxy.Concept positionParent = set.conceptRef(&quot;)</span>
+<span class="fc" id="L252">                .append(quote(naming.fqn(&quot;position&quot;))).append(&quot;);\n\n&quot;);</span>
+<span class="fc" id="L253">        concept(src, naming.fqn(&quot;primitive&quot;), naming.label(&quot;primitive&quot;),</span>
+                &quot;A value type the XML Schema language itself supplies, string or QName, rather&quot;
+                        + &quot; than a node kind of the catalog: what a position holds when it holds a plain&quot;
+                        + &quot; value and not a node.&quot;,
+                &quot;root&quot;);
+<span class="fc" id="L258">        src.append(&quot;        EntityProxy.Concept primitiveParent = set.conceptRef(&quot;)</span>
+<span class="fc" id="L259">                .append(quote(naming.fqn(&quot;primitive&quot;))).append(&quot;);\n\n&quot;);</span>
+<span class="fc" id="L260">        concept(src, naming.fqn(&quot;external type&quot;), naming.label(&quot;external type&quot;),</span>
+                &quot;A type declared by a schema outside this catalog that a position or a base refers&quot;
+                        + &quot; to; the catalog names it so that every reference resolves, and says no&quot;
+                        + &quot; more about it than its name and its namespace.&quot;,
+                &quot;root&quot;);
+<span class="fc" id="L265">        src.append(&quot;        EntityProxy.Concept externalParent = set.conceptRef(&quot;)</span>
+<span class="fc" id="L266">                .append(quote(naming.fqn(&quot;external type&quot;))).append(&quot;);\n\n&quot;);</span>
+<span class="fc" id="L267">    }</span>
+
+    private static void pattern(StringBuilder src, Naming naming, Options options) {
+<span class="fc" id="L270">        src.append(&quot;        // ── The type position pattern: which positions each type has ──\n&quot;);</span>
+<span class="fc" id="L271">        concept(src, naming.fqn(&quot;type position&quot;), naming.label(&quot;type position&quot;),</span>
+                &quot;What a type position semantic is: one position of one node kind, with the&quot;
+                        + &quot; type of value it holds, the fewest and the most values the schema allows,&quot;
+                        + &quot; the schema's own note on that position for that kind, and its form: whether&quot;
+                        + &quot; our vertex holds it as a property or as an edge.&quot;,
+                &quot;root&quot;);
+<span class="fc" id="L277">        concept(src, naming.fqn(&quot;catalog structure&quot;), naming.label(&quot;catalog structure&quot;),</span>
+                &quot;Why type positions are recorded: so that a tree can be checked against the&quot;
+                        + &quot; catalog and a reader can know what each node may hold.&quot;,
+                &quot;root&quot;);
+<span class="fc" id="L281">        src.append(&quot;        EntityProxy.Concept structure = set.conceptRef(&quot;)</span>
+<span class="fc" id="L282">                .append(quote(naming.fqn(&quot;catalog structure&quot;))).append(&quot;);\n&quot;);</span>
+<span class="fc" id="L283">        concept(src, naming.fqn(&quot;property form&quot;), naming.label(&quot;property form&quot;),</span>
+                &quot;The form of a position that holds a plain value, an attribute in the schema: our&quot;
+                        + &quot; vertex holds it as a property keyed by the position.&quot;,
+                &quot;root&quot;);
+<span class="fc" id="L287">        concept(src, naming.fqn(&quot;edge form&quot;), naming.label(&quot;edge form&quot;),</span>
+                &quot;The form of a position that holds a node, an element in the schema: our vertex&quot;
+                        + &quot; holds it as an edge to the vertex below, named by the position.&quot;,
+                &quot;root&quot;);
+<span class="fc" id="L291">        String[][] fields = {</span>
+            {&quot;position field&quot;, &quot;The position a type position semantic is about.&quot;},
+            {&quot;value type field&quot;, &quot;The type of value that position holds on that type: a node kind of&quot;
+                    + &quot; the catalog, a schema primitive, or a type of another schema.&quot;},
+            {&quot;minimum field&quot;, &quot;The fewest values the schema allows in that position, zero when it is&quot;
+                    + &quot; optional.&quot;},
+            {&quot;maximum field&quot;, &quot;The most values the schema allows in that position, or minus one when&quot;
+                    + &quot; the schema sets no limit.&quot;},
+            {&quot;position note field&quot;, &quot;The schema's own note on that position for that type, empty when&quot;
+                    + &quot; the schema gives none.&quot;},
+            {&quot;form field&quot;, &quot;How our vertex holds that position on that type: the property form when&quot;
+                    + &quot; it holds a plain value, the edge form when it holds a node.&quot;},
+        };
+<span class="fc bfc" id="L304" title="All 2 branches covered.">        for (String[] field : fields) {</span>
+<span class="fc" id="L305">            concept(src, naming.fqn(field[0]), naming.label(field[0]), field[1], &quot;root&quot;);</span>
+        }
+<span class="fc" id="L307">        src.append(&quot;        set.pattern(TYPE_POSITION_PATTERN_FQN).at(inception)\n&quot;);</span>
+<span class="fc" id="L308">        src.append(&quot;                .meaning(set.conceptRef(&quot;).append(quote(naming.fqn(&quot;type position&quot;))).append(&quot;))\n&quot;);</span>
+<span class="fc" id="L309">        src.append(&quot;                .purpose(structure)\n&quot;);</span>
+<span class="fc" id="L310">        src.append(&quot;                .field(set.conceptRef(&quot;).append(quote(naming.fqn(&quot;position field&quot;)))</span>
+<span class="fc" id="L311">                .append(&quot;), structure, &quot;).append(options.termsClass()).append(&quot;.COMPONENT_FIELD)\n&quot;);</span>
+<span class="fc" id="L312">        src.append(&quot;                .field(set.conceptRef(&quot;).append(quote(naming.fqn(&quot;value type field&quot;)))</span>
+<span class="fc" id="L313">                .append(&quot;), structure, &quot;).append(options.termsClass()).append(&quot;.COMPONENT_FIELD)\n&quot;);</span>
+<span class="fc" id="L314">        src.append(&quot;                .field(set.conceptRef(&quot;).append(quote(naming.fqn(&quot;minimum field&quot;)))</span>
+<span class="fc" id="L315">                .append(&quot;), structure, &quot;).append(options.termsClass()).append(&quot;.INTEGER_FIELD)\n&quot;);</span>
+<span class="fc" id="L316">        src.append(&quot;                .field(set.conceptRef(&quot;).append(quote(naming.fqn(&quot;maximum field&quot;)))</span>
+<span class="fc" id="L317">                .append(&quot;), structure, &quot;).append(options.termsClass()).append(&quot;.INTEGER_FIELD)\n&quot;);</span>
+<span class="fc" id="L318">        src.append(&quot;                .field(set.conceptRef(&quot;).append(quote(naming.fqn(&quot;position note field&quot;)))</span>
+<span class="fc" id="L319">                .append(&quot;), structure, &quot;).append(options.termsClass()).append(&quot;.STRING)\n&quot;);</span>
+<span class="fc" id="L320">        src.append(&quot;                .field(set.conceptRef(&quot;).append(quote(naming.fqn(&quot;form field&quot;)))</span>
+<span class="fc" id="L321">                .append(&quot;), structure, &quot;).append(options.termsClass()).append(&quot;.COMPONENT_FIELD);\n&quot;);</span>
+<span class="fc" id="L322">        src.append(&quot;        EntityProxy.Concept propertyForm = set.conceptRef(&quot;)</span>
+<span class="fc" id="L323">                .append(quote(naming.fqn(&quot;property form&quot;))).append(&quot;);\n&quot;);</span>
+<span class="fc" id="L324">        src.append(&quot;        EntityProxy.Concept edgeForm = set.conceptRef(&quot;)</span>
+<span class="fc" id="L325">                .append(quote(naming.fqn(&quot;edge form&quot;))).append(&quot;);\n&quot;);</span>
+<span class="fc" id="L326">        src.append(&quot;        EntityProxy.Pattern typePositions = set.patternRef(TYPE_POSITION_PATTERN_FQN);\n\n&quot;);</span>
+<span class="fc" id="L327">    }</span>
+
+    private static void positions(StringBuilder src, Naming naming, Map&lt;String, List&lt;TypeDefinition&gt;&gt; byName) {
+<span class="fc" id="L330">        src.append(&quot;        // ── Positions: one concept per name, shared across types ──\n&quot;);</span>
+<span class="fc bfc" id="L331" title="All 2 branches covered.">        for (Map.Entry&lt;String, List&lt;TypeDefinition&gt;&gt; entry : byName.entrySet()) {</span>
+<span class="fc" id="L332">            String name = entry.getKey();</span>
+<span class="fc" id="L333">            List&lt;TypeDefinition&gt; owners = entry.getValue();</span>
+<span class="fc" id="L334">            Set&lt;PositionKind&gt; kinds = new TreeSet&lt;&gt;();</span>
+<span class="fc bfc" id="L335" title="All 2 branches covered.">            for (TypeDefinition owner : owners) {</span>
+<span class="fc bfc" id="L336" title="All 2 branches covered.">                for (Position position : owner.positions()) {</span>
+<span class="fc bfc" id="L337" title="All 2 branches covered.">                    if (position.name().equals(name)) {</span>
+<span class="fc" id="L338">                        kinds.add(position.kind());</span>
+                    }
+<span class="fc" id="L340">                }</span>
+<span class="fc" id="L341">            }</span>
+<span class="fc bfc" id="L342" title="All 2 branches covered.">            String kindText = kinds.size() == 2 ? &quot;an element on some types and an attribute on others&quot;</span>
+<span class="fc bfc" id="L343" title="All 2 branches covered.">                    : kinds.contains(PositionKind.ATTRIBUTE) ? &quot;an attribute&quot; : &quot;a child element&quot;;</span>
+<span class="fc" id="L344">            String definition = &quot;The argument position named &quot; + name + &quot;, &quot; + kindText + &quot;, on &quot;</span>
+<span class="fc bfc" id="L345" title="All 2 branches covered.">                    + owners.size() + (owners.size() == 1 ? &quot; node kind&quot; : &quot; node kinds&quot;) + &quot; of the catalog.&quot;</span>
+<span class="fc" id="L346">                    + naming.spellingNote(name);</span>
+<span class="fc" id="L347">            concept(src, naming.positionFqn(name), naming.positionLabel(name), definition, &quot;positionParent&quot;);</span>
+<span class="fc" id="L348">        }</span>
+<span class="fc" id="L349">        src.append('\n');</span>
+<span class="fc" id="L350">    }</span>
+
+    private static void primitives(StringBuilder src, Naming naming, Set&lt;String&gt; primitives, Options options) {
+<span class="fc" id="L353">        src.append(&quot;        // ── Schema primitives the positions use ──\n&quot;);</span>
+<span class="fc bfc" id="L354" title="All 2 branches covered.">        for (String primitive : primitives) {</span>
+<span class="fc" id="L355">            concept(src, naming.primitiveFqn(primitive), naming.primitiveLabel(primitive),</span>
+                    &quot;The XML Schema primitive &quot; + primitive + &quot;, a plain value a position of &quot;
+<span class="fc" id="L357">                            + options.attribution() + &quot; holds.&quot;,</span>
+                    &quot;primitiveParent&quot;);
+<span class="fc" id="L359">        }</span>
+<span class="fc" id="L360">        src.append('\n');</span>
+<span class="fc" id="L361">    }</span>
+
+    private static void externals(StringBuilder src, Naming naming, Map&lt;String, TypeReference&gt; externals,
+                                  Options options) {
+<span class="fc bfc" id="L365" title="All 2 branches covered.">        if (externals.isEmpty()) {</span>
+<span class="fc" id="L366">            return;</span>
+        }
+<span class="fc" id="L368">        src.append(&quot;        // ── Types of other schemas the catalog refers to ──\n&quot;);</span>
+<span class="fc bfc" id="L369" title="All 2 branches covered.">        for (TypeReference external : externals.values()) {</span>
+<span class="fc" id="L370">            concept(src, naming.externalFqn(external.name()), naming.externalLabel(external.name()),</span>
+<span class="fc" id="L371">                    &quot;The type &quot; + external.name() + &quot; of the namespace &quot; + external.namespace()</span>
+<span class="fc" id="L372">                            + &quot;, which &quot; + options.attribution() + &quot; refers to but does not declare.&quot;,</span>
+                    &quot;externalParent&quot;);
+<span class="fc" id="L374">        }</span>
+<span class="fc" id="L375">        src.append('\n');</span>
+<span class="fc" id="L376">    }</span>
+
+    private static void types(StringBuilder src, Naming naming, Options options, List&lt;TypeDefinition&gt; ordered,
+                              Set&lt;TypeReference&gt; declared) {
+<span class="fc" id="L380">        src.append(&quot;        // ── Types, each after its base ──\n&quot;);</span>
+<span class="fc bfc" id="L381" title="All 2 branches covered.">        for (TypeDefinition type : ordered) {</span>
+<span class="fc" id="L382">            String parent = &quot;root&quot;;</span>
+<span class="fc bfc" id="L383" title="All 2 branches covered.">            if (type.base().isPresent()) {</span>
+<span class="fc" id="L384">                TypeReference base = type.base().get();</span>
+<span class="pc bpc" id="L385" title="1 of 2 branches missed.">                parent = &quot;set.conceptRef(&quot; + quote(declared.contains(base)</span>
+<span class="pc" id="L386">                        ? naming.typeFqn(base) : naming.externalFqn(base.name())) + &quot;)&quot;;</span>
+            }
+<span class="fc bfc" id="L388" title="All 2 branches covered.">            String abstractNote = type.isAbstract()</span>
+<span class="fc" id="L389">                    ? &quot; The schema marks it abstract: a tree never holds it directly, only one of the&quot;</span>
+<span class="fc" id="L390">                    + &quot; types that extend it.&quot; : &quot;&quot;;</span>
+<span class="fc bfc" id="L391" title="All 2 branches covered.">            String definition = type.documentation().isEmpty()</span>
+<span class="fc" id="L392">                    ? &quot;A type of &quot; + options.attribution() + &quot;; the schema gives no description.&quot; + abstractNote</span>
+<span class="fc" id="L393">                    : &quot;From &quot; + options.attribution() + &quot;: &quot; + type.documentation() + abstractNote;</span>
+<span class="fc" id="L394">            src.append(&quot;        set.concept(&quot;).append(quote(naming.typeFqn(type.reference()))).append(&quot;).at(inception)\n&quot;);</span>
+<span class="fc" id="L395">            src.append(&quot;                .synonym(&quot;).append(quote(naming.typeLabel(type.reference()))).append(&quot;)\n&quot;);</span>
+<span class="fc" id="L396">            definitionCall(src, definition);</span>
+<span class="fc" id="L397">            src.append(&quot;                .isA(&quot;).append(parent).append(')');</span>
+<span class="fc bfc" id="L398" title="All 2 branches covered.">            for (Position position : type.positions()) {</span>
+<span class="fc" id="L399">                TypeReference value = position.valueType();</span>
+<span class="fc bfc" id="L400" title="All 2 branches covered.">                String valueType = value.isPrimitive()</span>
+<span class="fc" id="L401">                        ? &quot;set.conceptRef(&quot; + quote(naming.primitiveFqn(value.name())) + &quot;)&quot;</span>
+<span class="fc bfc" id="L402" title="All 2 branches covered.">                        : declared.contains(value)</span>
+<span class="fc" id="L403">                        ? &quot;set.conceptRef(&quot; + quote(naming.typeFqn(value)) + &quot;)&quot;</span>
+<span class="fc" id="L404">                        : &quot;set.conceptRef(&quot; + quote(naming.externalFqn(value.name())) + &quot;)&quot;;</span>
+<span class="fc" id="L405">                src.append(&quot;\n                .semantic(typePositions, PublicIds.of(set.uuidFor(&quot;)</span>
+<span class="fc" id="L406">                        .append(quote(&quot;Type position: &quot; + naming.typeLabel(type.reference()) + &quot; &quot; + position.name()))</span>
+<span class="fc" id="L407">                        .append(&quot;)),\n&quot;);</span>
+<span class="fc" id="L408">                src.append(&quot;                        set.conceptRef(&quot;).append(quote(naming.positionFqn(position.name())))</span>
+<span class="fc" id="L409">                        .append(&quot;), &quot;).append(valueType).append(&quot;, &quot;).append(position.minimum()).append(&quot;, &quot;)</span>
+<span class="fc" id="L410">                        .append(position.maximum()).append(&quot;,\n&quot;);</span>
+<span class="fc" id="L411">                src.append(&quot;                        &quot;).append(quote(position.documentation())).append(&quot;, &quot;)</span>
+<span class="fc bfc" id="L412" title="All 2 branches covered.">                        .append(position.kind() == PositionKind.ATTRIBUTE ? &quot;propertyForm&quot; : &quot;edgeForm&quot;).append(')');</span>
+<span class="fc" id="L413">            }</span>
+<span class="fc" id="L414">            src.append(&quot;;\n&quot;);</span>
+<span class="fc" id="L415">        }</span>
+<span class="fc" id="L416">        src.append('\n');</span>
+<span class="fc" id="L417">    }</span>
+
+    private static void enumerations(StringBuilder src, Naming naming, Options options,
+                                     List&lt;Enumeration&gt; enumerations) {
+<span class="fc bfc" id="L421" title="All 2 branches covered.">        if (enumerations.isEmpty()) {</span>
+<span class="fc" id="L422">            return;</span>
+        }
+<span class="fc" id="L424">        src.append(&quot;        // ── Enumerations and their values ──\n&quot;);</span>
+<span class="fc bfc" id="L425" title="All 2 branches covered.">        for (Enumeration enumeration : enumerations) {</span>
+<span class="fc" id="L426">            TypeReference reference = new TypeReference(enumeration.namespace(), enumeration.name());</span>
+<span class="fc bfc" id="L427" title="All 2 branches covered.">            String definition = enumeration.documentation().isEmpty()</span>
+<span class="fc" id="L428">                    ? &quot;An enumeration of &quot; + options.attribution() + &quot; with &quot; + enumeration.values().size()</span>
+<span class="fc" id="L429">                    + &quot; values; the schema gives no description.&quot;</span>
+<span class="fc" id="L430">                    : &quot;From &quot; + options.attribution() + &quot;: &quot; + enumeration.documentation();</span>
+<span class="fc" id="L431">            concept(src, naming.typeFqn(reference), naming.typeLabel(reference), definition, &quot;root&quot;);</span>
+<span class="fc bfc" id="L432" title="All 2 branches covered.">            for (String value : enumeration.values()) {</span>
+<span class="fc" id="L433">                concept(src, naming.valueFqn(reference, value), naming.valueLabel(reference, value),</span>
+<span class="fc" id="L434">                        &quot;The &quot; + enumeration.name() + &quot; value &quot; + value + &quot; of &quot; + options.attribution() + &quot;.&quot;,</span>
+<span class="fc" id="L435">                        &quot;set.conceptRef(&quot; + quote(naming.typeFqn(reference)) + &quot;)&quot;);</span>
+<span class="fc" id="L436">            }</span>
+<span class="fc" id="L437">        }</span>
+<span class="fc" id="L438">    }</span>
+
+    private static void concept(StringBuilder src, String fqn, String label, String definition, String parent) {
+<span class="fc" id="L441">        src.append(&quot;        set.concept(&quot;).append(quote(fqn)).append(&quot;).at(inception)\n&quot;);</span>
+<span class="fc" id="L442">        src.append(&quot;                .synonym(&quot;).append(quote(label)).append(&quot;)\n&quot;);</span>
+<span class="fc" id="L443">        definitionCall(src, definition);</span>
+<span class="fc" id="L444">        src.append(&quot;                .isA(&quot;).append(parent).append(&quot;);\n&quot;);</span>
+<span class="fc" id="L445">    }</span>
+
+    private static void definitionCall(StringBuilder src, String definition) {
+<span class="fc" id="L448">        List&lt;String&gt; fragments = fragments(definition);</span>
+<span class="fc" id="L449">        src.append(&quot;                .definition(&quot;).append(quote(fragments.get(0)));</span>
+<span class="fc bfc" id="L450" title="All 2 branches covered.">        for (int i = 1; i &lt; fragments.size(); i++) {</span>
+<span class="fc" id="L451">            src.append('\n').append(INDENT).append(escape(fragments.get(i))).append('&quot;');</span>
+        }
+<span class="fc" id="L453">        src.append(&quot;)\n&quot;);</span>
+<span class="fc" id="L454">    }</span>
+
+    /**
+     * Splits a definition into fragments of at most {@link #FRAGMENT_WIDTH} characters on
+     * spaces, each continuation fragment starting with the space that separates it, the
+     * way the hand-written sections wrap their definitions.
+     */
+    static List&lt;String&gt; fragments(String text) {
+<span class="fc" id="L462">        List&lt;String&gt; fragments = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L463">        String remaining = text;</span>
+<span class="fc bfc" id="L464" title="All 2 branches covered.">        while (remaining.length() &gt; FRAGMENT_WIDTH) {</span>
+<span class="fc" id="L465">            int cut = remaining.lastIndexOf(' ', FRAGMENT_WIDTH);</span>
+<span class="pc bpc" id="L466" title="1 of 2 branches missed.">            if (cut &lt;= 0) {</span>
+<span class="nc" id="L467">                cut = remaining.indexOf(' ', FRAGMENT_WIDTH);</span>
+<span class="nc bnc" id="L468" title="All 2 branches missed.">                if (cut &lt; 0) {</span>
+<span class="nc" id="L469">                    break;</span>
+                }
+            }
+<span class="fc" id="L472">            fragments.add(remaining.substring(0, cut));</span>
+<span class="fc" id="L473">            remaining = remaining.substring(cut);</span>
+<span class="fc" id="L474">        }</span>
+<span class="fc" id="L475">        fragments.add(remaining);</span>
+<span class="fc" id="L476">        return fragments;</span>
+    }
+
+    /** Orders types so that every type follows its base; ties keep declaration order. */
+    static List&lt;TypeDefinition&gt; topological(List&lt;TypeDefinition&gt; types) {
+<span class="fc" id="L481">        Map&lt;TypeReference, TypeDefinition&gt; byReference = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L482" title="All 2 branches covered.">        for (TypeDefinition type : types) {</span>
+<span class="fc" id="L483">            byReference.put(type.reference(), type);</span>
+<span class="fc" id="L484">        }</span>
+<span class="fc" id="L485">        List&lt;TypeDefinition&gt; ordered = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L486">        Set&lt;TypeReference&gt; placed = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L487" title="All 2 branches covered.">        for (TypeDefinition type : types) {</span>
+<span class="fc" id="L488">            place(type, byReference, placed, ordered, new LinkedHashSet&lt;&gt;());</span>
+<span class="fc" id="L489">        }</span>
+<span class="fc" id="L490">        return ordered;</span>
+    }
+
+    private static void place(TypeDefinition type, Map&lt;TypeReference, TypeDefinition&gt; byReference,
+                              Set&lt;TypeReference&gt; placed, List&lt;TypeDefinition&gt; ordered, Set&lt;TypeReference&gt; visiting) {
+<span class="fc bfc" id="L495" title="All 2 branches covered.">        if (placed.contains(type.reference())) {</span>
+<span class="fc" id="L496">            return;</span>
+        }
+<span class="pc bpc" id="L498" title="1 of 2 branches missed.">        if (!visiting.add(type.reference())) {</span>
+<span class="nc" id="L499">            throw new IllegalArgumentException(&quot;Type &quot; + type.name() + &quot; extends itself through &quot; + visiting);</span>
+        }
+<span class="fc bfc" id="L501" title="All 2 branches covered.">        if (type.base().isPresent()) {</span>
+<span class="fc" id="L502">            TypeDefinition base = byReference.get(type.base().get());</span>
+<span class="pc bpc" id="L503" title="1 of 2 branches missed.">            if (base != null) {</span>
+<span class="fc" id="L504">                place(base, byReference, placed, ordered, visiting);</span>
+            }
+        }
+<span class="fc" id="L507">        visiting.remove(type.reference());</span>
+<span class="fc" id="L508">        placed.add(type.reference());</span>
+<span class="fc" id="L509">        ordered.add(type);</span>
+<span class="fc" id="L510">    }</span>
+
+    private static String quote(String text) {
+<span class="fc" id="L513">        return '&quot;' + escape(text) + '&quot;';</span>
+    }
+
+    private static String escape(String text) {
+<span class="fc" id="L517">        return text.replace(&quot;\\&quot;, &quot;\\\\&quot;).replace(&quot;\&quot;&quot;, &quot;\\\&quot;&quot;);</span>
+    }
+
+    /**
+     * The naming scheme: a prefix per namespace plus the schema name for labels, the tag in
+     * parentheses for FQNs. Two position names that differ only by case, ELM's
+     * {@code codeSystem} and {@code codesystem}, would collapse into one binding constant,
+     * so such names are spelled apart in their labels.
+     */
+    private static final class Naming {
+        private final Options options;
+<span class="fc" id="L528">        private final Map&lt;String, String&gt; caseSuffixes = new LinkedHashMap&lt;&gt;();</span>
+
+<span class="fc" id="L530">        Naming(Options options) {</span>
+<span class="fc" id="L531">            this.options = options;</span>
+<span class="fc" id="L532">        }</span>
+
+        /** Finds position names that collide case-insensitively and gives each a suffix. */
+        void spellApart(Set&lt;String&gt; positionNames) {
+<span class="fc" id="L536">            Map&lt;String, List&lt;String&gt;&gt; byLowerCase = new TreeMap&lt;&gt;();</span>
+<span class="fc bfc" id="L537" title="All 2 branches covered.">            for (String name : positionNames) {</span>
+<span class="fc" id="L538">                byLowerCase.computeIfAbsent(name.toLowerCase(java.util.Locale.ROOT), ignored -&gt; new ArrayList&lt;&gt;())</span>
+<span class="fc" id="L539">                        .add(name);</span>
+<span class="fc" id="L540">            }</span>
+<span class="fc bfc" id="L541" title="All 2 branches covered.">            for (List&lt;String&gt; group : byLowerCase.values()) {</span>
+<span class="fc bfc" id="L542" title="All 2 branches covered.">                if (group.size() &lt; 2) {</span>
+<span class="fc" id="L543">                    continue;</span>
+                }
+<span class="fc bfc" id="L545" title="All 2 branches covered.">                for (String name : group) {</span>
+<span class="fc bfc" id="L546" title="All 2 branches covered.">                    String suffix = name.equals(name.toLowerCase(java.util.Locale.ROOT)) ? &quot;, lower case&quot;</span>
+<span class="pc bpc" id="L547" title="1 of 2 branches missed.">                            : name.equals(name.toUpperCase(java.util.Locale.ROOT)) ? &quot;, upper case&quot; : &quot;, mixed case&quot;;</span>
+<span class="pc bpc" id="L548" title="1 of 2 branches missed.">                    if (caseSuffixes.containsValue(suffix) &amp;&amp; group.stream().filter(other -&gt;</span>
+<span class="nc bnc" id="L549" title="All 2 branches missed.">                            caseSuffixes.getOrDefault(other, &quot;&quot;).equals(suffix)).count() &gt; 0) {</span>
+<span class="nc" id="L550">                        throw new IllegalArgumentException(&quot;Position names &quot; + group</span>
+                                + &quot; differ only by case in more than one mixed spelling; the writer cannot&quot;
+                                + &quot; spell them apart&quot;);
+                    }
+<span class="fc" id="L554">                    caseSuffixes.put(name, suffix);</span>
+<span class="fc" id="L555">                }</span>
+<span class="fc" id="L556">            }</span>
+<span class="fc" id="L557">        }</span>
+
+        String spellingNote(String positionName) {
+<span class="fc" id="L560">            String suffix = caseSuffixes.get(positionName);</span>
+<span class="fc bfc" id="L561" title="All 2 branches covered.">            return suffix == null ? &quot;&quot; : &quot; The schema spells it &quot; + suffix.substring(2)</span>
+<span class="fc" id="L562">                    + &quot;, and spells another position the same way but for case.&quot;;</span>
+        }
+
+        String label(String word) {
+<span class="fc" id="L566">            return options.labelPrefix() + word;</span>
+        }
+
+        String fqn(String word) {
+<span class="fc" id="L570">            return label(word) + &quot; (&quot; + options.tag() + &quot;)&quot;;</span>
+        }
+
+        String typeLabel(TypeReference type) {
+<span class="fc" id="L574">            return options.prefixFor(type.namespace()) + type.name();</span>
+        }
+
+        String typeFqn(TypeReference type) {
+<span class="fc" id="L578">            return typeLabel(type) + &quot; (&quot; + options.tag() + &quot;)&quot;;</span>
+        }
+
+        String positionLabel(String name) {
+<span class="fc" id="L582">            return options.labelPrefix() + name + &quot; position&quot; + caseSuffixes.getOrDefault(name, &quot;&quot;);</span>
+        }
+
+        String positionFqn(String name) {
+<span class="fc" id="L586">            return positionLabel(name) + &quot; (&quot; + options.tag() + &quot;)&quot;;</span>
+        }
+
+        String primitiveLabel(String name) {
+<span class="fc" id="L590">            return options.labelPrefix() + &quot;primitive &quot; + name;</span>
+        }
+
+        String primitiveFqn(String name) {
+<span class="fc" id="L594">            return primitiveLabel(name) + &quot; (&quot; + options.tag() + &quot;)&quot;;</span>
+        }
+
+        String externalLabel(String name) {
+<span class="fc" id="L598">            return options.labelPrefix() + &quot;external &quot; + name;</span>
+        }
+
+        String externalFqn(String name) {
+<span class="fc" id="L602">            return externalLabel(name) + &quot; (&quot; + options.tag() + &quot;)&quot;;</span>
+        }
+
+        String valueLabel(TypeReference enumeration, String value) {
+<span class="fc" id="L606">            return typeLabel(enumeration) + &quot; &quot; + value;</span>
+        }
+
+        String valueFqn(TypeReference enumeration, String value) {
+<span class="fc" id="L610">            return valueLabel(enumeration, value) + &quot; (&quot; + options.tag() + &quot;)&quot;;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

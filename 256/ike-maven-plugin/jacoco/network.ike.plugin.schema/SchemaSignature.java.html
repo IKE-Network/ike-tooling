@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SchemaSignature.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.schema</a> &gt; <span class="el_source">SchemaSignature.java</span></div><h1>SchemaSignature.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin.schema;
+
+import javax.xml.XMLConstants;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * The signature an XML Schema declares, read once and held as plain records: the named
+ * complex types with their base, their documentation, and their argument positions; and
+ * the named simple types that enumerate values (IKE-Network/ike-issues#1104).
+ *
+ * &lt;p&gt;A signature is what a language's abstract syntax is: a finite set of node types,
+ * each with typed positions. HL7's ELM, the Expression Logical Model of the CQL
+ * specification, publishes its signature this way in two namespaces, the expression
+ * nodes and the System types, and a type is identified by its namespace and its name,
+ * since both namespaces declare an Interval.
+ *
+ * @param types        the named complex types, in declaration order across the schemas
+ * @param enumerations the named simple types that restrict a primitive to enumerated values
+ */
+public record SchemaSignature(List&lt;TypeDefinition&gt; types, List&lt;Enumeration&gt; enumerations) {
+
+    /**
+     * Creates a signature, copying both lists.
+     *
+     * @param types        the named complex types
+     * @param enumerations the named enumerations
+     */
+<span class="fc" id="L44">    public SchemaSignature {</span>
+<span class="fc" id="L45">        types = List.copyOf(types);</span>
+<span class="fc" id="L46">        enumerations = List.copyOf(enumerations);</span>
+<span class="fc" id="L47">    }</span>
+
+    /**
+     * Whether a position holds an element, a child in the document's sequence, or an
+     * attribute, a named value on the element itself.
+     */
+<span class="fc" id="L53">    public enum PositionKind {</span>
+        /** A child element of the type. */
+<span class="fc" id="L55">        ELEMENT,</span>
+        /** An attribute of the type. */
+<span class="fc" id="L57">        ATTRIBUTE</span>
+    }
+
+    /**
+     * A reference to a type by namespace and name: a type of the signature, a type of
+     * another schema the signature refers to, or a primitive of the XML Schema language.
+     *
+     * @param namespace the namespace the type is declared in, the XML Schema namespace for
+     *                  a primitive
+     * @param name      the type's local name, {@code Expression} or {@code string}
+     */
+<span class="fc" id="L68">    public record TypeReference(String namespace, String name) {</span>
+        /**
+         * A reference to an XML Schema primitive, {@code string} or {@code QName}.
+         *
+         * @param name the primitive's local name
+         * @return the reference
+         */
+        public static TypeReference primitive(String name) {
+<span class="fc" id="L76">            return new TypeReference(XMLConstants.W3C_XML_SCHEMA_NS_URI, name);</span>
+        }
+
+        /**
+         * Whether this refers to a primitive of the XML Schema language rather than a
+         * declared type.
+         *
+         * @return true for a schema primitive
+         */
+        public boolean isPrimitive() {
+<span class="fc" id="L86">            return XMLConstants.W3C_XML_SCHEMA_NS_URI.equals(namespace);</span>
+        }
+    }
+
+    /**
+     * One argument position of a type: a child element or an attribute, with the type of
+     * value it holds and how many of them the schema allows.
+     *
+     * @param name          the position's name as the schema spells it, {@code operand}
+     * @param kind          element or attribute
+     * @param valueType     the type of value the position holds
+     * @param minimum       the fewest values allowed, {@code 0} for optional
+     * @param maximum       the most values allowed, or {@link #UNBOUNDED}
+     * @param documentation the schema's own description of this position on this type,
+     *                      empty when the schema gives none
+     */
+<span class="fc" id="L102">    public record Position(String name, PositionKind kind, TypeReference valueType, int minimum,</span>
+                           int maximum, String documentation) {
+        /** The maximum recorded for a position the schema leaves unbounded. */
+        public static final int UNBOUNDED = -1;
+    }
+
+    /**
+     * One named complex type of the schema.
+     *
+     * @param namespace     the namespace the type is declared in
+     * @param name          the type's name as the schema spells it, {@code Exists}
+     * @param base          the type it extends, if any; {@code Exists} extends
+     *                      {@code UnaryExpression}
+     * @param isAbstract    whether the schema marks the type abstract
+     * @param documentation the schema's own description, empty when the schema gives none
+     * @param positions     the type's own positions, not including those inherited from
+     *                      its base, in schema order
+     */
+    public record TypeDefinition(String namespace, String name, Optional&lt;TypeReference&gt; base,
+                                 boolean isAbstract, String documentation, List&lt;Position&gt; positions) {
+        /**
+         * Creates a type definition, copying the positions.
+         *
+         * @param namespace     the namespace
+         * @param name          the type name
+         * @param base          the base type, if any
+         * @param isAbstract    whether abstract
+         * @param documentation the description
+         * @param positions     the positions
+         */
+<span class="fc" id="L132">        public TypeDefinition {</span>
+<span class="fc" id="L133">            positions = List.copyOf(positions);</span>
+<span class="fc" id="L134">        }</span>
+
+        /**
+         * This type as a reference.
+         *
+         * @return the reference to this type
+         */
+        public TypeReference reference() {
+<span class="fc" id="L142">            return new TypeReference(namespace, name);</span>
+        }
+    }
+
+    /**
+     * One named simple type that enumerates its values, {@code DateTimePrecision} with
+     * {@code Year} through {@code Millisecond}.
+     *
+     * @param namespace     the namespace the enumeration is declared in
+     * @param name          the enumeration's name as the schema spells it
+     * @param documentation the schema's own description, empty when the schema gives none
+     * @param values        the enumerated values in schema order
+     */
+    public record Enumeration(String namespace, String name, String documentation, List&lt;String&gt; values) {
+        /**
+         * Creates an enumeration, copying the values.
+         *
+         * @param namespace     the namespace
+         * @param name          the enumeration name
+         * @param documentation the description
+         * @param values        the values
+         */
+<span class="fc" id="L164">        public Enumeration {</span>
+<span class="fc" id="L165">            values = List.copyOf(values);</span>
+<span class="fc" id="L166">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PropCodec.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">PropCodec.java</span></div><h1>PropCodec.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * Shared helpers for the properties wire format the requests and results use across the
+ * forked-JVM seam. Lists encode as 1-based contiguous indexed keys — decoding fails
+ * closed on a gap or a blank entry, never silently truncates. Absence encodes as key
+ * absence; values are whitespace-normalized (stripped), so leading and trailing
+ * whitespace is not significant on the wire.
+ *
+ * &lt;p&gt;The top-level key {@link IkeServiceBootstrap#IMPLEMENTATION_KEY} is reserved for
+ * implementation selection and must not be used by any request codec.
+ */
+final class PropCodec {
+
+    private PropCodec() {
+    }
+
+    static String require(Properties properties, String key) {
+<span class="fc" id="L25">        String value = properties.getProperty(key);</span>
+<span class="pc bpc" id="L26" title="2 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="nc" id="L27">            throw new IllegalArgumentException(&quot;Missing required request key: &quot; + key);</span>
+        }
+<span class="fc" id="L29">        return value.strip();</span>
+    }
+
+    static Optional&lt;String&gt; optional(Properties properties, String key) {
+<span class="fc" id="L33">        String value = properties.getProperty(key);</span>
+<span class="pc bpc" id="L34" title="1 of 4 branches missed.">        return (value == null || value.isBlank()) ? Optional.empty() : Optional.of(value.strip());</span>
+    }
+
+    static Path requirePath(Properties properties, String key) {
+<span class="fc" id="L38">        return Path.of(require(properties, key));</span>
+    }
+
+    static Optional&lt;Path&gt; optionalPath(Properties properties, String key) {
+<span class="fc" id="L42">        return optional(properties, key).map(Path::of);</span>
+    }
+
+    static boolean getBoolean(Properties properties, String key, boolean fallback) {
+<span class="fc" id="L46">        Optional&lt;String&gt; value = optional(properties, key);</span>
+<span class="pc bpc" id="L47" title="1 of 2 branches missed.">        if (value.isEmpty()) {</span>
+<span class="nc" id="L48">            return fallback;</span>
+        }
+<span class="fc" id="L50">        String token = value.get();</span>
+<span class="fc bfc" id="L51" title="All 2 branches covered.">        if (token.equalsIgnoreCase(&quot;true&quot;)) {</span>
+<span class="fc" id="L52">            return true;</span>
+        }
+<span class="fc bfc" id="L54" title="All 2 branches covered.">        if (token.equalsIgnoreCase(&quot;false&quot;)) {</span>
+<span class="fc" id="L55">            return false;</span>
+        }
+<span class="fc" id="L57">        throw new IllegalArgumentException(&quot;Key &quot; + key + &quot; must be true or false: &quot; + token);</span>
+    }
+
+    static long requireLong(Properties properties, String key) {
+<span class="fc" id="L61">        String value = require(properties, key);</span>
+        try {
+<span class="fc" id="L63">            return Long.parseLong(value);</span>
+<span class="nc" id="L64">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L65">            throw new IllegalArgumentException(&quot;Key &quot; + key + &quot; is not a number: &quot; + value, e);</span>
+        }
+    }
+
+    static void put(Properties properties, String key, String value) {
+<span class="fc" id="L70">        properties.setProperty(key, value);</span>
+<span class="fc" id="L71">    }</span>
+
+    static void putOptional(Properties properties, String key, Optional&lt;String&gt; value) {
+<span class="fc" id="L74">        value.ifPresent(present -&gt; properties.setProperty(key, present));</span>
+<span class="fc" id="L75">    }</span>
+
+    static void putInputs(Properties properties, String prefix, List&lt;ArtifactInput&gt; inputs) {
+<span class="fc bfc" id="L78" title="All 2 branches covered.">        for (int i = 0; i &lt; inputs.size(); i++) {</span>
+<span class="fc" id="L79">            ArtifactInput input = inputs.get(i);</span>
+<span class="fc" id="L80">            properties.setProperty(prefix + (i + 1) + &quot;.role&quot;, input.role().name());</span>
+<span class="fc" id="L81">            properties.setProperty(prefix + (i + 1) + &quot;.path&quot;, input.path().toString());</span>
+        }
+<span class="fc" id="L83">    }</span>
+
+    static List&lt;ArtifactInput&gt; getInputs(Properties properties, String prefix) {
+<span class="fc" id="L86">        int count = indexedCount(properties, prefix, &quot;role&quot;);</span>
+<span class="fc" id="L87">        List&lt;ArtifactInput&gt; inputs = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L88" title="All 2 branches covered.">        for (int i = 1; i &lt;= count; i++) {</span>
+<span class="fc" id="L89">            inputs.add(new ArtifactInput(ArtifactInput.Role.valueOf(require(properties, prefix + i + &quot;.role&quot;)),</span>
+<span class="fc" id="L90">                    Path.of(require(properties, prefix + i + &quot;.path&quot;))));</span>
+        }
+<span class="fc" id="L92">        return List.copyOf(inputs);</span>
+    }
+
+    /**
+     * Counts a 1-based indexed list and enforces contiguity — decoding fails closed:
+     * a gap ({@code prefix1, prefix3}) or an out-of-sequence start is an error, never a
+     * silent truncation. {@code field} is the per-entry key that marks presence; empty
+     * means the index is the whole key remainder.
+     */
+    static int indexedCount(Properties properties, String prefix, String field) {
+<span class="fc" id="L102">        java.util.TreeSet&lt;Integer&gt; present = new java.util.TreeSet&lt;&gt;();</span>
+<span class="fc bfc" id="L103" title="All 2 branches covered.">        for (String name : properties.stringPropertyNames()) {</span>
+<span class="fc bfc" id="L104" title="All 2 branches covered.">            if (!name.startsWith(prefix)) {</span>
+<span class="fc" id="L105">                continue;</span>
+            }
+<span class="fc" id="L107">            String rest = name.substring(prefix.length());</span>
+            String indexPart;
+<span class="fc bfc" id="L109" title="All 2 branches covered.">            if (field.isEmpty()) {</span>
+<span class="fc" id="L110">                indexPart = rest;</span>
+            } else {
+<span class="fc" id="L112">                int dot = rest.indexOf('.');</span>
+<span class="pc bpc" id="L113" title="1 of 4 branches missed.">                if (dot &lt;= 0 || !rest.substring(dot + 1).equals(field)) {</span>
+<span class="fc" id="L114">                    continue;</span>
+                }
+<span class="fc" id="L116">                indexPart = rest.substring(0, dot);</span>
+            }
+            try {
+<span class="fc" id="L119">                present.add(Integer.parseInt(indexPart));</span>
+<span class="nc" id="L120">            } catch (NumberFormatException notAnIndex) {</span>
+                // Not an indexed entry of this list.
+<span class="fc" id="L122">            }</span>
+<span class="fc" id="L123">        }</span>
+<span class="pc bpc" id="L124" title="1 of 2 branches missed.">        int max = present.isEmpty() ? 0 : present.last();</span>
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        for (int i = 1; i &lt;= max; i++) {</span>
+<span class="fc bfc" id="L126" title="All 2 branches covered.">            if (!present.contains(i)) {</span>
+<span class="pc bpc" id="L127" title="1 of 2 branches missed.">                String key = field.isEmpty() ? prefix + i : prefix + i + &quot;.&quot; + field;</span>
+<span class="fc" id="L128">                throw new IllegalArgumentException(&quot;Indexed list has a gap — missing &quot; + key</span>
+                        + &quot; (indexed lists are 1-based and contiguous; decoding never truncates silently)&quot;);
+            }
+        }
+<span class="fc" id="L132">        return max;</span>
+    }
+
+    static void putView(Properties properties, ViewSpec view) {
+<span class="fc" id="L136">        properties.putAll(view.toProperties(&quot;view.&quot;));</span>
+<span class="fc" id="L137">    }</span>
+
+    static ViewSpec getView(Properties properties) {
+<span class="fc" id="L140">        return ViewSpec.fromProperties(properties, &quot;view.&quot;);</span>
+    }
+
+    static void putCounts(Properties properties, String prefix, EntityCounts counts) {
+<span class="fc" id="L144">        properties.setProperty(prefix + &quot;concepts&quot;, Long.toString(counts.concepts()));</span>
+<span class="fc" id="L145">        properties.setProperty(prefix + &quot;semantics&quot;, Long.toString(counts.semantics()));</span>
+<span class="fc" id="L146">        properties.setProperty(prefix + &quot;patterns&quot;, Long.toString(counts.patterns()));</span>
+<span class="fc" id="L147">        properties.setProperty(prefix + &quot;stamps&quot;, Long.toString(counts.stamps()));</span>
+<span class="fc" id="L148">    }</span>
+
+    static EntityCounts getCounts(Properties properties, String prefix) {
+<span class="fc" id="L151">        return new EntityCounts(</span>
+<span class="fc" id="L152">                requireLong(properties, prefix + &quot;concepts&quot;),</span>
+<span class="fc" id="L153">                requireLong(properties, prefix + &quot;semantics&quot;),</span>
+<span class="fc" id="L154">                requireLong(properties, prefix + &quot;patterns&quot;),</span>
+<span class="fc" id="L155">                requireLong(properties, prefix + &quot;stamps&quot;));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

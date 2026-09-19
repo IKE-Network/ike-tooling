@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LineDiff.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">LineDiff.java</span></div><h1>LineDiff.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Minimal LCS-based line differ used by tracked and tracked-block
+ * tier handlers to build human-readable diff output for
+ * {@code scaffold-draft}.
+ *
+ * &lt;p&gt;This is not a full unified-diff implementation — we only emit the
+ * prefixed lines ({@code ' '}, {@code '-'}, {@code '+'}) without hunk
+ * headers, which is plenty for draft output where the file path is
+ * already printed separately.
+ *
+ * &lt;p&gt;Both inputs are treated as UTF-8 text and split on LF. A trailing
+ * newline is normalised away so {@code &quot;a\n&quot;} and {@code &quot;a&quot;} produce
+ * identical line lists — callers that care about trailing-newline
+ * differences should compare raw bytes.
+ */
+public final class LineDiff {
+
+    private LineDiff() {}
+
+    /**
+     * Count of {@code '+'} and {@code '-'} lines between two texts.
+     *
+     * @param from the baseline text
+     * @param to   the new text
+     * @return a {@link Counts} record
+     */
+    public static Counts counts(String from, String to) {
+<span class="fc" id="L33">        List&lt;String&gt; a = lines(from);</span>
+<span class="fc" id="L34">        List&lt;String&gt; b = lines(to);</span>
+<span class="fc" id="L35">        int[][] dp = lcsTable(a, b);</span>
+<span class="fc" id="L36">        int added = 0;</span>
+<span class="fc" id="L37">        int removed = 0;</span>
+<span class="fc" id="L38">        int i = 0;</span>
+<span class="fc" id="L39">        int j = 0;</span>
+<span class="fc" id="L40">        int m = a.size();</span>
+<span class="fc" id="L41">        int n = b.size();</span>
+<span class="fc bfc" id="L42" title="All 4 branches covered.">        while (i &lt; m &amp;&amp; j &lt; n) {</span>
+<span class="fc bfc" id="L43" title="All 2 branches covered.">            if (a.get(i).equals(b.get(j))) {</span>
+<span class="fc" id="L44">                i++;</span>
+<span class="fc" id="L45">                j++;</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">            } else if (dp[i + 1][j] &gt;= dp[i][j + 1]) {</span>
+<span class="fc" id="L47">                removed++;</span>
+<span class="fc" id="L48">                i++;</span>
+            } else {
+<span class="fc" id="L50">                added++;</span>
+<span class="fc" id="L51">                j++;</span>
+            }
+        }
+<span class="fc" id="L54">        removed += m - i;</span>
+<span class="fc" id="L55">        added += n - j;</span>
+<span class="fc" id="L56">        return new Counts(added, removed);</span>
+    }
+
+    /**
+     * A line-prefixed diff: every line in the union starts with one of
+     * {@code ' '}, {@code '-'}, or {@code '+'}. Empty output means the
+     * texts are identical.
+     *
+     * @param from the baseline text
+     * @param to   the new text
+     * @return a newline-terminated, prefixed diff
+     */
+    public static String unified(String from, String to) {
+<span class="fc" id="L69">        List&lt;String&gt; a = lines(from);</span>
+<span class="fc" id="L70">        List&lt;String&gt; b = lines(to);</span>
+<span class="fc" id="L71">        int[][] dp = lcsTable(a, b);</span>
+<span class="fc" id="L72">        StringBuilder sb = new StringBuilder();</span>
+<span class="fc" id="L73">        int i = 0;</span>
+<span class="fc" id="L74">        int j = 0;</span>
+<span class="fc" id="L75">        int m = a.size();</span>
+<span class="fc" id="L76">        int n = b.size();</span>
+<span class="fc bfc" id="L77" title="All 4 branches covered.">        while (i &lt; m &amp;&amp; j &lt; n) {</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">            if (a.get(i).equals(b.get(j))) {</span>
+<span class="fc" id="L79">                sb.append(' ').append(a.get(i)).append('\n');</span>
+<span class="fc" id="L80">                i++;</span>
+<span class="fc" id="L81">                j++;</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">            } else if (dp[i + 1][j] &gt;= dp[i][j + 1]) {</span>
+<span class="fc" id="L83">                sb.append('-').append(a.get(i)).append('\n');</span>
+<span class="fc" id="L84">                i++;</span>
+            } else {
+<span class="fc" id="L86">                sb.append('+').append(b.get(j)).append('\n');</span>
+<span class="fc" id="L87">                j++;</span>
+            }
+        }
+<span class="fc bfc" id="L90" title="All 2 branches covered.">        while (i &lt; m) {</span>
+<span class="fc" id="L91">            sb.append('-').append(a.get(i++)).append('\n');</span>
+        }
+<span class="fc bfc" id="L93" title="All 2 branches covered.">        while (j &lt; n) {</span>
+<span class="fc" id="L94">            sb.append('+').append(b.get(j++)).append('\n');</span>
+        }
+<span class="fc" id="L96">        return sb.toString();</span>
+    }
+
+    private static int[][] lcsTable(List&lt;String&gt; a, List&lt;String&gt; b) {
+<span class="fc" id="L100">        int m = a.size();</span>
+<span class="fc" id="L101">        int n = b.size();</span>
+<span class="fc" id="L102">        int[][] dp = new int[m + 1][n + 1];</span>
+<span class="fc bfc" id="L103" title="All 2 branches covered.">        for (int i = m - 1; i &gt;= 0; i--) {</span>
+<span class="fc bfc" id="L104" title="All 2 branches covered.">            for (int j = n - 1; j &gt;= 0; j--) {</span>
+<span class="fc bfc" id="L105" title="All 2 branches covered.">                if (a.get(i).equals(b.get(j))) {</span>
+<span class="fc" id="L106">                    dp[i][j] = dp[i + 1][j + 1] + 1;</span>
+                } else {
+<span class="fc" id="L108">                    dp[i][j] =</span>
+<span class="fc" id="L109">                            Math.max(dp[i + 1][j], dp[i][j + 1]);</span>
+                }
+            }
+        }
+<span class="fc" id="L113">        return dp;</span>
+    }
+
+    private static List&lt;String&gt; lines(String s) {
+<span class="fc bfc" id="L117" title="All 4 branches covered.">        if (s == null || s.isEmpty()) {</span>
+<span class="fc" id="L118">            return List.of();</span>
+        }
+<span class="fc" id="L120">        List&lt;String&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L121">        int start = 0;</span>
+<span class="fc bfc" id="L122" title="All 2 branches covered.">        for (int k = 0; k &lt; s.length(); k++) {</span>
+<span class="fc bfc" id="L123" title="All 2 branches covered.">            if (s.charAt(k) == '\n') {</span>
+<span class="fc" id="L124">                out.add(s.substring(start, k));</span>
+<span class="fc" id="L125">                start = k + 1;</span>
+            }
+        }
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">        if (start &lt; s.length()) {</span>
+<span class="nc" id="L129">            out.add(s.substring(start));</span>
+        }
+<span class="fc" id="L131">        return out;</span>
+    }
+
+    /**
+     * Added/removed line counts.
+     *
+     * @param added   number of {@code '+'} lines
+     * @param removed number of {@code '-'} lines
+     */
+<span class="fc" id="L140">    public record Counts(int added, int removed) {</span>
+
+        /**
+         * Compact {@code &quot;+N/-M&quot;} summary suitable for one-line output.
+         *
+         * @return the summary string
+         */
+        public String shortForm() {
+<span class="fc" id="L148">            return &quot;+&quot; + added + &quot;/-&quot; + removed;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
