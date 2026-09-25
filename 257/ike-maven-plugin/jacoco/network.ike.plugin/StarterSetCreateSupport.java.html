@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>StarterSetCreateSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">StarterSetCreateSupport.java</span></div><h1>StarterSetCreateSupport.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Properties;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+/**
+ * Shared mechanics of the starter-set genesis goals: loading the templates from the
+ * standards scaffold artifact (the same channel the conformance scaffold consumes —
+ * one template source, two lifecycle moments) and rendering the plan report the draft
+ * and publish goals both print.
+ */
+final class StarterSetCreateSupport {
+
+    /** The template directory inside the scaffold artifact. */
+    static final String TEMPLATE_ROOT = &quot;starter-set/&quot;;
+
+    private StarterSetCreateSupport() {
+    }
+
+    /**
+     * Loads the starter-set templates from the standards scaffold zip matching this
+     * plugin's own version.
+     *
+     * @param session the Maven session, for artifact resolution
+     * @return template-relative path to template text, in zip order
+     * @throws MojoException if the scaffold artifact cannot be resolved or read
+     */
+    static Map&lt;String, String&gt; loadTemplates(Session session) {
+<span class="nc" id="L54">        String coordinates = &quot;network.ike.tooling:ike-build-standards:zip:scaffold:&quot; + pluginVersion();</span>
+        Path zipPath;
+        try {
+<span class="nc" id="L57">            zipPath = session.resolveArtifact(session.createArtifactCoordinates(coordinates)).getPath();</span>
+<span class="nc" id="L58">        } catch (Exception e) {</span>
+<span class="nc" id="L59">            throw new MojoException(&quot;Cannot resolve the standards scaffold artifact &quot;</span>
+                    + coordinates + &quot; carrying the starter-set templates&quot;, e);
+<span class="nc" id="L61">        }</span>
+<span class="nc" id="L62">        Map&lt;String, String&gt; templates = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L63">        try (ZipFile zip = new ZipFile(zipPath.toFile())) {</span>
+<span class="nc" id="L64">            java.util.Enumeration&lt;? extends ZipEntry&gt; entries = zip.entries();</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">            while (entries.hasMoreElements()) {</span>
+<span class="nc" id="L66">                ZipEntry entry = entries.nextElement();</span>
+<span class="nc bnc" id="L67" title="All 4 branches missed.">                if (!entry.isDirectory() &amp;&amp; entry.getName().startsWith(TEMPLATE_ROOT)) {</span>
+<span class="nc" id="L68">                    try (InputStream in = zip.getInputStream(entry)) {</span>
+<span class="nc" id="L69">                        templates.put(entry.getName().substring(TEMPLATE_ROOT.length()),</span>
+<span class="nc" id="L70">                                new String(in.readAllBytes(), StandardCharsets.UTF_8));</span>
+                    }
+                }
+<span class="nc" id="L73">            }</span>
+<span class="nc" id="L74">        } catch (IOException e) {</span>
+<span class="nc" id="L75">            throw new MojoException(&quot;Cannot read the starter-set templates from &quot; + zipPath, e);</span>
+<span class="nc" id="L76">        }</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        if (templates.isEmpty()) {</span>
+<span class="nc" id="L78">            throw new MojoException(&quot;The scaffold artifact &quot; + coordinates</span>
+                    + &quot; carries no starter-set templates — standards and plugin versions must match&quot;);
+        }
+<span class="nc" id="L81">        return templates;</span>
+    }
+
+    /**
+     * This plugin's own version, read from its build descriptor — the lockstep key for
+     * resolving the matching standards artifact.
+     *
+     * @return the plugin version
+     * @throws MojoException if the descriptor is unreadable
+     */
+    static String pluginVersion() {
+<span class="nc" id="L92">        String descriptor = &quot;/META-INF/maven/network.ike.tooling/ike-maven-plugin/pom.properties&quot;;</span>
+<span class="nc" id="L93">        try (InputStream in = StarterSetCreateSupport.class.getResourceAsStream(descriptor)) {</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">            if (in == null) {</span>
+<span class="nc" id="L95">                throw new MojoException(&quot;Plugin build descriptor missing: &quot; + descriptor);</span>
+            }
+<span class="nc" id="L97">            Properties properties = new Properties();</span>
+<span class="nc" id="L98">            properties.load(in);</span>
+<span class="nc" id="L99">            return properties.getProperty(&quot;version&quot;);</span>
+<span class="nc" id="L100">        } catch (IOException e) {</span>
+<span class="nc" id="L101">            throw new MojoException(&quot;Cannot read the plugin build descriptor&quot;, e);</span>
+        }
+    }
+
+    /**
+     * Renders the genesis plan — identical in draft and publish, so what was reviewed
+     * is what happens.
+     *
+     * @param plan      the plan
+     * @param templates the loaded templates
+     * @param targetDir the directory the project lands in
+     * @param mintFresh whether publish will mint a fresh UUID
+     * @return the report text
+     */
+    static String report(StarterSetPlan plan, Map&lt;String, String&gt; templates,
+                         Path targetDir, boolean mintFresh) {
+<span class="nc" id="L117">        StringBuilder out = new StringBuilder();</span>
+<span class="nc" id="L118">        out.append(&quot;Starter set: &quot;).append(plan.token(&quot;setName&quot;)).append('\n');</span>
+<span class="nc" id="L119">        out.append(&quot;  Semantic tag (permanent — in every birth FQN): (&quot;)</span>
+<span class="nc" id="L120">                .append(plan.token(&quot;tag&quot;)).append(&quot;)\n&quot;);</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        out.append(&quot;  Set UUID &quot;).append(mintFresh</span>
+<span class="nc" id="L122">                        ? &quot;(will be minted at publish): &quot; : &quot;(supplied): &quot;)</span>
+<span class="nc" id="L123">                .append(plan.token(&quot;setUuid&quot;)).append('\n');</span>
+<span class="nc" id="L124">        out.append(&quot;  Coordinates: &quot;).append(plan.token(&quot;groupId&quot;)).append(':')</span>
+<span class="nc" id="L125">                .append(plan.token(&quot;artifactRoot&quot;)).append(':')</span>
+<span class="nc" id="L126">                .append(plan.token(&quot;version&quot;)).append('\n');</span>
+<span class="nc" id="L127">        out.append(&quot;  Package: &quot;).append(plan.token(&quot;basePackage&quot;)).append('\n');</span>
+<span class="nc" id="L128">        out.append(&quot;  Directory: &quot;).append(targetDir).append('\n');</span>
+<span class="nc" id="L129">        out.append(&quot;  Files:\n&quot;);</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">        for (String templatePath : templates.keySet()) {</span>
+<span class="nc" id="L131">            out.append(&quot;    &quot;).append(plan.targetPath(templatePath)).append('\n');</span>
+<span class="nc" id="L132">        }</span>
+<span class="nc" id="L133">        out.append(&quot;  Next steps after publish:\n&quot;);</span>
+<span class="nc" id="L134">        out.append(&quot;    gh repo create &lt;org&gt;/&quot;).append(plan.token(&quot;artifactRoot&quot;))</span>
+<span class="nc" id="L135">                .append(&quot; --public\n&quot;);</span>
+<span class="nc" id="L136">        out.append(&quot;    git remote add origin &lt;url&gt; ; git push -u origin main\n&quot;);</span>
+<span class="nc" id="L137">        out.append(&quot;    mvn ws:add -Drepo=&lt;url&gt; -Dsubproject=&quot;).append(plan.token(&quot;artifactRoot&quot;))</span>
+<span class="nc" id="L138">                .append(&quot;   (inside a workspace)\n&quot;);</span>
+<span class="nc" id="L139">        out.append(&quot;    mvn install   (ledger -&gt; bindings, change set, glossary, KB at ~/Solor/&quot;)</span>
+<span class="nc" id="L140">                .append(plan.token(&quot;slug&quot;)).append(&quot;-kb)\n&quot;);</span>
+<span class="nc" id="L141">        out.append(&quot;  Pending curation: stamp author is TinkarTerm#USER until the curator-identity decision.\n&quot;);</span>
+<span class="nc" id="L142">        return out.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SchemaImportMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">SchemaImportMojo.java</span></div><h1>SchemaImportMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import network.ike.plugin.schema.LedgerSectionWriter;
+import network.ike.plugin.schema.SchemaSignature;
+import network.ike.plugin.schema.XmlSchemaReader;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Imports an XML Schema as a ledger section, a node catalog (IKE-Network/ike-issues#1104): reads
+ * the schema files, one catalog across all of them, and writes a KnowledgeSet section
+ * class in which every named type, argument position, schema primitive, and enumerated
+ * value is a concept, with the schema's own documentation as each definition and the
+ * extension base as the is-a. The first use is HL7's ELM, the Expression Logical Model of
+ * the CQL specification, whose catalog is five schemas.
+ *
+ * &lt;p&gt;The goal runs on demand, not in a lifecycle phase: the section it writes is source to
+ * check in and regenerate when the pinned schema release changes, never to edit. It needs
+ * no store and no fork; the JDK's XML support is enough.
+ */
+@Mojo(name = IkeGoal.NAME_SCHEMA_IMPORT)
+public class SchemaImportMojo implements org.apache.maven.api.plugin.Mojo {
+
+    /** Creates the goal. */
+<span class="fc" id="L51">    public SchemaImportMojo() {</span>
+<span class="fc" id="L52">    }</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    /** The schema files, comma-separated paths, read in the order given. */
+    @Parameter(property = &quot;ike.schemaImport.schemas&quot;, required = true)
+    String schemas;
+
+    /** The source root the section is written under, by default the project's main sources. */
+    @Parameter(property = &quot;ike.schemaImport.outputDirectory&quot;,
+               defaultValue = &quot;${project.basedir}/src/main/java&quot;)
+    String outputDirectory;
+
+    /** The generated class's package. */
+    @Parameter(property = &quot;ike.schemaImport.packageName&quot;, required = true)
+    String packageName;
+
+    /** The generated class's simple name, for example {@code ElmSignatureSet}. */
+    @Parameter(property = &quot;ike.schemaImport.className&quot;, required = true)
+    String className;
+
+    /** The fully-qualified-name tag written in parentheses after every label, for example {@code ELM}. */
+    @Parameter(property = &quot;ike.schemaImport.tag&quot;, required = true)
+    String tag;
+
+    /** The prefix every label carries; by default the tag followed by a space. */
+    @Parameter(property = &quot;ike.schemaImport.labelPrefix&quot;)
+    String labelPrefix;
+
+    /**
+     * The label prefix per namespace, as {@code namespace=prefix} pairs separated by
+     * semicolons, for example {@code urn:hl7-org:elm-types:r1=ELM System }; a namespace
+     * not listed uses the default label prefix.
+     */
+    @Parameter(property = &quot;ike.schemaImport.namespacePrefixes&quot;)
+    String namespacePrefixes;
+
+    /** Whose definitions these are, for example {@code the ELM specification}. */
+    @Parameter(property = &quot;ike.schemaImport.attribution&quot;, required = true)
+    String attribution;
+
+    /** The release the schemas were taken from, for example a repository tag. */
+    @Parameter(property = &quot;ike.schemaImport.pin&quot;, required = true)
+    String pin;
+
+    /** The Java expression of the inception stamp the section declares at. */
+    @Parameter(property = &quot;ike.schemaImport.stampExpression&quot;, defaultValue = &quot;Ike.INCEPTION&quot;)
+    String stampExpression;
+
+    /** The class holding the field data-type constants the pattern uses. */
+    @Parameter(property = &quot;ike.schemaImport.termsClass&quot;, defaultValue = &quot;IkeTerm&quot;)
+    String termsClass;
+
+    /** The Java expression of the family root's parent concept. */
+    @Parameter(property = &quot;ike.schemaImport.rootParentExpression&quot;, defaultValue = &quot;IkeTerm.MODEL_CONCEPT&quot;)
+    String rootParentExpression;
+
+    /** Skips the goal. */
+    @Parameter(property = &quot;ike.schemaImport.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L117">            log.info(&quot;ike:schema-import skipped (ike.schemaImport.skip=true)&quot;);</span>
+<span class="nc" id="L118">            return;</span>
+        }
+<span class="nc" id="L120">        List&lt;Path&gt; files = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        for (String schema : schemas.split(&quot;,&quot;)) {</span>
+<span class="nc" id="L122">            String trimmed = schema.trim();</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">            if (!trimmed.isEmpty()) {</span>
+<span class="nc" id="L124">                Path path = Path.of(trimmed);</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">                if (!Files.isRegularFile(path)) {</span>
+<span class="nc" id="L126">                    throw new MojoException(&quot;Schema file not found: &quot; + path);</span>
+                }
+<span class="nc" id="L128">                files.add(path);</span>
+            }
+        }
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        if (files.isEmpty()) {</span>
+<span class="nc" id="L132">            throw new MojoException(&quot;ike.schemaImport.schemas names no schema file&quot;);</span>
+        }
+<span class="nc bnc" id="L134" title="All 4 branches missed.">        String prefix = labelPrefix == null || labelPrefix.isEmpty() ? tag + &quot; &quot; : labelPrefix;</span>
+        SchemaSignature signature;
+        try {
+<span class="nc" id="L137">            signature = new XmlSchemaReader().read(files);</span>
+<span class="nc" id="L138">        } catch (IOException e) {</span>
+<span class="nc" id="L139">            throw new MojoException(&quot;Cannot read the schemas: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L140">        }</span>
+<span class="nc" id="L141">        Map&lt;String, String&gt; prefixes = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L142" title="All 4 branches missed.">        if (namespacePrefixes != null &amp;&amp; !namespacePrefixes.isBlank()) {</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">            for (String pair : namespacePrefixes.split(&quot;;&quot;)) {</span>
+<span class="nc" id="L144">                int equals = pair.indexOf('=');</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">                if (equals &lt;= 0) {</span>
+<span class="nc" id="L146">                    throw new MojoException(&quot;ike.schemaImport.namespacePrefixes entry is not namespace=prefix: &quot; + pair);</span>
+                }
+<span class="nc" id="L148">                prefixes.put(pair.substring(0, equals).trim(), pair.substring(equals + 1));</span>
+            }
+        }
+<span class="nc" id="L151">        String source = LedgerSectionWriter.write(signature, new LedgerSectionWriter.Options(</span>
+                packageName, className, tag, prefix, prefixes, attribution, pin, stampExpression, termsClass,
+                rootParentExpression));
+<span class="nc" id="L154">        Path target = Path.of(outputDirectory).resolve(packageName.replace('.', '/')).resolve(className + &quot;.java&quot;);</span>
+        try {
+<span class="nc" id="L156">            Files.createDirectories(target.getParent());</span>
+<span class="nc" id="L157">            Files.writeString(target, source, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L158">        } catch (IOException e) {</span>
+<span class="nc" id="L159">            throw new MojoException(&quot;Cannot write &quot; + target + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L160">        }</span>
+<span class="nc" id="L161">        log.info(&quot;Wrote &quot; + target + &quot;: &quot; + signature.types().size() + &quot; types and &quot;</span>
+<span class="nc" id="L162">                + signature.enumerations().size() + &quot; enumerations from &quot; + files.size()</span>
+                + &quot; schema file(s), pinned to &quot; + pin);
+<span class="nc" id="L164">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

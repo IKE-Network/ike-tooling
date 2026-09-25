@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CentralStatusMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">CentralStatusMojo.java</span></div><h1>CentralStatusMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * Report the status of asynchronous Maven Central deploys spawned
+ * by {@code ike:release-publish -Dike.deploy.central.async=true}
+ * (IKE-Network/ike-issues#484).
+ *
+ * &lt;p&gt;Walks the sentinel directory ({@code ~/.cache/ike-release/}
+ * by default) and prints one line per recorded deploy with state,
+ * retry cycles, elapsed time, and the log-file path. Exits non-zero
+ * when any sentinel is in {@link CentralDeploySentinel.State#FAILURE}
+ * — so a shell pipeline can branch on it — but treats
+ * {@link CentralDeploySentinel.State#PENDING} as informational
+ * (running deploys are normal mid-cascade).
+ *
+ * &lt;p&gt;Operator-friendly: read-only, no credentials, safe to run any
+ * time. Composes into the cascade goal's tail when
+ * {@code ike.cascade.waitForCentral} is enabled.
+ *
+ * &lt;p&gt;Usage:
+ * &lt;pre&gt;
+ * mvn ike:central-status
+ * mvn ike:central-status -Dike.central.sentinelDir=/custom/path
+ * mvn ike:central-status -Dike.central.failOnPending=true
+ * &lt;/pre&gt;
+ */
+@org.apache.maven.api.plugin.annotations.Mojo(
+        name = IkeGoal.NAME_CENTRAL_STATUS, projectRequired = false)
+public class CentralStatusMojo implements Mojo {
+
+    /** Maven logger, injected by the plugin runtime. */
+    @Inject
+    Log log;
+
+    /** @return the injected Maven logger */
+<span class="nc" id="L48">    Log getLog() { return log; }</span>
+
+    /**
+     * Override the sentinel directory. Defaults to
+     * {@code ~/.cache/ike-release/} — the cache location where
+     * {@code ike:release-publish} writes status records for
+     * async Central deploys.
+     */
+    @Parameter(property = &quot;ike.central.sentinelDir&quot;)
+    String sentinelDir;
+
+    /**
+     * Exit non-zero when any sentinel is still {@code PENDING}.
+     * Defaults to false: a pending deploy mid-cascade is normal
+     * informational state, not a failure. Set true when wiring
+     * {@code ike:central-status} into a wait-for-completion check.
+     */
+    @Parameter(property = &quot;ike.central.failOnPending&quot;,
+            defaultValue = &quot;false&quot;)
+    boolean failOnPending;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L70">    public CentralStatusMojo() {}</span>
+
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L74" title="All 4 branches missed.">        Path dir = sentinelDir == null || sentinelDir.isBlank()</span>
+<span class="nc" id="L75">                ? CentralDeploySentinel.DEFAULT_DIR</span>
+<span class="nc" id="L76">                : Paths.get(sentinelDir);</span>
+<span class="nc" id="L77">        List&lt;CentralDeploySentinel&gt; sentinels =</span>
+<span class="nc" id="L78">                CentralDeploySentinel.listAll(dir);</span>
+
+<span class="nc" id="L80">        getLog().info(&quot;Maven Central deploy status — &quot; + dir);</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (sentinels.isEmpty()) {</span>
+<span class="nc" id="L82">            getLog().info(&quot;  (no sentinel files found)&quot;);</span>
+<span class="nc" id="L83">            return;</span>
+        }
+
+<span class="nc" id="L86">        int pending = 0, succeeded = 0, failed = 0;</span>
+<span class="nc" id="L87">        Instant now = Instant.now();</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        for (CentralDeploySentinel s : sentinels) {</span>
+<span class="nc bnc" id="L89" title="All 4 branches missed.">            switch (s.state()) {</span>
+<span class="nc" id="L90">                case PENDING -&gt; pending++;</span>
+<span class="nc" id="L91">                case SUCCESS -&gt; succeeded++;</span>
+<span class="nc" id="L92">                case FAILURE -&gt; failed++;</span>
+            }
+<span class="nc" id="L94">            getLog().info(&quot;  &quot; + formatRow(s, now));</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">            if (s.state() == CentralDeploySentinel.State.FAILURE</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">                    &amp;&amp; s.lastError() != null) {</span>
+<span class="nc" id="L97">                getLog().info(&quot;      error: &quot; + s.lastError());</span>
+            }
+<span class="nc bnc" id="L99" title="All 2 branches missed.">            if (s.note() != null) {</span>
+<span class="nc" id="L100">                getLog().info(&quot;      note:  &quot; + s.note());</span>
+            }
+<span class="nc bnc" id="L102" title="All 2 branches missed.">            if (s.logFile() != null) {</span>
+<span class="nc" id="L103">                getLog().info(&quot;      log:   &quot; + s.logFile());</span>
+            }
+<span class="nc" id="L105">        }</span>
+<span class="nc" id="L106">        getLog().info(&quot;Total: &quot; + sentinels.size()</span>
+                + &quot; (&quot; + pending + &quot; pending, &quot;
+                + succeeded + &quot; succeeded, &quot;
+                + failed + &quot; failed)&quot;);
+
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        if (failed &gt; 0) {</span>
+<span class="nc" id="L112">            throw new MojoException(failed</span>
+                    + &quot; Central deploy(s) in FAILURE state — &quot;
+                    + &quot;see error/log entries above. To retry one: &quot;
+                    + &quot;check out the v&lt;version&gt; tag and run &quot;
+                    + &quot;`mvn jreleaser:deploy`.&quot;);
+        }
+<span class="nc bnc" id="L118" title="All 4 branches missed.">        if (failOnPending &amp;&amp; pending &gt; 0) {</span>
+<span class="nc" id="L119">            throw new MojoException(pending</span>
+                    + &quot; Central deploy(s) still PENDING and &quot;
+                    + &quot;ike.central.failOnPending=true.&quot;);
+        }
+<span class="nc" id="L123">    }</span>
+
+    /**
+     * Format a one-line status row for the report.
+     *
+     * @param s   the sentinel
+     * @param now reference instant for elapsed-time math
+     * @return the formatted row
+     */
+    static String formatRow(CentralDeploySentinel s, Instant now) {
+<span class="fc bfc" id="L133" title="All 3 branches covered.">        String icon = switch (s.state()) {</span>
+<span class="fc" id="L134">            case PENDING -&gt; &quot;⏳&quot;;</span>
+<span class="fc" id="L135">            case SUCCESS -&gt; &quot;✅&quot;;</span>
+<span class="fc" id="L136">            case FAILURE -&gt; &quot;❌&quot;;</span>
+        };
+<span class="fc" id="L138">        String coord = s.artifactId() + &quot;-&quot; + s.version();</span>
+<span class="fc" id="L139">        String cycles = s.attempts() + &quot;/&quot; + s.maxAttempts();</span>
+        String elapsed;
+<span class="fc bfc" id="L141" title="All 2 branches covered.">        if (s.state() == CentralDeploySentinel.State.PENDING) {</span>
+<span class="fc" id="L142">            elapsed = &quot;running for &quot;</span>
+<span class="fc" id="L143">                    + formatDuration(Duration.between(s.started(), now));</span>
+<span class="pc bpc" id="L144" title="1 of 2 branches missed.">        } else if (s.finished() != null) {</span>
+<span class="fc" id="L145">            elapsed = &quot;took &quot;</span>
+<span class="fc" id="L146">                    + formatDuration(Duration.between(</span>
+<span class="fc" id="L147">                            s.started(), s.finished()));</span>
+        } else {
+<span class="nc" id="L149">            elapsed = &quot;(no finish time)&quot;;</span>
+        }
+<span class="fc" id="L151">        return String.format(&quot;%s %-40s %-8s cycle %s, %s&quot;,</span>
+<span class="fc" id="L152">                icon, coord, s.state(), cycles, elapsed);</span>
+    }
+
+    /**
+     * Format a {@link Duration} as a compact human string —
+     * {@code &quot;12s&quot;}, {@code &quot;3m04s&quot;}, {@code &quot;1h12m&quot;}. Used only
+     * for log output, so loss of sub-second precision is fine.
+     *
+     * @param d duration to format
+     * @return compact string
+     */
+    static String formatDuration(Duration d) {
+<span class="fc" id="L164">        long s = d.toSeconds();</span>
+<span class="fc bfc" id="L165" title="All 2 branches covered.">        if (s &lt; 60) return s + &quot;s&quot;;</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">        if (s &lt; 3600) return (s / 60) + &quot;m&quot; + String.format(&quot;%02ds&quot;, s % 60);</span>
+<span class="fc" id="L167">        return (s / 3600) + &quot;h&quot; + String.format(&quot;%02dm&quot;, (s % 3600) / 60);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CentralPhase.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release.central</a> &gt; <span class="el_source">CentralPhase.java</span></div><h1>CentralPhase.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release.central;
+
+import network.ike.plugin.ReleaseSupport;
+import network.ike.plugin.release.ReleaseContext;
+import network.ike.plugin.release.RetrySchedule;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * The Maven Central deploy phase of the release pipeline (sync path).
+ *
+ * &lt;p&gt;Stages signed artifacts to a local {@code staging-deploy}
+ * directory then uploads them via JReleaser to the Sonatype Central
+ * Portal. Retried per {@code ike.deploy.central.{maxAttempts,backoffSeconds}}.
+ * Central failure is best-effort and does not throw: Nexus already
+ * has the artifact by the time this runs, so the team is unblocked
+ * and tag/main push and the GitHub Release proceed regardless.
+ *
+ * &lt;p&gt;{@link #execute()} returns a {@link CompletableFuture} per the
+ * Phase 4 decision §1.1 — the standalone mojo joins the future
+ * immediately to preserve today's blocking semantics; the Phase 5
+ * orchestrator forks it as a subtask alongside {@code FinalizePhase}
+ * under a single {@code StructuredTaskScope}.
+ *
+ * &lt;p&gt;The detached async-bash spawn path
+ * ({@code ReleaseDraftMojo.spawnCentralDeployAsync}) remains on the
+ * mojo for now and is the wedge that Phase 5 replaces with
+ * structured concurrency; this class covers only the sync deploy path.
+ *
+ * &lt;p&gt;Carved out of {@code ReleaseDraftMojo.deployToMavenCentralWithRetry()}
+ * and {@code deployToMavenCentralCore()} during the Phase 4 Commit 3
+ * (IKE-Network/ike-issues#489).
+ */
+public final class CentralPhase {
+
+    private final ReleaseContext ctx;
+
+    /**
+     * Creates a new Central phase bound to the given context.
+     *
+     * @param ctx the per-invocation release context
+     */
+<span class="nc" id="L46">    public CentralPhase(ReleaseContext ctx) {</span>
+<span class="nc" id="L47">        this.ctx = ctx;</span>
+<span class="nc" id="L48">    }</span>
+
+    /**
+     * Executes the Maven Central deploy with retry.
+     *
+     * &lt;p&gt;Retry parameters are read from {@code ctx.request()}:
+     * {@link network.ike.plugin.release.ReleaseRequest#centralDeployMaxAttempts()}
+     * and
+     * {@link network.ike.plugin.release.ReleaseRequest#centralDeployBackoffSeconds()}.
+     * The caller is responsible for skip-decision logic
+     * ({@code skipCentralDeploy}, missing credentials,
+     * {@code centralDeployAsync} routing); this method runs the sync
+     * deploy unconditionally when invoked.
+     *
+     * &lt;p&gt;Returns a {@link CompletableFuture#completedFuture}-wrapped
+     * outcome. The future never completes exceptionally — exhausted
+     * retries are surfaced through {@link CentralOutcome#failureSummary()}
+     * with the failure logged as a warning. The release continues to
+     * tag/main push regardless of Central's outcome (Nexus has the
+     * artifact; team is unblocked).
+     *
+     * @return a completed future carrying the {@link CentralOutcome}
+     */
+    public CompletableFuture&lt;CentralOutcome&gt; execute() {
+<span class="nc" id="L72">        CentralOutcome outcome = CentralOutcome.initial();</span>
+<span class="nc" id="L73">        int maxAttempts = ctx.request().centralDeployMaxAttempts();</span>
+<span class="nc" id="L74">        int[] backoff = RetrySchedule.parseSeconds(</span>
+                &quot;ike.deploy.central.backoffSeconds&quot;,
+<span class="nc" id="L76">                ctx.request().centralDeployBackoffSeconds());</span>
+<span class="nc" id="L77">        Throwable last = null;</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        for (int attempt = 1; attempt &lt;= maxAttempts; attempt++) {</span>
+<span class="nc" id="L79">            outcome = outcome.withAttempts(attempt);</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">            if (attempt &gt; 1) {</span>
+<span class="nc" id="L81">                int wait = backoff[Math.min(attempt - 2,</span>
+                        backoff.length - 1)];
+<span class="nc" id="L83">                RetrySchedule.sleepBefore(ctx.log(), wait, &quot;Maven Central deploy&quot;,</span>
+                        attempt, maxAttempts);
+            }
+<span class="nc" id="L86">            ctx.log().info(&quot;Publishing to Maven Central (cycle &quot;</span>
+                    + attempt + &quot;/&quot; + maxAttempts + &quot;)...&quot;);
+            try {
+<span class="nc" id="L89">                deployToMavenCentralCore();</span>
+<span class="nc" id="L90">                return CompletableFuture.completedFuture(outcome.withSucceeded(true));</span>
+<span class="nc" id="L91">            } catch (MojoException e) {</span>
+<span class="nc" id="L92">                last = e;</span>
+<span class="nc" id="L93">                ctx.log().warn(&quot;Maven Central cycle &quot; + attempt</span>
+                        + &quot;/&quot; + maxAttempts
+<span class="nc" id="L95">                        + &quot; failed: &quot; + e.getMessage());</span>
+            }
+        }
+<span class="nc" id="L98">        String releaseVersion = ctx.request().releaseVersion();</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">        outcome = outcome.withFailureSummary(last == null</span>
+<span class="nc" id="L100">                ? &quot;unknown failure&quot;</span>
+<span class="nc" id="L101">                : last.getMessage());</span>
+<span class="nc" id="L102">        ctx.log().warn(&quot;Maven Central deploy did not succeed after &quot;</span>
+                + maxAttempts + &quot; cycles. &quot;
+                + &quot;Nexus already has v&quot; + releaseVersion
+                + &quot;; tag and main will still publish. &quot;
+                + &quot;To retry Central later: check out v&quot;
+                + releaseVersion + &quot; and run &quot;
+                + &quot;`mvn jreleaser:deploy`.&quot;);
+<span class="nc" id="L109">        return CompletableFuture.completedFuture(outcome);</span>
+    }
+
+    /**
+     * Single-shot Central staging + JReleaser upload. The retry
+     * loop in {@link #execute()} calls this per attempt.
+     *
+     * &lt;p&gt;Three steps: a signed {@code clean deploy} to a local
+     * staging directory ({@code target/staging-deploy}); the shared
+     * {@link CentralStaging} finalization (prune {@code -build.pom}
+     * artifacts, swap + re-sign + verify generated BOMs — #853/#966);
+     * then {@code jreleaser:deploy}, which uploads the staged bundle
+     * to the Sonatype Central Portal.
+     */
+    private void deployToMavenCentralCore() {
+<span class="nc" id="L124">        File gitRoot = ctx.gitRoot();</span>
+<span class="nc" id="L125">        File mvnw = ctx.mvnw();</span>
+<span class="nc" id="L126">        Path stagingDir = gitRoot.toPath()</span>
+<span class="nc" id="L127">                .resolve(&quot;target&quot;).resolve(&quot;staging-deploy&quot;);</span>
+<span class="nc" id="L128">        ctx.log().info(&quot;Staging signed artifacts for Maven Central...&quot;);</span>
+<span class="nc" id="L129">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L130">                mvnw.getAbsolutePath(), &quot;clean&quot;, &quot;deploy&quot;, &quot;-B&quot;, &quot;-T&quot;, &quot;1&quot;,</span>
+                &quot;-P&quot;, &quot;release,signArtifacts&quot;,
+                &quot;-DaltDeploymentRepository=local::file://&quot;
+<span class="nc" id="L133">                        + stagingDir.toAbsolutePath());</span>
+<span class="nc" id="L134">        CentralStaging.pruneBuildPoms(ctx.log(), stagingDir);</span>
+<span class="nc" id="L135">        CentralStaging.swapGeneratedBoms(ctx.log(), gitRoot, mvnw,</span>
+                stagingDir);
+<span class="nc" id="L137">        ctx.log().info(&quot;Uploading bundle via JReleaser...&quot;);</span>
+        // -N (non-recursive): jreleaser:deploy runs once, at the reactor
+        // root, uploading the whole staging directory as a single bundle.
+        // Without it the goal runs per module — the first invocation
+        // publishes everything, the rest fail &quot;artifacts already deployed&quot;.
+<span class="nc" id="L142">        ReleaseSupport.exec(gitRoot, ctx.log(),</span>
+<span class="nc" id="L143">                mvnw.getAbsolutePath(), &quot;jreleaser:deploy&quot;, &quot;-N&quot;, &quot;-B&quot;);</span>
+<span class="nc" id="L144">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
