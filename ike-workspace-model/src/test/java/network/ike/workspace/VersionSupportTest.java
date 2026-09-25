@@ -95,7 +95,34 @@ class VersionSupportTest {
                 .isEqualTo("1.2.0-new-work-SNAPSHOT");
     }
 
+    @Test
+    void branchQualifiedVersionIdempotentForDigitLeadingSlug() {
+        // ike-issues#1136: re-qualifying for the same digit-leading feature
+        // must not append the slug a second time.
+        assertThat(VersionSupport.branchQualifiedVersion(
+                "7-8bp-jdk27-SNAPSHOT", "feature/8bp-jdk27"))
+                .isEqualTo("7-8bp-jdk27-SNAPSHOT");
+        assertThat(VersionSupport.branchQualifiedVersion(
+                "1.127.7-8bp-jdk27-SNAPSHOT", "feature/8bp-jdk27"))
+                .isEqualTo("1.127.7-8bp-jdk27-SNAPSHOT");
+    }
+
+    @Test
+    void branchQualifiedVersionReplacesDigitLeadingSlug() {
+        assertThat(VersionSupport.branchQualifiedVersion(
+                "0.40.1-8bp-jdk27-SNAPSHOT", "feature/new-work"))
+                .isEqualTo("0.40.1-new-work-SNAPSHOT");
+    }
+
     // ── extractNumericBase ──────────────────────────────────────────
+
+    @Test
+    void extractNumericBaseStripsDigitLeadingQualifier() {
+        assertThat(VersionSupport.extractNumericBase("7-8bp-jdk27"))
+                .isEqualTo("7");
+        assertThat(VersionSupport.extractNumericBase("1.2.0-2024-fix"))
+                .isEqualTo("1.2.0");
+    }
 
     @Test
     void extractNumericBaseStripsQualifier() {

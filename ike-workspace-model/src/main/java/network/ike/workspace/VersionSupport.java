@@ -1,5 +1,7 @@
 package network.ike.workspace;
 
+import java.util.regex.Pattern;
+
 /**
  * Version manipulation for IKE workspace conventions.
  *
@@ -9,6 +11,9 @@ package network.ike.workspace;
  * testable without Maven dependencies.
  */
 public final class VersionSupport {
+
+    /** Dot-separated digit groups: {@code 7}, {@code 1.2.0}, {@code 0.40.1}. */
+    private static final Pattern NUMERIC_BASE = Pattern.compile("\\d+(\\.\\d+)*");
 
     private VersionSupport() {}
 
@@ -102,11 +107,22 @@ public final class VersionSupport {
      * {@code "1.2.0-my-feature"} becomes {@code "1.2.0"};
      * {@code "1.2.0"} is unchanged.
      *
+     * <p>The numeric base is the leading run of dot-separated digit groups,
+     * ending at the first {@code -}; everything after it is qualifier. That
+     * holds for a feature slug that starts with a digit too —
+     * {@code "7-8bp-jdk27"} becomes {@code "7"} — so re-qualifying an
+     * already-qualified version is idempotent (ike-issues#1136).
+     *
      * @param version version string possibly containing a branch qualifier
      * @return numeric portion only
      */
     public static String extractNumericBase(String version) {
-        // Find the first '-' that follows a digit and precedes a letter
+        int dash = version.indexOf('-');
+        if (dash > 0 && NUMERIC_BASE.matcher(version.substring(0, dash)).matches()) {
+            return version.substring(0, dash);
+        }
+        // Non-numeric prefix: find the first '-' that follows a digit and
+        // precedes a letter
         for (int i = 1; i < version.length(); i++) {
             if (version.charAt(i) == '-' && Character.isDigit(version.charAt(i - 1))
                     && i + 1 < version.length()
