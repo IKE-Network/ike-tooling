@@ -34,34 +34,57 @@ import java.util.concurrent.locks.ReentrantLock;
  * {@code ConcurrentModificationException} — observed nondeterministically from
  * {@code knowledge-export} and {@code knowledge-bindings} building the ike-starter-set
  * reactor in parallel. The defect is in Maven core, not in this plugin's own state, so
- * the remedy here is to serialize just this plugin's entry into the racy API with a
- * JVM-wide lock. Resolution is fast and per-project, so the contention cost is
- * negligible; remove the lock when the build adopts a Maven release carrying the
- * announced rc-6 {@code -T} concurrency fixes.
+ * the remedy is to serialize just this plugin's entry into the racy API with a
+ * JVM-wide lock.
+ *
+ * <p>Maven 4.0.0-rc-7 fixed it: the cache is a {@code ConcurrentHashMap}
+ * (IKE-Network/ike-issues#1153). The plugin runs on whatever Maven its caller uses,
+ * though, so the lock stays for callers still on an earlier Maven and is skipped on
+ * rc-7 and later. Delete it once no working set runs a Maven before rc-7.
  */
 final class RuntimeClasspathResolver {
 
     private static final ReentrantLock RESOLVER_LOCK = new ReentrantLock();
 
+    /** The first Maven whose dependency resolver is safe to call concurrently. */
+    static final String FIRST_THREAD_SAFE_MAVEN = "4.0.0-rc-7";
+
     private RuntimeClasspathResolver() {
     }
 
     /**
-     * Resolves the project's {@code MAIN_RUNTIME} dependency paths, serialized
-     * JVM-wide against every other goal in this plugin doing the same.
+     * Resolves the project's {@code MAIN_RUNTIME} dependency paths. On a Maven
+     * before {@value #FIRST_THREAD_SAFE_MAVEN} the call is serialized JVM-wide
+     * against every other goal in this plugin doing the same.
      *
      * @param session the Maven session
      * @param project the project whose runtime classpath to resolve
      * @return the resolved dependency paths, in resolver order
      */
     static List<Path> mainRuntimePaths(Session session, Project project) {
+        if (resolverIsThreadSafe(session)) {
+            return resolve(session, project);
+        }
         RESOLVER_LOCK.lock();
         try {
-            return session.getService(DependencyResolver.class)
-                    .resolve(session, project, PathScope.MAIN_RUNTIME)
-                    .getPaths();
+            return resolve(session, project);
         } finally {
             RESOLVER_LOCK.unlock();
         }
+    }
+
+    /**
+     * Whether the running Maven's dependency resolver may be called concurrently:
+     * {@value #FIRST_THREAD_SAFE_MAVEN} or later, compared with Maven's own version
+     * ordering (so {@code 4.0.0} and later releases count, {@code 4.0.0-rc-5} does not).
+     */
+    private static boolean resolverIsThreadSafe(Session session) {
+        return session.getMavenVersion().compareTo(session.parseVersion(FIRST_THREAD_SAFE_MAVEN)) >= 0;
+    }
+
+    private static List<Path> resolve(Session session, Project project) {
+        return session.getService(DependencyResolver.class)
+                .resolve(session, project, PathScope.MAIN_RUNTIME)
+                .getPaths();
     }
 }
