@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FoundationBaker.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.scaffold</a> &gt; <span class="el_source">FoundationBaker.java</span></div><h1>FoundationBaker.java</h1><pre class="source lang-java linenums">package network.ike.plugin.scaffold;
+
+import network.ike.plugin.support.version.CandidateVersionResolver;
+import network.ike.plugin.support.version.MavenVersionComparator;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Release-time refresh of the scaffold manifest's {@code foundation:}
+ * block (IKE-Network/ike-issues#414).
+ *
+ * &lt;p&gt;The {@code foundation:} block in
+ * {@code ike-build-standards/src/main/scaffold/scaffold-manifest.yaml}
+ * is the tested-together compatibility snapshot a consumer picks up
+ * with a given {@code ike-tooling} scaffold. {@code ike-tooling.version}
+ * is filtered from {@code ${project.version}} and so is always correct;
+ * {@code ike-parent}, {@code ike-docs}, and {@code ike-platform} were
+ * hand-maintained literals. This class resolves their latest released
+ * (GA) versions from the configured remote repositories and rewrites
+ * the block, so the scaffold zip always ships a current snapshot
+ * without a manual edit.
+ *
+ * &lt;p&gt;This is the &lt;em&gt;discovery&lt;/em&gt; half of foundation currency — the
+ * scaffold {@code foundation:} block can only propagate a snapshot, it
+ * cannot find out a newer upstream version exists. Moving discovery to
+ * release-time bake here is what lets the scaffold mechanism own
+ * foundation currency end to end (the precondition for retiring the
+ * {@code versions-upgrade} subsystem, ike-issues#415).
+ */
+public final class FoundationBaker {
+
+    /**
+     * A foundation artifact whose pin is baked at release time.
+     *
+     * @param label      short human-readable name, e.g. {@code &quot;ike-parent&quot;}
+     * @param groupId    the Maven groupId
+     * @param artifactId the Maven artifactId
+     */
+<span class="fc" id="L42">    public record Coordinate(String label, String groupId,</span>
+                              String artifactId) {
+    }
+
+    /**
+     * {@code ike-parent} — carried in the {@code foundation.parent}
+     * block. {@code ike-tooling.version} is deliberately absent: it is
+     * filtered from {@code ${project.version}} and never baked.
+     */
+<span class="fc" id="L51">    public static final Coordinate IKE_PARENT = new Coordinate(</span>
+            &quot;ike-parent&quot;, &quot;network.ike.platform&quot;, &quot;ike-parent&quot;);
+
+    /** {@code ike-docs} — the {@code ike-docs.version} property pin. */
+<span class="fc" id="L55">    public static final Coordinate IKE_DOCS = new Coordinate(</span>
+            &quot;ike-docs&quot;, &quot;network.ike.docs&quot;, &quot;ike-docs&quot;);
+
+    /**
+     * {@code ike-platform} — the {@code ike-platform.version} pin.
+     *
+     * &lt;p&gt;{@code ike-parent}, {@code ike-bom}, {@code ike-workspace-maven-plugin}
+     * and the {@code network.ike.platform:ike-platform} reactor root all
+     * share one unified version, so this pin and {@link #IKE_PARENT}
+     * always resolve to the same release. {@link #assess} queries
+     * {@code ike-parent} once and answers both — the {@code groupId} /
+     * {@code artifactId} here document what the pin tracks but are not
+     * resolved independently.
+     */
+<span class="fc" id="L69">    public static final Coordinate IKE_PLATFORM = new Coordinate(</span>
+            &quot;ike-platform&quot;, &quot;network.ike.platform&quot;, &quot;ike-platform&quot;);
+
+    /**
+     * {@code ike-tooling} — tracks the {@code ike-tooling.version}
+     * property pin (the version line {@code ike-build-standards},
+     * {@code ike-maven-plugin} and the rest of the ike-tooling reactor
+     * share). Resolved only for the consumer-side
+     * {@link #latestFoundation} path; the release-time {@link #assess}
+     * never touches it — there it is {@code ${project.version}},
+     * correct by construction.
+     */
+<span class="fc" id="L81">    public static final Coordinate IKE_TOOLING = new Coordinate(</span>
+            &quot;ike-tooling&quot;, &quot;network.ike.tooling&quot;, &quot;ike-tooling&quot;);
+
+    /** Classification of a foundation pin against its latest GA. */
+<span class="fc" id="L85">    public enum Status {</span>
+        /** Latest GA is newer than the pin — a bake is needed. */
+<span class="fc" id="L87">        AHEAD,</span>
+        /** Pin already equals the latest GA. */
+<span class="fc" id="L89">        CURRENT,</span>
+        /** Pin is newer than any GA — a backward bake; release fails. */
+<span class="fc" id="L91">        BEHIND,</span>
+        /** No released version could be resolved for the coordinate. */
+<span class="fc" id="L93">        UNRESOLVED</span>
+    }
+
+    /**
+     * The assessment of one foundation pin.
+     *
+     * @param coordinate the artifact this pin tracks
+     * @param current    the version currently pinned in the manifest
+     * @param latest     the latest resolved GA, or {@code null} when
+     *                   {@link Status#UNRESOLVED}
+     * @param status     how {@code latest} relates to {@code current}
+     */
+<span class="fc" id="L105">    public record Finding(Coordinate coordinate, String current,</span>
+                           String latest, Status status) {
+    }
+
+    private FoundationBaker() {
+    }
+
+    /**
+     * Assess every baked foundation pin against the latest GA versions
+     * the resolver can see.
+     *
+     * &lt;p&gt;Two coordinates are resolved, not three: {@code ike-parent} and
+     * {@code ike-docs}. The {@code ike-platform.version} pin shares the
+     * unified ike-platform reactor version with {@code ike-parent}, so
+     * its {@link Finding} is derived from the same resolution rather
+     * than queried separately.
+     *
+     * @param foundation the manifest's current {@code foundation:} block
+     * @param resolver   resolves released versions for a coordinate
+     * @return one {@link Finding} per pin, in
+     *         {@code ike-parent, ike-docs, ike-platform} order
+     */
+    public static List&lt;Finding&gt; assess(ScaffoldManifest.Foundation foundation,
+                                        CandidateVersionResolver resolver) {
+<span class="fc" id="L129">        String platformLatest = resolveLatest(IKE_PARENT, resolver);</span>
+<span class="fc" id="L130">        String docsLatest = resolveLatest(IKE_DOCS, resolver);</span>
+<span class="fc" id="L131">        List&lt;Finding&gt; findings = new ArrayList&lt;&gt;(3);</span>
+<span class="fc" id="L132">        findings.add(classify(IKE_PARENT,</span>
+<span class="fc" id="L133">                foundation.parent().version(), platformLatest));</span>
+<span class="fc" id="L134">        findings.add(classify(IKE_DOCS,</span>
+<span class="fc" id="L135">                foundation.properties().get(&quot;ike-docs.version&quot;), docsLatest));</span>
+<span class="fc" id="L136">        findings.add(classify(IKE_PLATFORM,</span>
+<span class="fc" id="L137">                foundation.properties().get(&quot;ike-platform.version&quot;),</span>
+                platformLatest));
+<span class="fc" id="L139">        return findings;</span>
+    }
+
+    /**
+     * Resolve the highest released (GA) version of a coordinate, or
+     * {@code null} when nothing can be resolved.
+     */
+    private static String resolveLatest(Coordinate coord,
+                                        CandidateVersionResolver resolver) {
+        // resolveCandidates returns ascending GA-only versions.
+<span class="fc" id="L149">        List&lt;String&gt; candidates = resolver.resolveCandidates(</span>
+<span class="fc" id="L150">                coord.groupId(), coord.artifactId(), null);</span>
+<span class="fc bfc" id="L151" title="All 2 branches covered.">        return candidates.isEmpty() ? null</span>
+<span class="fc" id="L152">                : candidates.get(candidates.size() - 1);</span>
+    }
+
+    /**
+     * Resolve the latest released versions for every foundation pin and
+     * return a {@link ScaffoldManifest.Foundation} carrying them — the
+     * input snapshot with each version advanced to the latest GA the
+     * resolver can see.
+     *
+     * &lt;p&gt;The consumer-side counterpart to {@link #assess}: it lets
+     * {@code ike:scaffold-publish}'s opt-in resolve-latest mode apply
+     * &lt;em&gt;current&lt;/em&gt; foundation pins instead of the (possibly stale,
+     * parent-pinned) snapshot baked into the scaffold zip — the escape
+     * hatch for the bootstrap loop where a consumer's scaffold tooling
+     * is itself gated by the {@code ike-parent} it needs to bump.
+     *
+     * &lt;p&gt;A pin is only advanced, never lowered: when the resolved GA is
+     * not newer than the baked value, or cannot be resolved, the baked
+     * value is kept. A value containing {@code ${...}} is left verbatim.
+     *
+     * @param baked    the foundation snapshot from the scaffold zip
+     * @param resolver resolves released versions for a coordinate
+     * @return a foundation with each pin at the latest released version
+     */
+    public static ScaffoldManifest.Foundation latestFoundation(
+            ScaffoldManifest.Foundation baked,
+            CandidateVersionResolver resolver) {
+<span class="fc" id="L179">        String platform = resolveLatest(IKE_PARENT, resolver);</span>
+<span class="fc" id="L180">        String docs = resolveLatest(IKE_DOCS, resolver);</span>
+<span class="fc" id="L181">        String tooling = resolveLatest(IKE_TOOLING, resolver);</span>
+
+<span class="fc" id="L183">        ScaffoldManifest.ParentRef p = baked.parent();</span>
+<span class="fc" id="L184">        ScaffoldManifest.ParentRef parent = new ScaffoldManifest.ParentRef(</span>
+<span class="fc" id="L185">                p.groupId(), p.artifactId(), higher(p.version(), platform));</span>
+
+<span class="fc" id="L187">        Map&lt;String, String&gt; props = new LinkedHashMap&lt;&gt;(baked.properties());</span>
+<span class="fc" id="L188">        props.computeIfPresent(&quot;ike-tooling.version&quot;,</span>
+<span class="fc" id="L189">                (k, v) -&gt; higher(v, tooling));</span>
+<span class="fc" id="L190">        props.computeIfPresent(&quot;ike-docs.version&quot;,</span>
+<span class="fc" id="L191">                (k, v) -&gt; higher(v, docs));</span>
+<span class="fc" id="L192">        props.computeIfPresent(&quot;ike-platform.version&quot;,</span>
+<span class="fc" id="L193">                (k, v) -&gt; higher(v, platform));</span>
+<span class="fc" id="L194">        return new ScaffoldManifest.Foundation(parent, props);</span>
+    }
+
+    /**
+     * The higher of the baked and resolved versions. The baked value
+     * wins when the resolved one is {@code null}, when the baked value
+     * is an unresolved {@code ${...}} placeholder, or when the resolved
+     * one is not strictly newer — a pin is advanced, never lowered.
+     */
+    private static String higher(String baked, String resolved) {
+<span class="pc bpc" id="L204" title="1 of 6 branches missed.">        if (resolved == null || baked == null || baked.contains(&quot;${&quot;)) {</span>
+<span class="fc" id="L205">            return baked;</span>
+        }
+<span class="fc bfc" id="L207" title="All 2 branches covered.">        return MavenVersionComparator.INSTANCE.compare(resolved, baked) &gt; 0</span>
+<span class="fc" id="L208">                ? resolved : baked;</span>
+    }
+
+    /** Classify a pin's current value against the resolved latest GA. */
+    private static Finding classify(Coordinate coord, String current,
+                                    String latest) {
+<span class="fc bfc" id="L214" title="All 2 branches covered.">        if (latest == null) {</span>
+<span class="fc" id="L215">            return new Finding(coord, current, null, Status.UNRESOLVED);</span>
+        }
+<span class="pc bpc" id="L217" title="1 of 2 branches missed.">        int cmp = current == null ? 1</span>
+<span class="fc" id="L218">                : MavenVersionComparator.INSTANCE.compare(latest, current);</span>
+<span class="fc bfc" id="L219" title="All 2 branches covered.">        Status status = cmp &gt; 0 ? Status.AHEAD</span>
+<span class="fc bfc" id="L220" title="All 2 branches covered.">                : cmp == 0 ? Status.CURRENT</span>
+<span class="fc" id="L221">                : Status.BEHIND;</span>
+<span class="fc" id="L222">        return new Finding(coord, current, latest, status);</span>
+    }
+
+    /**
+     * Rewrite the {@code foundation:} block of a scaffold-manifest YAML
+     * document, applying every {@link Status#AHEAD} finding. Only the
+     * version values change — comments, indentation, key order, and the
+     * rest of the document are byte-preserved.
+     *
+     * @param manifestYaml the full scaffold-manifest.yaml content
+     * @param findings      the assessment from {@link #assess}
+     * @return the rewritten content; identical to the input when no
+     *         finding is {@link Status#AHEAD}
+     */
+    public static String rewrite(String manifestYaml,
+                                 List&lt;Finding&gt; findings) {
+<span class="fc" id="L238">        String parentTarget = aheadTarget(findings, IKE_PARENT);</span>
+<span class="fc" id="L239">        String docsTarget = aheadTarget(findings, IKE_DOCS);</span>
+<span class="fc" id="L240">        String platformTarget = aheadTarget(findings, IKE_PLATFORM);</span>
+<span class="pc bpc" id="L241" title="2 of 6 branches missed.">        if (parentTarget == null &amp;&amp; docsTarget == null</span>
+                &amp;&amp; platformTarget == null) {
+<span class="fc" id="L243">            return manifestYaml;</span>
+        }
+
+<span class="fc" id="L246">        String[] lines = manifestYaml.split(&quot;\n&quot;, -1);</span>
+<span class="fc" id="L247">        boolean inFoundation = false;</span>
+<span class="fc" id="L248">        boolean parentDone = false;</span>
+<span class="pc bpc" id="L249" title="1 of 2 branches missed.">        for (int i = 0; i &lt; lines.length; i++) {</span>
+<span class="fc" id="L250">            String line = lines[i];</span>
+<span class="fc" id="L251">            String trimmed = line.strip();</span>
+
+<span class="fc bfc" id="L253" title="All 2 branches covered.">            if (trimmed.equals(&quot;foundation:&quot;)) {</span>
+<span class="fc" id="L254">                inFoundation = true;</span>
+<span class="fc" id="L255">                continue;</span>
+            }
+<span class="fc bfc" id="L257" title="All 2 branches covered.">            if (!inFoundation) {</span>
+<span class="fc" id="L258">                continue;</span>
+            }
+            // Foundation block ends at the next column-0 key.
+<span class="fc bfc" id="L261" title="All 4 branches covered.">            if (!line.isBlank() &amp;&amp; !line.startsWith(&quot; &quot;)</span>
+<span class="pc bpc" id="L262" title="1 of 2 branches missed.">                    &amp;&amp; !trimmed.startsWith(&quot;#&quot;)) {</span>
+<span class="fc" id="L263">                break;</span>
+            }
+
+<span class="pc bpc" id="L266" title="1 of 4 branches missed.">            if (parentTarget != null &amp;&amp; !parentDone</span>
+<span class="fc bfc" id="L267" title="All 2 branches covered.">                    &amp;&amp; trimmed.startsWith(&quot;version:&quot;)) {</span>
+                // The only bare `version:` key in the block is the
+                // parent's — property pins are `&lt;name&gt;.version:`.
+<span class="fc" id="L270">                lines[i] = replaceValue(line, parentTarget);</span>
+<span class="fc" id="L271">                parentDone = true;</span>
+<span class="pc bpc" id="L272" title="1 of 2 branches missed.">            } else if (docsTarget != null</span>
+<span class="fc bfc" id="L273" title="All 2 branches covered.">                    &amp;&amp; trimmed.startsWith(&quot;ike-docs.version:&quot;)) {</span>
+<span class="fc" id="L274">                lines[i] = replaceValue(line, docsTarget);</span>
+<span class="pc bpc" id="L275" title="1 of 2 branches missed.">            } else if (platformTarget != null</span>
+<span class="fc bfc" id="L276" title="All 2 branches covered.">                    &amp;&amp; trimmed.startsWith(&quot;ike-platform.version:&quot;)) {</span>
+<span class="fc" id="L277">                lines[i] = replaceValue(line, platformTarget);</span>
+            }
+        }
+<span class="fc" id="L280">        return String.join(&quot;\n&quot;, lines);</span>
+    }
+
+    /**
+     * The latest version for {@code coord} when its finding is
+     * {@link Status#AHEAD}, else {@code null}.
+     */
+    private static String aheadTarget(List&lt;Finding&gt; findings,
+                                      Coordinate coord) {
+<span class="fc bfc" id="L289" title="All 2 branches covered.">        for (Finding f : findings) {</span>
+<span class="fc bfc" id="L290" title="All 4 branches covered.">            if (f.coordinate().equals(coord) &amp;&amp; f.status() == Status.AHEAD) {</span>
+<span class="fc" id="L291">                return f.latest();</span>
+            }
+<span class="fc" id="L293">        }</span>
+<span class="fc" id="L294">        return null;</span>
+    }
+
+    /**
+     * Replace the quoted value of a {@code key: &quot;value&quot;} YAML line,
+     * preserving the leading indentation and the key.
+     */
+    private static String replaceValue(String line, String newValue) {
+<span class="fc" id="L302">        int colon = line.indexOf(':');</span>
+<span class="fc" id="L303">        return line.substring(0, colon + 1) + &quot; \&quot;&quot; + newValue + &quot;\&quot;&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

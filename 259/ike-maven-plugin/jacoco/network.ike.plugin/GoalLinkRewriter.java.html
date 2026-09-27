@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GoalLinkRewriter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">GoalLinkRewriter.java</span></div><h1>GoalLinkRewriter.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.Log;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+
+/**
+ * Post-render pass that turns inline Maven goal references in the
+ * generated site HTML into links to their published goal documentation.
+ *
+ * &lt;p&gt;An inline monospaced goal token such as {@code &lt;code&gt;ws:checkpoint-publish&lt;/code&gt;}
+ * becomes
+ * {@code &lt;a href=&quot;…/ws-goals.html#checkpoint-publish&quot;&gt;&lt;code&gt;ws:checkpoint-publish&lt;/code&gt;&lt;/a&gt;}.
+ * Links always point at the &lt;em&gt;{@code /latest/}&lt;/em&gt; goal-reference page
+ * (version-independent), so a page never pins a goal link to a specific
+ * release:
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code ws:&lt;goal&gt;} → {@value #WS_GOALS_BASE}{@code &lt;goal&gt;}&lt;/li&gt;
+ *   &lt;li&gt;{@code ike:&lt;goal&gt;} → {@value #IKE_GOALS_BASE}{@code &lt;goal&gt;}&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;The rewrite runs against the already-rendered HTML rather than
+ * during AsciiDoc parsing because the site is rendered by
+ * {@code asciidoctor-parser-doxia-module}, which does not invoke
+ * AsciidoctorJ extensions (verified — neither tree- nor postprocessors
+ * fire). Operating on the final HTML also makes the behaviour uniform
+ * across every {@code ike:site-publish}-deployed site with one
+ * implementation (IKE-Network/ike-issues#783).
+ *
+ * &lt;p&gt;Tokens are skipped when they sit inside a {@code &lt;pre&gt;} code listing
+ * (a command example is not a cross-reference) or are already inside an
+ * {@code &lt;a&gt;} (so a hand-authored link is never double-wrapped). Only the
+ * matched {@code &lt;code&gt;} spans are modified; the rest of each page is left
+ * byte-for-byte unchanged.
+ */
+public final class GoalLinkRewriter {
+
+    private GoalLinkRewriter() {}
+
+    /** Base URL (latest) of the {@code ws} plugin goal reference, anchor-ready. */
+    static final String WS_GOALS_BASE =
+            &quot;https://ike.network/ike-platform/latest/ike-workspace-maven-plugin/ws-goals.html#&quot;;
+
+    /** Base URL (latest) of the {@code ike} plugin goal reference, anchor-ready. */
+    static final String IKE_GOALS_BASE =
+            &quot;https://ike.network/ike-tooling/latest/ike-maven-plugin/index.html#&quot;;
+
+    /**
+     * Overrides for goals whose documentation anchor differs from the goal
+     * name. On the handwritten goal-reference pages a few goals have no
+     * dedicated anchor — a draft variant documented under its publish
+     * sibling, or a goal covered only within a section — so without an
+     * override the link would land at the top of the page. Keyed by
+     * {@code prefix:goal}; goals not listed use their own name as the
+     * anchor. Extend as new gaps surface (IKE-Network/ike-issues#783).
+     */
+<span class="fc" id="L67">    private static final Map&lt;String, String&gt; ANCHOR_ALIASES = Map.of(</span>
+            &quot;ws:checkpoint-draft&quot;, &quot;checkpoint-publish&quot;,
+            &quot;ike:release-changelog&quot;, &quot;release-goals&quot;);
+
+    /**
+     * An inline monospaced goal token: a {@code &lt;code&gt;} element (optionally
+     * carrying attributes) whose entire content is {@code ws:&lt;goal&gt;} or
+     * {@code ike:&lt;goal&gt;}. Group 1 is the prefix, group 2 the goal name.
+     */
+<span class="fc" id="L76">    private static final Pattern CODE_GOAL = Pattern.compile(</span>
+            &quot;&lt;code(?:\\s[^&gt;]*)?&gt;(ws|ike):([a-z][a-z0-9-]*)&lt;/code&gt;&quot;);
+
+    /**
+     * Regions whose goal tokens must not be linked: code listings
+     * ({@code &lt;pre&gt;…&lt;/pre&gt;}) and existing anchors ({@code &lt;a&gt;…&lt;/a&gt;}).
+     * Reluctant quantifiers are safe because neither element nests in
+     * valid HTML output.
+     */
+<span class="fc" id="L85">    private static final Pattern SKIP_REGION = Pattern.compile(</span>
+            &quot;&lt;pre\\b[^&gt;]*&gt;.*?&lt;/pre&gt;|&lt;a\\b[^&gt;]*&gt;.*?&lt;/a&gt;&quot;,
+            Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Rewrite every {@code *.html} file under {@code siteDir} in place,
+     * linking inline goal references to their latest goal docs.
+     *
+     * &lt;p&gt;Best-effort: a read/write failure on one file aborts the walk but
+     * is reported as a non-fatal warning rather than failing the publish.
+     * Files with no goal references are left untouched (not rewritten).
+     *
+     * @param siteDir root of a rendered site tree (e.g. {@code target/site}
+     *                or {@code target/staging}); {@code null} or a
+     *                non-directory is a no-op
+     * @param log     Maven logger for the summary line
+     * @return the total number of goal references linked
+     */
+    public static int rewriteSiteHtml(Path siteDir, Log log) {
+<span class="fc bfc" id="L104" title="All 4 branches covered.">        if (siteDir == null || !Files.isDirectory(siteDir)) {</span>
+<span class="fc" id="L105">            return 0;</span>
+        }
+<span class="fc" id="L107">        int[] totalLinks = {0};</span>
+<span class="fc" id="L108">        int[] touchedFiles = {0};</span>
+<span class="fc" id="L109">        try (Stream&lt;Path&gt; walk = Files.walk(siteDir)) {</span>
+<span class="fc" id="L110">            walk.filter(Files::isRegularFile)</span>
+<span class="fc" id="L111">                .filter(path -&gt; path.getFileName().toString().endsWith(&quot;.html&quot;))</span>
+<span class="fc" id="L112">                .forEach(path -&gt; {</span>
+                    try {
+<span class="fc" id="L114">                        String html = Files.readString(path, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L115">                        Result result = rewriteHtml(html);</span>
+<span class="fc bfc" id="L116" title="All 2 branches covered.">                        if (result.count() &gt; 0) {</span>
+<span class="fc" id="L117">                            Files.writeString(path, result.html(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L118">                            totalLinks[0] += result.count();</span>
+<span class="fc" id="L119">                            touchedFiles[0]++;</span>
+                        }
+<span class="nc" id="L121">                    } catch (IOException e) {</span>
+<span class="nc" id="L122">                        throw new UncheckedIOException(e);</span>
+<span class="fc" id="L123">                    }</span>
+<span class="fc" id="L124">                });</span>
+<span class="nc" id="L125">        } catch (IOException | UncheckedIOException e) {</span>
+<span class="nc" id="L126">            log.warn(&quot;  ⚠ Goal auto-link: skipped (non-fatal): &quot; + e.getMessage());</span>
+<span class="nc" id="L127">            return totalLinks[0];</span>
+<span class="fc" id="L128">        }</span>
+<span class="pc bpc" id="L129" title="1 of 2 branches missed.">        if (totalLinks[0] &gt; 0) {</span>
+<span class="fc" id="L130">            log.info(&quot;  Goal auto-link: linked &quot; + totalLinks[0]</span>
+                    + &quot; goal reference(s) across &quot; + touchedFiles[0] + &quot; page(s)&quot;);
+        }
+<span class="fc" id="L133">        return totalLinks[0];</span>
+    }
+
+    /**
+     * Outcome of rewriting one HTML document.
+     *
+     * @param html  the rewritten HTML (unchanged when {@code count == 0})
+     * @param count the number of goal references linked
+     */
+<span class="fc" id="L142">    record Result(String html, int count) {}</span>
+
+    /**
+     * Link inline goal references in a single HTML document.
+     *
+     * @param html the rendered HTML page (may be {@code null})
+     * @return the rewrite result; the original HTML and a count of 0 when
+     *         there is nothing to link
+     */
+    static Result rewriteHtml(String html) {
+<span class="fc bfc" id="L152" title="All 4 branches covered.">        if (html == null || html.isEmpty()) {</span>
+<span class="fc" id="L153">            return new Result(html, 0);</span>
+        }
+<span class="fc" id="L155">        List&lt;int[]&gt; skip = skipRanges(html);</span>
+<span class="fc" id="L156">        Matcher matcher = CODE_GOAL.matcher(html);</span>
+<span class="fc" id="L157">        StringBuilder out = new StringBuilder(html.length() + 256);</span>
+<span class="fc" id="L158">        int last = 0;</span>
+<span class="fc" id="L159">        int count = 0;</span>
+<span class="fc bfc" id="L160" title="All 2 branches covered.">        while (matcher.find()) {</span>
+<span class="fc bfc" id="L161" title="All 2 branches covered.">            if (inSkippedRange(matcher.start(), skip)) {</span>
+<span class="fc" id="L162">                continue;</span>
+            }
+<span class="fc" id="L164">            String prefix = matcher.group(1);</span>
+<span class="fc" id="L165">            String goal = matcher.group(2);</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">            String base = &quot;ws&quot;.equals(prefix) ? WS_GOALS_BASE : IKE_GOALS_BASE;</span>
+<span class="fc" id="L167">            String anchor = ANCHOR_ALIASES.getOrDefault(prefix + &quot;:&quot; + goal, goal);</span>
+<span class="fc" id="L168">            out.append(html, last, matcher.start());</span>
+<span class="fc" id="L169">            out.append(&quot;&lt;a href=\&quot;&quot;).append(base).append(anchor).append(&quot;\&quot;&gt;&quot;)</span>
+<span class="fc" id="L170">               .append(matcher.group()).append(&quot;&lt;/a&gt;&quot;);</span>
+<span class="fc" id="L171">            last = matcher.end();</span>
+<span class="fc" id="L172">            count++;</span>
+<span class="fc" id="L173">        }</span>
+<span class="fc bfc" id="L174" title="All 2 branches covered.">        if (count == 0) {</span>
+<span class="fc" id="L175">            return new Result(html, 0);</span>
+        }
+<span class="fc" id="L177">        out.append(html, last, html.length());</span>
+<span class="fc" id="L178">        return new Result(out.toString(), count);</span>
+    }
+
+    /** Collect {@code [start, end)} ranges of skipped regions, in order. */
+    private static List&lt;int[]&gt; skipRanges(String html) {
+<span class="fc" id="L183">        List&lt;int[]&gt; ranges = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L184">        Matcher matcher = SKIP_REGION.matcher(html);</span>
+<span class="fc bfc" id="L185" title="All 2 branches covered.">        while (matcher.find()) {</span>
+<span class="fc" id="L186">            ranges.add(new int[] {matcher.start(), matcher.end()});</span>
+        }
+<span class="fc" id="L188">        return ranges;</span>
+    }
+
+    /** True when {@code pos} falls inside any skipped region. */
+    private static boolean inSkippedRange(int pos, List&lt;int[]&gt; ranges) {
+<span class="fc bfc" id="L193" title="All 2 branches covered.">        for (int[] range : ranges) {</span>
+<span class="fc bfc" id="L194" title="All 4 branches covered.">            if (pos &gt;= range[0] &amp;&amp; pos &lt; range[1]) {</span>
+<span class="fc" id="L195">                return true;</span>
+            }
+<span class="fc" id="L197">        }</span>
+<span class="fc" id="L198">        return false;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

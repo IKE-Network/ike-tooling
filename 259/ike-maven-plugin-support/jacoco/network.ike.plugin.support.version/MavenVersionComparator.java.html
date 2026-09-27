@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MavenVersionComparator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin Support</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.support.version</a> &gt; <span class="el_source">MavenVersionComparator.java</span></div><h1>MavenVersionComparator.java</h1><pre class="source lang-java linenums">package network.ike.plugin.support.version;
+
+import java.util.Comparator;
+
+/**
+ * Comparator that orders Maven version strings the same way Maven 4's
+ * {@code DefaultArtifactVersion} does — broadly: split on
+ * {@code .}/{@code -}/{@code _}/digit-letter transitions, compare
+ * numeric segments numerically, alpha segments lexicographically with
+ * a few well-known qualifier ranks ({@code alpha &lt; beta &lt; milestone &lt;
+ * rc &lt; snapshot &lt; (release) &lt; sp}).
+ *
+ * &lt;p&gt;This is a pragmatic re-implementation, not a full clone of
+ * Maven's {@code ComparableVersion}. It handles the kinds of versions
+ * IKE actually publishes (single-segment integer like {@code &quot;127&quot;};
+ * dotted like {@code &quot;1.59.0&quot;}; SNAPSHOT-suffixed like
+ * {@code &quot;128-SNAPSHOT&quot;}) plus the common third-party patterns we
+ * regularly upgrade against (e.g., JUnit
+ * {@code &quot;5.11.4&quot;}, asciidoctorj {@code &quot;3.0.1&quot;}). Using a hand-rolled
+ * comparator avoids forcing every caller of
+ * {@link CandidateVersionResolver} to depend on {@code maven-artifact}.
+ */
+public final class MavenVersionComparator implements Comparator&lt;String&gt; {
+
+    /** Shared instance. */
+<span class="fc" id="L26">    public static final MavenVersionComparator INSTANCE =</span>
+            new MavenVersionComparator();
+
+    private MavenVersionComparator() {}
+
+    @Override
+    public int compare(String a, String b) {
+<span class="fc bfc" id="L33" title="All 4 branches covered.">        if (a == null &amp;&amp; b == null) {</span>
+<span class="fc" id="L34">            return 0;</span>
+        }
+<span class="fc bfc" id="L36" title="All 2 branches covered.">        if (a == null) {</span>
+<span class="fc" id="L37">            return -1;</span>
+        }
+<span class="fc bfc" id="L39" title="All 2 branches covered.">        if (b == null) {</span>
+<span class="fc" id="L40">            return 1;</span>
+        }
+<span class="fc" id="L42">        String[] aSegs = split(a);</span>
+<span class="fc" id="L43">        String[] bSegs = split(b);</span>
+<span class="fc" id="L44">        int len = Math.max(aSegs.length, bSegs.length);</span>
+<span class="fc bfc" id="L45" title="All 2 branches covered.">        for (int i = 0; i &lt; len; i++) {</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">            String aSeg = i &lt; aSegs.length ? aSegs[i] : &quot;&quot;;</span>
+<span class="fc bfc" id="L47" title="All 2 branches covered.">            String bSeg = i &lt; bSegs.length ? bSegs[i] : &quot;&quot;;</span>
+<span class="fc" id="L48">            int c = compareSegment(aSeg, bSeg);</span>
+<span class="fc bfc" id="L49" title="All 2 branches covered.">            if (c != 0) {</span>
+<span class="fc" id="L50">                return c;</span>
+            }
+        }
+<span class="fc" id="L53">        return 0;</span>
+    }
+
+    /**
+     * Split a version string into comparable segments. Splits on
+     * {@code .}, {@code -}, and {@code _}; also inserts a split at
+     * each digit/letter transition so {@code &quot;1rc1&quot;} becomes
+     * {@code [&quot;1&quot;,&quot;rc&quot;,&quot;1&quot;]}.
+     *
+     * @param v version string
+     * @return segments in order
+     */
+    static String[] split(String v) {
+<span class="fc" id="L66">        java.util.ArrayList&lt;String&gt; out = new java.util.ArrayList&lt;&gt;();</span>
+<span class="fc" id="L67">        StringBuilder current = new StringBuilder();</span>
+<span class="fc" id="L68">        boolean lastDigit = false;</span>
+<span class="fc bfc" id="L69" title="All 2 branches covered.">        for (int i = 0; i &lt; v.length(); i++) {</span>
+<span class="fc" id="L70">            char c = v.charAt(i);</span>
+<span class="pc bpc" id="L71" title="1 of 6 branches missed.">            if (c == '.' || c == '-' || c == '_') {</span>
+<span class="pc bpc" id="L72" title="1 of 2 branches missed.">                if (current.length() &gt; 0) {</span>
+<span class="fc" id="L73">                    out.add(current.toString());</span>
+<span class="fc" id="L74">                    current.setLength(0);</span>
+                }
+<span class="fc" id="L76">                lastDigit = false;</span>
+<span class="fc" id="L77">                continue;</span>
+            }
+<span class="fc" id="L79">            boolean isDigit = Character.isDigit(c);</span>
+<span class="fc bfc" id="L80" title="All 4 branches covered.">            if (current.length() &gt; 0 &amp;&amp; isDigit != lastDigit) {</span>
+<span class="fc" id="L81">                out.add(current.toString());</span>
+<span class="fc" id="L82">                current.setLength(0);</span>
+            }
+<span class="fc" id="L84">            current.append(c);</span>
+<span class="fc" id="L85">            lastDigit = isDigit;</span>
+        }
+<span class="pc bpc" id="L87" title="1 of 2 branches missed.">        if (current.length() &gt; 0) {</span>
+<span class="fc" id="L88">            out.add(current.toString());</span>
+        }
+<span class="fc" id="L90">        return out.toArray(new String[0]);</span>
+    }
+
+    private static int compareSegment(String a, String b) {
+<span class="fc" id="L94">        boolean aDigit = isAllDigits(a);</span>
+<span class="fc" id="L95">        boolean bDigit = isAllDigits(b);</span>
+<span class="pc bpc" id="L96" title="1 of 4 branches missed.">        if (aDigit &amp;&amp; bDigit) {</span>
+            // Numeric segments compare numerically. Strip leading
+            // zeros to avoid Long overflow on absurd inputs; we don't
+            // expect huge segments anyway.
+<span class="fc" id="L100">            return compareNumeric(a, b);</span>
+        }
+<span class="pc bpc" id="L102" title="1 of 2 branches missed.">        if (aDigit) {</span>
+            // Numeric beats alpha (1.0 &gt; 1.0-alpha)
+<span class="nc" id="L104">            return 1;</span>
+        }
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">        if (bDigit) {</span>
+<span class="nc" id="L107">            return -1;</span>
+        }
+<span class="fc" id="L109">        return Integer.compare(qualifierRank(a), qualifierRank(b));</span>
+    }
+
+    private static boolean isAllDigits(String s) {
+<span class="fc bfc" id="L113" title="All 2 branches covered.">        if (s.isEmpty()) {</span>
+<span class="fc" id="L114">            return false;</span>
+        }
+<span class="fc bfc" id="L116" title="All 2 branches covered.">        for (int i = 0; i &lt; s.length(); i++) {</span>
+<span class="fc bfc" id="L117" title="All 2 branches covered.">            if (!Character.isDigit(s.charAt(i))) {</span>
+<span class="fc" id="L118">                return false;</span>
+            }
+        }
+<span class="fc" id="L121">        return true;</span>
+    }
+
+    private static int compareNumeric(String a, String b) {
+        // Strip leading zeros; compare by length then char-by-char.
+<span class="fc" id="L126">        String an = a.replaceFirst(&quot;^0+(?!$)&quot;, &quot;&quot;);</span>
+<span class="fc" id="L127">        String bn = b.replaceFirst(&quot;^0+(?!$)&quot;, &quot;&quot;);</span>
+<span class="fc bfc" id="L128" title="All 2 branches covered.">        if (an.length() != bn.length()) {</span>
+<span class="fc" id="L129">            return Integer.compare(an.length(), bn.length());</span>
+        }
+<span class="fc" id="L131">        return an.compareTo(bn);</span>
+    }
+
+    /**
+     * Rank known qualifiers so {@code alpha &lt; beta &lt; milestone &lt; rc &lt;
+     * snapshot &lt; (anything else, including release names) &lt; sp}. This
+     * matches the practical ordering Maven uses for these qualifiers.
+     *
+     * @param qualifier qualifier string (case-insensitive)
+     * @return ordering rank (lower comes first)
+     */
+    private static int qualifierRank(String qualifier) {
+<span class="fc" id="L143">        String q = qualifier.toLowerCase(java.util.Locale.ROOT);</span>
+<span class="pc bpc" id="L144" title="2 of 8 branches missed.">        return switch (q) {</span>
+<span class="fc" id="L145">            case &quot;a&quot;, &quot;alpha&quot; -&gt; 1;</span>
+<span class="fc" id="L146">            case &quot;b&quot;, &quot;beta&quot; -&gt; 2;</span>
+<span class="nc" id="L147">            case &quot;m&quot;, &quot;milestone&quot; -&gt; 3;</span>
+<span class="fc" id="L148">            case &quot;rc&quot;, &quot;cr&quot; -&gt; 4;</span>
+<span class="fc" id="L149">            case &quot;snapshot&quot; -&gt; 5;</span>
+<span class="fc" id="L150">            case &quot;ga&quot;, &quot;final&quot;, &quot;release&quot;, &quot;&quot; -&gt; 6;</span>
+<span class="fc" id="L151">            case &quot;sp&quot; -&gt; 7;</span>
+<span class="nc" id="L152">            default -&gt; 6; // unknown alpha tags compare equal to release</span>
+        };
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

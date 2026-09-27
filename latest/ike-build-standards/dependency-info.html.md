@@ -12,7 +12,7 @@ canonical_url: https://ike.network/ike-tooling/ike-build-standards/dependency-in
 <dependency>
   <groupId>network.ike.tooling</groupId>
   <artifactId>ike-build-standards</artifactId>
-  <version>258</version>
+  <version>259</version>
   <type>pom</type>
 </dependency>
 ```
@@ -20,7 +20,7 @@ canonical_url: https://ike.network/ike-tooling/ike-build-standards/dependency-in
 ## [Apache Ivy](#apache-ivy)
 
 ```
-<dependency org="network.ike.tooling" name="ike-build-standards" rev="258">
+<dependency org="network.ike.tooling" name="ike-build-standards" rev="259">
   <artifact name="ike-build-standards" type="pom" />
 </dependency>
 ```
@@ -29,24 +29,24 @@ canonical_url: https://ike.network/ike-tooling/ike-build-standards/dependency-in
 
 ```
 @Grapes(
-@Grab(group='network.ike.tooling', module='ike-build-standards', version='258')
+@Grab(group='network.ike.tooling', module='ike-build-standards', version='259')
 )
 ```
 
 ## [Gradle/Grails](#gradle-grails)
 
 ```
-implementation 'network.ike.tooling:ike-build-standards:258'
+implementation 'network.ike.tooling:ike-build-standards:259'
 ```
 
 ## [Scala SBT](#scala-sbt)
 
 ```
-libraryDependencies += "network.ike.tooling" % "ike-build-standards" % "258"
+libraryDependencies += "network.ike.tooling" % "ike-build-standards" % "259"
 ```
 
 ## [Leiningen](#leiningen)
 
 ```
-[network.ike.tooling/ike-build-standards "258"]
+[network.ike.tooling/ike-build-standards "259"]
 ```

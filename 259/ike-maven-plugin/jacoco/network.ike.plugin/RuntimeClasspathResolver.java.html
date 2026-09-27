@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RuntimeClasspathResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">RuntimeClasspathResolver.java</span></div><h1>RuntimeClasspathResolver.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.PathScope;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.services.DependencyResolver;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
+
+/**
+ * The one entry point through which this plugin's goals resolve a project's
+ * {@code MAIN_RUNTIME} classpath (IKE-Network/ike-issues#901).
+ *
+ * &lt;p&gt;Maven 4 rc-5's {@code DefaultDependencyResolver} keeps its session-scoped module
+ * cache in a plain, unsynchronized {@code HashMap}: two goals resolving concurrently in
+ * a {@code -T} reactor race its {@code computeIfAbsent} and fail with
+ * {@code ConcurrentModificationException} — observed nondeterministically from
+ * {@code knowledge-export} and {@code knowledge-bindings} building the ike-starter-set
+ * reactor in parallel. The defect is in Maven core, not in this plugin's own state, so
+ * the remedy here is to serialize just this plugin's entry into the racy API with a
+ * JVM-wide lock. Resolution is fast and per-project, so the contention cost is
+ * negligible; remove the lock when the build adopts a Maven release carrying the
+ * announced rc-6 {@code -T} concurrency fixes.
+ */
+final class RuntimeClasspathResolver {
+
+<span class="nc" id="L44">    private static final ReentrantLock RESOLVER_LOCK = new ReentrantLock();</span>
+
+    private RuntimeClasspathResolver() {
+    }
+
+    /**
+     * Resolves the project's {@code MAIN_RUNTIME} dependency paths, serialized
+     * JVM-wide against every other goal in this plugin doing the same.
+     *
+     * @param session the Maven session
+     * @param project the project whose runtime classpath to resolve
+     * @return the resolved dependency paths, in resolver order
+     */
+    static List&lt;Path&gt; mainRuntimePaths(Session session, Project project) {
+<span class="nc" id="L58">        RESOLVER_LOCK.lock();</span>
+        try {
+<span class="nc" id="L60">            return session.getService(DependencyResolver.class)</span>
+<span class="nc" id="L61">                    .resolve(session, project, PathScope.MAIN_RUNTIME)</span>
+<span class="nc" id="L62">                    .getPaths();</span>
+        } finally {
+<span class="nc" id="L64">            RESOLVER_LOCK.unlock();</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

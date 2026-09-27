@@ -1,0 +1,522 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CodesignPkgMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">CodesignPkgMojo.java</span></div><h1>CodesignPkgMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Re-sign the {@code .app} bundle inside a jpackage-produced {@code .pkg}
+ * installer to add macOS entitlements required by the JVM.
+ *
+ * &lt;p&gt;This workaround exists because of &lt;a
+ * href=&quot;https://bugs.openjdk.org/browse/JDK-8358723&quot;&gt;JDK-8358723&lt;/a&gt;:
+ * {@code jpackage --mac-sign} in older JDKs signs the main launcher and
+ * nested runtime binaries without entitlements, so the JVM's JIT
+ * entitlements ({@code com.apple.security.cs.allow-jit}, etc.) are
+ * missing.  Without them the JVM crashes immediately on Apple Silicon
+ * with {@code EXC_BREAKPOINT} in {@code pthread_jit_write_protect_np}.
+ *
+ * &lt;p&gt;The fix for JDK-8358723 is backported to &lt;b&gt;JDK 25.0.2+&lt;/b&gt; via
+ * &lt;a href=&quot;https://bugs.openjdk.org/browse/JDK-8369477&quot;&gt;JDK-8369477&lt;/a&gt;
+ * (OpenJDK 25.0.2 Jan 2026 CPU; Oracle JDK 25.0.3 Apr 2026 CPU) and is
+ * present in JDK 26 mainline.  On those JDKs jpackage signs correctly,
+ * and re-signing on top produces a signature variant macOS 26.4's notary
+ * rejects.  This goal therefore &lt;b&gt;auto-skips on JDK 25.0.2 or newer&lt;/b&gt;.
+ *
+ * &lt;p&gt;This goal post-processes the {@code .pkg} (only on JDK &amp;lt; 25.0.2):
+ * &lt;ol&gt;
+ *   &lt;li&gt;Expands the {@code .pkg} with {@code pkgutil --expand}&lt;/li&gt;
+ *   &lt;li&gt;Extracts the Payload (gzip + cpio archive)&lt;/li&gt;
+ *   &lt;li&gt;Re-signs the main executable and {@code .app} bundle with entitlements&lt;/li&gt;
+ *   &lt;li&gt;Repacks the Payload and regenerates the BOM&lt;/li&gt;
+ *   &lt;li&gt;Flattens the {@code .pkg} with {@code pkgutil --flatten}&lt;/li&gt;
+ *   &lt;li&gt;Signs the {@code .pkg} with {@code productsign}&lt;/li&gt;
+ * &lt;/ol&gt;
+ *
+ * &lt;p&gt;Bind this goal after jpackage but before notarization:
+ * &lt;pre&gt;{@code
+ * &lt;execution&gt;
+ *     &lt;id&gt;codesign-pkg&lt;/id&gt;
+ *     &lt;phase&gt;verify[0.5]&lt;/phase&gt;
+ *     &lt;goals&gt;&lt;goal&gt;codesign-pkg&lt;/goal&gt;&lt;/goals&gt;
+ *     &lt;configuration&gt;
+ *         &lt;entitlementsFile&gt;${project.basedir}/src/main/resources/installer/resourceDir_unix/default.plist&lt;/entitlementsFile&gt;
+ *     &lt;/configuration&gt;
+ * &lt;/execution&gt;
+ * }&lt;/pre&gt;
+ *
+ * &lt;p&gt;On non-macOS platforms the goal skips silently.  Set
+ * {@code -Dcodesign.pkg.forceWorkaround=true} to run the re-sign on
+ * JDK 25.0.2+ (debugging only).
+ */
+@Mojo(name = IkeGoal.NAME_CODESIGN_PKG,
+      defaultPhase = &quot;verify&quot;,
+      projectRequired = true)
+public class CodesignPkgMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L77">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /** Creates this goal instance. */
+<span class="fc" id="L80">    public CodesignPkgMojo() {}</span>
+
+    /**
+     * Directory containing the {@code .pkg} files produced by jpackage.
+     */
+    @Parameter(property = &quot;codesign.pkgDir&quot;,
+               defaultValue = &quot;${project.build.directory}/jreleaser/assemble/komet/jpackage&quot;)
+    private File pkgDir;
+
+    /**
+     * The {@code codesign} signing identity for the application.
+     * Typically {@code &quot;Developer ID Application: Name (TEAMID)&quot;}.
+     *
+     * &lt;p&gt;The installer signing identity is derived automatically by
+     * replacing &quot;Application&quot; with &quot;Installer&quot;.
+     */
+    @Parameter(property = &quot;codesign.identity&quot;)
+    private String signingIdentity;
+
+    /**
+     * Path to the entitlements plist file.
+     */
+    @Parameter(property = &quot;codesign.entitlements&quot;)
+    private File entitlementsFile;
+
+    /**
+     * Skip this goal entirely.
+     */
+    @Parameter(property = &quot;codesign.pkg.skip&quot;, defaultValue = &quot;false&quot;)
+    private boolean skip;
+
+    /**
+     * Treat a signing identity that is absent from the keychain as a
+     * hard failure rather than a graceful skip.
+     *
+     * &lt;p&gt;Off by default so a routine build on a machine without the
+     * configured Developer ID certificate still succeeds — it logs a
+     * warning and skips signing. Release builds set this to {@code true}
+     * so a missing identity fails the build loudly instead of silently
+     * shipping an unsigned installer.
+     */
+    @Parameter(property = &quot;codesign.requireIdentity&quot;, defaultValue = &quot;false&quot;)
+    private boolean requireIdentity;
+
+    /**
+     * Force the entitlements workaround even on JDK 25.0.2+ where
+     * jpackage itself signs with entitlements (JDK-8369477 / JDK-8358723).
+     * Normally the goal auto-skips on fixed JDKs; this override is for
+     * debugging or temporary compatibility with downstream tooling.
+     */
+    @Parameter(property = &quot;codesign.pkg.forceWorkaround&quot;, defaultValue = &quot;false&quot;)
+    private boolean forceWorkaround;
+
+    /**
+     * Keychain password for unlocking the signing keychain before codesign.
+     * Read from {@code CODESIGN_KEYCHAIN_PASSWORD} environment variable
+     * if not set via Maven property.
+     */
+    @Parameter(property = &quot;codesign.keychainPassword&quot;,
+               defaultValue = &quot;${env.CODESIGN_KEYCHAIN_PASSWORD}&quot;)
+    private String keychainPassword;
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L145">            getLog().info(&quot;Package codesigning skipped (codesign.pkg.skip=true)&quot;);</span>
+<span class="nc" id="L146">            return;</span>
+        }
+
+<span class="nc bnc" id="L149" title="All 4 branches missed.">        if (!forceWorkaround &amp;&amp; jpackageHasEntitlementsFix(Runtime.version())) {</span>
+<span class="nc" id="L150">            getLog().info(&quot;Package codesigning skipped — running JDK &quot;</span>
+<span class="nc" id="L151">                    + Runtime.version()</span>
+                    + &quot; includes the JDK-8358723 entitlements fix&quot;
+                    + &quot; (JDK-8369477 backport). jpackage signs correctly;&quot;
+                    + &quot; re-signing here would produce a signature macOS 26.4+&quot;
+                    + &quot; notarization rejects.&quot;
+                    + &quot; Set -Dcodesign.pkg.forceWorkaround=true to override.&quot;);
+<span class="nc" id="L157">            return;</span>
+        }
+
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        if (!ReleaseSupport.isMacOS()) {</span>
+<span class="nc" id="L161">            getLog().info(&quot;Package codesigning skipped — not running on macOS&quot;);</span>
+<span class="nc" id="L162">            return;</span>
+        }
+
+<span class="nc bnc" id="L165" title="All 4 branches missed.">        if (pkgDir == null || !pkgDir.isDirectory()) {</span>
+<span class="nc" id="L166">            getLog().warn(&quot;Package directory does not exist: &quot; + pkgDir</span>
+                    + &quot; — skipping package codesigning&quot;);
+<span class="nc" id="L168">            return;</span>
+        }
+
+<span class="nc bnc" id="L171" title="All 4 branches missed.">        if (signingIdentity == null || signingIdentity.isBlank()) {</span>
+<span class="nc" id="L172">            getLog().info(&quot;Package codesigning skipped — no signing identity provided&quot;);</span>
+<span class="nc" id="L173">            return;</span>
+        }
+
+<span class="nc bnc" id="L176" title="All 4 branches missed.">        if (entitlementsFile == null || !entitlementsFile.isFile()) {</span>
+<span class="nc" id="L177">            getLog().warn(&quot;Entitlements file not found: &quot; + entitlementsFile</span>
+                    + &quot; — skipping package codesigning&quot;);
+<span class="nc" id="L179">            return;</span>
+        }
+
+<span class="nc" id="L182">        unlockKeychainIfNeeded();</span>
+
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if (!CodesignSupport.identityInKeychain(signingIdentity, getLog())) {</span>
+<span class="nc" id="L185">            String msg = &quot;Signing identity not found in keychain: \&quot;&quot;</span>
+                    + signingIdentity + &quot;\&quot;&quot;;
+<span class="nc bnc" id="L187" title="All 2 branches missed.">            if (requireIdentity) {</span>
+<span class="nc" id="L188">                throw new MojoException(msg</span>
+                        + &quot; — codesign.requireIdentity=true. Install the&quot;
+                        + &quot; Developer ID certificate on this machine, or&quot;
+                        + &quot; unset the strict flag for an unsigned build.&quot;);
+            }
+<span class="nc" id="L193">            getLog().warn(msg + &quot; — skipping package codesigning.&quot;);</span>
+<span class="nc" id="L194">            getLog().warn(&quot;  Pass -Dcodesign.requireIdentity=true to make&quot;</span>
+                    + &quot; a missing identity a hard failure (release builds).&quot;);
+<span class="nc" id="L196">            return;</span>
+        }
+
+<span class="nc" id="L199">        List&lt;Path&gt; pkgFiles = findPkgFiles();</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">        if (pkgFiles.isEmpty()) {</span>
+<span class="nc" id="L201">            getLog().warn(&quot;No .pkg files found in &quot; + pkgDir);</span>
+<span class="nc" id="L202">            return;</span>
+        }
+
+<span class="nc" id="L205">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L206">        getLog().info(&quot;Package Entitlement Codesigning&quot;);</span>
+<span class="nc" id="L207">        getLog().info(&quot;═══════════════════════════════════════════════════&quot;);</span>
+<span class="nc" id="L208">        getLog().info(&quot;  Package dir:     &quot; + pkgDir);</span>
+<span class="nc" id="L209">        getLog().info(&quot;  Identity:        &quot; + signingIdentity);</span>
+<span class="nc" id="L210">        getLog().info(&quot;  Entitlements:    &quot; + entitlementsFile);</span>
+<span class="nc" id="L211">        getLog().info(&quot;  Packages found:  &quot; + pkgFiles.size());</span>
+
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        for (Path pkg : pkgFiles) {</span>
+<span class="nc" id="L214">            processPackage(pkg);</span>
+<span class="nc" id="L215">        }</span>
+
+<span class="nc" id="L217">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L218">        getLog().info(&quot;Package codesigning complete&quot;);</span>
+<span class="nc" id="L219">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L220">    }</span>
+
+    /**
+     * Unlock the login keychain if a password is available.
+     */
+    private void unlockKeychainIfNeeded() throws MojoException {
+<span class="nc bnc" id="L226" title="All 4 branches missed.">        if (keychainPassword == null || keychainPassword.isBlank()) {</span>
+<span class="nc" id="L227">            return;</span>
+        }
+<span class="nc" id="L229">        getLog().info(&quot;  Unlocking keychain for codesign...&quot;);</span>
+<span class="nc" id="L230">        ReleaseSupport.exec(new java.io.File(&quot;.&quot;), getLog(),</span>
+                &quot;security&quot;, &quot;unlock-keychain&quot;,
+                &quot;-p&quot;, keychainPassword,
+<span class="nc" id="L233">                System.getProperty(&quot;user.home&quot;)</span>
+                        + &quot;/Library/Keychains/login.keychain-db&quot;);
+<span class="nc" id="L235">        ReleaseSupport.exec(new java.io.File(&quot;.&quot;), getLog(),</span>
+                &quot;security&quot;, &quot;set-key-partition-list&quot;,
+                &quot;-S&quot;, &quot;apple-tool:,apple:,codesign:&quot;,
+                &quot;-s&quot;, &quot;-k&quot;, keychainPassword,
+<span class="nc" id="L239">                System.getProperty(&quot;user.home&quot;)</span>
+                        + &quot;/Library/Keychains/login.keychain-db&quot;);
+<span class="nc" id="L241">    }</span>
+
+    /**
+     * Process a single {@code .pkg} file: expand, re-sign app with
+     * entitlements, repack, and re-sign the package.
+     */
+    private void processPackage(Path pkg) throws MojoException {
+<span class="nc" id="L248">        String pkgName = pkg.getFileName().toString();</span>
+<span class="nc" id="L249">        getLog().info(&quot;Processing: &quot; + pkgName);</span>
+
+<span class="nc" id="L251">        Path workDir = null;</span>
+<span class="nc" id="L252">        Path expandedDir = null;</span>
+<span class="nc" id="L253">        Path payloadDir = null;</span>
+
+        try {
+            // Step 1: Expand the .pkg
+            // pkgutil --expand requires the target to NOT exist, so create
+            // a parent temp dir and use a child path that doesn't exist yet
+<span class="nc" id="L259">            workDir = Files.createTempDirectory(&quot;codesign-pkg-work-&quot;);</span>
+<span class="nc" id="L260">            expandedDir = workDir.resolve(&quot;expanded&quot;);</span>
+<span class="nc" id="L261">            getLog().info(&quot;  Expanding .pkg...&quot;);</span>
+<span class="nc" id="L262">            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),</span>
+<span class="nc" id="L263">                    &quot;pkgutil&quot;, &quot;--expand&quot;, pkg.toString(), expandedDir.toString());</span>
+
+            // Step 2: Find the inner component .pkg directory
+<span class="nc" id="L266">            Path componentPkg = findComponentPkg(expandedDir);</span>
+<span class="nc bnc" id="L267" title="All 2 branches missed.">            if (componentPkg == null) {</span>
+<span class="nc" id="L268">                throw new MojoException(</span>
+                        &quot;No component .pkg found inside expanded package&quot;);
+            }
+<span class="nc" id="L271">            getLog().info(&quot;  Component: &quot; + componentPkg.getFileName());</span>
+
+<span class="nc" id="L273">            Path payload = componentPkg.resolve(&quot;Payload&quot;);</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">            if (!Files.isRegularFile(payload)) {</span>
+<span class="nc" id="L275">                throw new MojoException(</span>
+                        &quot;No Payload found in &quot; + componentPkg);
+            }
+
+            // Step 3: Extract the Payload (gzip + cpio)
+<span class="nc" id="L280">            payloadDir = Files.createTempDirectory(&quot;codesign-pkg-payload-&quot;);</span>
+<span class="nc" id="L281">            getLog().info(&quot;  Extracting Payload...&quot;);</span>
+<span class="nc" id="L282">            extractPayload(payload, payloadDir);</span>
+
+            // Step 4: Find the .app bundle and its main executable
+<span class="nc" id="L285">            Path appBundle = findAppBundle(payloadDir);</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">            if (appBundle == null) {</span>
+<span class="nc" id="L287">                throw new MojoException(</span>
+                        &quot;No .app bundle found in extracted Payload&quot;);
+            }
+<span class="nc" id="L290">            getLog().info(&quot;  App bundle: &quot; + appBundle.getFileName());</span>
+
+<span class="nc" id="L292">            Path macosDir = appBundle.resolve(&quot;Contents/MacOS&quot;);</span>
+<span class="nc" id="L293">            Path mainExec = findMainExecutable(macosDir);</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">            if (mainExec == null) {</span>
+<span class="nc" id="L295">                throw new MojoException(</span>
+                        &quot;No executable found in &quot; + macosDir);
+            }
+<span class="nc" id="L298">            getLog().info(&quot;  Main executable: &quot; + mainExec.getFileName());</span>
+
+            // Step 5: Re-sign the main executable with entitlements
+<span class="nc" id="L301">            getLog().info(&quot;  Signing executable with entitlements...&quot;);</span>
+<span class="nc" id="L302">            codesignWithEntitlements(mainExec);</span>
+
+            // Step 6: Re-sign the .app bundle
+<span class="nc" id="L305">            getLog().info(&quot;  Signing .app bundle...&quot;);</span>
+<span class="nc" id="L306">            codesignWithEntitlements(appBundle);</span>
+
+            // Step 7: Repack the Payload
+<span class="nc" id="L309">            getLog().info(&quot;  Repacking Payload...&quot;);</span>
+<span class="nc" id="L310">            repackPayload(payloadDir, payload);</span>
+
+            // Step 8: Regenerate BOM
+<span class="nc" id="L313">            Path bom = componentPkg.resolve(&quot;Bom&quot;);</span>
+<span class="nc" id="L314">            getLog().info(&quot;  Regenerating BOM...&quot;);</span>
+<span class="nc" id="L315">            ReleaseSupport.exec(payloadDir.toFile(), getLog(),</span>
+<span class="nc" id="L316">                    &quot;mkbom&quot;, payloadDir.toString(), bom.toString());</span>
+
+            // Step 9: Flatten back to .pkg
+<span class="nc" id="L319">            Path flattenedPkg = pkg.getParent().resolve(pkgName + &quot;.tmp&quot;);</span>
+<span class="nc" id="L320">            getLog().info(&quot;  Flattening .pkg...&quot;);</span>
+<span class="nc" id="L321">            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),</span>
+<span class="nc" id="L322">                    &quot;pkgutil&quot;, &quot;--flatten&quot;, expandedDir.toString(),</span>
+<span class="nc" id="L323">                    flattenedPkg.toString());</span>
+
+            // Step 10: Sign the .pkg with productsign
+<span class="nc" id="L326">            String installerIdentity = deriveInstallerIdentity(signingIdentity);</span>
+<span class="nc" id="L327">            Path signedPkg = pkg.getParent().resolve(pkgName + &quot;.signed&quot;);</span>
+<span class="nc" id="L328">            getLog().info(&quot;  Signing .pkg with: &quot; + installerIdentity);</span>
+<span class="nc" id="L329">            ReleaseSupport.exec(pkg.getParent().toFile(), getLog(),</span>
+                    &quot;productsign&quot;,
+                    &quot;--sign&quot;, installerIdentity,
+                    &quot;--timestamp&quot;,
+<span class="nc" id="L333">                    flattenedPkg.toString(),</span>
+<span class="nc" id="L334">                    signedPkg.toString());</span>
+
+            // Step 11: Replace the original
+<span class="nc" id="L337">            Files.delete(flattenedPkg);</span>
+<span class="nc" id="L338">            Files.move(signedPkg, pkg, StandardCopyOption.REPLACE_EXISTING);</span>
+
+<span class="nc" id="L340">            getLog().info(&quot;  Done — entitlements applied to &quot; + pkgName);</span>
+
+<span class="nc" id="L342">        } catch (IOException e) {</span>
+<span class="nc" id="L343">            throw new MojoException(</span>
+                    &quot;Failed to process package: &quot; + pkgName, e);
+        } finally {
+<span class="nc bnc" id="L346" title="All 2 branches missed.">            if (payloadDir != null) deleteRecursively(payloadDir);</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">            if (workDir != null) deleteRecursively(workDir);</span>
+        }
+<span class="nc" id="L349">    }</span>
+
+    /**
+     * Find the inner component {@code .pkg} directory inside an expanded
+     * package.  This is the directory containing Payload, Bom, and
+     * PackageInfo.
+     */
+    private Path findComponentPkg(Path expandedDir) throws IOException {
+<span class="nc" id="L357">        try (DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(</span>
+                expandedDir,
+<span class="nc" id="L359">                entry -&gt; entry.getFileName().toString()</span>
+<span class="nc" id="L360">                        .toLowerCase(Locale.ROOT).endsWith(&quot;.pkg&quot;))) {</span>
+<span class="nc bnc" id="L361" title="All 2 branches missed.">            for (Path entry : stream) {</span>
+<span class="nc bnc" id="L362" title="All 2 branches missed.">                if (Files.isDirectory(entry)</span>
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                        &amp;&amp; Files.isRegularFile(entry.resolve(&quot;Payload&quot;))) {</span>
+<span class="nc" id="L364">                    return entry;</span>
+                }
+<span class="nc" id="L366">            }</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        }</span>
+<span class="nc" id="L368">        return null;</span>
+    }
+
+    /**
+     * Find the {@code .app} bundle directory inside an extracted Payload.
+     */
+    private Path findAppBundle(Path payloadDir) throws IOException {
+<span class="nc" id="L375">        try (DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(</span>
+                payloadDir,
+<span class="nc" id="L377">                entry -&gt; entry.getFileName().toString()</span>
+<span class="nc" id="L378">                        .toLowerCase(Locale.ROOT).endsWith(&quot;.app&quot;))) {</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">            for (Path entry : stream) {</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">                if (Files.isDirectory(entry)) {</span>
+<span class="nc" id="L381">                    return entry;</span>
+                }
+<span class="nc" id="L383">            }</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">        }</span>
+<span class="nc" id="L385">        return null;</span>
+    }
+
+    /**
+     * Find the main executable inside a {@code Contents/MacOS} directory.
+     * Returns the first regular file found.
+     */
+    private Path findMainExecutable(Path macosDir) throws IOException {
+<span class="nc bnc" id="L393" title="All 2 branches missed.">        if (!Files.isDirectory(macosDir)) return null;</span>
+
+<span class="nc" id="L395">        try (DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(macosDir)) {</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">            for (Path entry : stream) {</span>
+<span class="nc bnc" id="L397" title="All 4 branches missed.">                if (Files.isRegularFile(entry) &amp;&amp; Files.isExecutable(entry)) {</span>
+<span class="nc" id="L398">                    return entry;</span>
+                }
+<span class="nc" id="L400">            }</span>
+<span class="nc bnc" id="L401" title="All 2 branches missed.">        }</span>
+<span class="nc" id="L402">        return null;</span>
+    }
+
+    /**
+     * Extract a gzip-compressed cpio Payload archive.
+     */
+    private void extractPayload(Path payload, Path targetDir)
+            throws MojoException {
+        // gunzip -dc Payload | cpio -id
+        // We use a shell pipeline for this
+<span class="nc" id="L412">        ReleaseSupport.exec(targetDir.toFile(), getLog(),</span>
+                &quot;sh&quot;, &quot;-c&quot;,
+<span class="nc" id="L414">                &quot;gunzip -dc &quot; + shellQuote(payload.toString())</span>
+                        + &quot; | cpio -id 2&gt;/dev/null&quot;);
+<span class="nc" id="L416">    }</span>
+
+    /**
+     * Repack extracted files into a gzip-compressed cpio Payload.
+     */
+    private void repackPayload(Path sourceDir, Path payloadFile)
+            throws MojoException {
+        // find . -print | cpio -o --format odc | gzip -c &gt; Payload
+<span class="nc" id="L424">        ReleaseSupport.exec(sourceDir.toFile(), getLog(),</span>
+                &quot;sh&quot;, &quot;-c&quot;,
+                &quot;find . -print | cpio -o --format odc 2&gt;/dev/null&quot;
+<span class="nc" id="L427">                        + &quot; | gzip -c &gt; &quot; + shellQuote(payloadFile.toString()));</span>
+<span class="nc" id="L428">    }</span>
+
+    /**
+     * Sign a file or bundle with entitlements.
+     */
+    private void codesignWithEntitlements(Path target)
+            throws MojoException {
+<span class="nc" id="L435">        ReleaseSupport.exec(target.getParent().toFile(), getLog(),</span>
+                &quot;codesign&quot;, &quot;--force&quot;, &quot;--timestamp&quot;,
+                &quot;--options&quot;, &quot;runtime&quot;,
+<span class="nc" id="L438">                &quot;--entitlements&quot;, entitlementsFile.getAbsolutePath(),</span>
+                &quot;--sign&quot;, signingIdentity,
+<span class="nc" id="L440">                target.toString());</span>
+<span class="nc" id="L441">    }</span>
+
+    /**
+     * Derive the &quot;Developer ID Installer&quot; identity from the
+     * &quot;Developer ID Application&quot; identity.
+     */
+    static String deriveInstallerIdentity(String applicationIdentity) {
+<span class="nc" id="L448">        return applicationIdentity.replace(</span>
+                &quot;Developer ID Application&quot;,
+                &quot;Developer ID Installer&quot;);
+    }
+
+    /**
+     * True when the JDK described by {@code v} contains the JDK-8358723
+     * entitlements fix — JDK 26 mainline, or JDK 25.0.2+ via the
+     * JDK-8369477 backport.
+     *
+     * @param v the JDK version to test (typically {@link Runtime#version()})
+     * @return {@code true} if jpackage on this JDK signs with entitlements
+     *         and the re-sign workaround should be skipped
+     */
+    static boolean jpackageHasEntitlementsFix(Runtime.Version v) {
+<span class="fc" id="L463">        int feature = v.feature();</span>
+<span class="fc bfc" id="L464" title="All 2 branches covered.">        if (feature &gt;= 26) return true;</span>
+<span class="fc bfc" id="L465" title="All 4 branches covered.">        if (feature == 25 &amp;&amp; v.update() &gt;= 2) return true;</span>
+<span class="fc" id="L466">        return false;</span>
+    }
+
+    /**
+     * Find {@code .pkg} files in the package directory.
+     */
+    private List&lt;Path&gt; findPkgFiles() throws MojoException {
+<span class="nc" id="L473">        List&lt;Path&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L474">        try (DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(</span>
+<span class="nc" id="L475">                pkgDir.toPath(),</span>
+<span class="nc" id="L476">                entry -&gt; entry.getFileName().toString()</span>
+<span class="nc" id="L477">                        .toLowerCase(Locale.ROOT).endsWith(&quot;.pkg&quot;))) {</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">            for (Path entry : stream) {</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">                if (Files.isRegularFile(entry)) {</span>
+<span class="nc" id="L480">                    result.add(entry);</span>
+                }
+<span class="nc" id="L482">            }</span>
+<span class="nc" id="L483">        } catch (IOException e) {</span>
+<span class="nc" id="L484">            throw new MojoException(</span>
+                    &quot;Failed to scan for .pkg files in &quot; + pkgDir, e);
+<span class="nc" id="L486">        }</span>
+<span class="nc" id="L487">        return result;</span>
+    }
+
+    /**
+     * Quote a string for use in a shell command.
+     */
+    private static String shellQuote(String s) {
+<span class="nc" id="L494">        return &quot;'&quot; + s.replace(&quot;'&quot;, &quot;'\\''&quot;) + &quot;'&quot;;</span>
+    }
+
+    /**
+     * Recursively delete a directory tree.
+     */
+    private static void deleteRecursively(Path dir) {
+        try {
+<span class="nc" id="L502">            Files.walkFileTree(dir, new SimpleFileVisitor&lt;&gt;() {</span>
+                @Override
+                public FileVisitResult visitFile(Path file,
+                        BasicFileAttributes attrs) throws IOException {
+<span class="nc" id="L506">                    Files.delete(file);</span>
+<span class="nc" id="L507">                    return FileVisitResult.CONTINUE;</span>
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path d,
+                        IOException exc) throws IOException {
+<span class="nc" id="L513">                    Files.delete(d);</span>
+<span class="nc" id="L514">                    return FileVisitResult.CONTINUE;</span>
+                }
+            });
+<span class="nc" id="L517">        } catch (IOException _) {</span>
+            // Best-effort cleanup
+<span class="nc" id="L519">        }</span>
+<span class="nc" id="L520">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

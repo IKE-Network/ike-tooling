@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AssembleRequest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">AssembleRequest.java</span></div><h1>AssembleRequest.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * A knowledge-base assembly request: ordered inputs into a store at a root, classified
+ * by default under the given view (IKE-Network/ike-issues#848, #850).
+ *
+ * @param storeRoot         the store's root directory
+ * @param cleanStart        whether to delete the store root before assembling
+ * @param inputs            the artifacts, in load order; an {@link ArtifactInput.Role#STORE_SEED}
+ *                          is valid only in first position
+ * @param view              the view specification; {@link ViewSpec#empty()} means all
+ *                          implementation defaults
+ * @param classify         whether to run classification as the final step (the default
+ *                         posture — assembly completes its effect)
+ * @param reasonerService  the reasoner-service simple name when several are present —
+ *                         an implementation selection, distinct from
+ *                         {@link ViewSpec#LOGIC_CLASSIFIER}, the classifier
+ *                         &lt;em&gt;concept&lt;/em&gt; that authors derived semantics
+ * @param installDirectory a directory to copy the assembled store into (for example a
+ *                         data-source directory a knowledge browser reads)
+ * @param reasonedPbFile   the file to export the classified store to as a full
+ *                         standalone reasoned protobuf — the {@code reasoned-pb}
+ *                         classifier form, inferred results baked in
+ *                         (IKE-Network/ike-issues#933); empty means no export;
+ *                         requires {@code classify}
+ */
+public record AssembleRequest(Path storeRoot, boolean cleanStart, List&lt;ArtifactInput&gt; inputs,
+                              ViewSpec view, boolean classify, Optional&lt;String&gt; reasonerService,
+                              Optional&lt;Path&gt; installDirectory, Optional&lt;Path&gt; reasonedPbFile) {
+
+    /**
+     * Validates and defensively copies the request.
+     *
+     * @param storeRoot        the store's root directory
+     * @param cleanStart       whether to delete the store root before assembling
+     * @param inputs           the artifacts, in load order
+     * @param view             the view specification
+     * @param classify         whether to run classification as the final step
+     * @param reasonerService  the reasoner-service simple name when several are present
+     * @param installDirectory a directory to copy the assembled store into
+     * @param reasonedPbFile   the reasoned-protobuf export file; empty means no export
+     * @throws NullPointerException     if any component is null
+     * @throws IllegalArgumentException if {@code inputs} is empty, an
+     *                                  {@link ArtifactInput.Role#STORE_SEED} appears
+     *                                  after the first position, or a reasoned-protobuf
+     *                                  export is requested without classification
+     */
+<span class="fc" id="L54">    public AssembleRequest {</span>
+<span class="fc" id="L55">        Objects.requireNonNull(storeRoot, &quot;storeRoot&quot;);</span>
+<span class="fc" id="L56">        Objects.requireNonNull(view, &quot;view&quot;);</span>
+<span class="fc" id="L57">        Objects.requireNonNull(reasonerService, &quot;reasonerService&quot;);</span>
+<span class="fc" id="L58">        Objects.requireNonNull(installDirectory, &quot;installDirectory&quot;);</span>
+<span class="fc" id="L59">        Objects.requireNonNull(reasonedPbFile, &quot;reasonedPbFile&quot;);</span>
+<span class="fc" id="L60">        inputs = List.copyOf(Objects.requireNonNull(inputs, &quot;inputs&quot;));</span>
+<span class="fc bfc" id="L61" title="All 2 branches covered.">        if (inputs.isEmpty()) {</span>
+<span class="fc" id="L62">            throw new IllegalArgumentException(&quot;An assembly requires at least one input artifact&quot;);</span>
+        }
+<span class="fc bfc" id="L64" title="All 4 branches covered.">        if (reasonedPbFile.isPresent() &amp;&amp; !classify) {</span>
+<span class="fc" id="L65">            throw new IllegalArgumentException(</span>
+                    &quot;A reasoned-protobuf export requires classification (classify=true):&quot;
+                            + &quot; reasoned-pb means inferred results baked in&quot;);
+        }
+<span class="fc" id="L69">        ArtifactInput.requireSeedFirstOnly(inputs);</span>
+<span class="fc" id="L70">    }</span>
+
+    /**
+     * Creates a request without a reasoned-protobuf export — the pre-#933 shape,
+     * kept for source compatibility with existing callers.
+     *
+     * @param storeRoot        the store's root directory
+     * @param cleanStart       whether to delete the store root before assembling
+     * @param inputs           the artifacts, in load order
+     * @param view             the view specification
+     * @param classify         whether to run classification as the final step
+     * @param reasonerService  the reasoner-service simple name when several are present
+     * @param installDirectory a directory to copy the assembled store into
+     */
+    public AssembleRequest(Path storeRoot, boolean cleanStart, List&lt;ArtifactInput&gt; inputs,
+                           ViewSpec view, boolean classify, Optional&lt;String&gt; reasonerService,
+                           Optional&lt;Path&gt; installDirectory) {
+<span class="fc" id="L87">        this(storeRoot, cleanStart, inputs, view, classify, reasonerService, installDirectory,</span>
+<span class="fc" id="L88">                Optional.empty());</span>
+<span class="fc" id="L89">    }</span>
+
+    /**
+     * Encodes this request in the seam wire format.
+     *
+     * @return the request properties
+     */
+    public Properties toProperties() {
+<span class="fc" id="L97">        Properties properties = new Properties();</span>
+<span class="fc" id="L98">        PropCodec.put(properties, &quot;storeRoot&quot;, storeRoot.toString());</span>
+<span class="fc" id="L99">        PropCodec.put(properties, &quot;cleanStart&quot;, Boolean.toString(cleanStart));</span>
+<span class="fc" id="L100">        PropCodec.putInputs(properties, &quot;input.&quot;, inputs);</span>
+<span class="fc" id="L101">        PropCodec.putView(properties, view);</span>
+<span class="fc" id="L102">        PropCodec.put(properties, &quot;classify&quot;, Boolean.toString(classify));</span>
+<span class="fc" id="L103">        PropCodec.putOptional(properties, &quot;reasonerService&quot;, reasonerService);</span>
+<span class="fc" id="L104">        PropCodec.putOptional(properties, &quot;installDirectory&quot;, installDirectory.map(Path::toString));</span>
+<span class="fc" id="L105">        PropCodec.putOptional(properties, &quot;reasonedPbFile&quot;, reasonedPbFile.map(Path::toString));</span>
+<span class="fc" id="L106">        return properties;</span>
+    }
+
+    /**
+     * Decodes a request from the seam wire format. Absent boolean keys take the
+     * documented defaults: {@code cleanStart} false, {@code classify} true.
+     *
+     * @param properties the request properties
+     * @return the decoded request
+     * @throws IllegalArgumentException if required keys are absent or malformed
+     */
+    public static AssembleRequest fromProperties(Properties properties) {
+<span class="fc" id="L118">        return new AssembleRequest(</span>
+<span class="fc" id="L119">                PropCodec.requirePath(properties, &quot;storeRoot&quot;),</span>
+<span class="fc" id="L120">                PropCodec.getBoolean(properties, &quot;cleanStart&quot;, false),</span>
+<span class="fc" id="L121">                PropCodec.getInputs(properties, &quot;input.&quot;),</span>
+<span class="fc" id="L122">                PropCodec.getView(properties),</span>
+<span class="fc" id="L123">                PropCodec.getBoolean(properties, &quot;classify&quot;, true),</span>
+<span class="fc" id="L124">                PropCodec.optional(properties, &quot;reasonerService&quot;),</span>
+<span class="fc" id="L125">                PropCodec.optionalPath(properties, &quot;installDirectory&quot;),</span>
+<span class="fc" id="L126">                PropCodec.optionalPath(properties, &quot;reasonedPbFile&quot;));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CentralStaging.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release.central</a> &gt; <span class="el_source">CentralStaging.java</span></div><h1>CentralStaging.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release.central;
+
+import network.ike.plugin.ReleaseSupport;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Stream;
+
+/**
+ * Finalizes a Maven Central staging directory between the signed
+ * staging deploy and the JReleaser upload: prunes the Maven 4
+ * {@code -build.pom} artifacts, then swaps each module's generated
+ * BOM over its staged stub POM, re-signs it, and verifies the result
+ * (IKE-Network/ike-issues#853, IKE-Network/ike-issues#966).
+ *
+ * &lt;p&gt;Both Central deploy paths run this exact code. The sync path
+ * ({@link CentralPhase}) calls it in-process; the detached async
+ * sentinel script (IKE-Network/ike-issues#484) invokes it through
+ * {@code ike:central-stage}, pinned to the plugin version that
+ * rendered the script. This class exists because the swap originally
+ * lived only on the sync path while releases default to async — so
+ * ike-bom 145 and 146 shipped to Central as stubs with green builds
+ * (#966).
+ */
+public final class CentralStaging {
+
+    private CentralStaging() {}
+
+    /**
+     * Deletes the Maven 4 {@code -build.pom} artifacts — and their
+     * signatures and checksums — from the staging directory. The
+     * build POM carries the 4.1.0 model and is build-time only;
+     * Maven Central publishes the consumer POM (the main
+     * {@code .pom}). One build POM is produced per reactor module,
+     * so the directory is walked recursively.
+     *
+     * @param log        Maven logger for progress output
+     * @param stagingDir the {@code staging-deploy} directory to prune
+     * @throws MojoException when the walk or a delete fails
+     */
+    public static void pruneBuildPoms(Log log, Path stagingDir) {
+<span class="fc" id="L47">        try (Stream&lt;Path&gt; paths = Files.walk(stagingDir)) {</span>
+<span class="fc" id="L48">            List&lt;Path&gt; buildPoms = paths</span>
+<span class="fc" id="L49">                    .filter(Files::isRegularFile)</span>
+<span class="fc" id="L50">                    .filter(p -&gt; p.getFileName().toString()</span>
+<span class="fc" id="L51">                            .contains(&quot;-build.pom&quot;))</span>
+<span class="fc" id="L52">                    .toList();</span>
+<span class="fc bfc" id="L53" title="All 2 branches covered.">            for (Path p : buildPoms) {</span>
+<span class="fc" id="L54">                Files.delete(p);</span>
+<span class="fc" id="L55">                log.info(&quot;  pruned &quot; + stagingDir.relativize(p));</span>
+<span class="fc" id="L56">            }</span>
+<span class="nc" id="L57">        } catch (IOException e) {</span>
+<span class="nc" id="L58">            throw new MojoException(</span>
+                    &quot;Failed to prune -build.pom artifacts from &quot;
+                            + stagingDir, e);
+<span class="fc" id="L61">        }</span>
+<span class="fc" id="L62">    }</span>
+
+    /**
+     * Replaces each staged stub POM with its module's
+     * {@code target/generated-bom.xml}, re-signs it, and verifies the
+     * result (IKE-Network/ike-issues#853). The stub's signature and
+     * checksums are invalidated by the content swap, so the swapped
+     * file is re-deployed into the staging directory through
+     * {@code gpg:sign-and-deploy-file} under the same
+     * {@code signArtifacts} profile as the original staging deploy —
+     * producing a fresh signature and fresh checksums over the real
+     * BOM bytes before JReleaser uploads the bundle.
+     *
+     * &lt;p&gt;Finding zero generated BOMs is normal for repos without a
+     * BOM module and is logged rather than failed; a swap whose
+     * verification fails throws, so a stub can never replace a real
+     * BOM silently.
+     *
+     * @param log        Maven logger for progress output
+     * @param buildRoot  the build root that produced the staged
+     *                   artifacts (walked for
+     *                   {@code target/generated-bom.xml} outputs)
+     * @param mvnw       the Maven wrapper used for the re-sign deploy
+     * @param stagingDir the {@code staging-deploy} directory holding
+     *                   the staged stub POMs
+     * @return the number of BOMs swapped
+     * @throws MojoException when the swap I/O fails, the re-sign
+     *         subprocess exits non-zero, or a swapped POM does not
+     *         verify
+     */
+    public static int swapGeneratedBoms(Log log, File buildRoot,
+                                        File mvnw, Path stagingDir) {
+<span class="fc" id="L94">        int swapped = 0;</span>
+        try {
+            for (GeneratedBomSwap.Swap swap
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">                    : GeneratedBomSwap.plan(buildRoot.toPath(), stagingDir)) {</span>
+<span class="nc" id="L98">                GeneratedBomSwap.apply(swap);</span>
+<span class="nc" id="L99">                log.info(&quot;  swapped generated BOM into &quot;</span>
+<span class="nc" id="L100">                        + stagingDir.relativize(swap.stagedPom()));</span>
+<span class="nc" id="L101">                ReleaseSupport.exec(buildRoot, log,</span>
+<span class="nc" id="L102">                        mvnw.getAbsolutePath(),</span>
+                        &quot;gpg:sign-and-deploy-file&quot;, &quot;-N&quot;, &quot;-B&quot;,
+                        &quot;-P&quot;, &quot;signArtifacts&quot;,
+<span class="nc" id="L105">                        &quot;-Durl=file://&quot; + stagingDir.toAbsolutePath(),</span>
+<span class="nc" id="L106">                        &quot;-Dfile=&quot; + swap.generatedBom().toAbsolutePath(),</span>
+<span class="nc" id="L107">                        &quot;-DpomFile=&quot; + swap.generatedBom().toAbsolutePath(),</span>
+                        &quot;-Dpackaging=pom&quot;);
+<span class="nc" id="L109">                String problem = GeneratedBomSwap.verify(swap);</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">                if (problem != null) {</span>
+<span class="nc" id="L111">                    throw new MojoException(</span>
+                            &quot;Generated-BOM swap verification failed: &quot;
+                                    + problem);
+                }
+<span class="nc" id="L115">                swapped++;</span>
+<span class="nc" id="L116">            }</span>
+<span class="nc" id="L117">        } catch (IOException e) {</span>
+<span class="nc" id="L118">            throw new MojoException(</span>
+                    &quot;Failed to swap generated BOMs into &quot; + stagingDir, e);
+<span class="fc" id="L120">        }</span>
+<span class="pc bpc" id="L121" title="1 of 2 branches missed.">        if (swapped == 0) {</span>
+<span class="fc" id="L122">            log.info(&quot;  no generated BOMs under &quot; + buildRoot</span>
+                    + &quot; — nothing to swap&quot;);
+        } else {
+<span class="nc" id="L125">            log.info(&quot;  swapped &quot; + swapped + &quot; generated BOM(s)&quot;);</span>
+        }
+<span class="fc" id="L127">        return swapped;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
