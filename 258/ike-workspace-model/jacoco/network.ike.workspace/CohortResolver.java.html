@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CohortResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">CohortResolver.java</span></div><h1>CohortResolver.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Resolves the {@link Cohort} an artifact / release-style workspace verb
+ * acts on, from a starting directory (IKE-Network/ike-issues#610, under
+ * #601).
+ *
+ * &lt;p&gt;Searches upward for a {@code workspace.yaml}. When found, the cohort is
+ * the workspace's subprojects in topological order — the aggregator root is
+ * excluded, as it is not a released artifact. When not found, the cohort is
+ * the single repository at the start directory: a cohort of one. This is the
+ * home for the &quot;single repo vs workspace&quot; decision that artifact goals — the
+ * bare mode of {@code ws:release} / {@code ws:scaffold} (#605/#607) — make
+ * for themselves today; the migration in ike-issues#612 folds them onto it.
+ *
+ * &lt;p&gt;The &lt;em&gt;decentralized&lt;/em&gt; cohort (the foundation cascade, assembled
+ * from {@code release-cascade.yaml}) is modelled by
+ * {@link network.ike.workspace.cascade.ReleaseCascade} — already a
+ * topologically-ordered list; expressing it as a {@code Cohort} is a
+ * follow-on as the foundation cascade adopts this type.
+ */
+public final class CohortResolver {
+
+    private CohortResolver() {}
+
+    /**
+     * Resolve the cohort from a starting directory.
+     *
+     * @param startDir the directory to resolve from (typically the CWD)
+     * @return the workspace cohort when a {@code workspace.yaml} is found at
+     *         or above {@code startDir}; otherwise the single-repository
+     *         cohort of one rooted at {@code startDir}
+     */
+    public static Cohort resolve(Path startDir) {
+<span class="fc" id="L39">        Path manifest = WorkingSetResolver.findManifest(startDir);</span>
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        return manifest == null ? singleRepo(startDir) : workspace(manifest);</span>
+    }
+
+    /**
+     * Build a single-repository cohort of one rooted at {@code dir}.
+     *
+     * @param dir the repository directory
+     * @return the cohort of one
+     */
+    public static Cohort singleRepo(Path dir) {
+<span class="fc" id="L50">        Path root = dir.toAbsolutePath().normalize();</span>
+<span class="fc" id="L51">        Path name = root.getFileName();</span>
+<span class="fc" id="L52">        return new Cohort(List.of(new Cohort.Member(</span>
+<span class="pc bpc" id="L53" title="1 of 2 branches missed.">                name == null ? root.toString() : name.toString(), root)),</span>
+                false);
+    }
+
+    private static Cohort workspace(Path manifest) {
+<span class="fc" id="L58">        Path root = manifest.getParent();</span>
+<span class="fc" id="L59">        Manifest model = ManifestReader.read(manifest);</span>
+<span class="fc" id="L60">        WorkspaceGraph graph = new WorkspaceGraph(model);</span>
+<span class="fc" id="L61">        List&lt;Cohort.Member&gt; members = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L62" title="All 2 branches covered.">        for (String name : graph.topologicalSort()) {</span>
+<span class="fc" id="L63">            members.add(new Cohort.Member(name, root.resolve(name)));</span>
+<span class="fc" id="L64">        }</span>
+<span class="fc" id="L65">        return new Cohort(List.copyOf(members), false);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ResolutionScope.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.release.coherence</a> &gt; <span class="el_source">ResolutionScope.java</span></div><h1>ResolutionScope.java</h1><pre class="source lang-java linenums">package network.ike.plugin.release.coherence;
+
+import network.ike.support.enums.ConstantBackedEnum;
+import network.ike.support.enums.EnumDefinition;
+
+/**
+ * Where a release must confirm its own just-published artifact is
+ * resolvable before it declares success — the demanded
+ * &lt;em&gt;resolution scope&lt;/em&gt; (IKE-Network/ike-issues#705).
+ *
+ * &lt;p&gt;The release-cascade is loosely coupled: a module asserts only
+ * about &lt;em&gt;itself&lt;/em&gt; (&quot;I am not done until what I just published is
+ * actually fetchable where I promised&quot;); no module ever asks about its
+ * upstreams. Cascade coherence then emerges, because the finish-trigger
+ * fires the downstream only after the upstream build &lt;em&gt;succeeds&lt;/em&gt;,
+ * and &quot;success&quot; now includes the upstream's own self-resolution check.
+ * An un-resolvable artifact fails its &lt;em&gt;own&lt;/em&gt; build, the
+ * finish-trigger does not fire, and the cascade stops — incoherence
+ * becomes a red build on the responsible module, never a silently-wrong
+ * downstream.
+ *
+ * &lt;p&gt;The three rungs name a &lt;em&gt;provided repository&lt;/em&gt; in which the
+ * module must confirm its artifact, ordered by audience reach:
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@link #LOCAL} — the local {@code .m2} cache. Verifies nothing:
+ *       the module's own {@code install} trivially put the artifact
+ *       there. An explicit opt-OUT, valid only for draft/dev runs and
+ *       &lt;strong&gt;rejected for {@code -publish}&lt;/strong&gt;.&lt;/li&gt;
+ *   &lt;li&gt;{@link #NEXUS} &lt;em&gt;(default)&lt;/em&gt; — the shared, consumer-resolvable
+ *       Nexus group ({@code ike-public}). The cross-agent / cascade
+ *       guarantee: the source of truth a downstream's &quot;resolve latest&quot;
+ *       actually reads.&lt;/li&gt;
+ *   &lt;li&gt;{@link #CENTRAL} — Maven Central. The public-availability gate;
+ *       being eventually-consistent it is a long, bounded, non-blocking
+ *       verify, never a fast hard gate.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;The local-vs-TeamCity run axis is irrelevant to the scope — the
+ * determinant is the artifact's audience (consumers resolve from the
+ * shared repo), not where the build ran.
+ *
+ * &lt;p&gt;Lives in {@code ike-maven-plugin} rather than the shared
+ * {@code ike-java-support} enum library (where {@link network.ike.support.enums.ReleasePolicy}
+ * lives) because, unlike a release policy, a resolution scope is read
+ * only by the release goal here — no consumer-side extension validates
+ * it — so it needs no foundation re-release to evolve.
+ *
+ * &lt;p&gt;Each rung carries a {@code NAME_*} mirror constant — the
+ * {@link ConstantBackedEnum} pattern — so the rung name is usable where
+ * a compile-time {@code String} constant is required (e.g. the Mojo
+ * {@code @Parameter} default).
+ *
+ * @since 1
+ */
+<span class="fc" id="L56">public enum ResolutionScope implements EnumDefinition {</span>
+
+    /** The local {@code .m2} cache — verifies nothing; draft/dev opt-out only. */
+<span class="fc" id="L59">    LOCAL(ResolutionScope.NAME_LOCAL,</span>
+            &quot;Confirm the artifact in the local .m2 cache. Verifies nothing — the module's &quot;
+                    + &quot;own install trivially put it there. Draft/dev opt-out; rejected for -publish.&quot;),
+
+    /** The shared, consumer-resolvable Nexus group ({@code ike-public}). */
+<span class="fc" id="L64">    NEXUS(ResolutionScope.NAME_NEXUS,</span>
+            &quot;Confirm the artifact in the shared, consumer-resolvable Nexus group (ike-public) &quot;
+                    + &quot;— the cascade / cross-agent source of truth. The default for -publish.&quot;),
+
+    /** Maven Central — the public-availability gate (eventual-consistency). */
+<span class="fc" id="L69">    CENTRAL(ResolutionScope.NAME_CENTRAL,</span>
+            &quot;Confirm the artifact on Maven Central — the public-availability gate. Eventually &quot;
+                    + &quot;consistent, so a long bounded non-blocking verify, never a fast hard gate.&quot;);
+
+    /** Mirror constant for {@link #LOCAL}. */
+    public static final String NAME_LOCAL   = &quot;local&quot;;
+    /** Mirror constant for {@link #NEXUS}. */
+    public static final String NAME_NEXUS   = &quot;nexus&quot;;
+    /** Mirror constant for {@link #CENTRAL}. */
+    public static final String NAME_CENTRAL = &quot;central&quot;;
+
+    private final String literalName;
+    private final String definition;
+
+<span class="fc" id="L83">    ResolutionScope(String literalName, String definition) {</span>
+<span class="fc" id="L84">        this.literalName = literalName;</span>
+<span class="fc" id="L85">        this.definition = definition;</span>
+<span class="fc" id="L86">    }</span>
+
+    /**
+     * {@inheritDoc}
+     *
+     * &lt;p&gt;For {@code ResolutionScope} the literal is the rung name as it
+     * appears in the {@code ike.resolutionScope} property.
+     */
+    @Override
+    public String literalName() {
+<span class="fc" id="L96">        return literalName;</span>
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * &lt;p&gt;For {@code ResolutionScope} the term and {@link #literalName()}
+     * coincide.
+     */
+    @Override
+    public String term() {
+<span class="fc" id="L107">        return literalName;</span>
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public String definition() {
+<span class="fc" id="L113">        return definition;</span>
+    }
+
+    /**
+     * Whether this scope is strong enough to publish at — i.e. it
+     * confirms the artifact in a &lt;em&gt;shared, consumer-resolvable&lt;/em&gt;
+     * repository rather than only the build's own local cache.
+     *
+     * &lt;p&gt;{@code -publish} demands {@code ≥ NEXUS}: a published artifact's
+     * audience is consumers, who resolve from the shared repo, so a
+     * release must prove the artifact is fetchable there. {@link #LOCAL}
+     * is the lone opt-out and is rejected for publish.
+     *
+     * @return {@code true} for {@link #NEXUS} and {@link #CENTRAL};
+     *         {@code false} for {@link #LOCAL}
+     */
+    public boolean satisfiesPublishMinimum() {
+<span class="fc bfc" id="L130" title="All 2 branches covered.">        return this != LOCAL;</span>
+    }
+
+    static {
+<span class="fc" id="L134">        ConstantBackedEnum.verify(ResolutionScope.class);</span>
+<span class="fc" id="L135">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
