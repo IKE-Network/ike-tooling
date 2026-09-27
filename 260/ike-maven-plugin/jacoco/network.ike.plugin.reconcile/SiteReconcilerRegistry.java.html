@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SiteReconcilerRegistry.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.reconcile</a> &gt; <span class="el_source">SiteReconcilerRegistry.java</span></div><h1>SiteReconcilerRegistry.java</h1><pre class="source lang-java linenums">package network.ike.plugin.reconcile;
+
+import java.util.List;
+
+/**
+ * Compile-time registry of the site-level reconcilers iterated by
+ * {@code ike:site-draft} (report) and {@code ike:site-publish}
+ * (apply).
+ *
+ * &lt;p&gt;Order matters: reconcilers run in the order returned by
+ * {@link #all()}. The forward-deploy pass runs deployed-site first
+ * (so the site URL is reachable) and registration second (so the
+ * landing page can link to a live target). The uninstall pass reverses
+ * this order — landing-page deregistration first (so users don't see a
+ * broken link), then stale site cleanup last.
+ *
+ * &lt;p&gt;Parallels {@code network.ike.plugin.ws.reconcile.ReconcilerRegistry}
+ * but at the per-repo scope. See {@link SiteReconciler} for why the
+ * two are intentionally not shared.
+ *
+ * @see SiteReconciler
+ */
+public final class SiteReconcilerRegistry {
+
+    private SiteReconcilerRegistry() {}
+
+    /**
+     * Reconcilers in forward-deploy order. {@code site-publish}
+     * (default) iterates this list and calls {@link SiteReconciler#apply}
+     * on each.
+     *
+     * @return the ordered list of all registered reconcilers
+     */
+    public static List&lt;SiteReconciler&gt; all() {
+<span class="nc" id="L35">        return List.of(</span>
+                new DeployedSiteReconciler(),
+                new LandingPageRegistrationReconciler(),
+                new StaleSiteCleanupReconciler()
+        );
+    }
+
+    /**
+     * Reconcilers in uninstall order — landing-page deregistration
+     * first (so users don't see a link to a removed site), stale
+     * cleanup last. {@code site-publish -Dsite=removed} iterates this
+     * list and calls {@link SiteReconciler#uninstall} on each.
+     *
+     * @return the ordered list in uninstall order
+     */
+    public static List&lt;SiteReconciler&gt; uninstallOrder() {
+<span class="nc" id="L51">        return List.of(</span>
+                new LandingPageRegistrationReconciler(),
+                new StaleSiteCleanupReconciler(),
+                new DeployedSiteReconciler()
+        );
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

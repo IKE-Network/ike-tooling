@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LedgerWriter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">LedgerWriter.java</span></div><h1>LedgerWriter.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Locale;
+import java.util.Objects;
+
+/**
+ * Canonical serializer for the acceptance ledger.
+ *
+ * &lt;p&gt;Once the ratchet goal manages a ledger, the file is tool-written:
+ * this writer emits the canonical header and entry shape, and
+ * {@link Ledger#load(Path)} of the output reproduces the ledger
+ * exactly. Reason and since are data and survive rewrites; ad-hoc
+ * comments outside the canonical header do not — prose belongs in the
+ * {@code reason} field.&lt;/p&gt;
+ */
+public final class LedgerWriter {
+
+    private LedgerWriter() {
+    }
+
+    /**
+     * Renders the canonical ledger text.
+     *
+     * @param ledger the ledger to render
+     * @return YAML text that {@link Ledger#load(Path)} parses back to an
+     *         equal ledger
+     */
+    public static String render(Ledger ledger) {
+<span class="fc" id="L33">        Objects.requireNonNull(ledger, &quot;ledger&quot;);</span>
+<span class="fc" id="L34">        StringBuilder out = new StringBuilder(1024);</span>
+<span class="fc" id="L35">        out.append(&quot;# Build-report acceptance ledger (ike-issues#978, gates ike-issues#989).\n&quot;);</span>
+<span class="fc" id="L36">        out.append(&quot;# Keys are stable finding identities; counts are expected observations\n&quot;);</span>
+<span class="fc" id="L37">        out.append(&quot;# per session. Managed by ike:build-report-ratchet-publish — counts only\n&quot;);</span>
+<span class="fc" id="L38">        out.append(&quot;# ratchet DOWNWARD mechanically; accepting new or grown findings is a\n&quot;);</span>
+<span class="fc" id="L39">        out.append(&quot;# deliberate human edit. Prose belongs in each entry's reason field.\n&quot;);</span>
+<span class="fc" id="L40">        out.append(&quot;mode: &quot;).append(ledger.mode().name().toLowerCase(Locale.ROOT)).append('\n');</span>
+<span class="fc" id="L41">        out.append(&quot;accepted:\n&quot;);</span>
+<span class="fc bfc" id="L42" title="All 2 branches covered.">        for (AcceptedEntry entry : ledger.entries()) {</span>
+<span class="fc" id="L43">            out.append(&quot;  - key: &quot;).append(entry.key()).append('\n');</span>
+<span class="fc" id="L44">            out.append(&quot;    count: &quot;).append(entry.count()).append('\n');</span>
+<span class="pc bpc" id="L45" title="1 of 2 branches missed.">            if (!entry.reason().isBlank()) {</span>
+<span class="fc" id="L46">                out.append(&quot;    reason: &gt;\n&quot;);</span>
+<span class="fc bfc" id="L47" title="All 2 branches covered.">                for (String line : foldReason(entry.reason())) {</span>
+<span class="fc" id="L48">                    out.append(&quot;      &quot;).append(line).append('\n');</span>
+<span class="fc" id="L49">                }</span>
+            }
+<span class="pc bpc" id="L51" title="1 of 2 branches missed.">            if (!entry.since().isBlank()) {</span>
+<span class="fc" id="L52">                out.append(&quot;    since: &quot;).append(entry.since()).append('\n');</span>
+            }
+<span class="fc bfc" id="L54" title="All 2 branches covered.">            if (entry.entryMode() != null) {</span>
+<span class="fc" id="L55">                out.append(&quot;    mode: &quot;)</span>
+<span class="fc" id="L56">                        .append(entry.entryMode().name().toLowerCase(Locale.ROOT)).append('\n');</span>
+            }
+<span class="fc" id="L58">        }</span>
+<span class="fc" id="L59">        return out.toString();</span>
+    }
+
+    /**
+     * Writes the canonical ledger text to a file.
+     *
+     * @param file   the ledger path, typically {@code .mvn/build-report.yaml}
+     * @param ledger the ledger to write
+     * @throws IOException on write failure
+     */
+    public static void write(Path file, Ledger ledger) throws IOException {
+<span class="fc" id="L70">        Files.writeString(file, render(ledger), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L71">    }</span>
+
+    /**
+     * Folds a reason paragraph to lines of at most 68 characters at
+     * word boundaries, matching the hand-authored folded-scalar style.
+     */
+    private static java.util.List&lt;String&gt; foldReason(String reason) {
+<span class="fc" id="L78">        java.util.List&lt;String&gt; lines = new java.util.ArrayList&lt;&gt;();</span>
+<span class="fc" id="L79">        StringBuilder line = new StringBuilder();</span>
+<span class="fc bfc" id="L80" title="All 2 branches covered.">        for (String word : reason.split(&quot;\\s+&quot;)) {</span>
+<span class="fc bfc" id="L81" title="All 4 branches covered.">            if (line.length() &gt; 0 &amp;&amp; line.length() + 1 + word.length() &gt; 68) {</span>
+<span class="fc" id="L82">                lines.add(line.toString());</span>
+<span class="fc" id="L83">                line.setLength(0);</span>
+            }
+<span class="fc bfc" id="L85" title="All 2 branches covered.">            if (line.length() &gt; 0) {</span>
+<span class="fc" id="L86">                line.append(' ');</span>
+            }
+<span class="fc" id="L88">            line.append(word);</span>
+        }
+<span class="pc bpc" id="L90" title="1 of 2 branches missed.">        if (line.length() &gt; 0) {</span>
+<span class="fc" id="L91">            lines.add(line.toString());</span>
+        }
+<span class="fc" id="L93">        return lines;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
