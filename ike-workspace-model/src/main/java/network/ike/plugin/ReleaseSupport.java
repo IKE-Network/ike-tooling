@@ -23,7 +23,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -905,7 +907,8 @@ public class ReleaseSupport {
         public String describe() {
             return switch (kind) {
                 case CONSUMER_POM_MISSING -> pomPath + " (" + artifactId
-                        + "): no consumer POM in target/project-local-repo";
+                        + "): no consumer POM in the project-local repository ("
+                        + String.join(" or ", PROJECT_LOCAL_REPOSITORY_DEFAULTS) + ")";
                 case INDIRECTION_MISSING -> pomPath + ": <" + shortName
                         + "> is missing (expected " + expected + ")";
                 case INDIRECTION_WRONG_VALUE -> pomPath + ": <" + shortName
@@ -924,8 +927,8 @@ public class ReleaseSupport {
      * while Maven builds the consumer POM (IKE-Network/ike-issues#1094).
      * Nothing in the release flow writes them. This check reads what the
      * first {@code install} of the release actually produced — the
-     * {@code <artifactId>-<version>-consumer.pom} under
-     * {@code target/project-local-repo} — so a repository that declares
+     * {@code <artifactId>-<version>-consumer.pom} in the project-local
+     * repository (see {@link #projectLocalRepositories}) — so a repository that declares
      * aliases without registering the extension is refused rather than
      * deployed with a POM its consumers cannot resolve against.
      *
@@ -944,7 +947,7 @@ public class ReleaseSupport {
             throws MojoException {
         String aliasSuffix = TypedMarker.ALIAS.token();
         String versionSuffix = TypedMarker.VERSION.token();
-        Path localRepo = gitRoot.toPath().resolve("target").resolve("project-local-repo");
+        List<Path> localRepos = projectLocalRepositories(gitRoot.toPath(), System::getProperty);
         List<AliasIndirectionGap> gaps = new ArrayList<>();
 
         for (File pom : findPomFiles(gitRoot)) {
@@ -978,7 +981,7 @@ public class ReleaseSupport {
 
             String pomPath = gitRoot.toPath().relativize(pom.toPath()).toString();
             String artifactId = readModel(pom).getArtifactId();
-            File consumerPom = findConsumerPom(localRepo, artifactId, version);
+            File consumerPom = findConsumerPom(localRepos, artifactId, version);
             if (consumerPom == null) {
                 gaps.add(new AliasIndirectionGap(AliasIndirectionGapKind.CONSUMER_POM_MISSING,
                         pomPath, artifactId, null, null, null));
@@ -1005,25 +1008,70 @@ public class ReleaseSupport {
         return gaps;
     }
 
+    /** Maven's property naming the project-local (reactor output) repository. */
+    static final String REACTOR_OUTPUT_REPOSITORY_PROPERTY = "maven.reactor.outputRepository";
+
     /**
-     * Locates {@code <artifactId>-<version>-consumer.pom} anywhere under
-     * the project-local repository, or {@code null} when the repository
-     * or the file does not exist.
+     * The default project-local repository locations, relative to the root
+     * directory: Maven 4.0.0-rc-7's first, then rc-5's
+     * (IKE-Network/ike-issues#1153).
      */
-    private static File findConsumerPom(Path localRepo, String artifactId, String version)
+    static final List<String> PROJECT_LOCAL_REPOSITORY_DEFAULTS =
+            List.of(".mvn/target/project-local-repo", "target/project-local-repo");
+
+    /**
+     * The places the release's own {@code install} may have written its
+     * project-local repository, in the order to search them. The install
+     * runs as a separate Maven process, so the location is not asked of
+     * Maven but covered: {@value #REACTOR_OUTPUT_REPOSITORY_PROPERTY} when
+     * set, then the rc-7 default {@code .mvn/target/project-local-repo},
+     * then the rc-5 default {@code target/project-local-repo}. rc-7 moved
+     * the default, and a check that read only the old one refused every
+     * release that declares aliases.
+     *
+     * @param rootDirectory the reactor root (the git root)
+     * @param property      looks up a system property; answers {@code null} when unset
+     * @return the candidate repository directories, most specific first
+     */
+    static List<Path> projectLocalRepositories(Path rootDirectory, UnaryOperator<String> property) {
+        List<Path> candidates = new ArrayList<>();
+        String configured = property.apply(REACTOR_OUTPUT_REPOSITORY_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            String resolved = configured.strip()
+                    .replace("${maven.rootDirectory}", rootDirectory.toString())
+                    .replace("${session.rootDirectory}", rootDirectory.toString());
+            Path path = Path.of(resolved);
+            candidates.add(path.isAbsolute() ? path : rootDirectory.resolve(path));
+        }
+        for (String relative : PROJECT_LOCAL_REPOSITORY_DEFAULTS) {
+            candidates.add(rootDirectory.resolve(relative));
+        }
+        return candidates;
+    }
+
+    /**
+     * Locates {@code <artifactId>-<version>-consumer.pom} anywhere under the
+     * first of {@code localRepos} that holds it, or {@code null} when none does.
+     */
+    private static File findConsumerPom(List<Path> localRepos, String artifactId, String version)
             throws MojoException {
-        if (!Files.isDirectory(localRepo)) {
-            return null;
-        }
         String fileName = artifactId + "-" + version + "-consumer.pom";
-        try (Stream<Path> walk = Files.walk(localRepo)) {
-            return walk.filter(p -> p.getFileName().toString().equals(fileName))
-                    .map(Path::toFile)
-                    .findFirst()
-                    .orElse(null);
-        } catch (IOException e) {
-            throw new MojoException("Failed to scan " + localRepo, e);
+        for (Path localRepo : localRepos) {
+            if (!Files.isDirectory(localRepo)) {
+                continue;
+            }
+            try (Stream<Path> walk = Files.walk(localRepo)) {
+                Optional<File> found = walk.filter(p -> p.getFileName().toString().equals(fileName))
+                        .map(Path::toFile)
+                        .findFirst();
+                if (found.isPresent()) {
+                    return found.get();
+                }
+            } catch (IOException e) {
+                throw new MojoException("Failed to scan " + localRepo, e);
+            }
         }
+        return null;
     }
 
     /**

@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -686,7 +687,13 @@ class ReleaseSupportTest {
 
     private static void writeConsumerPom(Path gitRoot, String artifactId, String version,
                                          String properties) throws IOException {
-        Path dir = gitRoot.resolve("target/project-local-repo/network.ike/" + artifactId + "/" + version);
+        writeConsumerPom(gitRoot, "target/project-local-repo", artifactId, version, properties);
+    }
+
+    /** Writes the consumer POM into {@code localRepo}, relative to the git root. */
+    private static void writeConsumerPom(Path gitRoot, String localRepo, String artifactId, String version,
+                                         String properties) throws IOException {
+        Path dir = gitRoot.resolve(localRepo + "/network.ike/" + artifactId + "/" + version);
         Files.createDirectories(dir);
         Files.writeString(dir.resolve(artifactId + "-" + version + "-consumer.pom"), """
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -768,7 +775,36 @@ class ReleaseSupportTest {
         ReleaseSupport.AliasIndirectionGap gap = gaps.get(0);
         assertThat(gap.kind()).isEqualTo(ReleaseSupport.AliasIndirectionGapKind.CONSUMER_POM_MISSING);
         assertThat(gap.artifactId()).isEqualTo("ike-base-parent");
-        assertThat(gap.describe()).contains("no consumer POM in target/project-local-repo");
+        assertThat(gap.describe()).contains("no consumer POM in the project-local repository")
+                .contains(".mvn/target/project-local-repo").contains("target/project-local-repo");
+    }
+
+    @Test
+    void findMissingAliasIndirections_findsConsumerPomInTheRc7Location(
+            @TempDir Path tmpDir) throws Exception {
+        // Maven 4.0.0-rc-7 writes the project-local repository under .mvn/target (#1153).
+        writePom(tmpDir, ALIAS_SOURCE_POM);
+        writeConsumerPom(tmpDir, ".mvn/target/project-local-repo", "ike-base-parent", "16", """
+                        <ike-base-parent.version>${network.ike__GA__ike-base-parent__VERSION}</ike-base-parent.version>
+                        <junit-jupiter.version>${org.junit.jupiter__GA__junit-jupiter__VERSION}</junit-jupiter.version>
+                        <junit.version>${org.junit.jupiter__GA__junit-jupiter__VERSION}</junit.version>""");
+
+        assertThat(ReleaseSupport.findMissingAliasIndirections(tmpDir.toFile(), "16")).isEmpty();
+    }
+
+    @Test
+    void projectLocalRepositories_areTheConfiguredOneThenRc7ThenRc5(@TempDir Path tmpDir) {
+        assertThat(ReleaseSupport.projectLocalRepositories(tmpDir, name -> null)).containsExactly(
+                tmpDir.resolve(".mvn/target/project-local-repo"),
+                tmpDir.resolve("target/project-local-repo"));
+
+        assertThat(ReleaseSupport.projectLocalRepositories(tmpDir,
+                Map.of(ReleaseSupport.REACTOR_OUTPUT_REPOSITORY_PROPERTY, "${maven.rootDirectory}/build/repo")::get))
+                .first().isEqualTo(tmpDir.resolve("build/repo"));
+
+        assertThat(ReleaseSupport.projectLocalRepositories(tmpDir,
+                Map.of(ReleaseSupport.REACTOR_OUTPUT_REPOSITORY_PROPERTY, "out/repo")::get))
+                .first().isEqualTo(tmpDir.resolve("out/repo"));
     }
 
     @Test
