@@ -59,6 +59,7 @@ The `claude` classifier ships every file from
 | [`IKE-INDEX.md`](src/main/standards/IKE-INDEX.md) | AsciiDoc index-term conventions; term-to-topic reverse index for content discovery |
 | [`IKE-CLASSIFIERS.md`](src/main/standards/IKE-CLASSIFIERS.md) | Maven artifact classifier conventions (`adoc`, `prince`, `fop`, `claude`, etc.) |
 | [`IKE-INGEST.md`](src/main/standards/IKE-INGEST.md) | Ingest pipeline conventions (FHIR → ANF → Delta Lake) |
+| [`IKE-DEX-INGEST.md`](src/main/standards/IKE-DEX-INGEST.md) | Whole-document ingestion of FDA 510(k) decision summaries as DeX records; deltas from `IKE-INGEST.md` only |
 | [`IKE-KNOWLEDGE.md`](src/main/standards/IKE-KNOWLEDGE.md) | Knowledge-layer conventions (terminology, concept models) |
 | [`IKE-LANGUAGE.md`](src/main/standards/IKE-LANGUAGE.md) | Plain language for concept definitions, design topics, guide chapters, and proposals to the architect |
 | [`IKE-RELEASE.md`](src/main/standards/IKE-RELEASE.md) | Release procedure conventions (foundation cascade, workspace cascade) |

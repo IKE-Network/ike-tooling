@@ -18,6 +18,7 @@ The target project already exists. Ingestion populates it with content.
   - `IKE-ASCIIDOC-FRAGMENT.md` — fragment authoring conventions
   - `IKE-ASSEMBLY.md` — assembly document conventions
   - `IKE-INDEX.md` — index term authoring
+  - `IKE-DEX-INGEST.md` — FDA 510(k) decision summaries (DeX records)
 
 ## Standard Project Structure
 
@@ -69,7 +70,17 @@ topic must appear in it.
 
 ### Step 1: Import
 
-Receive the source document. Identify its structure:
+Receive the source document.
+
+**510(k) check.** Before anything else, test the first page for an
+FDA 510(k) Substantial Equivalence Determination Decision Summary:
+the headings `510(k) SUBSTANTIAL EQUIVALENCE DETERMINATION` and
+`DECISION SUMMARY`, plus a field `A. 510(k) Number:` matching
+`K\d{6}`. If all three are present, stop here and ingest per
+`IKE-DEX-INGEST.md` — the document is a DeX record and is not
+decomposed. Otherwise continue.
+
+Identify its structure:
 - Heading hierarchy and section boundaries
 - Content types (narrative, procedures, reference tables, diagrams)
 - Cross-references and dependencies between sections
@@ -319,8 +330,10 @@ may reclassify the source or adjust the handling strategy.
 
 #### Step 1: Import and classify
 
-Receive the source document. Identify the source type per the
-content handling matrix above. Present the mandatory confirmation
+Receive the source document. Apply the 510(k) check from the
+standard workflow's Step 1; a decision summary is ingested per
+`IKE-DEX-INGEST.md`, not this workflow. Otherwise identify the
+source type per the content handling matrix above. Present the mandatory confirmation
 to the user before proceeding.
 
 #### Step 2: Convert and normalize
@@ -466,10 +479,12 @@ Provide:
 
 Claude should:
 
-1. Read the target project's `topic-registry.yaml` (if it exists).
-2. Decompose the source document into topics.
-3. Check for redundancy against existing topics.
-4. Place topic files in `topics/src/docs/asciidoc/topics/{domain}/`.
-5. Update the registry.
-6. Create or update the assembly module.
-7. Build and verify.
+1. Run the 510(k) check. If the source is a decision summary,
+   switch to `IKE-DEX-INGEST.md` and say so.
+2. Read the target project's `topic-registry.yaml` (if it exists).
+3. Decompose the source document into topics.
+4. Check for redundancy against existing topics.
+5. Place topic files in `topics/src/docs/asciidoc/topics/{domain}/`.
+6. Update the registry.
+7. Create or update the assembly module.
+8. Build and verify.
