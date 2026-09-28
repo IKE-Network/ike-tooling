@@ -478,11 +478,13 @@ the diff is of knowledge, never of the renderer.
 The goal works at the Maven subproject level and adapts to the module it runs
 in:
 
-- **Topics-library module** (its source root holds `topic-registry.yaml`): the
-  corpus packet — every changed fragment, the full registry delta including
-  each assembly's membership changes.
+- **Topics-library module** (its source root holds `topics/`): the corpus
+  packet — every changed fragment, the full registry delta including each
+  assembly's membership changes. The registry on each side is generated from
+  the `:topic-*:` headers on that side, as `idoc:topic-registry` would; no
+  hand-kept registry file is read.
 - **Assembly module**: the *projection* of the corpus diff onto this assembly —
-  changed topics intersected with the assembly's flattened `topic-refs`
+  changed topics intersected with the topics its `include::` lines name
   (assembly id defaults to the artifactId; override with
   `-Dike.diff.assemblyId`), plus the module's own master-file scaffolding diff
   and a membership delta for just this assembly. Topics deleted in range are

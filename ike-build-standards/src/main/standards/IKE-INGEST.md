@@ -30,7 +30,6 @@ Every documentation multi-module project follows this layout:
 │   ├── pom.xml                     #   artifactId: topics
 │   └── src/docs/asciidoc/
 │       ├── index.adoc              #   all-topics HTML preview
-│       ├── topic-registry.yaml     #   topic catalog
 │       └── topics/                 #   topic fragments by domain
 │           ├── {domain}/
 │           │   └── {topic}.adoc
@@ -180,11 +179,15 @@ Split the source into topic fragments per `IKE-TOPIC-DECOMPOSITION.md`:
 
 ### Step 4: Index
 
-Register every topic in `topic-registry.yaml` per
-`IKE-TOPIC-REGISTRY.md`:
+Record every topic's metadata in its own header per
+`IKE-TOPIC-REGISTRY.md` § "Topic Header Attributes". The topic
+registry is generated from these headers; never write registry YAML.
 
-- Assign domain, topic-id, type, keywords, and summary.
-- Check for redundancy against existing topics in the registry.
+- Assign domain prefix, `:topic-id:`, `:topic-type:`,
+  `:topic-keywords:`, and `:topic-summary:`.
+- Run `mvn idoc:topic-registry -pl topics` and read
+  `topics/target/topic-registry.yaml` to check for redundancy
+  against existing topics.
 - Resolve any overlaps before proceeding.
 
 ### Step 5: Place
@@ -196,7 +199,12 @@ Put topic files into the target project's `topics/` module:
 2. Place each `.adoc` fragment in the appropriate domain directory.
 3. Update `topics/src/docs/asciidoc/index.adoc` to include the new
    topics for the HTML preview.
-4. Merge registry entries into `topic-registry.yaml`.
+4. Add the placed files to the topic registry:
+
+   ```bash
+   mvn -B idoc:topic-registry -pl topics \
+     -Dike.topic-registry.add=src/docs/asciidoc/topics/{domain}/{topic}.adoc   # comma-separated for several
+   ```
 
 ### Step 6: Assemble
 
@@ -206,9 +214,7 @@ Create or update an assembly in the target project:
    descriptive name and a POM that depends on `topics`.
 2. Author the assembly `.adoc` file per `IKE-ASSEMBLY.md` with
    `include::` directives referencing the placed topics.
-3. Add the assembly entry to `topic-registry.yaml` with nested
-   `sections` mirroring the heading hierarchy.
-4. Add the new module to the reactor POM's `<subprojects>`.
+3. Add the new module to the reactor POM's `<subprojects>`.
 
 ### Step 7: Validate
 
@@ -222,7 +228,9 @@ mvn clean verify
 - All `xref:` targets resolve.
 - Heading levels render correctly with `leveloffset`.
 - No content from the source document was lost.
-- Registry topic-count matches actual count.
+- A full `mvn -B idoc:topic-registry -pl topics` run reports
+  `0 findings`, and every new topic appears in
+  `topics/target/topic-registry.yaml` at the path where it was placed.
 - Every new topic appears in the compendium assembly.
 - Every new topic is included in `topics/src/docs/asciidoc/index.adoc`
   (the all-topics preview). This ensures cross-topic `xref:` links
@@ -248,9 +256,10 @@ single topic. See `IKE-TOPIC-DECOMPOSITION.md` § "Dialog Topics."
    substantive discussion per `IKE-INDEX.md`.
 4. **Place**: Put the single `.adoc` file in
    `topics/src/docs/asciidoc/topics/dialog/`.
-5. **Register**: Add the topic entry to `topic-registry.yaml` under
-   the `dialog` domain. Include a `notes` field documenting that this
-   is a dialog topic exempt from size bounds.
+5. **Register**: Use the `dialog` domain prefix for the topic id and
+   set `:topic-notes:` in the header documenting that this is a dialog
+   topic exempt from size bounds. Add the file to the topic registry
+   per Step 5 of the standard workflow.
 6. **Assemble**: Add the topic to the `dialogs` assembly and to the
    compendium. If a `dialogs` assembly module does not yet exist,
    create one following the assembly module template in `IKE-DOC.md`.
@@ -406,16 +415,26 @@ topics/ext/
 
 #### Step 7: Register
 
-Add the topic to `topic-registry.yaml` under the `ext` domain.
+Give the topic an `ext-` id so it lands in the `ext` domain, and set
+its registry metadata in the header:
 
-- Use `status: review` as the ceiling — external topics are never
-  `published` because they are never included in assemblies.
-- Add a `notes` field documenting the content handling strategy
-  that was applied (e.g., `"Fair use summary — no verbatim
-  reproduction."` or `"Near-verbatim — internal collaborator
-  content with implicit permission."`).
-- Add bidirectional `related:` links to any authored topics that
-  reference or were informed by this source.
+- Use `:topic-status: review` as the ceiling — external topics are
+  never `published` because they are never included in assemblies.
+- Set `:topic-notes:` documenting the content handling strategy
+  that was applied (e.g., `Fair use summary — no verbatim
+  reproduction.` or `Near-verbatim — internal collaborator
+  content with implicit permission.`).
+- Set bidirectional `:topic-related:` links: list the authored topics
+  that reference or were informed by this source, and add this
+  topic's id to each of their `:topic-related:` attributes.
+
+Then add the placed file, and any authored topic whose header you
+changed, to the topic registry:
+
+```bash
+mvn -B idoc:topic-registry -pl topics \
+  -Dike.topic-registry.add=src/docs/asciidoc/topics/ext/{type}/{topic}.adoc
+```
 
 #### Step 8: Update index.adoc and validate
 
@@ -436,8 +455,7 @@ uniform line structure after any manual editing during Steps 3–5.
 ### Assembly exclusion rule
 
 External topics (`ext/` domain) must not appear in any assembly's
-`include::` directives or in any assembly's `topic-refs` in the
-registry. Authored topics may cross-reference external topics using
+`include::` directives. Authored topics may cross-reference external topics using
 `xref:`:
 
 ```asciidoc
@@ -462,7 +480,8 @@ endif::[]
 
 When the target project already has topics, follow the integration
 workflow from `IKE-TOPIC-DECOMPOSITION.md` § "Topic Integration."
-The additional constraint: search the existing registry and term index
+The additional constraint: search the generated topic registry
+(`topics/target/topic-registry.yaml`) and term index
 for overlap before placing any new topics. Resolve redundancy before
 committing.
 
@@ -481,10 +500,13 @@ Claude should:
 
 1. Run the 510(k) check. If the source is a decision summary,
    switch to `IKE-DEX-INGEST.md` and say so.
-2. Read the target project's `topic-registry.yaml` (if it exists).
+2. Run `mvn -B idoc:topic-registry -pl topics` in the target project
+   and read `topics/target/topic-registry.yaml`.
 3. Decompose the source document into topics.
 4. Check for redundancy against existing topics.
 5. Place topic files in `topics/src/docs/asciidoc/topics/{domain}/`.
-6. Update the registry.
+6. Add the placed files to the topic registry with
+   `-Dike.topic-registry.add`.
 7. Create or update the assembly module.
-8. Build and verify.
+8. Build and verify, finishing with a full topic registry scan that
+   reports `0 findings`.

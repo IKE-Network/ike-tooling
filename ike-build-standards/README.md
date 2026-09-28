@@ -55,7 +55,7 @@ The `claude` classifier ships every file from
 | [`IKE-ASCIIDOC-FRAGMENT.md`](src/main/standards/IKE-ASCIIDOC-FRAGMENT.md) | Fragment-style AsciiDoc topic authoring (titles, sections, IDs, includes) |
 | [`IKE-ASSEMBLY.md`](src/main/standards/IKE-ASSEMBLY.md) | How an assembly composes topic fragments; index blocks; cross-references |
 | [`IKE-TOPIC-DECOMPOSITION.md`](src/main/standards/IKE-TOPIC-DECOMPOSITION.md) | Splitting prose into fragments; topic granularity guidance |
-| [`IKE-TOPIC-REGISTRY.md`](src/main/standards/IKE-TOPIC-REGISTRY.md) | The topic registry YAML format; topic-IDs and cross-references |
+| [`IKE-TOPIC-REGISTRY.md`](src/main/standards/IKE-TOPIC-REGISTRY.md) | The generated topic registry: topic header attributes, `idoc:topic-registry`, topic-IDs and cross-references |
 | [`IKE-INDEX.md`](src/main/standards/IKE-INDEX.md) | AsciiDoc index-term conventions; term-to-topic reverse index for content discovery |
 | [`IKE-CLASSIFIERS.md`](src/main/standards/IKE-CLASSIFIERS.md) | Maven artifact classifier conventions (`adoc`, `prince`, `fop`, `claude`, etc.) |
 | [`IKE-INGEST.md`](src/main/standards/IKE-INGEST.md) | Ingest pipeline conventions (FHIR → ANF → Delta Lake) |

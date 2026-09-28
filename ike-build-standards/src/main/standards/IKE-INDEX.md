@@ -24,7 +24,7 @@ which assemblies require an index and backend support details.
 ## When Index Terms Are Generated
 
 - **During decomposition**: Claude inserts index terms as part of fragment authoring. Index
-  terms are a required deliverable alongside the `.adoc` file and registry YAML fragment.
+  terms are a required deliverable alongside the `.adoc` file and its header attributes.
 - **On demand**: When asked to index an existing topic, Claude reads the topic and inserts
   terms per these standards, returning the updated file and a summary of terms added.
 - **During revision**: When revising a topic, Claude reviews existing index terms for accuracy
@@ -126,7 +126,7 @@ text.
 - **Maximum**: 10. More than 10 suggests over-indexing (indexing generic terms or passing
   mentions) or a topic that is too broad and should be decomposed further.
 - **Exception**: Reference topics with large tables may legitimately have 10–15 index terms
-  if the table defines many distinct concepts. Note the exception in the registry entry.
+  if the table defines many distinct concepts. Note the exception in `:topic-notes:`.
 
 ## Controlled Vocabulary
 

@@ -35,17 +35,17 @@ clearance letters, De Novo or PMA decisions).
 
 | Concern | IKE-INGEST (external source) | IKE-DEX-INGEST |
 |---------|------------------------------|----------------|
-| Decomposition | Split into topics, 500–5000 chars | **None.** One record, whole document, size bounds exempt (note in registry, as for dialogs) |
+| Decomposition | Split into topics, 500–5000 chars | **None.** One record, whole document, size bounds exempt (`:topic-notes:` in the header, as for dialogs) |
 | Source type | Classified per confirmation step | Fixed: regulatory, US federal, public domain, verbatim |
 | Domain | `ext` | `dex` |
 | Directory | `topics/ext/regulatory/` | `topics/dex/` |
 | File name | `{slug}.adoc` | `DeXRecord_{510k-number}.adoc`, e.g. `DeXRecord_K031739.adoc` |
 | Title | Descriptive | `DeXRecord_{510k-number}` |
-| Topic ID | `ext-{slug}` | `dex-{510k-number lowercase}`, e.g. `dex-k031739` (registry requires lowercase kebab-case; derived from the file name) |
+| Topic ID | `ext-{slug}` | `dex-{510k-number lowercase}`, e.g. `dex-k031739` (topic IDs are lowercase kebab-case; derived from the file name) |
 | Layout | Fragment conventions | **Mirrors the PDF.** Title block, lettered headings with their punctuation, numbered and lettered sub-fields as lists, tables in the source's shape |
-| Editorial context paragraph | Added for navigation | **Not added.** The registry `summary` is the abstract |
+| Editorial context paragraph | Added for navigation | **Not added.** The `:topic-summary:` header attribute is the abstract |
 | Index terms | 3–10 | 5–15, at first substantive mention |
-| Uniqueness | Redundancy check against registry | **One record per 510(k) number.** Existing `dex-{number}`: stop and ask before replacing |
+| Uniqueness | Redundancy check against the generated topic registry | **One record per 510(k) number.** Existing `dex-{number}`: stop and ask before replacing |
 | `index.adoc` heading | `== External Sources: Regulatory` | `== DeX Records` |
 | Citation | Bibliographic | Same, plus the `accessdata.fda.gov` PDF URL |
 
@@ -136,6 +136,13 @@ to reproduce its shape.
 :topic-type: reference
 :topic-status: review
 :topic-keywords: 510(k), K031739, {analyte}, {device}, substantial equivalence, {product code}
+:topic-summary: Whole-document DeX record of the K031739 decision summary: {device}, \
+  {regulation and class}, intended use, predicate comparison, performance \
+  characteristics, and the reviewer's substantial equivalence conclusion.
+:topic-related: ext-fda-k031739-device-overview, ext-fda-k031739-performance, \
+  ext-fda-k031739-instrument-system
+:topic-notes: DeX record — whole document, verbatim, exempt from size bounds \
+  per IKE-DEX-INGEST. Public domain US federal work.
 :topic-scope-note: Whole-document DeX record for K031739. Not decomposed.
 :topic-provenance: external
 :topic-citation: U.S. Food and Drug Administration, Center for Devices and Radiological Health. 510(k) Substantial Equivalence Determination Decision Summary, {Template Name}: K031739, {Device Name}. Applicant: {Applicant}. https://www.accessdata.fda.gov/cdrh_docs/reviews/K031739.pdf
@@ -158,29 +165,19 @@ K031739
 
 ### Registry domain
 
-Create once, then append one topic per record:
+The `dex-` id prefix places every record in the `dex` domain of the
+generated topic registry; there is no domain entry to write. The
+header block above carries all registry metadata (`:topic-summary:`,
+`:topic-related:`, `:topic-notes:`). After placing the file, add it:
 
-```yaml
-  - id: dex
-    title: "DeX Records"
-    description: >
-      Whole-document FDA 510(k) Substantial Equivalence Determination
-      Decision Summaries, one record per 510(k) number. Never decomposed;
-      never included in assemblies.
-    topics:
-      - id: dex-k031739
-        file: topics/dex/DeXRecord_K031739.adoc
-        title: "DeXRecord_K031739"
-        type: reference
-        status: review
-        related: [ext-fda-k031739-device-overview, ext-fda-k031739-performance, ext-fda-k031739-instrument-system]
-        notes: >
-          DeX record — whole document, verbatim, exempt from size bounds
-          per IKE-DEX-INGEST. Public domain US federal work.
+```bash
+mvn -B idoc:topic-registry -pl topics \
+  -Dike.topic-registry.add=src/docs/asciidoc/topics/dex/DeXRecord_K031739.adoc
 ```
 
 Decomposed topics for the same 510(k) number may coexist. Link them
-both ways through `related:`.
+both ways through `:topic-related:`, and add those topics to the
+registry too when their headers change.
 
 ### Confirmation text
 
