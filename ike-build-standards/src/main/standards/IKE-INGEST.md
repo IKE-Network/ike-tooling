@@ -95,51 +95,31 @@ convert it to AsciiDoc first, then run the tool.
 
 #### Invocation
 
-The tool accepts individual files, multiple files, or entire
-directories. When given a directory it walks recursively for `*.adoc`
-files, skipping `target/` directories. AsciidoctorJ is initialized
-once and reused across all files, so batch mode is significantly
-faster than invoking per file.
+Run the `slb:reformat` goal from the doc project. It takes one file or
+one directory; a directory is walked recursively for `*.adoc` files.
+AsciidoctorJ is initialized once and reused across all files, so
+running it on a directory is significantly faster than per file.
 
-**Batch — entire directory (recommended):**
-
-```bash
-# From the ike-docs reactor root:
-mvn exec:java -pl semantic-linebreak \
-  -Dexec.args="path/to/src/docs/asciidoc"
-```
-
-**Batch — multiple files:**
+**Directory (recommended):**
 
 ```bash
-mvn exec:java -pl semantic-linebreak \
-  -Dexec.args="chapter1.adoc chapter2.adoc chapter3.adoc"
+mvn slb:reformat -Dfile=topics/src/docs/asciidoc/topics/{domain}/
 ```
 
 **Single file:**
 
 ```bash
-mvn exec:java -pl semantic-linebreak \
-  -Dexec.args="path/to/source.adoc"
+mvn slb:reformat -Dfile=topics/src/docs/asciidoc/topics/{domain}/{topic}.adoc
 ```
 
 **Dry run — preview to stdout without modifying:**
 
 ```bash
-mvn exec:java -pl semantic-linebreak \
-  -Dexec.args="-n path/to/source.adoc"
+mvn slb:reformat -DdryRun=true -Dfile=path/to/source.adoc
 ```
 
-**Direct Java invocation (outside reactor):**
-
-```bash
-java -jar semantic-linebreak/target/semantic-linebreak-*.jar \
-  path/to/src/docs/asciidoc
-```
-
-All invocations modify files in-place by default. Use `-n` (dry run)
-to preview changes to stdout, or `-o <file>` to write to a different
-file (single-file mode only).
+The goal modifies files in place. Use `-DdryRun=true` to preview, or
+`-DoutputFile=<file>` to write elsewhere (single-file mode only).
 
 #### Why normalize before decomposition
 
