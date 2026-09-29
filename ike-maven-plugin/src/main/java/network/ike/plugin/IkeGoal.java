@@ -78,6 +78,12 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     /** {@code ike:generate-bom} — generate the auto-managed BOM. */
     GENERATE_BOM(IkeGoal.NAME_GENERATE_BOM, GenerateBomMojo.class,
             "Generate the auto-managed BOM from the current dependencyManagement."),
+    /** {@code ike:heal-snapshot-metadata} — repair a snapshot's inconsistent metadata before deploy (#1160). */
+    HEAL_SNAPSHOT_METADATA(IkeGoal.NAME_HEAL_SNAPSHOT_METADATA, HealSnapshotMetadataMojo.class,
+            "Before a snapshot deploy, delete the version's maven-metadata.xml "
+                    + "and checksum files on the deploy target when they "
+                    + "disagree, so the deploy rewrites them (Nexus "
+                    + "metadata-rebuild fault, IKE-Network/ike-issues#1107)."),
     /** {@code ike:help} — list {@code ike:*} goals from the plugin descriptor. */
     HELP(IkeGoal.NAME_HELP, IkeHelpMojo.class,
             "List ike:* goals discovered from the plugin descriptor."),
@@ -262,6 +268,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_ENV = "env";
     /** Mirror for {@link #GENERATE_BOM}. */
     public static final String NAME_GENERATE_BOM = "generate-bom";
+    /** Mirror for {@link #HEAL_SNAPSHOT_METADATA}. */
+    public static final String NAME_HEAL_SNAPSHOT_METADATA = "heal-snapshot-metadata";
     /** Mirror for {@link #HELP}. */
     public static final String NAME_HELP = "help";
     /** Mirror for {@link #INJECT_BREADCRUMB}. */
