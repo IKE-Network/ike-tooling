@@ -224,10 +224,14 @@ organizations
   Regenstrief Institute
 
 regulatory science
+  approval decision
   benefit-risk uncertainty
+  cost of delay
+  cost of exposure
   least burdensome
   oculostenotic reflex
   post-approval study
+  public health value
   surveillance horizon
   surveillance imaging
 
