@@ -165,11 +165,34 @@ coordinates
   STAMP coordinate
   temporal coordinate
 
+decision analysis
+  alternative
+  clairvoyance
+  decision
+  expected net benefit of sampling
+  expected value
+  expected value of sample information
+  net monetary benefit
+  preposterior analysis
+  prior
+  sensitivity analysis
+  state of the world
+  value of information
+
+diagnostic accuracy
+  false alarm
+  sensitivity
+  specificity
+
 governance
   editorial rules
   namespace registration
   promotion pathway
   quality assurance
+
+health economics
+  price of a QALY
+  quality-adjusted life year
 
 interoperability
   ANF
@@ -199,6 +222,14 @@ organizations
   IHTSDO
   NLM
   Regenstrief Institute
+
+regulatory science
+  benefit-risk uncertainty
+  least burdensome
+  oculostenotic reflex
+  post-approval study
+  surveillance horizon
+  surveillance imaging
 
 safety
   hazard analysis
