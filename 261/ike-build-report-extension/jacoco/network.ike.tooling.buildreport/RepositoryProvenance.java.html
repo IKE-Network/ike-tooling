@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RepositoryProvenance.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">RepositoryProvenance.java</span></div><h1>RepositoryProvenance.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Answers the question a repository finding raises and the resolver
+ * event cannot: &lt;em&gt;whose repository is this?&lt;/em&gt;
+ *
+ * &lt;p&gt;Maven 4 disambiguates remote repositories by appending a SHA-1 of
+ * the effective repository definition to the declared id, so a
+ * resolver event names {@code spring-release-e22ad65b…} rather than
+ * {@code spring-release}. That id is opaque, and — because the hash
+ * covers the URL and policies — it also changes whenever an upstream
+ * POM edits the repository, silently orphaning any ledger entry keyed
+ * on it. Findings therefore key on the declared id with the hash
+ * stripped, and carry the full id and URL as context instead.&lt;/p&gt;
+ *
+ * &lt;p&gt;Provenance is resolved at session end rather than at observation
+ * time: repository events fire before most POMs have been read, and
+ * the declarations come from {@link ModelObservations}, which the
+ * model observer fills throughout the build.&lt;/p&gt;
+ */
+public final class RepositoryProvenance {
+
+    /**
+     * Maven 4's repository-id disambiguation suffix: a hyphen and the
+     * 40-hex SHA-1 of the effective repository definition.
+     */
+<span class="fc" id="L39">    private static final Pattern DISAMBIGUATION_SUFFIX = Pattern.compile(&quot;-[0-9a-f]{40}$&quot;);</span>
+
+    /** How many declaring POMs to name before summarizing the rest. */
+    private static final int MAX_NAMED_DECLARERS = 3;
+
+    /**
+     * Upper bound on resolved POMs scanned for a declaration, so a
+     * pathological session cannot turn reporting into build cost.
+     */
+    private static final int MAX_SCANNED_POMS = 4000;
+
+    /** Largest POM worth reading into memory during a scan. */
+    private static final long MAX_SCANNED_POM_BYTES = 1_000_000L;
+
+    /** Local-repository layout: {@code …/artifactId/version/artifactId-version.pom}. */
+<span class="fc" id="L54">    private static final Pattern LOCAL_REPOSITORY_POM =</span>
+<span class="fc" id="L55">            Pattern.compile(&quot;^(?&lt;artifactId&gt;.+)-(?&lt;version&gt;[^/]+)\\.pom$&quot;);</span>
+
+    private RepositoryProvenance() {
+    }
+
+    /**
+     * Strips Maven 4's disambiguation suffix from a repository id.
+     *
+     * @param repositoryId the id as the resolver reported it; may be null
+     * @return the declared id, or {@code &quot;unknown&quot;} when absent
+     */
+    public static String declaredId(String repositoryId) {
+<span class="pc bpc" id="L67" title="1 of 4 branches missed.">        if (repositoryId == null || repositoryId.isBlank()) {</span>
+<span class="fc" id="L68">            return &quot;unknown&quot;;</span>
+        }
+<span class="fc" id="L70">        return DISAMBIGUATION_SUFFIX.matcher(repositoryId).replaceFirst(&quot;&quot;);</span>
+    }
+
+    /**
+     * Adds a {@link Finding#CONTEXT_DECLARED_BY} entry to every
+     * repository finding whose repository can be traced to a POM read
+     * during the session.
+     *
+     * @param findings      the session's findings, in observation order
+     * @param observations  the session's file-model observations, which
+     *                      cover this workspace's POMs
+     * @param resolvedPoms  the dependency POMs the session resolved,
+     *                      which cover everything else
+     * @param localRepository the local repository's base directory, which
+     *                      anchors a resolved POM's group id; may be null
+     * @param executionRoot the session's execution root, used to say
+     *                      whether a declaring POM is in this workspace
+     * @return the findings, repository ones enriched where possible
+     */
+    public static List&lt;Finding&gt; enrich(
+            List&lt;Finding&gt; findings,
+            List&lt;ModelObservations.FileModel&gt; observations,
+            List&lt;Path&gt; resolvedPoms,
+            Path localRepository,
+            Path executionRoot) {
+<span class="fc" id="L95">        Objects.requireNonNull(findings, &quot;findings&quot;);</span>
+<span class="fc" id="L96">        Objects.requireNonNull(observations, &quot;observations&quot;);</span>
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">        List&lt;Path&gt; poms = resolvedPoms == null ? List.of() : resolvedPoms;</span>
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">        Path root = executionRoot == null ? null : executionRoot.toAbsolutePath().normalize();</span>
+<span class="fc" id="L99">        List&lt;Finding&gt; enriched = new ArrayList&lt;&gt;(findings.size());</span>
+<span class="fc bfc" id="L100" title="All 2 branches covered.">        for (Finding finding : findings) {</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">            if (finding.category() != FindingCategory.REPOSITORY) {</span>
+<span class="fc" id="L102">                enriched.add(finding);</span>
+<span class="fc" id="L103">                continue;</span>
+            }
+<span class="fc" id="L105">            enriched.add(finding.withContext(</span>
+                    Finding.CONTEXT_DECLARED_BY,
+<span class="fc" id="L107">                    describeDeclarers(</span>
+<span class="fc" id="L108">                            finding.context().get(Finding.CONTEXT_REPOSITORY_ID),</span>
+<span class="fc" id="L109">                            finding.context().get(Finding.CONTEXT_REPOSITORY_URL),</span>
+                            observations,
+                            poms,
+                            localRepository,
+                            root)));
+<span class="fc" id="L114">        }</span>
+<span class="fc" id="L115">        return enriched;</span>
+    }
+
+    /**
+     * Names the POMs that declared a repository.
+     *
+     * &lt;p&gt;Matching is by URL first — the identity Maven itself hashes —
+     * and by declared id second, so a repository still resolves when
+     * the event carries no URL. Workspace declarations are listed
+     * before third-party ones, because &quot;you declared this&quot; and
+     * &quot;a dependency declared this&quot; call for opposite responses.&lt;/p&gt;
+     *
+     * @param repositoryId  the repository id from the resolver event
+     * @param repositoryUrl the repository URL from the resolver event
+     * @param observations  the session's file-model observations
+     * @param root          the normalized execution root, or null
+     * @return a human-readable provenance line, or empty when no POM
+     *         read this session declared the repository
+     */
+    private static String describeDeclarers(
+            String repositoryId,
+            String repositoryUrl,
+            List&lt;ModelObservations.FileModel&gt; observations,
+            List&lt;Path&gt; resolvedPoms,
+            Path localRepository,
+            Path root) {
+<span class="fc" id="L141">        String declaredId = declaredId(repositoryId);</span>
+<span class="fc" id="L142">        String url = normalizeUrl(repositoryUrl);</span>
+<span class="fc" id="L143">        Set&lt;String&gt; workspace = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc" id="L144">        Set&lt;String&gt; external = new LinkedHashSet&lt;&gt;();</span>
+
+<span class="fc bfc" id="L146" title="All 2 branches covered.">        for (ModelObservations.FileModel model : observations) {</span>
+<span class="fc bfc" id="L147" title="All 2 branches covered.">            for (ModelObservations.RepositoryDeclaration declaration : model.repositories()) {</span>
+<span class="pc bpc" id="L148" title="1 of 4 branches missed.">                boolean matches = !url.isEmpty() &amp;&amp; url.equals(normalizeUrl(declaration.url()));</span>
+<span class="fc bfc" id="L149" title="All 2 branches covered.">                if (!matches) {</span>
+<span class="pc bpc" id="L150" title="2 of 4 branches missed.">                    matches = !declaration.id().isEmpty() &amp;&amp; declaration.id().equals(declaredId);</span>
+                }
+<span class="fc bfc" id="L152" title="All 2 branches covered.">                if (!matches) {</span>
+<span class="fc" id="L153">                    continue;</span>
+                }
+<span class="fc bfc" id="L155" title="All 2 branches covered.">                (inWorkspace(model.pomFile(), root) ? workspace : external).add(model.gav());</span>
+<span class="fc" id="L156">            }</span>
+<span class="fc" id="L157">        }</span>
+
+<span class="pc bpc" id="L159" title="1 of 2 branches missed.">        if (!url.isEmpty()) {</span>
+<span class="fc" id="L160">            scanResolvedPoms(</span>
+<span class="fc" id="L161">                    resolvedPoms, repositoryUrl.strip(), root, localRepository, workspace, external);</span>
+        }
+
+<span class="fc bfc" id="L164" title="All 4 branches covered.">        if (workspace.isEmpty() &amp;&amp; external.isEmpty()) {</span>
+<span class="fc" id="L165">            return &quot;&quot;;</span>
+        }
+<span class="fc" id="L167">        StringBuilder out = new StringBuilder(96);</span>
+<span class="fc bfc" id="L168" title="All 2 branches covered.">        if (!workspace.isEmpty()) {</span>
+<span class="fc" id="L169">            out.append(&quot;declared in this workspace by &quot;).append(summarize(workspace));</span>
+        }
+<span class="fc bfc" id="L171" title="All 2 branches covered.">        if (!external.isEmpty()) {</span>
+<span class="pc bpc" id="L172" title="1 of 2 branches missed.">            if (out.length() &gt; 0) {</span>
+<span class="nc" id="L173">                out.append(&quot;; also &quot;);</span>
+            }
+<span class="fc" id="L175">            out.append(&quot;declared by the POM of &quot;).append(summarize(external))</span>
+<span class="fc" id="L176">                    .append(&quot; — a dependency, not this workspace&quot;);</span>
+        }
+<span class="fc" id="L178">        return out.toString();</span>
+    }
+
+    /**
+     * Finds the resolved POMs whose text declares a repository URL.
+     *
+     * &lt;p&gt;A substring match on the URL, not an XML query: the POM has
+     * already been read and validated by Maven, the URL is a long and
+     * distinctive literal, and a false positive costs one wrong name in
+     * a diagnostic line rather than anything the build acts on. Files
+     * are read only when a repository finding exists, which is rare.&lt;/p&gt;
+     */
+    private static void scanResolvedPoms(
+            List&lt;Path&gt; resolvedPoms,
+            String url,
+            Path root,
+            Path localRepository,
+            Set&lt;String&gt; workspace,
+            Set&lt;String&gt; external) {
+<span class="fc" id="L197">        int scanned = 0;</span>
+<span class="fc bfc" id="L198" title="All 2 branches covered.">        for (Path pom : resolvedPoms) {</span>
+<span class="pc bpc" id="L199" title="1 of 2 branches missed.">            if (scanned++ &gt;= MAX_SCANNED_POMS) {</span>
+<span class="nc" id="L200">                return;</span>
+            }
+            try {
+<span class="pc bpc" id="L203" title="2 of 4 branches missed.">                if (!Files.isRegularFile(pom) || Files.size(pom) &gt; MAX_SCANNED_POM_BYTES) {</span>
+<span class="nc" id="L204">                    continue;</span>
+                }
+<span class="fc bfc" id="L206" title="All 2 branches covered.">                if (!Files.readString(pom, StandardCharsets.UTF_8).contains(url)) {</span>
+<span class="fc" id="L207">                    continue;</span>
+                }
+<span class="nc" id="L209">            } catch (Exception e) {</span>
+                // An unreadable or non-UTF-8 POM simply yields no provenance.
+<span class="nc" id="L211">                continue;</span>
+<span class="fc" id="L212">            }</span>
+<span class="fc" id="L213">            String gav = coordinatesOf(pom, localRepository);</span>
+<span class="pc bpc" id="L214" title="1 of 2 branches missed.">            if (!gav.isEmpty()) {</span>
+<span class="pc bpc" id="L215" title="1 of 2 branches missed.">                (inWorkspace(pom, root) ? workspace : external).add(gav);</span>
+            }
+<span class="fc" id="L217">        }</span>
+<span class="fc" id="L218">    }</span>
+
+    /**
+     * Derives a POM's coordinates from its local-repository path.
+     *
+     * &lt;p&gt;The layout {@code &lt;group as directories&gt;/&lt;artifactId&gt;/&lt;version&gt;/&lt;artifactId&gt;-&lt;version&gt;.pom}
+     * is guaranteed for anything the resolver put on disk, which is
+     * exactly the set being scanned — a cheaper and more reliable
+     * source than parsing a POM whose own coordinates may be inherited
+     * from a parent. The group id needs the repository root to know
+     * where it begins; without one, the artifact and version still
+     * name the dependency, which is what the reader came for.&lt;/p&gt;
+     *
+     * @param pom             the resolved POM's path
+     * @param localRepository the local repository's base directory, or null
+     * @return {@code groupId:artifactId:version}, {@code artifactId:version}
+     *         when the group cannot be anchored, or empty when the path
+     *         does not follow the layout at all
+     */
+    static String coordinatesOf(Path pom, Path localRepository) {
+<span class="fc" id="L238">        Path fileName = pom.getFileName();</span>
+<span class="fc" id="L239">        Path versionDir = pom.getParent();</span>
+<span class="pc bpc" id="L240" title="3 of 6 branches missed.">        if (fileName == null || versionDir == null || versionDir.getParent() == null) {</span>
+<span class="nc" id="L241">            return &quot;&quot;;</span>
+        }
+<span class="fc" id="L243">        Matcher matcher = LOCAL_REPOSITORY_POM.matcher(fileName.toString());</span>
+<span class="fc bfc" id="L244" title="All 2 branches covered.">        if (!matcher.matches()) {</span>
+<span class="fc" id="L245">            return &quot;&quot;;</span>
+        }
+<span class="fc" id="L247">        String artifactId = matcher.group(&quot;artifactId&quot;);</span>
+<span class="fc" id="L248">        String version = matcher.group(&quot;version&quot;);</span>
+<span class="fc" id="L249">        Path artifactDir = versionDir.getParent();</span>
+<span class="pc bpc" id="L250" title="1 of 2 branches missed.">        if (!versionDir.getFileName().toString().equals(version)</span>
+<span class="pc bpc" id="L251" title="1 of 2 branches missed.">                || !artifactDir.getFileName().toString().equals(artifactId)) {</span>
+<span class="nc" id="L252">            return &quot;&quot;;</span>
+        }
+<span class="fc" id="L254">        Path groupDir = artifactDir.getParent();</span>
+<span class="pc bpc" id="L255" title="1 of 4 branches missed.">        if (groupDir == null || localRepository == null) {</span>
+<span class="fc" id="L256">            return artifactId + &quot;:&quot; + version;</span>
+        }
+<span class="fc" id="L258">        Path base = localRepository.toAbsolutePath().normalize();</span>
+<span class="fc" id="L259">        Path absoluteGroupDir = groupDir.toAbsolutePath().normalize();</span>
+<span class="pc bpc" id="L260" title="1 of 2 branches missed.">        if (!absoluteGroupDir.startsWith(base)) {</span>
+<span class="nc" id="L261">            return artifactId + &quot;:&quot; + version;</span>
+        }
+<span class="fc" id="L263">        StringBuilder groupId = new StringBuilder();</span>
+<span class="fc bfc" id="L264" title="All 2 branches covered.">        for (Path segment : base.relativize(absoluteGroupDir)) {</span>
+<span class="fc bfc" id="L265" title="All 2 branches covered.">            groupId.append(groupId.length() == 0 ? &quot;&quot; : &quot;.&quot;).append(segment);</span>
+<span class="fc" id="L266">        }</span>
+<span class="pc bpc" id="L267" title="1 of 2 branches missed.">        return groupId.length() == 0</span>
+<span class="nc" id="L268">                ? artifactId + &quot;:&quot; + version</span>
+<span class="fc" id="L269">                : groupId + &quot;:&quot; + artifactId + &quot;:&quot; + version;</span>
+    }
+
+    private static boolean inWorkspace(Path pomFile, Path root) {
+<span class="pc bpc" id="L273" title="2 of 6 branches missed.">        return root != null &amp;&amp; pomFile != null &amp;&amp; pomFile.toAbsolutePath().normalize().startsWith(root);</span>
+    }
+
+    private static String summarize(Set&lt;String&gt; gavs) {
+<span class="fc" id="L277">        List&lt;String&gt; all = new ArrayList&lt;&gt;(gavs);</span>
+<span class="pc bpc" id="L278" title="1 of 2 branches missed.">        if (all.size() &lt;= MAX_NAMED_DECLARERS) {</span>
+<span class="fc" id="L279">            return String.join(&quot;, &quot;, all);</span>
+        }
+<span class="nc" id="L281">        return String.join(&quot;, &quot;, all.subList(0, MAX_NAMED_DECLARERS))</span>
+<span class="nc" id="L282">                + &quot; and &quot; + (all.size() - MAX_NAMED_DECLARERS) + &quot; more&quot;;</span>
+    }
+
+    private static String normalizeUrl(String url) {
+<span class="pc bpc" id="L286" title="1 of 2 branches missed.">        if (url == null) {</span>
+<span class="nc" id="L287">            return &quot;&quot;;</span>
+        }
+<span class="fc" id="L289">        String trimmed = url.strip().toLowerCase(Locale.ROOT);</span>
+<span class="fc bfc" id="L290" title="All 2 branches covered.">        while (trimmed.endsWith(&quot;/&quot;)) {</span>
+<span class="fc" id="L291">            trimmed = trimmed.substring(0, trimmed.length() - 1);</span>
+        }
+<span class="fc" id="L293">        return trimmed;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VerifyReport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">VerifyReport.java</span></div><h1>VerifyReport.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Properties;
+
+/**
+ * A verification's findings. The report passes when no finding is an
+ * {@link Finding.Severity#ERROR}; the goal face fails the build on a non-passing
+ * report by normal control flow — never by terminating the JVM. (Deliberately a
+ * &lt;em&gt;report&lt;/em&gt;, not a {@code *Result}: it is a findings list with a gate, not a
+ * value the caller consumes.)
+ *
+ * @param findings the findings, most severe first by convention
+ */
+public record VerifyReport(List&lt;Finding&gt; findings) {
+
+    /**
+     * Validates and defensively copies the report.
+     *
+     * @param findings the findings
+     * @throws NullPointerException if {@code findings} is null
+     */
+<span class="fc" id="L25">    public VerifyReport {</span>
+<span class="fc" id="L26">        findings = List.copyOf(Objects.requireNonNull(findings, &quot;findings&quot;));</span>
+<span class="fc" id="L27">    }</span>
+
+    /**
+     * Whether the verification passed.
+     *
+     * @return {@code true} when no finding is an error
+     */
+    public boolean passed() {
+<span class="pc bpc" id="L35" title="1 of 2 branches missed.">        return findings.stream().noneMatch(finding -&gt; finding.severity() == Finding.Severity.ERROR);</span>
+    }
+
+    /**
+     * Encodes this report in the seam wire format.
+     *
+     * @return the report properties
+     */
+    public Properties toProperties() {
+<span class="fc" id="L44">        Properties properties = new Properties();</span>
+<span class="fc bfc" id="L45" title="All 2 branches covered.">        for (int i = 0; i &lt; findings.size(); i++) {</span>
+<span class="fc" id="L46">            Finding finding = findings.get(i);</span>
+<span class="fc" id="L47">            PropCodec.put(properties, &quot;finding.&quot; + (i + 1) + &quot;.severity&quot;, finding.severity().name());</span>
+<span class="fc" id="L48">            PropCodec.put(properties, &quot;finding.&quot; + (i + 1) + &quot;.check&quot;, finding.check().name());</span>
+<span class="fc" id="L49">            PropCodec.put(properties, &quot;finding.&quot; + (i + 1) + &quot;.component&quot;, finding.component());</span>
+<span class="fc" id="L50">            PropCodec.put(properties, &quot;finding.&quot; + (i + 1) + &quot;.message&quot;, finding.message());</span>
+        }
+<span class="fc" id="L52">        return properties;</span>
+    }
+
+    /**
+     * Decodes a report from the seam wire format.
+     *
+     * @param properties the report properties
+     * @return the decoded report
+     * @throws IllegalArgumentException if present keys are malformed
+     */
+    public static VerifyReport fromProperties(Properties properties) {
+<span class="fc" id="L63">        int count = PropCodec.indexedCount(properties, &quot;finding.&quot;, &quot;severity&quot;);</span>
+<span class="fc" id="L64">        List&lt;Finding&gt; findings = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">        for (int i = 1; i &lt;= count; i++) {</span>
+<span class="fc" id="L66">            findings.add(new Finding(</span>
+<span class="fc" id="L67">                    Finding.Severity.valueOf(PropCodec.require(properties, &quot;finding.&quot; + i + &quot;.severity&quot;)),</span>
+<span class="fc" id="L68">                    VerifyRequest.Check.valueOf(PropCodec.require(properties, &quot;finding.&quot; + i + &quot;.check&quot;)),</span>
+<span class="fc" id="L69">                    PropCodec.require(properties, &quot;finding.&quot; + i + &quot;.component&quot;),</span>
+<span class="fc" id="L70">                    PropCodec.require(properties, &quot;finding.&quot; + i + &quot;.message&quot;)));</span>
+        }
+<span class="fc" id="L72">        return new VerifyReport(findings);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
