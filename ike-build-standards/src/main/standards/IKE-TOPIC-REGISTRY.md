@@ -2,163 +2,168 @@
 
 ## Purpose
 
-The `topic-registry.yaml` file is the authoritative catalog of all topics in a topic library
-module. It serves three functions:
+The topic registry is the catalog of every AsciiDoc file in a documentation module:
+each topic with its metadata, each assembly, and every other file. It is **generated** by the
+`idoc:topic-registry` goal from the files themselves. Nobody writes or edits it by hand.
 
-1. **Build validation**: CI checks that every `.adoc` file under `topics/` has a registry
-   entry and every registry entry resolves to a file.
-2. **Assembly planning**: Authors and tooling use the registry to understand what content
-   exists, its status, and its dependencies when constructing assembly documents.
-3. **Claude navigation**: The registry provides Claude (chat or Claude Code) with a searchable
-   index of the corpus so that content can be located by keyword, topic-id, or domain without
-   uploading the full topic library.
+The metadata lives in each topic's `:topic-*:` header attributes (see
+`IKE-ASCIIDOC-FRAGMENT.md`). The topic file is the single source of truth; the registry is a
+derived view of all headers at once. It serves three functions:
+
+1. **Build validation**: every build checks each topic header and reports findings (missing
+   required attribute, unknown type or status, anchor mismatch, duplicate id).
+2. **Assembly planning**: authors and tooling use the registry to see what content exists,
+   its status, and its dependencies when constructing assembly documents.
+3. **Claude navigation**: the registry gives Claude (chat or Claude Code) a searchable index
+   of the corpus, so content can be located by keyword, topic-id, or domain without reading
+   every topic file.
 
 ## File Location
 
 ```
-{topic-library-module}/src/docs/asciidoc/topic-registry.yaml
+{module}/target/topic-registry.yaml
 ```
 
-The registry travels with the topic content it catalogs. When the topic library is packaged
-and unpacked into a dependent module's `target/` directory, the registry is available alongside
-the topics.
+The registry is written under `target/`. It is never committed and is rebuilt on every run.
+
+**Legacy hand-kept registries.** Projects created before this standard may still have
+`src/docs/asciidoc/topic-registry.yaml` (and a `topic-registry/` directory of per-domain
+files). It is no longer maintained, and no goal reads it: `idoc:topic-registry` and
+`idoc:diff` both generate the registry from the headers. Move any `summary`, `related`,
+`dependencies`, `supersedes`, and `notes` values it holds into the matching topic headers,
+run the goal, confirm zero findings, then delete the hand-kept files.
+
+## Generating the Registry
+
+```bash
+mvn idoc:topic-registry -pl topics                         # full scan of src/docs/asciidoc
+mvn idoc:topic-registry -pl topics \
+  -Dike.topic-registry.add=src/docs/asciidoc/topics/{domain}/{topic}.adoc   # add files, no rescan
+```
+
+- The goal defaults to the `validate` phase, reads sources only, and writes only under
+  `target/`. It never edits a source file.
+- `-Dike.topic-registry.add` takes comma-separated paths relative to the module directory.
+  Each file is parsed alone and merged into the existing registry; an entry for the same file
+  is replaced, so re-adding is safe. When no registry exists yet, the full scan runs instead.
+- `add` does not notice deleted or moved files. After any delete or move, run the full scan;
+  the full scan is the one to trust.
+- Findings are warnings: they are printed to the log and listed in the registry's `findings`,
+  and they do not fail the build. Fix each one in the source file and run again. Work is not
+  done until the run reports `0 findings`.
+- Other options: `-Dike.topic-registry.roots=a,b` (scan other directories),
+  `-Dike.topic-registry.output=<file>` (write elsewhere), `-Dike.skip.topic-registry=true`.
 
 ## Schema
 
+The generated file has this shape (values abbreviated):
+
 ```yaml
-# topic-registry.yaml
-registry-version: "1.1"            # schema version for forward compatibility
-generated: 2025-06-15              # ISO date of last registry update
-topic-count: 247                   # total number of topic entries (validation target)
+registry-version: "1.2"
+generated: 2026-09-28T19:39:06Z     # timestamp of this run
+scanned-from: /path/to/module
+roots: [src/docs/asciidoc]
+topic-count: 247
+file-count: 251
 
-domains:
-  - id: arch                       # domain identifier, used as topic-id prefix
-    title: "System Architecture"   # human-readable domain name
-    description: >                 # optional: domain scope statement
-      Topics covering system architecture, design patterns,
-      and infrastructure decisions.
-    topics:                        # ordered list of topics in this domain
-      - id: arch-overview
-        file: topics/architecture/overview.adoc
-        title: "Architecture Overview"
-        type: concept
-        keywords: [architecture, overview, IKE, layers]
-        status: published
-        char-count: 2340
-        dependencies: []
-        related: []
-        summary: >
-          High-level overview of the IKE layered architecture including
-          knowledge graph, reasoning, and API tiers. Covers the separation
-          between storage, inference, and presentation layers.
-
+domains:                             # grouped by the id prefix before the first hyphen
+  - id: arch
+    topics:
       - id: arch-dl-classifier
         file: topics/architecture/dl-classifier.adoc
-        title: "Classifier Architecture"
+        title: "Classifier Architecture"          # from the level-1 heading
         type: concept
         keywords: [classifier, reasoning, EL++, inference]
         status: published
-        char-count: 2890
+        char-count: 2890                          # counted from the anchor line on
         dependencies: [arch-overview]
-        related: [term-dl-axioms]  # covers similar ground from architecture angle
+        related: [term-dl-axioms]
         summary: >
           Describes the classifier subsystem architecture including integration
           points, performance characteristics, and the EL++ profile constraints
           that enable polynomial-time reasoning.
+        anchor: present
+        header: complete                          # or "missing: status, keywords"
 
-assemblies:                        # catalog of assembly documents
-  - id: compendium
-    file: compendium.adoc
+assemblies:                          # files with include:: directives and no :topic-id:
+  - file: compendium.adoc
     title: "IKE Compendium"
-    description: "Master assembly containing all topics."
-    sections:                      # hierarchical structure mirroring the assembly
-      - heading: "Architecture"
-        sections:
-          - heading: "Core Patterns"
-            topic-refs: [arch-overview, arch-coord-versioning, arch-module-coordinates]
-          - heading: "Reasoning"
-            topic-refs: [arch-dl-classifier, arch-inference-pipeline]
-      - heading: "Terminology Management"
-        sections:
-          - heading: "SNOMED CT"
-            topic-refs: [term-snomed-concept-model, term-dl-axioms]
-          - heading: "LOINC"
-            topic-refs: [term-loinc-part-mapping]
+    includes: 247
 
-  - id: versioning-guide
-    file: guides/versioning-guide.adoc
-    title: "Versioning Guide"
-    description: "Targeted guide for version management."
-    sections:
-      - heading: "Core Concepts"
-        topic-refs: [arch-coord-versioning, arch-module-coordinates]
-      - heading: "Procedures"
-        topic-refs: [ops-version-migration, ops-version-conflict-resolution]
-      - heading: "Reference"
-        topic-refs: [ref-coordinate-fields]
+other-files: []                      # files with neither a :topic-id: nor includes
+findings: []                         # one line per problem, prefixed with the file path
 ```
 
-## Field Definitions: Topic Entry
+A topic entry also carries `supersedes`, `notes`, `provenance`, `scope-note`, `citation`, and
+`license` when the header sets them. Any other `:topic-*:` attribute appears under `extra`,
+and non-topic document attributes under `attributes`.
 
-### Required Fields
+## Topic Header Attributes
 
-| Field          | Type       | Description                                                  |
-|----------------|------------|--------------------------------------------------------------|
-| `id`           | string     | Unique topic identifier. Format: `{domain-prefix}-{slug}`, lowercase kebab-case. Immutable once assigned. |
-| `file`         | string     | Relative path from the `src/docs/asciidoc/` root to the `.adoc` file. |
-| `title`        | string     | Human-readable title. Should match the level-1 heading in the `.adoc` file. |
-| `type`         | enum       | One of: `concept`, `task`, `reference`, `dialog`.            |
-| `keywords`     | string[]   | 3–8 searchable terms. Include synonyms and abbreviations that a searcher might use. Do not repeat words from the title. |
-| `status`       | enum       | One of: `draft`, `proposed`, `review`, `published`, `deprecated`. |
-| `summary`      | string     | 1–2 sentences describing the topic's content. Written in indicative mood ("Describes the..." not "This topic describes..."). Must be useful for search — include key terms not covered by `keywords`. |
+Every registry field of a topic comes from its header. Write the header, never the registry.
 
-### Optional Fields
+### Required
 
-| Field          | Type       | Description                                                  |
-|----------------|------------|--------------------------------------------------------------|
-| `char-count`   | integer    | Character count of the `.adoc` content (excluding attribute block). Updated on each decomposition pass. Used for granularity validation. |
-| `dependencies` | string[]   | List of `topic-id` values that this topic cross-references via `xref:`. Represents "this topic links to" relationships. |
-| `related`      | string[]   | List of `topic-id` values that cover similar subject matter from a different angle. Represents "this topic overlaps with" relationships. Used for redundancy management — when revising one topic, check its `related` topics for consistency. Distinct from `dependencies`, which are structural cross-references. |
-| `supersedes`   | string     | `topic-id` of a deprecated topic that this topic replaces.   |
-| `notes`        | string     | Free-text notes for authors and Claude. Use for documenting exceptions (e.g., "Exceeds 5000 chars — indivisible reference table"). |
+A missing required attribute is a finding.
 
-## Field Definitions: Assembly Entry
+| Attribute         | Description                                                  |
+|-------------------|--------------------------------------------------------------|
+| `:topic-id:`      | Unique topic identifier. Format: `{domain-prefix}-{slug}`, lowercase kebab-case. Immutable once assigned. Must match the `[[anchor]]` before the heading. |
+| `:topic-type:`    | One of: `concept`, `task`, `procedure`, `reference`, `dialog`. |
+| `:topic-status:`  | One of: `draft`, `proposed`, `review`, `published`, `deprecated`. |
+| `:topic-keywords:`| Comma-separated, 3–8 searchable terms. See Keyword Guidelines. |
 
-| Field          | Type       | Description                                                  |
-|----------------|------------|--------------------------------------------------------------|
-| `id`           | string     | Unique assembly identifier. Lowercase kebab-case.            |
-| `file`         | string     | Relative path to the assembly `.adoc` file.                  |
-| `title`        | string     | Human-readable title of the assembled document.              |
-| `description`  | string     | Brief description of the assembly's purpose and audience.    |
-| `sections`     | section[]  | Hierarchical structure of the assembly (see below).          |
+The title is the level-1 heading (`= Title`); a missing heading is a finding. The file path and
+`char-count` are measured by the goal.
 
-### Assembly Section Structure
+### Expected
 
-Assembly entries use nested `sections` to capture the heading hierarchy of the assembled
-document. This gives Claude and authors structural context — not just which topics are
-included, but where they sit in the document hierarchy.
+| Attribute             | Description                                                  |
+|-----------------------|--------------------------------------------------------------|
+| `:topic-summary:`     | 1–3 sentences describing the content. See Summary Guidelines. Not checked by the goal, but every topic should have one: it is the main search and redundancy signal. |
 
-| Field          | Type       | Description                                                  |
-|----------------|------------|--------------------------------------------------------------|
-| `heading`      | string     | The section heading text as it appears in the assembly.      |
-| `topic-refs`   | string[]   | Ordered list of `topic-id` values included under this heading. |
-| `sections`     | section[]  | Optional nested subsections.                                 |
+### Optional
 
-Sections may nest to match the assembly's heading depth. The `topic-refs` at each level
-list the topics included directly under that heading, in document order. A section may have
-both `topic-refs` and child `sections` if it contains both directly included topics and
-subsections.
+| Attribute               | Description                                                  |
+|-------------------------|--------------------------------------------------------------|
+| `:topic-dependencies:`  | Comma-separated `topic-id` values this topic cross-references via `xref:`. |
+| `:topic-related:`       | Comma-separated `topic-id` values covering similar subject matter from a different angle. Keep it bidirectional: if A lists B, B lists A. Distinct from `dependencies`, which are structural cross-references. |
+| `:topic-supersedes:`    | `topic-id` of a deprecated topic this topic replaces.        |
+| `:topic-notes:`         | Free-text notes for authors and Claude. Use for documenting exceptions (e.g., "Exceeds 5000 chars — indivisible reference table"). |
+| `:topic-scope-note:`    | What the topic covers and where related material lives.     |
+| `:topic-provenance:`, `:topic-citation:`, `:topic-license:` | Required for external sources; see `IKE-INGEST.md`. |
+
+A long value continues onto the next line with a trailing ` \`:
+
+```asciidoc
+:topic-summary: Describes the classifier subsystem architecture including integration \
+  points, performance characteristics, and the EL++ profile constraints.
+```
+
+## Assemblies
+
+An assembly is recorded from its file: path, title, document attributes, and include count.
+Its structure is the assembly file itself — the headings and `include::` directives in
+document order. There is no hand-kept `sections` / `topic-refs` tree; read the assembly file
+when you need its structure.
+
+## Domains
+
+A topic's domain is the part of its id before the first hyphen. Domains exist because topics
+use the prefix; there is no domain declaration. Describe a domain's scope in the project's
+`CLAUDE.md` or topic-library `index.adoc` if it needs explanation.
 
 ## Topic ID Construction Rules
 
 1. Format: `{domain-prefix}-{descriptive-slug}`
-2. Domain prefix: 2–5 lowercase characters matching a `domains[].id` in the registry.
+2. Domain prefix: 2–5 lowercase characters. The prefix alone determines the domain, so use
+   the same prefix for every topic in a domain.
 3. Slug: lowercase kebab-case, 2–5 words, descriptive of content.
 4. Total length: aim for under 40 characters.
 5. **Immutability**: Once a `topic-id` is assigned and committed, it must not be changed. Other
    topics, assemblies, and external documents may reference it. If a topic's scope changes
-   substantially, create a new topic and set `status: deprecated` on the old one with a
-   `notes` field pointing to the replacement.
+   substantially, create a new topic, set `:topic-status: deprecated` on the old one with a
+   `:topic-notes:` pointing to the replacement, and set `:topic-supersedes:` on the new one.
 
 Examples:
 - `arch-coord-versioning` — architecture domain, describes coordinate-based versioning
@@ -186,7 +191,7 @@ draft → proposed → review        (proposal adopted)
 - **published**: Content is reviewed and approved for inclusion in assemblies.
 - **deprecated**: Content is superseded or no longer applicable. Retained in the registry for
   reference stability but excluded from new assemblies. Set `supersedes` on the replacement
-  topic if one exists.
+  topic if one exists (`:topic-supersedes:`).
 
 ## Keyword Guidelines
 
@@ -232,39 +237,47 @@ relationship between coordinates and the version graph used for dependency resol
 
 ## Maintenance Rules
 
-### When to Update
+### When to Run
 
-Update the registry whenever:
+Run `idoc:topic-registry` whenever:
 
-- A topic is created, modified, split, merged, or deprecated.
-- A topic's status changes.
-- An assembly's topic list changes.
-- A decomposition session produces new topics.
+- A topic is created, modified, split, merged, moved, or deprecated (full scan after any
+  move, delete, split, or merge; `add` is enough for new or edited files).
+- A topic's status or header metadata changes.
+- An assembly's include list changes.
+- A decomposition or ingestion session produces new topics.
+
+When the goal is bound in the build, `mvn validate` and every later phase refresh the
+registry automatically.
 
 ### Who Updates
 
-- **Claude (chat or Claude Code)**: Always produces registry YAML fragments as part of
-  decomposition or topic creation. Fragments are reviewed and merged by the author.
-- **Authors**: Responsible for final merge and commit. The registry is a source-controlled
-  artifact.
+- **Claude (chat or Claude Code)**: writes and updates topic headers as part of decomposition,
+  ingestion, or topic creation, then runs the goal and fixes every finding. Claude never
+  produces registry YAML fragments and never edits a registry file.
+- **Authors**: review header changes in the topic files and commit them. The registry itself
+  is never committed.
 
 ### Validation
 
-The CI build should enforce:
+The goal checks, and reports as findings:
 
-1. Every `.adoc` file under `topics/` has a corresponding registry entry with a matching `id`
-   and `file` path.
-2. Every registry entry's `file` path resolves to an existing `.adoc` file.
-3. `topic-count` matches the actual count of topic entries.
-4. All `dependencies` reference valid `topic-id` values.
-5. All `related` entries reference valid `topic-id` values, and the relationship is
-   bidirectional — if topic A lists topic B as `related`, topic B must list topic A.
-6. All `topic-refs` in assembly sections reference valid `topic-id` values.
-7. No duplicate `topic-id` values exist.
-8. Every published topic appears in at least one assembly's `sections`.
+1. Every topic has `:topic-id:`, `:topic-type:`, `:topic-status:`, and `:topic-keywords:`.
+2. `type` and `status` are known values.
+3. A literal `[[id]]` anchor matching `:topic-id:` precedes a level-1 heading.
+4. No `topic-id` appears in two files.
+5. Symbolic links are skipped and reported.
 
-A Maven Enforcer rule or a lightweight validation script invoked during `validate` phase can
-perform these checks.
+`topic-count` and `char-count` are measured, so they cannot drift.
+
+Not yet checked by the goal — check them during review, and Claude checks them before
+reporting work complete:
+
+1. Every topic has a `:topic-summary:`.
+2. All `dependencies` and `related` values name existing topic ids, and `related` is
+   bidirectional.
+3. Every `include::` path in an assembly resolves (the build reports unresolved includes).
+4. Every published topic appears in at least one assembly.
 
 ## Generated Artifact: term-index.yaml
 
@@ -300,24 +313,21 @@ but before packaging.
 
 ### Providing Context
 
-At the start of a session involving topic work, upload or paste:
-
-1. The `topic-registry.yaml` file (or the relevant domain section if the full file is too
-   large).
-2. The `term-index.yaml` file, if available and if the session involves integration or
-   redundancy checking.
+At the start of a session involving topic work, run the goal and give Claude
+`target/topic-registry.yaml` (Claude Code reads it directly), plus the `term-index.yaml` file
+if available and if the session involves integration or redundancy checking.
 
 For a 600-page compendium decomposed into ~300 topics, the registry will be roughly 20–30 KB
 of YAML and the term index roughly 10–15 KB — both well within context window limits.
 
-Together, these two files give Claude a complete map of what exists (registry), where it sits
-structurally (assembly sections), and what specific terms each topic discusses (term index).
+Together, these give Claude a complete map of what exists (registry), where it sits
+structurally (the assembly files), and what specific terms each topic discusses (term index).
 
 ### Requesting Topic Lookup
 
-To find existing content without uploading topic files:
+To find existing content without opening topic files:
 
-> Which topics cover STAMP coordinates? (Check the registry.)
+> Which topics cover STAMP coordinates? (Check the topic registry.)
 
 Claude will search the registry's `title`, `keywords`, and `summary` fields to identify
 matching topics and report their `topic-id`, `title`, and `summary`.
@@ -326,6 +336,8 @@ matching topics and report their `topic-id`, `title`, and `summary`.
 
 After any topic creation or modification:
 
-> Provide the updated registry YAML fragment for the topics we just created.
+> Update the topic headers and rebuild the topic registry.
 
-Claude will produce a YAML block ready for merge into `topic-registry.yaml`.
+Claude edits the `:topic-*:` headers, runs `idoc:topic-registry` (with `add` for new or edited
+files, a full scan after moves or deletes), and fixes findings until the run reports
+`0 findings`.
