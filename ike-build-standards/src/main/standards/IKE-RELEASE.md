@@ -310,5 +310,5 @@ closes the milestone automatically when a matching one is found.
 
 See [IKE-COMMITS.md](IKE-COMMITS.md) for the full commit-message
 standard, including the mandatory issue-trailer rule (every commit
-references a tracked issue via `Fixes <owner>/<repo>#N` or
-`Refs <owner>/<repo>#N`) and the AI-attribution prohibition.
+references a tracked issue via `Fixes: <owner>/<repo>#N` or
+`Refs: <owner>/<repo>#N`) and the AI-attribution prohibition.

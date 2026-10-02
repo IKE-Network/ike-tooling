@@ -940,7 +940,8 @@ public final class ReleasePrep {
                 for (String line : nonCompliant) {
                     msg.append("\n      ").append(line);
                 }
-                msg.append("\n  Add Fixes/Refs <owner>/<repo>#N to comply.");
+                msg.append("\n  Add a Fixes: or Refs: <owner>/<repo>#N"
+                        + " trailer to comply.");
                 warnings.add(msg.toString());
                 ctx.log().warn("  Trailer compliance: " + nonCompliant.size()
                         + " commit(s) without issue trailer");

@@ -42,8 +42,8 @@ body by a blank line:
     Picks up the in-place sha rewrite from the workspace plugin so
     workspace.yaml stops accumulating duplicate keys on checkpoint.
 
-    Fixes IKE-Network/ike-issues#387
-    Refs ikmdev/komet-desktop#12
+    Fixes: IKE-Network/ike-issues#387
+    Refs: ikmdev/komet-desktop#12
 
 ### Use the full `<owner>/<repo>#N` form
 
@@ -124,7 +124,7 @@ record of what is fixed and still waiting for a release.
 - Use `Fixes`/`Closes`/`Resolves` trailers as the authoritative
   record of what shipped.
 
-The distinction matters: a `Fixes IKE-Network/ike-issues#123` trailer
+The distinction matters: a `Fixes: IKE-Network/ike-issues#123` trailer
 that lands in a commit between releases gets:
 
 1. **At the push** — the issue closes when the commit reaches the
