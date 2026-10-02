@@ -58,38 +58,39 @@ lives in the commit's own repo. Reasons:
 
 ### Verb choice
 
-- **`Fixes`** / **`Closes`** — the commit completes the issue.
-  `ike:release-publish` closes the referenced issue when the release
-  ships (IKE-Network/ike-issues#799). Do **not** rely on GitHub's native
-  `Fixes #N` auto-close: it only fires when the issue is in the commit's
-  **own repository**, and IKE keeps every issue in a separate tracker
-  repo — so a cross-repo trailer is a link GitHub records but never acts
-  on. The release closes it for you; there is no manual close step.
-- **`Refs`** — partial progress, related work, or cross-repo links
-  that must not close the issue on release.
+- **`Fixes`** / **`Closes`** — the commit completes the issue. GitHub
+  closes the issue when the commit reaches the default branch, and it
+  does so across repositories and organizations, so the tracker issue
+  closes at the push, not at the release
+  (IKE-Network/ike-issues#1176). GitHub makes the close as the account
+  that pushed, which must have push access to the tracker repository.
+  `ike:release-publish` closes any referenced issue that is still open
+  when the release ships (IKE-Network/ike-issues#799), which covers a
+  push from an account without that access. There is no manual close
+  step.
+- **`Refs`** — partial progress, follow-up commits, or related work.
+  A `Refs` trailer links the commit to the issue and never closes it,
+  at the push or at the release.
+
+A closing trailer takes effect at the push, so use `Fixes` only on the
+commit that completes the issue. Every commit before it, and any
+follow-up after the issue has closed, carries `Refs`.
 
 One trailer per line. Multiple trailers are allowed when one commit
 spans multiple issues.
 
-## Interaction with `pending-release`
+## Trailers at release
 
-When a commit lands that completes an issue but the release has not
-shipped:
-
-1. The commit uses `Fixes <owner>/<repo>#N` in the trailer.
-2. The issue receives the `pending-release` label.
-
-The trailer is the durable, queryable record of the link; the label
-is the live state. When the release ships, `ike:release-publish`:
+When a release ships, `ike:release-publish`:
 
 1. **Closes** every issue referenced by a closing trailer in the
-   release range (full `<owner>/<repo>#N`, cross-repo included),
-   posting an audit comment that links the release
-   (IKE-Network/ike-issues#799). This stands in for GitHub's native
-   auto-close, which never fires here because the issue and the commit
-   live in different repositories.
+   release range (full `<owner>/<repo>#N`, cross-repo included) if it
+   is still open, posting an audit comment that links the release
+   (IKE-Network/ike-issues#799). An issue that is already closed is
+   skipped, with no comment. That is the usual case: GitHub closed it
+   at the push (see "Verb choice"), and this step is the backstop for
+   a push that did not.
 2. Closes the matching milestone.
-3. Removes `pending-release` from those issues (per #390).
 
 There is no manual close step — the closing trailer is the whole
 contract.
@@ -109,30 +110,29 @@ They:
   `issues-since-last-release:` array) and the checkpoint markdown
   report.
 - **Do not close any issues.**
-- **Do not remove `pending-release` labels.**
 
 A checkpoint is a snapshot for testing or internal consumption — it
-does not claim that any issue is "released." Issues remain
-`pending-release` until an actual release ships.
+does not claim that any issue is "released." Its issue list is the
+record of what is fixed and still waiting for a release.
 
 **Releases** report what shipped and close it. They:
 
 - Generate release notes from the GitHub milestone when one matches.
 - Close that milestone automatically.
-- Remove the `pending-release` label from every issue referenced by
-  closing trailers in the release range (#390).
+- Close every issue referenced by closing trailers in the release
+  range that is still open (IKE-Network/ike-issues#799).
 - Use `Fixes`/`Closes`/`Resolves` trailers as the authoritative
   record of what shipped.
 
 The distinction matters: a `Fixes IKE-Network/ike-issues#123` trailer
 that lands in a commit between releases gets:
 
-1. **At commit time** — issue auto-closes on push to the default
-   branch (GitHub behavior); `pending-release` label applied per
-   the convention above.
+1. **At the push** — the issue closes when the commit reaches the
+   default branch (GitHub behavior; see "Verb choice").
 2. **At checkpoint time** — reported in the per-subproject
-   "issues since last release" list. Nothing is closed or unlabeled.
-3. **At release time** — `pending-release` is removed.
+   "issues since last release" list. Nothing is closed.
+3. **At release time** — the trailer is the record that the fix
+   shipped in this release. The issue is closed if it is still open.
 
 ## Documentation Impact
 

@@ -114,11 +114,12 @@ public final class FinalizePhase {
         String milestoneName = projectId + " v" + version;
 
         // Close the issues this release's commits resolved (Fixes/Closes/
-        // Resolves trailers) BEFORE notes generation, so milestone notes
-        // reflect what shipped. GitHub can't auto-close cross-repo
-        // trailers, and IKE issues live in a separate tracker repo — this
-        // redeems the trailer contract so fixed issues don't dangle open
-        // (IKE-Network/ike-issues#799). Best-effort like the steps below.
+        // Resolves trailers) that are still open, BEFORE notes generation,
+        // so milestone notes reflect what shipped. GitHub normally closes
+        // them at the push (IKE-Network/ike-issues#1176); this is the
+        // backstop for a push that did not, so a fixed issue does not stay
+        // open (IKE-Network/ike-issues#799). Best-effort like the steps
+        // below.
         try {
             ReleaseNotesSupport.closeReferencedIssues(
                     gitRoot, null, "v" + version, issueRepo, ctx.log());

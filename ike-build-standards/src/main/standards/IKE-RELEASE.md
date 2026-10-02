@@ -40,7 +40,6 @@ Assign one or more classification labels to describe the nature of the work.
 
 | Label | Description |
 |-------|-------------|
-| `pending-release` | Code is committed locally; waiting for next release to ship |
 | `release-notes` | Noteworthy change — include prominently in release notes |
 
 ## Milestones
@@ -64,14 +63,17 @@ Examples: `ike-tooling v140`, `ike-platform v23`, `ike-docs v2`, `tinkar-core 1.
 3. **Close** the milestone after the release ships and all issues are
    resolved.
 
-## The pending-release Workflow
+## From Commit to Release
 
 This workflow bridges the gap between completing work locally and
 shipping it in a release.
 
-1. **Commit** — Work is done and committed to the local branch.
-2. **Label** — Add `pending-release` to the issue. This signals that
-   the fix or feature is code-complete but not yet released.
+1. **Commit** — Work is done and committed with an issue trailer per
+   [IKE-COMMITS.md](IKE-COMMITS.md). The commit that completes the
+   issue carries `Fixes`/`Closes`.
+2. **Push** — GitHub closes the issue when that commit reaches the
+   default branch, although the tracker is a different repository
+   (IKE-Network/ike-issues#1176).
 3. **Assign milestone** — Set the target release milestone
    (e.g., `ike-tooling v57`).
 4. **Release ships** — Run `ike:release-publish` (single repo) or
@@ -79,16 +81,28 @@ shipping it in a release.
    tags, deploys to Nexus + komet.sh + GitHub Pages, and bumps the
    version. Use `ike:release-draft` / `ws:release-draft` to preview
    without writing.
-5. **Automatic close + label removal** — `ike:release-publish` does
-   this for you as of #390:
-   - Closes the milestone matching `<projectId> v<version>`.
+5. **Automatic close** — `ike:release-publish` does this for you:
    - Walks commits in `<previous-tag>..v<version>`, parses
-     `Fixes`/`Closes`/`Resolves` trailers, and removes the
-     `pending-release` label from every referenced issue (including
-     cross-org references in `<owner>/<repo>#N` form).
-   - GitHub auto-closes issues referenced by `Fixes`/`Closes` trailers
-     in the same org. Cross-org issues need a manual close once the
-     consuming repo's release lands.
+     `Fixes`/`Closes`/`Resolves` trailers, and closes every referenced
+     issue that is still open (including cross-org references in
+     `<owner>/<repo>#N` form), with a comment that links the release
+     (IKE-Network/ike-issues#799).
+   - Closes the milestone matching `<projectId> v<version>`.
+
+Nothing here needs a manual close.
+
+### Retired: the `pending-release` label
+
+This workflow used to label an issue `pending-release` between its
+commit and its release. The practice is retired
+(IKE-Network/ike-issues#1176). The issue closes at the push, and a
+checkpoint lists what is fixed and still waiting for a release from
+the commit trailers. Do not apply the label.
+
+`ike:release-publish` still removes the label from any referenced
+issue that carries it, and its preflight still expects the label to be
+defined on the tracker. Both go with IKE-Network/ike-issues#1178.
+Leave the label defined on the tracker until then.
 
 ## Release Preflight
 
@@ -100,9 +114,10 @@ mutation. From #392:
 - **gh CLI authenticated** — warn-only; GitHub Release creation
   needs `gh` but is skipped cleanly without it.
 - **gh write permission on `issueRepo`** — fail-fast. Required so
-  the auto-close + label-removal step (above) doesn't 403 mid-release.
-- **`pending-release` label exists on `issueRepo`** — warn if missing;
-  label removal becomes a no-op without it.
+  the automatic close (above) doesn't 403 mid-release.
+- **`pending-release` label exists on `issueRepo`** — warn if missing.
+  A leftover of the retired label practice (above); the check goes
+  with IKE-Network/ike-issues#1178.
 - **Trailer compliance** — walk commits in the release range; warn
   on any without a `Fixes`/`Closes`/`Resolves`/`Refs` trailer per
   [IKE-COMMITS.md](IKE-COMMITS.md). Warn-only initially; promotes to
@@ -289,7 +304,7 @@ IKE-Network/ike-issues BEFORE starting implementation, not
 retroactively. This ensures release notes are complete without
 manual cleanup.
 
-Pattern: file issue → assign to milestone → implement → close
+Pattern: file issue → assign to milestone → implement → push closes
 issue → release closes milestone.
 
 ### Artifact Labels

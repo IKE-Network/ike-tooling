@@ -663,7 +663,10 @@ public final class ReleaseNotesSupport {
      * commits between {@code previousTag} and {@code headRef}.
      *
      * <p>Implements the "label = live state" half of the
-     * {@code pending-release} pattern defined in {@code IKE-COMMITS.md}:
+     * {@code pending-release} pattern that {@code IKE-COMMITS.md}
+     * defined until the practice was retired
+     * (IKE-Network/ike-issues#1176; this method goes with
+     * IKE-Network/ike-issues#1178):
      * a commit lands marking an issue {@code Fixes …}, the issue gets
      * the {@code pending-release} label as a not-yet-shipped marker,
      * and when the release actually ships the label comes off so
@@ -905,13 +908,14 @@ public final class ReleaseNotesSupport {
      * variants) in commits between {@code previousTag} and
      * {@code headRef}.
      *
-     * <p>GitHub's native {@code Fixes #N} auto-close only fires when the
-     * issue lives in the commit's own repository. IKE centralizes issues
-     * in a separate tracker repo, so cross-repo trailers never auto-close
-     * — this redeems that trailer contract at release time so fixed
-     * issues don't dangle open (IKE-Network/ike-issues#799). Call it
-     * before milestone-notes generation so the notes reflect what
-     * shipped.
+     * <p>GitHub closes a referenced issue itself when the commit reaches
+     * the default branch, across repositories, provided the pushing
+     * account can push to the repository that holds the issue
+     * (IKE-Network/ike-issues#1176). This is the backstop for a push
+     * that did not close its issue: it redeems the trailer contract at
+     * release time so a fixed issue does not stay open
+     * (IKE-Network/ike-issues#799). Call it before milestone-notes
+     * generation so the notes reflect what shipped.
      *
      * <p>Idempotent (issues already closed are skipped) and non-fatal:
      * the artifact has already deployed at this point, so any failure is

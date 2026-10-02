@@ -81,14 +81,14 @@ checkpoint:
 with per-subproject sub-sections listing each ref.
 
 The standard for this behavior — including the explicit rule that
-**checkpoint does not close issues or remove `pending-release` labels**
-— lives in
+**checkpoint does not close issues** — lives in
 [IKE-COMMITS.md](../../ike-build-standards/src/main/standards/IKE-COMMITS.md)'s
 "Checkpoint and Release Reporting" section.
 
 The trailer parser is `ReleaseNotesSupport.parseClosingTrailers`,
-shared with `ike:release-publish`'s label-removal step (#390) so the
-two operations agree on what constitutes a closing trailer.
+shared with `ike:release-publish`'s issue-close step
+(IKE-Network/ike-issues#799) so the two operations agree on what
+constitutes a closing trailer.
 
 ## Design Notes / Future Work
 
