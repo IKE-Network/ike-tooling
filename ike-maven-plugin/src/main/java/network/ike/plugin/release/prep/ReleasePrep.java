@@ -848,9 +848,9 @@ public final class ReleasePrep {
      *       missing artifact-signing passphrase. Always abort the
      *       release; never ignorable.</li>
      *   <li><b>warnings</b> — {@code gh} CLI unavailable, a missing
-     *       {@code pending-release} label or release milestone,
-     *       commits with no issue trailer. Abort the release too,
-     *       unless {@code -Dike.release.ignoreWarnings=true}.</li>
+     *       release milestone, commits with no issue trailer. Abort the
+     *       release too, unless
+     *       {@code -Dike.release.ignoreWarnings=true}.</li>
      * </ul>
      *
      * <p>Only invoked for a publish; draft mode skips this step.
@@ -915,9 +915,9 @@ public final class ReleasePrep {
                             + issueRepo + "  ✓");
                 } else {
                     errors.add("gh token lacks push permission on "
-                            + issueRepo + " — required for milestone"
-                            + " close and pending-release label removal."
-                            + " Re-authenticate with repo scope:"
+                            + issueRepo + " — required for the"
+                            + " release-time issue close and milestone"
+                            + " close. Re-authenticate with repo scope:"
                             + " gh auth refresh -s repo");
                     ctx.log().error("  gh perms:    no push on "
                             + issueRepo + "  ✗");
@@ -928,23 +928,7 @@ public final class ReleasePrep {
             }
         }
 
-        // 4. pending-release label exists on issueRepo (#392) — warn.
-        if (ghAvailable && issueRepo != null && !issueRepo.isBlank()) {
-            try {
-                ReleaseSupport.execCapture(gitRoot, "gh", "api",
-                        "/repos/" + issueRepo + "/labels/pending-release");
-                ctx.log().info("  pending-rel label on " + issueRepo + "  ✓");
-            } catch (Exception e) {
-                warnings.add("Label 'pending-release' missing on "
-                        + issueRepo + " — label removal will be a no-op. "
-                        + "Create it: gh label create pending-release "
-                        + "--repo " + issueRepo
-                        + " --description \"Code complete; awaiting next release\"");
-                ctx.log().warn("  pending-rel label: missing on " + issueRepo);
-            }
-        }
-
-        // 5. Trailer compliance for commits in release range (#392) — warn.
+        // 4. Trailer compliance for commits in release range (#392) — warn.
         if (hasOrigin) {
             List<String> nonCompliant = findCommitsWithoutIssueTrailer();
             if (nonCompliant.isEmpty()) {
@@ -963,7 +947,7 @@ public final class ReleasePrep {
             }
         }
 
-        // 6. Milestone for releaseVersion exists on issueRepo (#392) — warn.
+        // 5. Milestone for releaseVersion exists on issueRepo (#392) — warn.
         if (ghAvailable && issueRepo != null && !issueRepo.isBlank()
                 && releaseVersion != null && !releaseVersion.isBlank()) {
             String milestoneName = projectId + " v" + releaseVersion;
@@ -995,7 +979,7 @@ public final class ReleasePrep {
             }
         }
 
-        // 7. Maven wrapper
+        // 6. Maven wrapper
         try {
             ReleaseSupport.resolveMavenWrapper(gitRoot, ctx.log());
             ctx.log().info("  Maven:       wrapper found  ✓");
@@ -1005,7 +989,7 @@ public final class ReleasePrep {
             ctx.log().error("  Maven:       wrapper not found  ✗");
         }
 
-        // 8. Site lint — catch drift in <url>/site.xml shapes before
+        // 7. Site lint — catch drift in <url>/site.xml shapes before
         //    they ship as broken decoration links. Surfaced from the
         //    bannerRight-collapse incident (IKE-Network/ike-issues#521).
         //    Each finding is a warning (ignoreable via -Dike.release.ignoreWarnings=true)
@@ -1022,7 +1006,7 @@ public final class ReleasePrep {
                     + " issue(s)");
         }
 
-        // 9. Artifact-signing passphrase (IKE-Network/ike-issues#1013).
+        // 8. Artifact-signing passphrase (IKE-Network/ike-issues#1013).
         //    Every deploy phase runs `-P release,signArtifacts`, and that
         //    profile's maven-gpg-plugin reads its passphrase from
         //    MAVEN_GPG_PASSPHRASE — normally supplied by `op run

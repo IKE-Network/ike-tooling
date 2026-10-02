@@ -18,9 +18,9 @@ import java.nio.file.Path;
  *
  * <ul>
  *   <li>B29 — pushes the release tag and main to origin
- *   <li>B30 — creates the GitHub Release with milestone-based notes,
- *       closes the milestone, removes pending-release labels from
- *       resolved issues
+ *   <li>B30 — closes the issues the release's commits resolved that
+ *       are still open, creates the GitHub Release with milestone-based
+ *       notes, closes the milestone
  * </ul>
  *
  * <p>The post-deploy log lines ("Release v X complete", Nexus/Central
@@ -84,10 +84,9 @@ public final class FinalizePhase {
     }
 
     /**
-     * Creates the GitHub Release for {@code v<version>} with
-     * milestone-based release notes, then closes the milestone and
-     * removes the {@code pending-release} label from any issues
-     * resolved in this release range.
+     * Closes the issues this release's commits resolved that are still
+     * open, creates the GitHub Release for {@code v<version>} with
+     * milestone-based release notes, then closes the milestone.
      *
      * <p>Looks for a milestone named {@code <projectId> v<version>}
      * in the configured issue repository ({@code ctx.request().issueRepo()}).
@@ -95,8 +94,8 @@ public final class FinalizePhase {
      * Falls back to GitHub's auto-generated commit-based notes when no
      * milestone exists.
      *
-     * <p>All three steps (release create, milestone close, label
-     * cleanup) are best-effort once we reach this point: the Nexus
+     * <p>All three steps (issue close, release create, milestone
+     * close) are best-effort once we reach this point: the Nexus
      * deploy already shipped the artifact, so any failure here is
      * logged as a warning with a manual-retry command rather than
      * thrown as an exception.
@@ -182,14 +181,6 @@ public final class FinalizePhase {
                 ctx.log().warn("Close manually: gh api repos/" + issueRepo
                         + "/milestones/1 -X PATCH -f state=closed");
             }
-        }
-
-        try {
-            ReleaseNotesSupport.removePendingReleaseLabels(
-                    gitRoot, null, "v" + version, issueRepo, ctx.log());
-        } catch (Exception e) {
-            ctx.log().warn("Could not remove pending-release labels "
-                    + "(release succeeded): " + e.getMessage());
         }
     }
 }

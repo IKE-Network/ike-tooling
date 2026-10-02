@@ -91,19 +91,6 @@ shipping it in a release.
 
 Nothing here needs a manual close.
 
-### Retired: the `pending-release` label
-
-This workflow used to label an issue `pending-release` between its
-commit and its release. The practice is retired
-(IKE-Network/ike-issues#1176). The issue closes at the push, and a
-checkpoint lists what is fixed and still waiting for a release from
-the commit trailers. Do not apply the label.
-
-`ike:release-publish` still removes the label from any referenced
-issue that carries it, and its preflight still expects the label to be
-defined on the tracker. Both go with IKE-Network/ike-issues#1178.
-Leave the label defined on the tracker until then.
-
 ## Release Preflight
 
 `ike:release-publish` runs a sequence of preflight checks before any
@@ -115,9 +102,6 @@ mutation. From #392:
   needs `gh` but is skipped cleanly without it.
 - **gh write permission on `issueRepo`** — fail-fast. Required so
   the automatic close (above) doesn't 403 mid-release.
-- **`pending-release` label exists on `issueRepo`** — warn if missing.
-  A leftover of the retired label practice (above); the check goes
-  with IKE-Network/ike-issues#1178.
 - **Trailer compliance** — walk commits in the release range; warn
   on any without a `Fixes`/`Closes`/`Resolves`/`Refs` trailer per
   [IKE-COMMITS.md](IKE-COMMITS.md). Warn-only initially; promotes to
