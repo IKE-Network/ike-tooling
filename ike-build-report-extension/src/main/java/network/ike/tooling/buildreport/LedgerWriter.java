@@ -56,7 +56,25 @@ public final class LedgerWriter {
                         .append(entry.entryMode().name().toLowerCase(Locale.ROOT)).append('\n');
             }
         }
+        if (!ledger.consoleIgnores().isEmpty()) {
+            out.append("# Console warnings matching these texts are shown but not counted.\n");
+            out.append("console:\n  ignore:\n");
+            for (ConsoleIgnore rule : ledger.consoleIgnores()) {
+                out.append("    - match: ").append(quote(rule.match())).append('\n');
+                if (!rule.reason().isBlank()) {
+                    out.append("      reason: >\n");
+                    for (String line : foldReason(rule.reason())) {
+                        out.append("        ").append(line).append('\n');
+                    }
+                }
+            }
+        }
         return out.toString();
+    }
+
+    /** Double-quotes match text, which is console prose and may hold any YAML indicator. */
+    private static String quote(String text) {
+        return '"' + text.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
     }
 
     /**

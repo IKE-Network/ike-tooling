@@ -71,6 +71,6 @@ public final class RatchetPlanner {
                 resultEntries.add(entry);
             }
         }
-        return new Plan(tightenings, Ledger.of(ledger.mode(), resultEntries));
+        return new Plan(tightenings, Ledger.of(ledger.mode(), resultEntries, ledger.consoleIgnores()));
     }
 }

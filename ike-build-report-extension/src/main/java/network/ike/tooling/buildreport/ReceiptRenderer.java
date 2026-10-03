@@ -1,7 +1,9 @@
 package network.ike.tooling.buildreport;
 
+import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +14,11 @@ import java.util.Set;
  * Renders a {@link LedgerEvaluation} as the {@code ike꞉build-report.md}
  * receipt, in the house {@code ws꞉*.md} receipt style: a title line, a
  * tool/version/timestamp line, then only the sections that have content.
+ *
+ * <p>The receipt reads top-down as "what happened, then what needs
+ * you": the work the session did and how long it took, the findings
+ * the ledger evaluates, and last the console's warnings folded to one
+ * line per distinct message.</p>
  */
 public final class ReceiptRenderer {
 
@@ -20,7 +27,140 @@ public final class ReceiptRenderer {
     /** How many occurrences of one key the receipt lists before summarizing. */
     private static final int MAX_OCCURRENCES = 5;
 
+    /*
+     * Status markers. Markdown has no colour of its own, and inline
+     * HTML styling is stripped by most renderers, so the receipt carries
+     * colour as emoji: they survive the IDE preview, GitHub, and a plain
+     * terminal alike. The palette is the one test harnesses and Maven's
+     * console have taught: green passed, red failed, yellow warns, blue
+     * informs.
+     */
+    private static final String GREEN = "🟢";
+    private static final String RED = "🔴";
+    private static final String YELLOW = "🟡";
+    private static final String BLUE = "🔵";
+    private static final String NEUTRAL = "⚪";
+
+    /**
+     * Marks a module still building in a live receipt. Deliberately not
+     * a coloured circle: beside rows of them, one more circle with a
+     * time reads as one more finished module.
+     */
+    private static final String IN_PROGRESS = "⏳";
+
+    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    /** How many plugin goals the timing table lists. */
+    private static final int MAX_GOAL_TIMES = 10;
+
+    /** How many distinct console messages the receipt lists before summarizing. */
+    private static final int MAX_CONSOLE_ITEMS = 25;
+
+    /** How many messages the receipt lists under each folded kind. */
+    private static final int MAX_KIND_ITEMS = 3;
+
+    /** How many module names one console message lists before counting the rest. */
+    private static final int MAX_CONSOLE_MODULES = 3;
+
+    /**
+     * How one ignore rule fared in a session.
+     *
+     * @param rule     the rule from the ledger
+     * @param lines    how many console lines it ignored
+     */
+    public record Ignored(ConsoleIgnore rule, int lines) {
+    }
+
+    /**
+     * The console's warnings and errors, consolidated.
+     *
+     * @param captured       whether console output could be listened to at all
+     * @param items          one item per distinct message that counts, most
+     *                       significant first
+     * @param overflow       lines counted but not kept once the collector was full
+     * @param moduleWarnings counted warning lines keyed by module artifact id
+     * @param ignored        every ignore rule with what it ignored, in ledger order
+     */
+    public record Console(
+            boolean captured,
+            List<ConsoleMessages.Item> items,
+            int overflow,
+            Map<String, Integer> moduleWarnings,
+            List<Ignored> ignored) {
+
+        /** A console that was listened to and stayed quiet. */
+        public static final Console QUIET = new Console(true, List.of(), 0, Map.of(), List.of());
+
+        /**
+         * Sorts collected messages into those that count and those the
+         * ledger's ignore rules set aside.
+         *
+         * @param captured whether console output could be listened to at all
+         * @param all      every distinct message the session printed
+         * @param overflow lines counted but not kept once the collector was full
+         * @param rules    the ledger's console ignore rules
+         * @return the console as the receipt presents it
+         */
+        public static Console of(
+                boolean captured, List<ConsoleMessages.Item> all, int overflow, List<ConsoleIgnore> rules) {
+            int[] ignoredLines = new int[rules.size()];
+            List<ConsoleMessages.Item> counted = new java.util.ArrayList<>();
+            Map<String, Integer> moduleWarnings = new LinkedHashMap<>();
+            for (ConsoleMessages.Item item : all) {
+                int rule = 0;
+                while (rule < rules.size() && !rules.get(rule).ignores(item)) {
+                    rule++;
+                }
+                if (rule < rules.size()) {
+                    ignoredLines[rule] += item.count();
+                    continue;
+                }
+                counted.add(item);
+                if (item.level() == ConsoleMessages.Level.WARNING) {
+                    item.modules().forEach((module, lines) -> moduleWarnings.merge(module, lines, Integer::sum));
+                }
+            }
+            List<Ignored> ignored = new java.util.ArrayList<>();
+            for (int rule = 0; rule < rules.size(); rule++) {
+                ignored.add(new Ignored(rules.get(rule), ignoredLines[rule]));
+            }
+            return new Console(captured, List.copyOf(counted), overflow, moduleWarnings, List.copyOf(ignored));
+        }
+
+        private int lines(ConsoleMessages.Level level) {
+            return items.stream()
+                    .filter(item -> item.level() == level)
+                    .mapToInt(ConsoleMessages.Item::count)
+                    .sum();
+        }
+
+        private int ignoredLines() {
+            return ignored.stream().mapToInt(Ignored::lines).sum();
+        }
+    }
+
     private ReceiptRenderer() {
+    }
+
+    /**
+     * Renders a receipt that carries findings only, with no build
+     * overview and a quiet console.
+     *
+     * @param toolVersion the extension version stamped under the title
+     * @param timestamp   the session-end time stamped under the title
+     * @param mode        the ledger's declared enforcement posture
+     * @param ledgerNote  a one-line ledger status; empty when the ledger
+     *                    loaded cleanly
+     * @param evaluation  the section content
+     * @return the receipt as Markdown
+     */
+    public static String render(
+            String toolVersion,
+            ZonedDateTime timestamp,
+            LedgerMode mode,
+            String ledgerNote,
+            LedgerEvaluation evaluation) {
+        return render(toolVersion, timestamp, mode, ledgerNote, evaluation, null, Console.QUIET);
     }
 
     /**
@@ -32,6 +172,9 @@ public final class ReceiptRenderer {
      * @param ledgerNote  a one-line ledger status (for example a parse
      *                    failure); empty when the ledger loaded cleanly
      * @param evaluation  the section content
+     * @param overview    what the session built and how long it took;
+     *                    null omits the BUILD section
+     * @param console     the console's consolidated warnings and errors
      * @return the receipt as Markdown
      */
     public static String render(
@@ -39,8 +182,11 @@ public final class ReceiptRenderer {
             ZonedDateTime timestamp,
             LedgerMode mode,
             String ledgerNote,
-            LedgerEvaluation evaluation) {
+            LedgerEvaluation evaluation,
+            BuildActivity.Overview overview,
+            Console console) {
         Objects.requireNonNull(evaluation, "evaluation");
+        Objects.requireNonNull(console, "console");
         StringBuilder out = new StringBuilder(1024);
         out.append("# ike:build-report\n");
         out.append('_').append(STAMP.format(timestamp))
@@ -49,25 +195,464 @@ public final class ReceiptRenderer {
                 .append("_\n\n");
         if (!ledgerNote.isBlank()) {
             for (String line : ledgerNote.strip().split("\n")) {
-                out.append("> ").append(line.strip()).append('\n');
+                out.append("> ").append(noteMarker(line.strip())).append(' ')
+                        .append(line.strip()).append('\n');
             }
             out.append('\n');
         }
 
+        renderBuild(out, overview, !evaluation.failures().isEmpty(), console.moduleWarnings(), null);
         renderFailures(out, evaluation.failures());
         renderAttention(out, evaluation.attention());
         renderAccepted(out, evaluation.accepted());
         renderRatchet(out, evaluation.ratchet());
-        renderSummary(out, evaluation);
+        renderConsole(out, console);
+        renderSummary(out, evaluation, console);
         renderRemediation(out, evaluation);
         return out.toString();
+    }
+
+    /**
+     * Renders the receipt of a build still in progress: the work so far
+     * and the console so far.
+     *
+     * <p>Findings and the gate verdict are left to the final receipt —
+     * comparing a partial build against the ledger's expected counts
+     * would report shortfalls that are only a matter of time.</p>
+     *
+     * @param toolVersion the extension version stamped under the title
+     * @param timestamp   the time of this update, by which a reader can
+     *                    tell a live receipt from one a killed build left
+     * @param overview    what the session has built so far
+     * @param console     the console's warnings and errors so far
+     * @return the receipt as Markdown
+     */
+    public static String renderLive(
+            String toolVersion, ZonedDateTime timestamp, BuildActivity.Overview overview, Console console) {
+        StringBuilder out = new StringBuilder(1024);
+        out.append("# ike:build-report\n");
+        out.append('_').append(STAMP.format(timestamp))
+                .append(" · ike-build-report-extension ").append(toolVersion)
+                .append(" · live_\n\n");
+        renderBuild(out, overview, false, console.moduleWarnings(), CLOCK.format(timestamp));
+        renderConsole(out, console);
+        out.append("_Updated as the build runs; findings and the gate verdict are added when it\n");
+        out.append("ends. A receipt still RUNNING long after the time above was left by a build\n");
+        out.append("that was killed._\n");
+        return out.toString();
+    }
+
+    /**
+     * Renders what the session did: the invocation, the outcome, the
+     * wall time, each module with its own time, and the goals the time
+     * went to.
+     */
+    private static void renderBuild(
+            StringBuilder out,
+            BuildActivity.Overview overview,
+            boolean failed,
+            Map<String, Integer> moduleWarnings,
+            String liveAsOf) {
+        boolean live = liveAsOf != null;
+        if (overview == null) {
+            return;
+        }
+        long built = overview.count(BuildActivity.ModuleResult.BUILT);
+        boolean unsuccessful = failed || overview.count(BuildActivity.ModuleResult.FAILED) > 0;
+        out.append("## BUILD\n\n");
+        if (live) {
+            out.append(IN_PROGRESS).append(" **RUNNING** as of ").append(liveAsOf).append(", ");
+        } else {
+            out.append(unsuccessful ? RED : GREEN)
+                    .append(" **").append(unsuccessful ? "FAILED" : "SUCCESS").append("** in ");
+        }
+        out.append(formatDuration(overview.wallTime())).append(" — ");
+        if (overview.modules().isEmpty()) {
+            out.append("no modules were reached");
+        } else {
+            out.append(built).append(" of ").append(overview.modules().size()).append(" module(s) built");
+            appendCount(out, overview, BuildActivity.ModuleResult.BUILDING, live ? "building" : "interrupted");
+            appendCount(out, overview, BuildActivity.ModuleResult.FAILED, "failed");
+            appendCount(out, overview, BuildActivity.ModuleResult.SKIPPED, "skipped");
+            appendCount(out, overview, BuildActivity.ModuleResult.NOT_BUILT, live ? "pending" : "not reached");
+        }
+        out.append("\n\n");
+        if (live) {
+            // The modules in flight, pulled out of the list: in a large
+            // reactor they are otherwise a few rows among a hundred.
+            for (BuildActivity.Module module : overview.modules()) {
+                if (module.result() == BuildActivity.ModuleResult.BUILDING) {
+                    out.append("- ").append(IN_PROGRESS).append(" now building: **")
+                            .append(module.name()).append("**");
+                    if (!module.goal().isEmpty()) {
+                        out.append(" — ").append(module.goal());
+                    }
+                    out.append(", ").append(formatDuration(module.time())).append(" so far\n");
+                }
+            }
+        }
+        out.append("- invocation: `mvn");
+        for (String goal : overview.goals()) {
+            out.append(' ').append(goal);
+        }
+        out.append("`\n");
+        if (!overview.profiles().isEmpty()) {
+            out.append("- profiles: ").append(String.join(", ", overview.profiles())).append('\n');
+        }
+        out.append("- environment: ");
+        if (!overview.mavenVersion().isBlank()) {
+            out.append("Maven ").append(overview.mavenVersion()).append(" · ");
+        }
+        out.append("JDK ").append(overview.javaVersion()).append(" · ")
+                .append(overview.threads()).append(overview.threads() == 1 ? " thread" : " threads")
+                .append("\n\n");
+
+        // Fenced text rather than Markdown tables: a table's grid is drawn
+        // by each viewer's stylesheet, while fenced text looks the same in
+        // the IDE preview, on GitHub, and in a terminal. The fixed-width
+        // columns come first and the name last, so no name, however long,
+        // can push a column out of line.
+        if (!overview.modules().isEmpty()) {
+            out.append("```\n");
+            for (BuildActivity.Module module : overview.modules()) {
+                int warnings = moduleWarnings.getOrDefault(module.name(), 0);
+                boolean ran = module.result() == BuildActivity.ModuleResult.BUILT
+                        || module.result() == BuildActivity.ModuleResult.BUILDING
+                        || module.result() == BuildActivity.ModuleResult.FAILED;
+                out.append(marker(module.result(), warnings, live))
+                        .append(String.format(java.util.Locale.ROOT, " %8s%s ",
+                                ran ? formatDuration(module.time()) : "—",
+                                live && module.result() == BuildActivity.ModuleResult.BUILDING ? "…" : " "))
+                        .append(module.name())
+                        .append(remark(module, warnings, live))
+                        .append('\n');
+            }
+            out.append("```\n\n");
+            if (overview.threads() > 1 && overview.modules().size() > 1) {
+                out.append("Modules built in parallel, so their times overlap and sum to more than\n");
+                out.append("the wall time.\n\n");
+            }
+        }
+
+        if (!overview.goalTimes().isEmpty()) {
+            int shown = Math.min(overview.goalTimes().size(), MAX_GOAL_TIMES);
+            out.append("Where the time went, by plugin goal across all modules:\n\n");
+            out.append("```\n");
+            for (BuildActivity.GoalTime goal : overview.goalTimes().subList(0, shown)) {
+                out.append(String.format(java.util.Locale.ROOT, "%8s %5d×  ",
+                                formatDuration(goal.time()), goal.executions()))
+                        .append(goal.goal()).append('\n');
+            }
+            if (overview.goalTimes().size() > shown) {
+                Duration rest = Duration.ZERO;
+                for (BuildActivity.GoalTime goal
+                        : overview.goalTimes().subList(shown, overview.goalTimes().size())) {
+                    rest = rest.plus(goal.time());
+                }
+                out.append(String.format(java.util.Locale.ROOT, "%8s %6s  ", formatDuration(rest), ""))
+                        .append("… ").append(overview.goalTimes().size() - shown)
+                        .append(" further goal(s)\n");
+            }
+            out.append("```\n\n");
+        }
+    }
+
+    private static void appendCount(
+            StringBuilder out, BuildActivity.Overview overview, BuildActivity.ModuleResult result, String label) {
+        long count = overview.count(result);
+        if (count > 0) {
+            out.append(", ").append(count).append(' ').append(label);
+        }
+    }
+
+    /**
+     * Picks a module's marker. Yellow is kept for one meaning — built,
+     * but with warnings on the console — so a skipped module is neutral.
+     */
+    private static String marker(BuildActivity.ModuleResult result, int warnings, boolean live) {
+        return switch (result) {
+            case BUILT -> warnings > 0 ? YELLOW : GREEN;
+            case BUILDING -> live ? IN_PROGRESS : NEUTRAL;
+            case FAILED -> RED;
+            case SKIPPED, NOT_BUILT -> NEUTRAL;
+        };
+    }
+
+    /**
+     * Words a module's line only when it is not a plain success: the
+     * marker already says "built", but a reader who cannot tell the
+     * colours apart, or who is searching the raw text, needs the
+     * exceptions spelled out.
+     */
+    private static String remark(BuildActivity.Module module, int warnings, boolean live) {
+        return switch (module.result()) {
+            case BUILT -> warnings > 0 ? "  " + warnings + " warning(s)" : "";
+            case BUILDING -> !live ? "  interrupted"
+                    : module.goal().isEmpty() ? "  STILL BUILDING" : "  STILL BUILDING — " + module.goal();
+            case FAILED -> "  FAILED";
+            case SKIPPED -> "  skipped";
+            case NOT_BUILT -> live ? "  pending" : "  not reached";
+        };
+    }
+
+    /**
+     * Picks the marker for one line of the note under the title: the
+     * gate's verdict, or a ledger that could not be used.
+     */
+    private static String noteMarker(String line) {
+        if (line.startsWith("gate: clean")) {
+            return GREEN;
+        }
+        if (line.startsWith("gate: FAILING") || line.startsWith("gate: build already failed")) {
+            return RED;
+        }
+        return YELLOW;
+    }
+
+    /**
+     * Formats a duration the way a reader says it: {@code 0.4s},
+     * {@code 12.3s}, {@code 4m 12s}, {@code 1h 02m}.
+     */
+    static String formatDuration(Duration duration) {
+        long millis = Math.max(0L, duration.toMillis());
+        if (millis < 60_000L) {
+            return String.format(java.util.Locale.ROOT, "%.1fs", millis / 1000.0);
+        }
+        long seconds = Math.round(millis / 1000.0);
+        if (seconds < 3600L) {
+            return String.format(java.util.Locale.ROOT, "%dm %02ds", seconds / 60, seconds % 60);
+        }
+        return String.format(java.util.Locale.ROOT, "%dh %02dm", seconds / 3600, (seconds % 3600) / 60);
+    }
+
+    /**
+     * Renders the console's warnings and errors, one line per distinct
+     * message with its count and where it came from.
+     */
+    private static void renderConsole(StringBuilder out, Console console) {
+        if (!console.captured()) {
+            out.append("## ").append(YELLOW).append(" CONSOLE\n\n");
+            out.append("Console warnings were not captured — this Maven does not expose the log\n");
+            out.append("sink the extension listens on.\n\n");
+            return;
+        }
+        if (console.items().isEmpty() && console.ignored().isEmpty()) {
+            return;
+        }
+        out.append("## ").append(console.items().isEmpty() ? BLUE : YELLOW).append(" CONSOLE\n\n");
+        if (!console.items().isEmpty()) {
+            renderConsoleItems(out, console);
+        }
+        if (!console.ignored().isEmpty()) {
+            out.append("Ignored by `").append(ReportSession.LEDGER_RELATIVE_PATH)
+                    .append("` — shown here, counted nowhere:\n\n");
+            for (Ignored ignored : console.ignored()) {
+                out.append("- ").append(BLUE).append(" **").append(ignored.lines()).append("×** `")
+                        .append(ignored.rule().match().replace('`', '\'')).append('`');
+                if (ignored.lines() == 0) {
+                    out.append(" — not seen this session; the rule may no longer be needed");
+                } else if (!ignored.rule().reason().isBlank()) {
+                    out.append(" — ").append(ignored.rule().reason());
+                }
+                out.append('\n');
+            }
+            out.append('\n');
+        }
+        if (console.lines(ConsoleMessages.Level.WARNING) > 0) {
+            out.append("To stop counting a warning, add text it contains to `")
+                    .append(ReportSession.LEDGER_RELATIVE_PATH).append("`:\n\n");
+            out.append("```yaml\nconsole:\n  ignore:\n    - match: \"text from the warning\"\n");
+            out.append("      reason: why it does not matter\n```\n\n");
+        }
+    }
+
+    private static void renderConsoleItems(StringBuilder out, Console console) {
+        int lines = console.items().stream().mapToInt(ConsoleMessages.Item::count).sum();
+        out.append(lines).append(" warning and error line(s) folded into ")
+                .append(console.items().size())
+                .append(" distinct message(s). Reported for the reader; never gated.\n\n");
+        List<ConsoleMessages.Item> standalone = new java.util.ArrayList<>();
+        Map<String, List<ConsoleMessages.Item>> kinds = new LinkedHashMap<>();
+        for (ConsoleMessages.Item item : console.items()) {
+            if (item.kind().isEmpty()) {
+                standalone.add(item);
+            } else {
+                kinds.computeIfAbsent(item.kind(), key -> new java.util.ArrayList<>()).add(item);
+            }
+        }
+        int shown = Math.min(standalone.size(), MAX_CONSOLE_ITEMS);
+        for (ConsoleMessages.Item item : standalone.subList(0, shown)) {
+            boolean error = item.level() == ConsoleMessages.Level.ERROR;
+            out.append("- ").append(error ? RED : YELLOW)
+                    .append(" **").append(item.count()).append("×** ");
+            if (error) {
+                out.append("ERROR ");
+            }
+            out.append('`').append(item.message().replace('`', '\'')).append('`');
+            String origin = describeOrigin(item);
+            if (!origin.isEmpty()) {
+                out.append(" — ").append(origin);
+            }
+            out.append('\n');
+        }
+        if (standalone.size() > shown) {
+            renderConsoleRemainder(out, standalone.subList(shown, standalone.size()));
+        }
+        if (console.overflow() > 0) {
+            out.append("- … and ").append(console.overflow())
+                    .append(" further line(s) not kept — too many distinct messages\n");
+        }
+        if (!standalone.isEmpty() || console.overflow() > 0) {
+            out.append('\n');
+        }
+        renderConsoleKinds(out, kinds);
+    }
+
+    /**
+     * Renders the messages that were folded by kind — compiler warnings
+     * by lint category, dependency-analysis lines by the analyzer's
+     * heading — as one entry per kind with its heaviest messages
+     * beneath it.
+     */
+    private static void renderConsoleKinds(StringBuilder out, Map<String, List<ConsoleMessages.Item>> kinds) {
+        if (kinds.isEmpty()) {
+            return;
+        }
+        List<Map.Entry<String, List<ConsoleMessages.Item>>> ordered = new java.util.ArrayList<>(kinds.entrySet());
+        ordered.sort(java.util.Comparator.comparingInt(
+                (Map.Entry<String, List<ConsoleMessages.Item>> entry) -> lineCount(entry.getValue())).reversed());
+        out.append("Folded by kind — every message is in `")
+                .append(ReportSession.CONSOLE_RELATIVE_PATH).append("`:\n\n");
+        for (Map.Entry<String, List<ConsoleMessages.Item>> entry : ordered) {
+            List<ConsoleMessages.Item> items = entry.getValue();
+            Map<String, Integer> modules = new LinkedHashMap<>();
+            for (ConsoleMessages.Item item : items) {
+                item.modules().forEach((module, count) -> modules.merge(module, count, Integer::sum));
+            }
+            out.append("- ").append(YELLOW).append(" **").append(lineCount(items)).append("×** ")
+                    .append(entry.getKey()).append(" — ").append(items.size()).append(" distinct");
+            if (!modules.isEmpty()) {
+                out.append(" · ").append(describeModuleCounts(modules));
+            }
+            out.append('\n');
+            int shown = Math.min(items.size(), MAX_KIND_ITEMS);
+            for (ConsoleMessages.Item item : items.subList(0, shown)) {
+                out.append("  - **").append(item.count()).append("×** `")
+                        .append(item.message().replace('`', '\'')).append('`');
+                if (item.files() > 1) {
+                    out.append(" — ").append(item.files()).append(" files");
+                } else if (item.files() == 0 && !item.modules().isEmpty()) {
+                    out.append(" — ").append(String.join(", ", item.modules().keySet()));
+                }
+                out.append('\n');
+            }
+            if (items.size() > shown) {
+                out.append("  - … and ").append(items.size() - shown).append(" more\n");
+            }
+        }
+        out.append('\n');
+    }
+
+    private static int lineCount(List<ConsoleMessages.Item> items) {
+        return items.stream().mapToInt(ConsoleMessages.Item::count).sum();
+    }
+
+    /** Names the modules behind a kind, heaviest first, with their line counts. */
+    private static String describeModuleCounts(Map<String, Integer> modules) {
+        List<Map.Entry<String, Integer>> ordered = new java.util.ArrayList<>(modules.entrySet());
+        ordered.sort(Map.Entry.<String, Integer>comparingByValue().reversed());
+        StringBuilder text = new StringBuilder();
+        int named = Math.min(ordered.size(), MAX_CONSOLE_MODULES);
+        for (int index = 0; index < named; index++) {
+            text.append(index == 0 ? "" : ", ")
+                    .append(ordered.get(index).getKey()).append(' ').append(ordered.get(index).getValue());
+        }
+        if (ordered.size() > named) {
+            text.append(", … +").append(ordered.size() - named).append(" module(s)");
+        }
+        return text.toString();
+    }
+
+    private static String describeOrigin(ConsoleMessages.Item item) {
+        StringBuilder origin = new StringBuilder();
+        if (!item.goals().isEmpty()) {
+            origin.append(String.join(", ", item.goals()));
+        }
+        List<String> modules = List.copyOf(item.modules().keySet());
+        if (!modules.isEmpty()) {
+            if (origin.length() > 0) {
+                origin.append(" · ");
+            }
+            int named = Math.min(modules.size(), MAX_CONSOLE_MODULES);
+            if (modules.size() > 1) {
+                origin.append(modules.size()).append(" modules: ");
+            }
+            origin.append(String.join(", ", modules.subList(0, named)));
+            if (modules.size() > named) {
+                origin.append(", … +").append(modules.size() - named);
+            }
+        }
+        return origin.toString();
+    }
+
+    /**
+     * Renders every counted console message, with no listing limit —
+     * the companion file a reader opens when the receipt's top entries
+     * are not enough, or when choosing what to ignore.
+     *
+     * @param console the console's consolidated warnings and errors
+     * @return the full listing as Markdown
+     */
+    public static String renderConsoleListing(Console console) {
+        StringBuilder out = new StringBuilder(4096);
+        out.append("# ike:build-report — console, in full\n\n");
+        out.append("Every distinct warning and error the build printed that is not ignored by `")
+                .append(ReportSession.LEDGER_RELATIVE_PATH).append("`.\n\n");
+        for (ConsoleMessages.Item item : console.items()) {
+            out.append("- **").append(item.count()).append("×** ")
+                    .append(item.level() == ConsoleMessages.Level.ERROR ? "ERROR " : "")
+                    .append(item.kind().isEmpty() ? "" : "[" + item.kind() + "] ")
+                    .append('`').append(item.message().replace('`', '\'')).append('`');
+            if (item.files() > 0) {
+                out.append(" — ").append(item.files()).append(" file(s)");
+            }
+            String origin = describeOrigin(item);
+            if (!origin.isEmpty()) {
+                out.append(" — ").append(origin);
+            }
+            out.append('\n');
+        }
+        return out.toString();
+    }
+
+    /**
+     * Summarizes the messages past the listing limit by the goal that
+     * printed them, which is usually what tells a reader whether the
+     * tail is worth opening the log for.
+     */
+    private static void renderConsoleRemainder(StringBuilder out, List<ConsoleMessages.Item> rest) {
+        Map<String, Integer> byGoal = new LinkedHashMap<>();
+        int lines = 0;
+        for (ConsoleMessages.Item item : rest) {
+            lines += item.count();
+            String goal = item.goals().isEmpty() ? "outside any goal" : item.goals().get(0);
+            byGoal.merge(goal, item.count(), Integer::sum);
+        }
+        out.append("- … and ").append(rest.size()).append(" further distinct message(s), ")
+                .append(lines).append(" line(s):");
+        String separator = " ";
+        for (Map.Entry<String, Integer> entry : byGoal.entrySet()) {
+            out.append(separator).append(entry.getKey()).append(' ').append(entry.getValue());
+            separator = ", ";
+        }
+        out.append(" — full list in `").append(ReportSession.CONSOLE_RELATIVE_PATH).append("`\n");
     }
 
     private static void renderFailures(StringBuilder out, List<Finding> failures) {
         if (failures.isEmpty()) {
             return;
         }
-        out.append("## FAILURES\n\n");
+        out.append("## ").append(RED).append(" FAILURES\n\n");
         for (Finding finding : failures) {
             out.append("- `").append(finding.key()).append("` — ").append(finding.detail()).append('\n');
         }
@@ -78,7 +663,7 @@ public final class ReceiptRenderer {
         if (attention.isEmpty()) {
             return;
         }
-        out.append("## ATTENTION\n\n");
+        out.append("## ").append(YELLOW).append(" ATTENTION\n\n");
         for (LedgerEvaluation.AttentionItem item : attention) {
             out.append("- `").append(item.key()).append("` — observed ").append(item.observed());
             if (item.expected() == null) {
@@ -200,7 +785,7 @@ public final class ReceiptRenderer {
         if (accepted.isEmpty()) {
             return;
         }
-        out.append("## ACCEPTED\n\n");
+        out.append("## ").append(BLUE).append(" ACCEPTED\n\n");
         for (LedgerEvaluation.AcceptedStatus status : accepted) {
             out.append("- `").append(status.entry().key()).append("` — expected ")
                     .append(status.entry().count()).append(", observed ").append(status.observed());
@@ -216,7 +801,7 @@ public final class ReceiptRenderer {
         if (ratchet.isEmpty()) {
             return;
         }
-        out.append("## RATCHET\n\n");
+        out.append("## ").append(BLUE).append(" RATCHET\n\n");
         for (LedgerEvaluation.AcceptedStatus status : ratchet) {
             out.append("- `").append(status.entry().key()).append("` — expected ")
                     .append(status.entry().count()).append(", observed ").append(status.observed())
@@ -225,12 +810,34 @@ public final class ReceiptRenderer {
         out.append('\n');
     }
 
-    private static void renderSummary(StringBuilder out, LedgerEvaluation evaluation) {
+    private static String marked(String marker, int count) {
+        return count > 0 ? marker + " " : "";
+    }
+
+    private static void renderSummary(StringBuilder out, LedgerEvaluation evaluation, Console console) {
         out.append("## SUMMARY\n\n");
-        out.append("failures: ").append(evaluation.failures().size())
-                .append(" · attention: ").append(evaluation.attention().size())
-                .append(" · accepted: ").append(evaluation.accepted().size())
-                .append(" · ratchet: ").append(evaluation.ratchet().size())
-                .append('\n');
+        // A marker only where the count is non-zero, so a clean line
+        // stays quiet and colour always means "look here".
+        int errors = console.lines(ConsoleMessages.Level.ERROR);
+        int warnings = console.lines(ConsoleMessages.Level.WARNING);
+        out.append(marked(RED, evaluation.failures().size())).append("failures: ")
+                .append(evaluation.failures().size())
+                .append(" · ").append(marked(YELLOW, evaluation.attention().size())).append("attention: ")
+                .append(evaluation.attention().size())
+                .append(" · ").append(marked(BLUE, evaluation.accepted().size())).append("accepted: ")
+                .append(evaluation.accepted().size())
+                .append(" · ").append(marked(BLUE, evaluation.ratchet().size())).append("ratchet: ")
+                .append(evaluation.ratchet().size())
+                .append(" · console: ");
+        if (console.captured()) {
+            out.append(marked(RED, errors)).append(errors).append(" error(s), ")
+                    .append(marked(YELLOW, warnings)).append(warnings).append(" warning(s)");
+            if (console.ignoredLines() > 0) {
+                out.append(", ").append(console.ignoredLines()).append(" ignored");
+            }
+        } else {
+            out.append("not captured");
+        }
+        out.append('\n');
     }
 }

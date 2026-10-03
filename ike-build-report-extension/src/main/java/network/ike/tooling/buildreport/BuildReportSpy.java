@@ -1,16 +1,21 @@
 package network.ike.tooling.buildreport;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import javax.inject.Named;
 import javax.inject.Singleton;
 
 import org.apache.maven.eventspy.EventSpy;
 import org.apache.maven.execution.ExecutionEvent;
+import org.apache.maven.execution.MavenExecutionRequest;
+import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.MojoExecution;
+import org.apache.maven.project.MavenProject;
 import org.eclipse.aether.RepositoryEvent;
 import org.eclipse.aether.artifact.Artifact;
 import org.eclipse.aether.repository.ArtifactRepository;
@@ -38,6 +43,8 @@ import org.slf4j.LoggerFactory;
 public class BuildReportSpy implements EventSpy {
 
     private static final Logger LOG = LoggerFactory.getLogger(BuildReportSpy.class);
+
+    private static final Pattern ANSI = Pattern.compile("\u001B\\[[;\\d]*[ -/]*[@-~]");
 
     /**
      * Creates the spy; instantiated by the Maven container via the sisu
@@ -89,24 +96,61 @@ public class BuildReportSpy implements EventSpy {
 
     private void onExecutionEvent(ExecutionEvent event) {
         switch (event.getType()) {
-            case ProjectDiscoveryStarted -> ReportSession.reset();
-            case SessionStarted -> captureExecutionRoot(event);
-            case MojoFailed -> ReportSession.addFinding(new Finding(
-                    FindingCategory.EXECUTION,
-                    Severity.ERROR,
-                    "execution/mojo-failed/" + describeMojo(event.getMojoExecution()),
-                    describeProject(event) + ": " + describeThrowable(event.getException())));
-            case ProjectFailed -> ReportSession.addFinding(new Finding(
-                    FindingCategory.EXECUTION,
-                    Severity.ERROR,
-                    "execution/project-failed/" + describeProject(event),
-                    describeThrowable(event.getException())));
+            case ProjectDiscoveryStarted -> {
+                ReportSession.reset();
+                ReportSession.tapConsole();
+            }
+            case SessionStarted -> {
+                captureExecutionRoot(event);
+                captureInvocation(event);
+                ReportSession.tapConsole();
+                ReportSession.startHeartbeat();
+            }
+            case ProjectStarted -> {
+                ReportSession.tapConsole();
+                ReportSession.activity().projectStarted(describeProject(event));
+                ReportSession.writeLive(true);
+            }
+            case ProjectSucceeded -> {
+                ReportSession.activity().projectFinished(
+                        describeProject(event), BuildActivity.ModuleResult.BUILT);
+                ReportSession.writeLive(true);
+            }
+            case ProjectSkipped -> {
+                ReportSession.activity().projectFinished(
+                        describeProject(event), BuildActivity.ModuleResult.SKIPPED);
+                ReportSession.writeLive(true);
+            }
+            case MojoStarted -> {
+                ReportSession.activity().mojoStarted(
+                        describeProject(event), describeMojo(event.getMojoExecution()));
+                ReportSession.writeLive(false);
+            }
+            case MojoSucceeded -> ReportSession.activity().mojoFinished();
+            case MojoFailed -> {
+                ReportSession.activity().mojoFinished();
+                ReportSession.addFinding(new Finding(
+                        FindingCategory.EXECUTION,
+                        Severity.ERROR,
+                        "execution/mojo-failed/" + describeMojo(event.getMojoExecution()),
+                        describeProject(event) + ": " + describeThrowable(event.getException())));
+            }
+            case ProjectFailed -> {
+                ReportSession.activity().projectFinished(
+                        describeProject(event), BuildActivity.ModuleResult.FAILED);
+                ReportSession.writeLive(true);
+                ReportSession.addFinding(new Finding(
+                        FindingCategory.EXECUTION,
+                        Severity.ERROR,
+                        "execution/project-failed/" + describeProject(event),
+                        describeThrowable(event.getException())));
+            }
             case SessionEnded -> {
                 captureExecutionRoot(event);
                 ReportSession.finalizeAndWrite();
             }
             default -> {
-                // Successes, skips, and forks carry no receipt content.
+                // Forks and mojo skips carry no receipt content.
             }
         }
     }
@@ -197,6 +241,35 @@ public class BuildReportSpy implements EventSpy {
         }
     }
 
+    /**
+     * Records what was asked for and the reactor that will answer it,
+     * so the receipt can open by saying what the session built.
+     */
+    private void captureInvocation(ExecutionEvent event) {
+        MavenSession session = event.getSession();
+        if (session == null) {
+            return;
+        }
+        List<String> modules = new ArrayList<>();
+        if (session.getProjects() != null) {
+            for (MavenProject project : session.getProjects()) {
+                modules.add(project.getArtifactId());
+            }
+        }
+        MavenExecutionRequest request = session.getRequest();
+        List<String> invocation = new ArrayList<>(request.getGoals());
+        if (request.getSelectedProjects() != null && !request.getSelectedProjects().isEmpty()) {
+            invocation.add("-pl");
+            invocation.add(String.join(",", request.getSelectedProjects()));
+        }
+        ReportSession.activity().sessionStarted(
+                modules,
+                invocation,
+                request.getActiveProfiles(),
+                session.getSystemProperties().getProperty("maven.version"),
+                request.getDegreeOfConcurrency());
+    }
+
     private static String describeEventType(Object event) {
         if (event instanceof ExecutionEvent) {
             return "ExecutionEvent." + ((ExecutionEvent) event).getType();
@@ -243,6 +316,11 @@ public class BuildReportSpy implements EventSpy {
             return "no exception detail";
         }
         String message = throwable.getMessage();
-        return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : message;
+        if (message == null || message.isBlank()) {
+            return throwable.getClass().getSimpleName();
+        }
+        // Maven styles its failure messages for the terminal and breaks
+        // them across lines; a receipt line wants neither.
+        return ANSI.matcher(message).replaceAll("").strip().replaceAll("\\s*\\R\\s*", "; ");
     }
 }

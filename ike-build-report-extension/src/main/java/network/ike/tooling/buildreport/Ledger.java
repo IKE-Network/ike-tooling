@@ -28,6 +28,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  *     count: 2
  *     reason: accepted by design — see IKE-WORKSPACE.md
  *     since: 2026-08-10
+ * console:
+ *   ignore:               # console warnings that should not count
+ *     - match: "Using incubator modules: jdk.incubator.vector"
+ *       reason: JVM notice, printed once per forked test JVM
  * }</pre>
  *
  * <p>A missing file yields {@link #empty()}: report mode, no accepted
@@ -37,10 +41,21 @@ public final class Ledger {
 
     private final LedgerMode mode;
     private final List<AcceptedEntry> entries;
+    private final List<ConsoleIgnore> consoleIgnores;
 
-    private Ledger(LedgerMode mode, List<AcceptedEntry> entries) {
+    private Ledger(LedgerMode mode, List<AcceptedEntry> entries, List<ConsoleIgnore> consoleIgnores) {
         this.mode = mode;
         this.entries = List.copyOf(entries);
+        this.consoleIgnores = List.copyOf(consoleIgnores);
+    }
+
+    /**
+     * Returns the console warnings this project has chosen not to count.
+     *
+     * @return the ignore rules in declaration order
+     */
+    public List<ConsoleIgnore> consoleIgnores() {
+        return consoleIgnores;
     }
 
     /**
@@ -49,7 +64,7 @@ public final class Ledger {
      * @return an empty ledger in {@link LedgerMode#REPORT} mode
      */
     public static Ledger empty() {
-        return new Ledger(LedgerMode.REPORT, List.of());
+        return new Ledger(LedgerMode.REPORT, List.of(), List.of());
     }
 
     /**
@@ -61,8 +76,20 @@ public final class Ledger {
      * @return the ledger
      */
     public static Ledger of(LedgerMode mode, List<AcceptedEntry> entries) {
+        return of(mode, entries, List.of());
+    }
+
+    /**
+     * Creates a ledger from parts, console ignore rules included.
+     *
+     * @param mode           the enforcement posture
+     * @param entries        the accepted entries in declaration order
+     * @param consoleIgnores the console ignore rules in declaration order
+     * @return the ledger
+     */
+    public static Ledger of(LedgerMode mode, List<AcceptedEntry> entries, List<ConsoleIgnore> consoleIgnores) {
         Objects.requireNonNull(mode, "mode");
-        return new Ledger(mode, entries);
+        return new Ledger(mode, entries, consoleIgnores);
     }
 
     /**
@@ -91,8 +118,38 @@ public final class Ledger {
             Map<?, ?> map = (Map<?, ?>) root;
             LedgerMode mode = parseMode(map.get("mode"));
             List<AcceptedEntry> entries = parseEntries(map.get("accepted"));
-            return new Ledger(mode, entries);
+            return new Ledger(mode, entries, parseConsoleIgnores(map.get("console")));
         }
+    }
+
+    private static List<ConsoleIgnore> parseConsoleIgnores(Object console) {
+        if (console == null) {
+            return List.of();
+        }
+        if (!(console instanceof Map)) {
+            throw new IllegalArgumentException(
+                    "console must be a mapping, was: " + console.getClass().getSimpleName());
+        }
+        Object value = ((Map<?, ?>) console).get("ignore");
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List)) {
+            throw new IllegalArgumentException(
+                    "console ignore must be a list, was: " + value.getClass().getSimpleName());
+        }
+        List<ConsoleIgnore> rules = new ArrayList<>();
+        for (Object item : (List<?>) value) {
+            // A bare string is a rule with no reason.
+            Object match = item instanceof Map ? ((Map<?, ?>) item).get("match") : item;
+            Object reason = item instanceof Map ? ((Map<?, ?>) item).get("reason") : null;
+            if (match == null || String.valueOf(match).isBlank()) {
+                throw new IllegalArgumentException("console ignore rule is missing its match text: " + item);
+            }
+            rules.add(new ConsoleIgnore(
+                    String.valueOf(match), reason == null ? "" : String.valueOf(reason).strip()));
+        }
+        return rules;
     }
 
     private static LedgerMode parseMode(Object value) {
