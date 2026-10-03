@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WorkingSet.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Workspace Model</a> &gt; <a href="index.source.html" class="el_package">network.ike.workspace</a> &gt; <span class="el_source">WorkingSet.java</span></div><h1>WorkingSet.java</h1><pre class="source lang-java linenums">package network.ike.workspace;
+
+import java.nio.file.Path;
+import java.util.List;
+
+/**
+ * The co-located set of git working trees a working-tree workspace
+ * operation acts on — one repository for a single repo, or the subprojects
+ * plus the workspace root for a workspace (IKE-Network/ike-issues#609,
+ * under the console/engine boundary, #601).
+ *
+ * &lt;p&gt;A working set is resolved from context by {@link WorkingSetResolver}:
+ * a single repository is a working set of one; a {@code workspace.yaml}
+ * declares a larger one. Working-tree verbs — commit, push, sync, branch,
+ * fork, switch — act on each {@link Member}; the {@link #manifest()}, when
+ * present, carries the workspace metadata.
+ *
+ * &lt;p&gt;The workspace root (aggregator) is a first-class {@link Member}, not an
+ * orchestrator standing outside the set: it is branched, version-qualified,
+ * committed, and tagged alongside the subprojects. Each member therefore
+ * carries a {@link Member.Kind} so reports and lifecycle goals can include the
+ * aggregator and special-case it where its role differs (#764).
+ *
+ * &lt;p&gt;This is the working-set half of the scope-resolution layer; the
+ * dependency-ordered &lt;em&gt;artifact cohort&lt;/em&gt; that release-style verbs need
+ * is modelled separately (ike-issues#610).
+ *
+ * @param root     the primary directory — the workspace root, or the single
+ *                 repository
+ * @param manifest the {@code workspace.yaml} path, or {@code null} for a
+ *                 single-repository working set
+ * @param baseName the working set's identity for derived names — the base for
+ *                 sibling directories ({@code &lt;baseName&gt;-&lt;feature&gt;}): the
+ *                 manifest {@code workspace-root:} {@code artifactId} when
+ *                 present, otherwise the root directory name
+ * @param members  every git working tree in the set, in a deterministic
+ *                 order: the declared subprojects followed by the workspace
+ *                 root (a single-repository working set has the one repo as
+ *                 its sole member). The workspace root is the member whose
+ *                 {@link Member#directory()} equals {@link #root()} and whose
+ *                 {@link Member#kind()} is {@link Member.Kind#AGGREGATOR}.
+ */
+<span class="fc" id="L43">public record WorkingSet(Path root, Path manifest, String baseName,</span>
+                         List&lt;Member&gt; members) {
+
+    /**
+     * Whether this working set is backed by a {@code workspace.yaml}.
+     *
+     * @return {@code true} for a workspace, {@code false} for a single repo
+     */
+    public boolean isWorkspace() {
+<span class="fc bfc" id="L52" title="All 2 branches covered.">        return manifest != null;</span>
+    }
+
+    /**
+     * Whether this is a single-repository working set — a working set of one.
+     *
+     * @return {@code true} for a single repository
+     */
+    public boolean isSingleRepo() {
+<span class="pc bpc" id="L61" title="1 of 2 branches missed.">        return manifest == null;</span>
+    }
+
+    /**
+     * One git working tree in a {@link WorkingSet}.
+     *
+     * @param name      the subproject name, or the directory name for the
+     *                  workspace root and for a single repository
+     * @param directory the git working tree's directory
+     * @param kind      whether this member is a declared subproject or the
+     *                  workspace root (aggregator)
+     */
+<span class="fc" id="L73">    public record Member(String name, Path directory, Kind kind) {</span>
+
+        /**
+         * The role a {@link Member} plays in its {@link WorkingSet}.
+         * &quot;Subproject&quot; is a member &lt;em&gt;kind&lt;/em&gt;, never the organizing unit —
+         * the working set is the unit, and the aggregator is one of its
+         * members (#764).
+         */
+<span class="fc" id="L81">        public enum Kind {</span>
+            /** A declared subproject of a workspace. */
+<span class="fc" id="L83">            SUBPROJECT,</span>
+            /**
+             * The workspace root that aggregates the subprojects — and, for a
+             * single-repository working set, the sole member, which is the
+             * root of its own trivial set.
+             */
+<span class="fc" id="L89">            AGGREGATOR</span>
+        }
+
+        /**
+         * Create a {@link Kind#SUBPROJECT} member.
+         *
+         * @param name      the subproject name
+         * @param directory the subproject's git working tree
+         * @return a subproject member
+         */
+        public static Member subproject(String name, Path directory) {
+<span class="fc" id="L100">            return new Member(name, directory, Kind.SUBPROJECT);</span>
+        }
+
+        /**
+         * Create a {@link Kind#AGGREGATOR} member.
+         *
+         * @param name      the directory name of the workspace root (or single
+         *                  repository)
+         * @param directory the workspace root's git working tree
+         * @return an aggregator member
+         */
+        public static Member aggregator(String name, Path directory) {
+<span class="fc" id="L112">            return new Member(name, directory, Kind.AGGREGATOR);</span>
+        }
+
+        /**
+         * Whether this member is the workspace root (aggregator).
+         *
+         * @return {@code true} if {@link #kind()} is {@link Kind#AGGREGATOR}
+         */
+        public boolean isAggregator() {
+<span class="pc bpc" id="L121" title="1 of 2 branches missed.">            return kind == Kind.AGGREGATOR;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

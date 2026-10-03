@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>HealSnapshotMetadataMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">HealSnapshotMetadataMojo.java</span></div><h1>HealSnapshotMetadataMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import network.ike.plugin.deploy.SnapshotMetadataHealer;
+import network.ike.plugin.deploy.SnapshotMetadataHealer.Credentials;
+import network.ike.plugin.deploy.SnapshotMetadataHealer.Result;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.model.DeploymentRepository;
+import org.apache.maven.api.model.DistributionManagement;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.settings.Server;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.time.Duration;
+import java.util.Optional;
+
+/**
+ * {@code ike:heal-snapshot-metadata} — before a snapshot deploy, repairs the
+ * version's {@code maven-metadata.xml} on the deploy target when its checksum
+ * sidecars no longer match it (IKE-Network/ike-issues#1160).
+ *
+ * &lt;p&gt;Nexus can leave that pair inconsistent after its background metadata
+ * rebuild (IKE-Network/ike-issues#1107), and every later deploy of the
+ * version then fails checksum validation. {@code ike-parent} binds this goal
+ * to {@code before:deploy}, so the repair happens ahead of
+ * {@code maven-deploy-plugin} and a plain {@code install} never reaches the
+ * network. See {@link SnapshotMetadataHealer} for exactly what is read and
+ * deleted.
+ *
+ * &lt;p&gt;The goal never fails the build. A repository it cannot read or repair
+ * is logged, and the deploy that follows reports the underlying problem.
+ */
+@org.apache.maven.api.plugin.annotations.Mojo(name = IkeGoal.NAME_HEAL_SNAPSHOT_METADATA)
+public class HealSnapshotMetadataMojo implements Mojo {
+
+    /** Maven logger, injected by the plugin runtime. */
+    @Inject
+    Log log;
+
+    /** The Maven session, for settings (server credentials) and properties. */
+    @Inject
+    Session session;
+
+    /** The project about to be deployed. */
+    @Inject
+    Project project;
+
+    /** Skip the check entirely: plain Maven deploy behaviour. */
+    @Parameter(property = &quot;ike.metadata.heal.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /** Timeout, in seconds, for each request to the repository. */
+    @Parameter(property = &quot;ike.metadata.heal.timeoutSeconds&quot;, defaultValue = &quot;20&quot;)
+    int timeoutSeconds;
+
+    /** Creates this goal instance. */
+<span class="fc" id="L76">    public HealSnapshotMetadataMojo() {}</span>
+
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L81">            log.info(&quot;Snapshot metadata check skipped (ike.metadata.heal.skip)&quot;);</span>
+<span class="nc" id="L82">            return;</span>
+        }
+<span class="nc" id="L84">        String version = project.getVersion();</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (!version.endsWith(&quot;-SNAPSHOT&quot;)) {</span>
+<span class="nc" id="L86">            log.debug(&quot;Snapshot metadata check: &quot; + version + &quot; is a release; nothing to do&quot;);</span>
+<span class="nc" id="L87">            return;</span>
+        }
+<span class="nc bnc" id="L89" title="All 2 branches missed.">        if (Boolean.parseBoolean(property(&quot;maven.deploy.skip&quot;))) {</span>
+<span class="nc" id="L90">            log.debug(&quot;Snapshot metadata check: maven.deploy.skip is set; nothing to do&quot;);</span>
+<span class="nc" id="L91">            return;</span>
+        }
+<span class="nc" id="L93">        Optional&lt;Target&gt; target = snapshotTarget();</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if (target.isEmpty()) {</span>
+<span class="nc" id="L95">            log.debug(&quot;Snapshot metadata check: no snapshot deploy repository; nothing to do&quot;);</span>
+<span class="nc" id="L96">            return;</span>
+        }
+<span class="nc" id="L98">        Target repository = target.get();</span>
+<span class="nc" id="L99">        SnapshotMetadataHealer healer = new SnapshotMetadataHealer(</span>
+<span class="nc" id="L100">                HttpClient.newBuilder()</span>
+<span class="nc" id="L101">                        .connectTimeout(Duration.ofSeconds(timeoutSeconds))</span>
+<span class="nc" id="L102">                        .followRedirects(HttpClient.Redirect.NORMAL)</span>
+<span class="nc" id="L103">                        .build(),</span>
+<span class="nc" id="L104">                Duration.ofSeconds(timeoutSeconds));</span>
+<span class="nc" id="L105">        Result result = healer.heal(URI.create(repository.url()), credentials(repository.id()),</span>
+<span class="nc" id="L106">                project.getGroupId(), project.getArtifactId(), version);</span>
+<span class="nc" id="L107">        report(repository, result);</span>
+<span class="nc" id="L108">    }</span>
+
+    private void report(Target repository, Result result) {
+<span class="nc" id="L111">        String where = project.getArtifactId() + &quot;:&quot; + project.getVersion()</span>
+<span class="nc" id="L112">                + &quot; on &quot; + repository.id();</span>
+<span class="nc bnc" id="L113" title="All 5 branches missed.">        switch (result.outcome()) {</span>
+            case HEALED -&gt; {
+<span class="nc" id="L115">                log.warn(&quot;Snapshot metadata for &quot; + where + &quot; did not match its checksums (&quot;</span>
+<span class="nc" id="L116">                        + result.detail() + &quot;); deleted so this deploy rewrites it&quot;</span>
+                        + &quot; (IKE-Network/ike-issues#1107):&quot;);
+<span class="nc" id="L118">                result.deleted().forEach(path -&gt; log.warn(&quot;  deleted &quot; + path));</span>
+<span class="nc" id="L119">            }</span>
+            case DELETE_FAILED -&gt; {
+<span class="nc" id="L121">                log.warn(&quot;Snapshot metadata for &quot; + where + &quot; does not match its checksums,&quot;</span>
+<span class="nc" id="L122">                        + &quot; and could not be deleted: &quot; + result.detail());</span>
+<span class="nc" id="L123">                log.warn(&quot;  The deploy will likely fail with 'Checksum validation failed'.&quot;</span>
+                        + &quot; Delete the version's maven-metadata.xml and its checksum files&quot;
+                        + &quot; on the repository by hand (IKE-Network/ike-issues#1107).&quot;);
+<span class="nc" id="L126">                result.deleted().forEach(path -&gt; log.warn(&quot;  deleted &quot; + path));</span>
+<span class="nc" id="L127">            }</span>
+<span class="nc" id="L128">            case UNREACHABLE -&gt; log.warn(&quot;Snapshot metadata check for &quot; + where</span>
+<span class="nc" id="L129">                    + &quot; could not read the repository: &quot; + result.detail());</span>
+<span class="nc" id="L130">            case CONSISTENT, ABSENT, NOT_A_SNAPSHOT -&gt; log.debug(&quot;Snapshot metadata for &quot;</span>
+<span class="nc" id="L131">                    + where + &quot;: &quot; + result.detail());</span>
+        }
+<span class="nc" id="L133">    }</span>
+
+    /** The snapshot deploy target: an {@code alt*DeploymentRepository} override, else the POM's. */
+    private Optional&lt;Target&gt; snapshotTarget() {
+<span class="nc bnc" id="L137" title="All 2 branches missed.">        for (String override : new String[]{&quot;altSnapshotDeploymentRepository&quot;, &quot;altDeploymentRepository&quot;}) {</span>
+<span class="nc" id="L138">            String value = property(override);</span>
+<span class="nc bnc" id="L139" title="All 4 branches missed.">            if (value != null &amp;&amp; !value.isBlank()) {</span>
+<span class="nc" id="L140">                return Target.parse(value);</span>
+            }
+        }
+<span class="nc" id="L143">        DistributionManagement distribution = project.getModel().getDistributionManagement();</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (distribution == null) {</span>
+<span class="nc" id="L145">            return Optional.empty();</span>
+        }
+<span class="nc bnc" id="L147" title="All 2 branches missed.">        DeploymentRepository repository = distribution.getSnapshotRepository() != null</span>
+<span class="nc" id="L148">                ? distribution.getSnapshotRepository()</span>
+<span class="nc" id="L149">                : distribution.getRepository();</span>
+<span class="nc bnc" id="L150" title="All 6 branches missed.">        if (repository == null || repository.getUrl() == null || repository.getId() == null) {</span>
+<span class="nc" id="L151">            return Optional.empty();</span>
+        }
+<span class="nc" id="L153">        return Optional.of(new Target(repository.getId(), repository.getUrl()));</span>
+    }
+
+    /** The server credentials Maven's settings hold for {@code id}, when usable. */
+    private Optional&lt;Credentials&gt; credentials(String id) {
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        for (Server server : session.getSettings().getServers()) {</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">            if (!id.equals(server.getId())) {</span>
+<span class="nc" id="L160">                continue;</span>
+            }
+<span class="nc" id="L162">            String username = server.getUsername();</span>
+<span class="nc" id="L163">            String password = server.getPassword();</span>
+<span class="nc bnc" id="L164" title="All 4 branches missed.">            if (username == null || password == null) {</span>
+<span class="nc" id="L165">                return Optional.empty();</span>
+            }
+<span class="nc bnc" id="L167" title="All 4 branches missed.">            if (password.startsWith(&quot;{&quot;) &amp;&amp; password.endsWith(&quot;}&quot;)) {</span>
+<span class="nc" id="L168">                log.debug(&quot;Snapshot metadata check: the password for &quot; + id</span>
+                        + &quot; is encrypted; reading without credentials&quot;);
+<span class="nc" id="L170">                return Optional.empty();</span>
+            }
+<span class="nc" id="L172">            return Optional.of(new Credentials(username, password));</span>
+        }
+<span class="nc" id="L174">        return Optional.empty();</span>
+    }
+
+    /** A user, system or project property; the first defined wins. */
+    private String property(String name) {
+<span class="nc" id="L179">        String value = session.getUserProperties().get(name);</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L181">            value = session.getSystemProperties().get(name);</span>
+        }
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L184">            value = project.getModel().getProperties().get(name);</span>
+        }
+<span class="nc" id="L186">        return value;</span>
+    }
+
+    /**
+     * A deploy target: a server id and a repository URL.
+     *
+     * @param id  the server id, which keys the credentials in settings
+     * @param url the repository URL
+     */
+<span class="fc" id="L195">    record Target(String id, String url) {</span>
+
+        /**
+         * Parses Maven's {@code id::url} (or legacy {@code id::layout::url})
+         * deployment-repository override.
+         */
+        static Optional&lt;Target&gt; parse(String value) {
+<span class="fc" id="L202">            String[] parts = value.split(&quot;::&quot;);</span>
+<span class="fc bfc" id="L203" title="All 2 branches covered.">            if (parts.length == 2) {</span>
+<span class="fc" id="L204">                return Optional.of(new Target(parts[0], parts[1]));</span>
+            }
+<span class="fc bfc" id="L206" title="All 2 branches covered.">            if (parts.length == 3) {</span>
+<span class="fc" id="L207">                return Optional.of(new Target(parts[0], parts[2]));</span>
+            }
+<span class="fc" id="L209">            return Optional.empty();</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

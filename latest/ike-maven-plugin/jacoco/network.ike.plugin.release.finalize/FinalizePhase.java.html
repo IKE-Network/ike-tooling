@@ -18,9 +18,9 @@ import java.nio.file.Path;
  *
  * &lt;ul&gt;
  *   &lt;li&gt;B29 — pushes the release tag and main to origin
- *   &lt;li&gt;B30 — creates the GitHub Release with milestone-based notes,
- *       closes the milestone, removes pending-release labels from
- *       resolved issues
+ *   &lt;li&gt;B30 — closes the issues the release's commits resolved that
+ *       are still open, creates the GitHub Release with milestone-based
+ *       notes, closes the milestone
  * &lt;/ul&gt;
  *
  * &lt;p&gt;The post-deploy log lines (&quot;Release v X complete&quot;, Nexus/Central
@@ -84,10 +84,9 @@ public final class FinalizePhase {
     }
 
     /**
-     * Creates the GitHub Release for {@code v&lt;version&gt;} with
-     * milestone-based release notes, then closes the milestone and
-     * removes the {@code pending-release} label from any issues
-     * resolved in this release range.
+     * Closes the issues this release's commits resolved that are still
+     * open, creates the GitHub Release for {@code v&lt;version&gt;} with
+     * milestone-based release notes, then closes the milestone.
      *
      * &lt;p&gt;Looks for a milestone named {@code &lt;projectId&gt; v&lt;version&gt;}
      * in the configured issue repository ({@code ctx.request().issueRepo()}).
@@ -95,8 +94,8 @@ public final class FinalizePhase {
      * Falls back to GitHub's auto-generated commit-based notes when no
      * milestone exists.
      *
-     * &lt;p&gt;All three steps (release create, milestone close, label
-     * cleanup) are best-effort once we reach this point: the Nexus
+     * &lt;p&gt;All three steps (issue close, release create, milestone
+     * close) are best-effort once we reach this point: the Nexus
      * deploy already shipped the artifact, so any failure here is
      * logged as a warning with a manual-retry command rather than
      * thrown as an exception.
@@ -109,16 +108,17 @@ public final class FinalizePhase {
      */
     private void createGitHubRelease(String projectId, String version,
             java.util.List&lt;network.ike.plugin.CascadeBump&gt; foundationUpgrades) {
-<span class="nc" id="L112">        File gitRoot = ctx.gitRoot();</span>
-<span class="nc" id="L113">        String issueRepo = ctx.request().issueRepo();</span>
-<span class="nc" id="L114">        String milestoneName = projectId + &quot; v&quot; + version;</span>
+<span class="nc" id="L111">        File gitRoot = ctx.gitRoot();</span>
+<span class="nc" id="L112">        String issueRepo = ctx.request().issueRepo();</span>
+<span class="nc" id="L113">        String milestoneName = projectId + &quot; v&quot; + version;</span>
 
         // Close the issues this release's commits resolved (Fixes/Closes/
-        // Resolves trailers) BEFORE notes generation, so milestone notes
-        // reflect what shipped. GitHub can't auto-close cross-repo
-        // trailers, and IKE issues live in a separate tracker repo — this
-        // redeems the trailer contract so fixed issues don't dangle open
-        // (IKE-Network/ike-issues#799). Best-effort like the steps below.
+        // Resolves trailers) that are still open, BEFORE notes generation,
+        // so milestone notes reflect what shipped. GitHub normally closes
+        // them at the push (IKE-Network/ike-issues#1176); this is the
+        // backstop for a push that did not, so a fixed issue does not stay
+        // open (IKE-Network/ike-issues#799). Best-effort like the steps
+        // below.
         try {
 <span class="nc" id="L123">            ReleaseNotesSupport.closeReferencedIssues(</span>
 <span class="nc" id="L124">                    gitRoot, null, &quot;v&quot; + version, issueRepo, ctx.log());</span>
@@ -182,14 +182,6 @@ public final class FinalizePhase {
                         + &quot;/milestones/1 -X PATCH -f state=closed&quot;);
 <span class="nc" id="L183">            }</span>
         }
-
-        try {
-<span class="nc" id="L187">            ReleaseNotesSupport.removePendingReleaseLabels(</span>
-<span class="nc" id="L188">                    gitRoot, null, &quot;v&quot; + version, issueRepo, ctx.log());</span>
-<span class="nc" id="L189">        } catch (Exception e) {</span>
-<span class="nc" id="L190">            ctx.log().warn(&quot;Could not remove pending-release labels &quot;</span>
-<span class="nc" id="L191">                    + &quot;(release succeeded): &quot; + e.getMessage());</span>
-<span class="nc" id="L192">        }</span>
-<span class="nc" id="L193">    }</span>
+<span class="nc" id="L185">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

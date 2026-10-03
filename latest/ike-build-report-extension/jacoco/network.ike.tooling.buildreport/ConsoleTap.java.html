@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConsoleTap.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">ConsoleTap.java</span></div><h1>ConsoleTap.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.lang.reflect.Field;
+import java.util.function.Consumer;
+
+import org.slf4j.LoggerFactory;
+
+/**
+ * Listens in on the lines Maven writes to the console, passing every
+ * one through unchanged.
+ *
+ * &lt;p&gt;Maven has no SPI for log output: neither {@code EventSpy} nor the
+ * new API sees a plugin's warnings, and SLF4J's API has no appenders.
+ * What Maven 4 does have is a single sink —
+ * {@code MavenSimpleLogger.logSink} — through which every rendered log
+ * line passes on its way to the terminal, including the stderr of
+ * in-process tools, which Maven re-logs as {@code [WARNING] [stderr]}.
+ * This tap wraps that sink. The logger class is not exported to
+ * extensions, so it is reached reflectively through the logger
+ * factory's own class loader (verified on 4.0.0-rc-5 and rc-7).&lt;/p&gt;
+ *
+ * &lt;p&gt;Everything here is best-effort. When the sink is absent or the
+ * logger is a different implementation — the IDE's maven-server, a
+ * future Maven — {@link #install()} returns false, the receipt says
+ * console capture was unavailable, and the build is untouched.&lt;/p&gt;
+ */
+final class ConsoleTap implements Consumer&lt;String&gt; {
+
+    private static final String LOGGER_CLASS = &quot;org.apache.maven.slf4j.MavenSimpleLogger&quot;;
+    private static final String SINK_FIELD = &quot;logSink&quot;;
+
+    private final Consumer&lt;String&gt; delegate;
+
+<span class="nc" id="L34">    private ConsoleTap(Consumer&lt;String&gt; delegate) {</span>
+<span class="nc" id="L35">        this.delegate = delegate;</span>
+<span class="nc" id="L36">    }</span>
+
+    @Override
+    public void accept(String line) {
+        try {
+<span class="nc" id="L41">            ReportSession.addConsoleLine(line);</span>
+<span class="nc" id="L42">        } catch (RuntimeException e) {</span>
+            // Listening must never cost the build its console output.
+<span class="nc" id="L44">        }</span>
+<span class="nc" id="L45">        delegate.accept(line);</span>
+<span class="nc" id="L46">    }</span>
+
+    /**
+     * Wraps Maven's console sink; a no-op when already wrapped.
+     *
+     * &lt;p&gt;Called at every session and project start rather than once,
+     * because Maven may set the sink after extensions are initialized.&lt;/p&gt;
+     *
+     * @return true when the tap is in place
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    static synchronized boolean install() {
+        try {
+<span class="nc" id="L59">            Field sink = sinkField();</span>
+<span class="nc" id="L60">            Object current = sink.get(null);</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">            if (current instanceof ConsoleTap) {</span>
+<span class="nc" id="L62">                return true;</span>
+            }
+<span class="nc bnc" id="L64" title="All 2 branches missed.">            if (!(current instanceof Consumer)) {</span>
+<span class="nc" id="L65">                return false;</span>
+            }
+<span class="nc" id="L67">            sink.set(null, new ConsoleTap((Consumer&lt;String&gt;) current));</span>
+<span class="nc" id="L68">            return true;</span>
+<span class="nc" id="L69">        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {</span>
+<span class="nc" id="L70">            return false;</span>
+        }
+    }
+
+    /**
+     * Restores the sink this tap wrapped, so a long-lived JVM does not
+     * accumulate taps across sessions.
+     */
+    static synchronized void uninstall() {
+        try {
+<span class="nc" id="L80">            Field sink = sinkField();</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">            if (sink.get(null) instanceof ConsoleTap tap) {</span>
+<span class="nc" id="L82">                sink.set(null, tap.delegate);</span>
+            }
+<span class="nc" id="L84">        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {</span>
+            // Nothing to restore.
+<span class="nc" id="L86">        }</span>
+<span class="nc" id="L87">    }</span>
+
+    private static Field sinkField() throws ReflectiveOperationException {
+<span class="nc" id="L90">        ClassLoader loader = LoggerFactory.getILoggerFactory().getClass().getClassLoader();</span>
+<span class="nc" id="L91">        Field sink = Class.forName(LOGGER_CLASS, false, loader).getDeclaredField(SINK_FIELD);</span>
+<span class="nc" id="L92">        sink.setAccessible(true);</span>
+<span class="nc" id="L93">        return sink;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

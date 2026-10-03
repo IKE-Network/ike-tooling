@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConsoleMessages.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">ConsoleMessages.java</span></div><h1>ConsoleMessages.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Consolidates the warnings and errors Maven printed to the console:
+ * one entry per distinct message, with how often it appeared and which
+ * modules and goals produced it.
+ *
+ * &lt;p&gt;A reactor build repeats the same warning once per module — a JVM
+ * notice on stderr, a deprecated plugin parameter — and the repetition
+ * buries the few warnings that are different. Folding them is the whole
+ * point of this collector.&lt;/p&gt;
+ *
+ * &lt;p&gt;These messages are deliberately &lt;em&gt;not&lt;/em&gt; {@link Finding}s.
+ * Findings carry stable keys derived from structured events and are
+ * what the ledger gates on; console text is prose that changes with
+ * plugin versions, so it is reported and never gated.&lt;/p&gt;
+ */
+public final class ConsoleMessages {
+
+    /** The console levels the receipt consolidates. */
+<span class="fc" id="L31">    public enum Level {</span>
+        /** A line Maven printed as {@code [ERROR]}. */
+<span class="fc" id="L33">        ERROR,</span>
+        /** A line Maven printed as {@code [WARNING]}. */
+<span class="fc" id="L35">        WARNING</span>
+    }
+
+    /**
+     * One distinct console message.
+     *
+     * @param level   the level the message was printed at
+     * @param message the message, without its level prefix
+     * @param count   how many times it was printed
+     * @param modules how many times each module printed it, in first-seen
+     *                order; lines that could not be tied to a module are
+     *                counted in {@code count} only
+     * @param goals   the goals it was printed by, in first-seen order
+     * @param kind    the family the message was folded into — for example
+     *                {@code compiler: deprecation} — or empty for a
+     *                message that stands alone
+     * @param files   how many source files a folded compiler message was
+     *                reported against; zero otherwise
+     */
+<span class="fc" id="L54">    public record Item(</span>
+            Level level,
+            String message,
+            int count,
+            Map&lt;String, Integer&gt; modules,
+            List&lt;String&gt; goals,
+            String kind,
+            int files) {
+
+        /**
+         * Creates a message that stands alone, outside any kind.
+         *
+         * @param level   the level the message was printed at
+         * @param message the message, without its level prefix
+         * @param count   how many times it was printed
+         * @param modules how many times each module printed it
+         * @param goals   the goals it was printed by
+         */
+        public Item(Level level, String message, int count, Map&lt;String, Integer&gt; modules, List&lt;String&gt; goals) {
+<span class="fc" id="L73">            this(level, message, count, modules, goals, &quot;&quot;, 0);</span>
+<span class="fc" id="L74">        }</span>
+    }
+
+    /*
+     * Two plugins print one line per source location or per dependency,
+     * which would otherwise make every line its own &quot;distinct message&quot;:
+     *
+     *   path/Foo.java:[10,54] [deprecation] Bar in pkg has been deprecated
+     *   Unused declared dependencies found:
+     *      group:artifact:jar:1.0:compile
+     *
+     * A compiler warning is folded by dropping its location, so the same
+     * complaint about thirty files is one message &quot;in 30 files&quot;, filed
+     * under its lint category. A dependency line is filed under the
+     * heading the analyzer printed above it.
+     */
+<span class="fc" id="L90">    private static final Pattern COMPILER_LINE =</span>
+<span class="fc" id="L91">            Pattern.compile(&quot;^(\\S.*\\.java):\\[\\d+,\\d+] (?:\\[([\\w-]+)] )?(.+)$&quot;);</span>
+<span class="fc" id="L92">    private static final Pattern DEPENDENCY_HEADING = Pattern.compile(&quot;^(.+ dependencies) found:$&quot;);</span>
+<span class="fc" id="L93">    private static final Pattern DEPENDENCY_LINE = Pattern.compile(&quot;^[^\\s:]+(:[^\\s:]+){3,}$&quot;);</span>
+    private static final String DEPENDENCY_GOAL_PREFIX = &quot;maven-dependency-plugin:analyze&quot;;
+
+    /*
+     * Surefire and failsafe print a test class's result line as a
+     * warning when it skipped tests, and each line differs by class and
+     * elapsed time:
+     *
+     *   Tests run: 68, Failures: 0, Errors: 0, Skipped: 4, Time elapsed: 2.6 s -- in pkg.SomeTest
+     *   Tests run: 2238, Failures: 0, Errors: 0, Skipped: 42
+     *
+     * The per-class lines fold into one kind; the second form is the
+     * module's total of the same skips, and is dropped.
+     */
+<span class="fc" id="L107">    private static final Pattern TEST_RESULT_LINE = Pattern.compile(</span>
+            &quot;^Tests run: (\\d+), Failures: 0, Errors: 0, Skipped: (\\d+)(?:, Time elapsed: .* -- in (\\S+))?$&quot;);
+    private static final String TESTS_SKIPPED_KIND = &quot;tests: skipped&quot;;
+
+    /** Distinct messages kept before further ones are only counted. */
+    private static final int MAX_DISTINCT = 2000;
+
+    /** Longest message kept; javac and javadoc can print very long lines. */
+    private static final int MAX_MESSAGE_LENGTH = 300;
+
+<span class="fc" id="L117">    private static final Pattern ANSI = Pattern.compile(&quot;\u001B\\[[;\\d]*[ -/]*[@-~]&quot;);</span>
+<span class="fc" id="L118">    private static final Pattern LEVEL_LINE = Pattern.compile(&quot;^\\[(WARNING|ERROR)] ?(.*)$&quot;);</span>
+
+    /** This extension's own log lines, which describe the receipt itself. */
+    private static final String OWN_PREFIX = &quot;ike-build-report&quot;;
+
+<span class="fc" id="L123">    private static final class State {</span>
+        private int count;
+<span class="fc" id="L125">        private final Map&lt;String, Integer&gt; modules = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L126">        private final Set&lt;String&gt; goals = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc" id="L127">        private final Set&lt;String&gt; files = new java.util.HashSet&lt;&gt;();</span>
+    }
+
+<span class="fc" id="L130">    private record Key(Level level, String kind, String message) {</span>
+    }
+
+    /** The dependency-analysis heading each build thread last printed. */
+<span class="fc" id="L134">    private final Map&lt;Thread, String&gt; dependencyHeading = new java.util.concurrent.ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="fc" id="L136">    private final Map&lt;Key, State&gt; messages = new LinkedHashMap&lt;&gt;();</span>
+    private int overflow;
+
+    /** Creates an empty collector. */
+<span class="fc" id="L140">    public ConsoleMessages() {</span>
+<span class="fc" id="L141">    }</span>
+
+    /** Clears all recorded messages. */
+    public synchronized void reset() {
+<span class="nc" id="L145">        messages.clear();</span>
+<span class="nc" id="L146">        dependencyHeading.clear();</span>
+<span class="nc" id="L147">        overflow = 0;</span>
+<span class="nc" id="L148">    }</span>
+
+    /**
+     * Offers one rendered console line; lines that are not warnings or
+     * errors are ignored.
+     *
+     * @param line    the line as Maven rendered it, level prefix and
+     *                terminal styling included
+     * @param context what the logging thread was building
+     * @param root    the execution root, removed from the message so the
+     *                same warning reads the same on every machine; empty
+     *                when unknown
+     */
+    public void accept(String line, BuildActivity.Context context, String root) {
+<span class="pc bpc" id="L162" title="2 of 4 branches missed.">        if (line == null || line.isEmpty()) {</span>
+<span class="nc" id="L163">            return;</span>
+        }
+<span class="fc" id="L165">        String plain = ANSI.matcher(line).replaceAll(&quot;&quot;);</span>
+<span class="fc" id="L166">        int end = plain.indexOf('\n');</span>
+<span class="pc bpc" id="L167" title="1 of 2 branches missed.">        Matcher matcher = LEVEL_LINE.matcher(end &lt; 0 ? plain : plain.substring(0, end));</span>
+<span class="fc bfc" id="L168" title="All 2 branches covered.">        if (!matcher.matches()) {</span>
+<span class="fc" id="L169">            return;</span>
+        }
+<span class="fc" id="L171">        String message = matcher.group(2).strip();</span>
+<span class="fc bfc" id="L172" title="All 4 branches covered.">        if (message.isEmpty() || message.startsWith(OWN_PREFIX)) {</span>
+<span class="fc" id="L173">            return;</span>
+        }
+<span class="pc bpc" id="L175" title="1 of 4 branches missed.">        if (root != null &amp;&amp; !root.isEmpty()) {</span>
+<span class="fc" id="L176">            message = message.replace(root + &quot;/&quot;, &quot;&quot;).replace(root, &quot;.&quot;);</span>
+        }
+<span class="pc bpc" id="L178" title="1 of 2 branches missed.">        if (message.length() &gt; MAX_MESSAGE_LENGTH) {</span>
+<span class="nc" id="L179">            message = message.substring(0, MAX_MESSAGE_LENGTH) + &quot;…&quot;;</span>
+        }
+<span class="fc" id="L181">        Level level = Level.valueOf(matcher.group(1));</span>
+<span class="fc" id="L182">        String kind = &quot;&quot;;</span>
+<span class="fc" id="L183">        String file = &quot;&quot;;</span>
+<span class="fc bfc" id="L184" title="All 2 branches covered.">        if (level == Level.WARNING) {</span>
+            // Errors keep their location: it is what a reader needs to fix them.
+<span class="fc" id="L186">            Matcher compiler = COMPILER_LINE.matcher(message);</span>
+<span class="fc bfc" id="L187" title="All 2 branches covered.">            if (compiler.matches()) {</span>
+<span class="fc" id="L188">                file = compiler.group(1);</span>
+<span class="fc" id="L189">                message = compiler.group(3);</span>
+<span class="fc bfc" id="L190" title="All 2 branches covered.">                kind = &quot;compiler: &quot; + (compiler.group(2) != null ? compiler.group(2) : lintCategory(message));</span>
+<span class="fc bfc" id="L191" title="All 2 branches covered.">            } else if (TEST_RESULT_LINE.matcher(message).matches()) {</span>
+<span class="fc" id="L192">                Matcher result = TEST_RESULT_LINE.matcher(message);</span>
+<span class="fc" id="L193">                result.matches();</span>
+<span class="fc bfc" id="L194" title="All 2 branches covered.">                if (result.group(3) == null) {</span>
+<span class="fc" id="L195">                    return;</span>
+                }
+<span class="fc" id="L197">                kind = TESTS_SKIPPED_KIND;</span>
+<span class="fc" id="L198">                message = result.group(3) + &quot; — &quot; + result.group(2) + &quot; of &quot; + result.group(1) + &quot; skipped&quot;;</span>
+<span class="fc bfc" id="L199" title="All 2 branches covered.">            } else if (context.goal().startsWith(DEPENDENCY_GOAL_PREFIX)) {</span>
+<span class="fc" id="L200">                Matcher heading = DEPENDENCY_HEADING.matcher(message);</span>
+<span class="fc bfc" id="L201" title="All 2 branches covered.">                if (heading.matches()) {</span>
+                    // The heading only names the lines that follow it.
+<span class="fc" id="L203">                    dependencyHeading.put(Thread.currentThread(), heading.group(1));</span>
+<span class="fc" id="L204">                    return;</span>
+                }
+<span class="fc" id="L206">                String current = dependencyHeading.get(Thread.currentThread());</span>
+<span class="pc bpc" id="L207" title="2 of 4 branches missed.">                if (current != null &amp;&amp; DEPENDENCY_LINE.matcher(message).matches()) {</span>
+<span class="fc" id="L208">                    kind = &quot;dependency analysis: &quot; + current;</span>
+                }
+            }
+        }
+<span class="fc" id="L212">        record(new Key(level, kind, message), context, file);</span>
+<span class="fc" id="L213">    }</span>
+
+    /**
+     * Names the lint category of a compiler warning that was printed
+     * without one — javac only brackets the category under some
+     * {@code -Xlint} configurations, but the wording of the two
+     * commonest warnings is fixed.
+     */
+    private static String lintCategory(String message) {
+<span class="fc bfc" id="L222" title="All 2 branches covered.">        if (message.contains(&quot;has been deprecated and marked for removal&quot;)) {</span>
+<span class="fc" id="L223">            return &quot;removal&quot;;</span>
+        }
+<span class="fc bfc" id="L225" title="All 2 branches covered.">        if (message.contains(&quot;has been deprecated&quot;)) {</span>
+<span class="fc" id="L226">            return &quot;deprecation&quot;;</span>
+        }
+<span class="fc" id="L228">        return &quot;other&quot;;</span>
+    }
+
+    private synchronized void record(Key key, BuildActivity.Context context, String file) {
+<span class="fc" id="L232">        State state = messages.get(key);</span>
+<span class="fc bfc" id="L233" title="All 2 branches covered.">        if (state == null) {</span>
+<span class="pc bpc" id="L234" title="1 of 2 branches missed.">            if (messages.size() &gt;= MAX_DISTINCT) {</span>
+<span class="nc" id="L235">                overflow++;</span>
+<span class="nc" id="L236">                return;</span>
+            }
+<span class="fc" id="L238">            state = new State();</span>
+<span class="fc" id="L239">            messages.put(key, state);</span>
+        }
+<span class="fc" id="L241">        state.count++;</span>
+<span class="fc bfc" id="L242" title="All 2 branches covered.">        if (!file.isEmpty()) {</span>
+<span class="fc" id="L243">            state.files.add(file);</span>
+        }
+<span class="fc bfc" id="L245" title="All 2 branches covered.">        if (!context.module().isEmpty()) {</span>
+<span class="fc" id="L246">            state.modules.merge(context.module(), 1, Integer::sum);</span>
+        }
+<span class="fc bfc" id="L248" title="All 2 branches covered.">        if (!context.goal().isEmpty()) {</span>
+<span class="fc" id="L249">            state.goals.add(context.goal());</span>
+        }
+<span class="fc" id="L251">    }</span>
+
+    /**
+     * Returns the consolidated messages: errors before warnings, then
+     * most frequent first, then in first-seen order.
+     *
+     * @return one item per distinct message
+     */
+    public synchronized List&lt;Item&gt; snapshot() {
+<span class="fc" id="L260">        List&lt;Item&gt; items = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L261" title="All 2 branches covered.">        for (Map.Entry&lt;Key, State&gt; entry : messages.entrySet()) {</span>
+<span class="fc" id="L262">            State state = entry.getValue();</span>
+<span class="fc" id="L263">            items.add(new Item(</span>
+<span class="fc" id="L264">                    entry.getKey().level(),</span>
+<span class="fc" id="L265">                    entry.getKey().message(),</span>
+                    state.count,
+<span class="fc" id="L267">                    java.util.Collections.unmodifiableMap(new LinkedHashMap&lt;&gt;(state.modules)),</span>
+<span class="fc" id="L268">                    List.copyOf(state.goals),</span>
+<span class="fc" id="L269">                    entry.getKey().kind(),</span>
+<span class="fc" id="L270">                    state.files.size()));</span>
+<span class="fc" id="L271">        }</span>
+        // The sort is stable, so first-seen order breaks ties.
+<span class="fc" id="L273">        items.sort(Comparator.comparing(Item::level)</span>
+<span class="fc" id="L274">                .thenComparing(Comparator.comparingInt(Item::count).reversed()));</span>
+<span class="fc" id="L275">        return items;</span>
+    }
+
+    /**
+     * Returns how many lines arrived after the distinct-message limit
+     * was reached and so were counted but not kept.
+     *
+     * @return the number of unrecorded lines
+     */
+    public synchronized int overflow() {
+<span class="nc" id="L285">        return overflow;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

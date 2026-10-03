@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SnapshotMetadataHealer.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.deploy</a> &gt; <span class="el_source">SnapshotMetadataHealer.java</span></div><h1>SnapshotMetadataHealer.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin.deploy;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+
+/**
+ * Repairs a snapshot version's {@code maven-metadata.xml} whose checksum
+ * sidecars no longer match it, so the next deploy can proceed
+ * (IKE-Network/ike-issues#1160).
+ *
+ * &lt;p&gt;Nexus rebuilds metadata in the background after a deploy and can
+ * rewrite a version's {@code maven-metadata.xml} without writing a matching
+ * {@code .sha1} (IKE-Network/ike-issues#1107). The next deploy of that
+ * version downloads the pair, fails checksum validation, and stops; nothing
+ * on the client side repairs it. Deleting the metadata and its sidecars lets
+ * that deploy write them fresh, because the metadata is derived from the
+ * version's files and carries nothing of its own.
+ *
+ * &lt;p&gt;The healer touches only {@code &lt;group&gt;/&lt;artifact&gt;/&lt;version&gt;/maven-metadata.xml}
+ * and its {@code .sha1}, {@code .md5}, {@code .sha256} and {@code .sha512}
+ * sidecars, only for a {@code -SNAPSHOT} version, and only when a sidecar
+ * that is present disagrees with the XML. Artifacts and release versions
+ * are never touched. A repository that cannot be read is reported and left
+ * to the deploy, which reports the underlying problem itself.
+ */
+public final class SnapshotMetadataHealer {
+
+    /** The metadata file this healer checks. */
+    static final String METADATA = &quot;maven-metadata.xml&quot;;
+
+    /** What the healer found and did for one version. */
+<span class="fc" id="L60">    public enum Outcome {</span>
+        /** The version is not a snapshot; nothing was read. */
+<span class="fc" id="L62">        NOT_A_SNAPSHOT,</span>
+        /** No metadata yet: the version was never deployed, or it was cleaned up. */
+<span class="fc" id="L64">        ABSENT,</span>
+        /** The metadata matches every checksum sidecar present, or none is present. */
+<span class="fc" id="L66">        CONSISTENT,</span>
+        /** A sidecar disagreed; the metadata and its sidecars were deleted. */
+<span class="fc" id="L68">        HEALED,</span>
+        /** A sidecar disagreed, but the metadata could not be deleted. */
+<span class="fc" id="L70">        DELETE_FAILED,</span>
+        /** The repository could not be read; the deploy reports why. */
+<span class="fc" id="L72">        UNREACHABLE</span>
+    }
+
+    /**
+     * The result for one version.
+     *
+     * @param outcome what was found and done
+     * @param detail  a one-line explanation for the build log
+     * @param deleted the repository-relative paths deleted, in order
+     */
+    public record Result(Outcome outcome, String detail, List&lt;String&gt; deleted) {
+
+        /**
+         * Creates a result, copying {@code deleted}.
+         *
+         * @param outcome what was found and done
+         * @param detail  a one-line explanation for the build log
+         * @param deleted the repository-relative paths deleted
+         */
+<span class="fc" id="L91">        public Result {</span>
+<span class="fc" id="L92">            deleted = List.copyOf(deleted);</span>
+<span class="fc" id="L93">        }</span>
+    }
+
+    /**
+     * Credentials for the repository, as Maven's settings give them for the
+     * deploy target's server id.
+     *
+     * @param username the user name
+     * @param password the password
+     */
+<span class="fc" id="L103">    public record Credentials(String username, String password) {</span>
+
+        /** @return the value of an HTTP {@code Authorization} header for Basic auth */
+        String header() {
+<span class="fc" id="L107">            String pair = username + &quot;:&quot; + password;</span>
+<span class="fc" id="L108">            return &quot;Basic &quot; + Base64.getEncoder().encodeToString(pair.getBytes(StandardCharsets.UTF_8));</span>
+        }
+    }
+
+    private final HttpClient client;
+    private final Duration timeout;
+
+    /**
+     * Creates a healer.
+     *
+     * @param client  the HTTP client to reach the repository with
+     * @param timeout the timeout for each request
+     */
+<span class="fc" id="L121">    public SnapshotMetadataHealer(HttpClient client, Duration timeout) {</span>
+<span class="fc" id="L122">        this.client = client;</span>
+<span class="fc" id="L123">        this.timeout = timeout;</span>
+<span class="fc" id="L124">    }</span>
+
+    /**
+     * Checks one version's metadata and repairs it when a checksum sidecar
+     * disagrees with it.
+     *
+     * @param repository  the deploy repository's base URL
+     * @param credentials the repository credentials, or empty to send none
+     * @param groupId     the artifact's group id
+     * @param artifactId  the artifact id
+     * @param version     the version being deployed
+     * @return what was found and done
+     */
+    public Result heal(URI repository, Optional&lt;Credentials&gt; credentials,
+                       String groupId, String artifactId, String version) {
+<span class="fc bfc" id="L139" title="All 2 branches covered.">        if (!version.endsWith(&quot;-SNAPSHOT&quot;)) {</span>
+<span class="fc" id="L140">            return new Result(Outcome.NOT_A_SNAPSHOT, version + &quot; is not a snapshot&quot;, List.of());</span>
+        }
+<span class="fc" id="L142">        String directory = groupId.replace('.', '/') + &quot;/&quot; + artifactId + &quot;/&quot; + version + &quot;/&quot;;</span>
+<span class="fc" id="L143">        String metadataPath = directory + METADATA;</span>
+        try {
+<span class="fc" id="L145">            HttpResponse&lt;byte[]&gt; metadata = send(repository, metadataPath, &quot;GET&quot;, credentials);</span>
+<span class="fc bfc" id="L146" title="All 2 branches covered.">            if (metadata.statusCode() == 404) {</span>
+<span class="fc" id="L147">                return new Result(Outcome.ABSENT, metadataPath + &quot; does not exist yet&quot;, List.of());</span>
+            }
+<span class="fc bfc" id="L149" title="All 2 branches covered.">            if (metadata.statusCode() != 200) {</span>
+<span class="fc" id="L150">                return new Result(Outcome.UNREACHABLE,</span>
+<span class="fc" id="L151">                        &quot;GET &quot; + metadataPath + &quot; answered &quot; + metadata.statusCode(), List.of());</span>
+            }
+<span class="fc" id="L153">            List&lt;String&gt; mismatches = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L154" title="All 2 branches covered.">            for (Checksum checksum : Checksum.values()) {</span>
+<span class="fc" id="L155">                HttpResponse&lt;byte[]&gt; sidecar =</span>
+<span class="fc" id="L156">                        send(repository, metadataPath + checksum.suffix, &quot;GET&quot;, credentials);</span>
+<span class="fc bfc" id="L157" title="All 2 branches covered.">                if (sidecar.statusCode() == 404) {</span>
+<span class="fc" id="L158">                    continue;</span>
+                }
+<span class="pc bpc" id="L160" title="1 of 2 branches missed.">                if (sidecar.statusCode() != 200) {</span>
+<span class="nc" id="L161">                    return new Result(Outcome.UNREACHABLE, &quot;GET &quot; + metadataPath + checksum.suffix</span>
+<span class="nc" id="L162">                            + &quot; answered &quot; + sidecar.statusCode(), List.of());</span>
+                }
+<span class="fc" id="L164">                String stored = storedDigest(sidecar.body());</span>
+<span class="fc" id="L165">                String actual = checksum.of(metadata.body());</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">                if (!actual.equals(stored)) {</span>
+<span class="fc" id="L167">                    mismatches.add(checksum.suffix.substring(1) + &quot; stored &quot; + abbreviate(stored)</span>
+<span class="fc" id="L168">                            + &quot;, actual &quot; + abbreviate(actual));</span>
+                }
+            }
+<span class="fc bfc" id="L171" title="All 2 branches covered.">            if (mismatches.isEmpty()) {</span>
+<span class="fc" id="L172">                return new Result(Outcome.CONSISTENT, metadataPath + &quot; matches its checksums&quot;,</span>
+<span class="fc" id="L173">                        List.of());</span>
+            }
+<span class="fc" id="L175">            return delete(repository, credentials, metadataPath, String.join(&quot;; &quot;, mismatches));</span>
+<span class="fc" id="L176">        } catch (IOException e) {</span>
+<span class="fc" id="L177">            return new Result(Outcome.UNREACHABLE,</span>
+<span class="fc" id="L178">                    &quot;could not read &quot; + metadataPath + &quot;: &quot; + e.getMessage(), List.of());</span>
+<span class="nc" id="L179">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L180">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L181">            return new Result(Outcome.UNREACHABLE,</span>
+<span class="nc" id="L182">                    &quot;interrupted reading &quot; + metadataPath, List.of());</span>
+        }
+    }
+
+    private Result delete(URI repository, Optional&lt;Credentials&gt; credentials, String metadataPath,
+                          String mismatch) throws IOException, InterruptedException {
+<span class="fc" id="L188">        List&lt;String&gt; deleted = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L189">        List&lt;String&gt; targets = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L190">        targets.add(metadataPath);</span>
+<span class="fc bfc" id="L191" title="All 2 branches covered.">        for (Checksum checksum : Checksum.values()) {</span>
+<span class="fc" id="L192">            targets.add(metadataPath + checksum.suffix);</span>
+        }
+<span class="fc bfc" id="L194" title="All 2 branches covered.">        for (String target : targets) {</span>
+<span class="fc" id="L195">            int status = send(repository, target, &quot;DELETE&quot;, credentials).statusCode();</span>
+<span class="pc bpc" id="L196" title="2 of 6 branches missed.">            if (status == 200 || status == 202 || status == 204) {</span>
+<span class="fc" id="L197">                deleted.add(target);</span>
+<span class="fc bfc" id="L198" title="All 2 branches covered.">            } else if (status != 404) {</span>
+<span class="fc" id="L199">                return new Result(Outcome.DELETE_FAILED, mismatch + &quot;; DELETE &quot; + target</span>
+                        + &quot; answered &quot; + status, deleted);
+            }
+<span class="fc" id="L202">        }</span>
+<span class="fc" id="L203">        return new Result(Outcome.HEALED, mismatch, deleted);</span>
+    }
+
+    private HttpResponse&lt;byte[]&gt; send(URI repository, String path, String method,
+                                      Optional&lt;Credentials&gt; credentials)
+            throws IOException, InterruptedException {
+<span class="fc" id="L209">        HttpRequest.Builder request = HttpRequest.newBuilder(resolve(repository, path))</span>
+<span class="fc" id="L210">                .timeout(timeout)</span>
+<span class="fc" id="L211">                .method(method, HttpRequest.BodyPublishers.noBody());</span>
+<span class="fc" id="L212">        credentials.ifPresent(c -&gt; request.header(&quot;Authorization&quot;, c.header()));</span>
+<span class="fc" id="L213">        return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());</span>
+    }
+
+    private static URI resolve(URI repository, String path) {
+<span class="fc" id="L217">        String base = repository.toString();</span>
+<span class="fc bfc" id="L218" title="All 2 branches covered.">        return URI.create(base.endsWith(&quot;/&quot;) ? base + path : base + &quot;/&quot; + path);</span>
+    }
+
+    /**
+     * The digest in a checksum sidecar: its first whitespace-separated token,
+     * lower case. Sidecars written as {@code &lt;digest&gt;  &lt;file name&gt;} parse too.
+     */
+    static String storedDigest(byte[] sidecar) {
+<span class="fc" id="L226">        String text = new String(sidecar, StandardCharsets.US_ASCII).strip();</span>
+<span class="fc" id="L227">        int space = indexOfWhitespace(text);</span>
+<span class="fc bfc" id="L228" title="All 2 branches covered.">        return (space &lt; 0 ? text : text.substring(0, space)).toLowerCase(Locale.ROOT);</span>
+    }
+
+    private static int indexOfWhitespace(String text) {
+<span class="fc bfc" id="L232" title="All 2 branches covered.">        for (int i = 0; i &lt; text.length(); i++) {</span>
+<span class="fc bfc" id="L233" title="All 2 branches covered.">            if (Character.isWhitespace(text.charAt(i))) {</span>
+<span class="fc" id="L234">                return i;</span>
+            }
+        }
+<span class="fc" id="L237">        return -1;</span>
+    }
+
+    private static String abbreviate(String digest) {
+<span class="pc bpc" id="L241" title="1 of 2 branches missed.">        return digest.length() &gt; 8 ? digest.substring(0, 8) + &quot;…&quot; : digest;</span>
+    }
+
+    /** The checksum sidecars that are compared with the metadata. */
+<span class="fc" id="L245">    private enum Checksum {</span>
+<span class="fc" id="L246">        SHA1(&quot;.sha1&quot;, &quot;SHA-1&quot;),</span>
+<span class="fc" id="L247">        MD5(&quot;.md5&quot;, &quot;MD5&quot;),</span>
+<span class="fc" id="L248">        SHA256(&quot;.sha256&quot;, &quot;SHA-256&quot;),</span>
+<span class="fc" id="L249">        SHA512(&quot;.sha512&quot;, &quot;SHA-512&quot;);</span>
+
+        private final String suffix;
+        private final String algorithm;
+
+<span class="fc" id="L254">        Checksum(String suffix, String algorithm) {</span>
+<span class="fc" id="L255">            this.suffix = suffix;</span>
+<span class="fc" id="L256">            this.algorithm = algorithm;</span>
+<span class="fc" id="L257">        }</span>
+
+        String of(byte[] content) {
+            try {
+<span class="fc" id="L261">                return HexFormat.of().formatHex(MessageDigest.getInstance(algorithm).digest(content));</span>
+<span class="nc" id="L262">            } catch (NoSuchAlgorithmException e) {</span>
+<span class="nc" id="L263">                throw new IllegalStateException(algorithm + &quot; is a required JDK algorithm&quot;, e);</span>
+            }
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>

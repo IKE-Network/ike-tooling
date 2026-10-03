@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BuildActivity.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">BuildActivity.java</span></div><h1>BuildActivity.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
+
+/**
+ * Records what a session built and how long it took — the work the
+ * receipt summarizes before it lists anything that went wrong.
+ *
+ * &lt;p&gt;Fed by {@link BuildReportSpy} from project and mojo execution
+ * events. Timing is this collector's own clock, started when the
+ * session is reset at project discovery, so the wall time covers the
+ * same span as Maven's {@code Total time} line. Under a parallel build
+ * module times overlap and sum to more than the wall time; the receipt
+ * says so rather than hiding it.&lt;/p&gt;
+ *
+ * &lt;p&gt;The collector also answers &quot;what is this thread building right
+ * now?&quot; ({@link #current()}), which is what lets a console warning be
+ * attributed to the module and goal that produced it.&lt;/p&gt;
+ */
+public final class BuildActivity {
+
+    /** How one reactor module fared. */
+<span class="fc" id="L30">    public enum ModuleResult {</span>
+        /** Every goal bound to the module ran and succeeded. */
+<span class="fc" id="L32">        BUILT,</span>
+        /** The module's build has started and not yet ended. */
+<span class="fc" id="L34">        BUILDING,</span>
+        /** A goal failed in the module. */
+<span class="fc" id="L36">        FAILED,</span>
+        /** Maven skipped the module after a failure elsewhere. */
+<span class="fc" id="L38">        SKIPPED,</span>
+        /** The module has not been started — yet, or ever. */
+<span class="fc" id="L40">        NOT_BUILT</span>
+    }
+
+    /**
+     * One reactor module's outcome.
+     *
+     * @param name   the module's artifact id
+     * @param result how the module fared
+     * @param time   the module's build time, so far for a module still
+     *               building; zero when it never ran
+     * @param goal   the goal a building module is executing; empty otherwise
+     */
+<span class="fc" id="L52">    public record Module(String name, ModuleResult result, Duration time, String goal) {</span>
+
+        /**
+         * Creates the outcome of a module that is not building.
+         *
+         * @param name   the module's artifact id
+         * @param result how the module fared
+         * @param time   the module's build time; zero when it never ran
+         */
+        public Module(String name, ModuleResult result, Duration time) {
+<span class="fc" id="L62">            this(name, result, time, &quot;&quot;);</span>
+<span class="fc" id="L63">        }</span>
+    }
+
+    /**
+     * Time spent in one plugin goal, summed across every module.
+     *
+     * @param goal       the goal as {@code plugin-artifact-id:goal}
+     * @param executions how many times the goal ran
+     * @param time       the total time across those executions
+     */
+<span class="fc" id="L73">    public record GoalTime(String goal, int executions, Duration time) {</span>
+    }
+
+    /**
+     * What a thread is building at one moment.
+     *
+     * @param module the module's artifact id; empty when unknown
+     * @param goal   the goal as {@code plugin-artifact-id:goal}; empty
+     *               when no goal is executing
+     */
+<span class="fc" id="L83">    public record Context(String module, String goal) {</span>
+
+        /** The context of a thread that is not building anything. */
+<span class="fc" id="L86">        public static final Context NONE = new Context(&quot;&quot;, &quot;&quot;);</span>
+    }
+
+    /**
+     * The session's work, frozen for rendering.
+     *
+     * @param goals        the goals and phases the invocation requested
+     * @param profiles     the explicitly activated profiles
+     * @param mavenVersion the running Maven's version; empty when unknown
+     * @param javaVersion  the JDK Maven ran on
+     * @param threads      the degree of concurrency; 1 for a serial build
+     * @param wallTime     elapsed time from project discovery to session end
+     * @param modules      every reactor module, in reactor order
+     * @param goalTimes    time per plugin goal, slowest first
+     */
+<span class="fc" id="L101">    public record Overview(</span>
+            List&lt;String&gt; goals,
+            List&lt;String&gt; profiles,
+            String mavenVersion,
+            String javaVersion,
+            int threads,
+            Duration wallTime,
+            List&lt;Module&gt; modules,
+            List&lt;GoalTime&gt; goalTimes) {
+
+        /**
+         * Counts the modules with one result.
+         *
+         * @param result the result to count
+         * @return how many modules ended with that result
+         */
+        public long count(ModuleResult result) {
+<span class="fc bfc" id="L118" title="All 2 branches covered.">            return modules.stream().filter(module -&gt; module.result() == result).count();</span>
+        }
+
+        /**
+         * Says whether any module failed or was left unbuilt.
+         *
+         * @return true when the session did not build everything it set out to
+         */
+        public boolean incomplete() {
+<span class="fc bfc" id="L127" title="All 2 branches covered.">            return modules.stream().anyMatch(module -&gt; module.result() != ModuleResult.BUILT);</span>
+        }
+    }
+
+<span class="fc" id="L131">    private static final class ModuleState {</span>
+<span class="fc" id="L132">        private ModuleResult result = ModuleResult.NOT_BUILT;</span>
+        private boolean started;
+        private long startedNanos;
+        private long elapsedNanos;
+    }
+
+    private static final class GoalState {
+        private int executions;
+        private long elapsedNanos;
+    }
+
+<span class="fc" id="L143">    private record Running(String module, String goal, long startedNanos) {</span>
+    }
+
+    private final LongSupplier clock;
+<span class="fc" id="L147">    private final Map&lt;String, ModuleState&gt; modules = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L148">    private final Map&lt;String, GoalState&gt; goalTimes = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L149">    private final Map&lt;Thread, Running&gt; running = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="fc" id="L151">    private List&lt;String&gt; goals = List.of();</span>
+<span class="fc" id="L152">    private List&lt;String&gt; profiles = List.of();</span>
+<span class="fc" id="L153">    private String mavenVersion = &quot;&quot;;</span>
+<span class="fc" id="L154">    private int threads = 1;</span>
+    private long sessionStartedNanos;
+
+    /** Creates a collector on the system clock. */
+    public BuildActivity() {
+<span class="nc" id="L159">        this(System::nanoTime);</span>
+<span class="nc" id="L160">    }</span>
+
+    /**
+     * Creates a collector on a supplied clock, for tests.
+     *
+     * @param clock a monotonic nanosecond clock
+     */
+<span class="fc" id="L167">    BuildActivity(LongSupplier clock) {</span>
+<span class="fc" id="L168">        this.clock = clock;</span>
+<span class="fc" id="L169">        this.sessionStartedNanos = clock.getAsLong();</span>
+<span class="fc" id="L170">    }</span>
+
+    /** Clears all state and restarts the session clock. */
+    public synchronized void reset() {
+<span class="nc" id="L174">        modules.clear();</span>
+<span class="nc" id="L175">        goalTimes.clear();</span>
+<span class="nc" id="L176">        running.clear();</span>
+<span class="nc" id="L177">        goals = List.of();</span>
+<span class="nc" id="L178">        profiles = List.of();</span>
+<span class="nc" id="L179">        mavenVersion = &quot;&quot;;</span>
+<span class="nc" id="L180">        threads = 1;</span>
+<span class="nc" id="L181">        sessionStartedNanos = clock.getAsLong();</span>
+<span class="nc" id="L182">    }</span>
+
+    /**
+     * Records the invocation and the reactor it is about to build.
+     *
+     * @param moduleNames  every reactor module's artifact id, in reactor order
+     * @param goals        the goals and phases requested
+     * @param profiles     the explicitly activated profiles
+     * @param mavenVersion the running Maven's version; null when unknown
+     * @param threads      the degree of concurrency
+     */
+    public synchronized void sessionStarted(
+            List&lt;String&gt; moduleNames,
+            List&lt;String&gt; goals,
+            List&lt;String&gt; profiles,
+            String mavenVersion,
+            int threads) {
+<span class="fc bfc" id="L199" title="All 2 branches covered.">        for (String name : moduleNames) {</span>
+<span class="fc" id="L200">            modules.computeIfAbsent(name, key -&gt; new ModuleState());</span>
+<span class="fc" id="L201">        }</span>
+<span class="pc bpc" id="L202" title="1 of 2 branches missed.">        this.goals = goals == null ? List.of() : List.copyOf(goals);</span>
+<span class="pc bpc" id="L203" title="1 of 2 branches missed.">        this.profiles = profiles == null ? List.of() : List.copyOf(profiles);</span>
+<span class="fc bfc" id="L204" title="All 2 branches covered.">        this.mavenVersion = mavenVersion == null ? &quot;&quot; : mavenVersion;</span>
+<span class="fc" id="L205">        this.threads = Math.max(1, threads);</span>
+<span class="fc" id="L206">    }</span>
+
+    /**
+     * Records that a module's build began on the calling thread.
+     *
+     * @param module the module's artifact id
+     */
+    public synchronized void projectStarted(String module) {
+<span class="fc" id="L214">        ModuleState state = modules.computeIfAbsent(module, key -&gt; new ModuleState());</span>
+<span class="fc" id="L215">        state.started = true;</span>
+<span class="fc" id="L216">        state.startedNanos = clock.getAsLong();</span>
+<span class="fc" id="L217">        running.put(Thread.currentThread(), new Running(module, &quot;&quot;, 0L));</span>
+<span class="fc" id="L218">    }</span>
+
+    /**
+     * Records a module's outcome.
+     *
+     * @param module the module's artifact id
+     * @param result how the module fared
+     */
+    public synchronized void projectFinished(String module, ModuleResult result) {
+<span class="pc" id="L227">        ModuleState state = modules.computeIfAbsent(module, key -&gt; new ModuleState());</span>
+<span class="fc" id="L228">        state.result = result;</span>
+<span class="fc bfc" id="L229" title="All 2 branches covered.">        if (state.started) {</span>
+<span class="fc" id="L230">            state.elapsedNanos = clock.getAsLong() - state.startedNanos;</span>
+        }
+<span class="fc" id="L232">        running.remove(Thread.currentThread());</span>
+<span class="fc" id="L233">    }</span>
+
+    /**
+     * Records that a goal began in a module on the calling thread.
+     *
+     * @param module the module's artifact id
+     * @param goal   the goal as {@code plugin-artifact-id:goal}
+     */
+    public void mojoStarted(String module, String goal) {
+<span class="fc" id="L242">        running.put(Thread.currentThread(), new Running(module, goal, clock.getAsLong()));</span>
+<span class="fc" id="L243">    }</span>
+
+    /**
+     * Records that the goal running on the calling thread ended,
+     * successfully or not.
+     */
+    public synchronized void mojoFinished() {
+<span class="fc" id="L250">        Running finished = running.get(Thread.currentThread());</span>
+<span class="pc bpc" id="L251" title="2 of 4 branches missed.">        if (finished == null || finished.goal().isEmpty()) {</span>
+<span class="nc" id="L252">            return;</span>
+        }
+<span class="fc" id="L254">        GoalState state = goalTimes.computeIfAbsent(finished.goal(), key -&gt; new GoalState());</span>
+<span class="fc" id="L255">        state.executions++;</span>
+<span class="fc" id="L256">        state.elapsedNanos += clock.getAsLong() - finished.startedNanos();</span>
+<span class="fc" id="L257">        running.put(Thread.currentThread(), new Running(finished.module(), &quot;&quot;, 0L));</span>
+<span class="fc" id="L258">    }</span>
+
+    /**
+     * Says what the calling thread is building.
+     *
+     * &lt;p&gt;A plugin may log from a thread of its own — a forked JVM's
+     * stream pump, for instance. When the calling thread is not a build
+     * thread and exactly one module is in flight, that module is the
+     * only candidate and is returned.&lt;/p&gt;
+     *
+     * @return the calling thread's context, or {@link Context#NONE}
+     */
+    public Context current() {
+<span class="fc" id="L271">        Running mine = running.get(Thread.currentThread());</span>
+<span class="fc bfc" id="L272" title="All 2 branches covered.">        if (mine == null) {</span>
+<span class="fc" id="L273">            List&lt;Running&gt; all = List.copyOf(running.values());</span>
+<span class="fc bfc" id="L274" title="All 2 branches covered.">            if (all.size() != 1) {</span>
+<span class="fc" id="L275">                return Context.NONE;</span>
+            }
+<span class="fc" id="L277">            mine = all.get(0);</span>
+        }
+<span class="fc" id="L279">        return new Context(mine.module(), mine.goal());</span>
+    }
+
+    /**
+     * Freezes the session's work for rendering.
+     *
+     * @return the overview as of now
+     */
+    public synchronized Overview snapshot() {
+<span class="fc" id="L288">        long now = clock.getAsLong();</span>
+<span class="fc" id="L289">        List&lt;Module&gt; moduleList = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L290" title="All 2 branches covered.">        for (Map.Entry&lt;String, ModuleState&gt; entry : modules.entrySet()) {</span>
+<span class="fc" id="L291">            ModuleState state = entry.getValue();</span>
+<span class="fc bfc" id="L292" title="All 4 branches covered.">            if (state.started &amp;&amp; state.result == ModuleResult.NOT_BUILT) {</span>
+<span class="fc" id="L293">                String goal = &quot;&quot;;</span>
+<span class="fc bfc" id="L294" title="All 2 branches covered.">                for (Running active : running.values()) {</span>
+<span class="pc bpc" id="L295" title="1 of 2 branches missed.">                    if (active.module().equals(entry.getKey())) {</span>
+<span class="fc" id="L296">                        goal = active.goal();</span>
+                    }
+<span class="fc" id="L298">                }</span>
+<span class="fc" id="L299">                moduleList.add(new Module(entry.getKey(), ModuleResult.BUILDING,</span>
+<span class="fc" id="L300">                        Duration.ofNanos(now - state.startedNanos), goal));</span>
+<span class="fc" id="L301">            } else {</span>
+<span class="fc" id="L302">                moduleList.add(new Module(</span>
+<span class="fc" id="L303">                        entry.getKey(), state.result, Duration.ofNanos(state.elapsedNanos)));</span>
+            }
+<span class="fc" id="L305">        }</span>
+<span class="fc" id="L306">        List&lt;GoalTime&gt; goalList = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L307" title="All 2 branches covered.">        for (Map.Entry&lt;String, GoalState&gt; entry : goalTimes.entrySet()) {</span>
+<span class="fc" id="L308">            GoalState state = entry.getValue();</span>
+<span class="fc" id="L309">            goalList.add(new GoalTime(</span>
+<span class="fc" id="L310">                    entry.getKey(), state.executions, Duration.ofNanos(state.elapsedNanos)));</span>
+<span class="fc" id="L311">        }</span>
+<span class="fc" id="L312">        goalList.sort(Comparator.comparing(GoalTime::time).reversed());</span>
+<span class="fc" id="L313">        return new Overview(</span>
+                goals,
+                profiles,
+                mavenVersion,
+<span class="fc" id="L317">                System.getProperty(&quot;java.version&quot;, &quot;&quot;),</span>
+                threads,
+<span class="fc" id="L319">                Duration.ofNanos(now - sessionStartedNanos),</span>
+<span class="fc" id="L320">                List.copyOf(moduleList),</span>
+<span class="fc" id="L321">                List.copyOf(goalList));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
