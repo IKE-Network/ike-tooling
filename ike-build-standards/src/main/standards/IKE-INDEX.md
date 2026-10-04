@@ -202,20 +202,22 @@ interoperability
   TINKAR
 
 multi-machine development
-  contested acquisition
+  contested take
   non-participant
   onboarding
   fencing token
   git-state materialization
   Jini leasing
   lease renewal
+  lease vocabulary
   machine identity
   propagation window
   safety net
   silent peer
   single-writer
+  recall
+  sibling history bundles
   staleness horizon
-  takeover
   working-set lease
 
 organizations
