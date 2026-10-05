@@ -21,7 +21,10 @@
 module @basePackage@.terms {
     requires transitive dev.ikm.tinkar.entity;
 
-    exports @basePackage@.terms;
+    // No package is exported: the ledger's products are its protobuf change set and the
+    // bindings generated from it, not its source. The build composes it through the
+    // KnowledgeSetSource service below; code names the set's components and stamps through
+    // the generated bindings.
 
     provides dev.ikm.tinkar.entity.builder.KnowledgeSetSource
             with @basePackage@.terms.@className@Source;
