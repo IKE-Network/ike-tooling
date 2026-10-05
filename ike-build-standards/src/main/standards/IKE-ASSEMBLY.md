@@ -348,17 +348,16 @@ Constraints on transitional prose:
 
 ## Assembly Registration
 
-Every assembly must have an entry in `topic-registry.yaml` under the `assemblies` section.
-The entry's `sections` structure must be kept in sync with the `include::` directives and
-heading hierarchy in the assembly file. See `IKE-TOPIC-REGISTRY.md` for the assembly entry
-schema, including the nested `sections` format.
+The generated topic registry (`idoc:topic-registry`, see `IKE-TOPIC-REGISTRY.md`) lists every
+assembly automatically: any `.adoc` file with `include::` directives and no `:topic-id:`
+appears under `assemblies` with its title, document attributes, and include count. There is
+no registry entry to write. The assembly file itself is the record of its structure.
 
-CI validation should check that:
+Check that:
 
-1. Every `include::` path in the assembly resolves to a topic with a valid registry entry.
-2. The `sections` hierarchy in the registry matches the actual heading structure and includes
-   in the assembly file (same topics, same nesting, same order).
-3. Every published, non-deprecated topic appears in at least one assembly's `sections`.
+1. Every `include::` path in the assembly resolves (the build reports unresolved includes)
+   and names a topic listed in the generated registry.
+2. Every published, non-deprecated topic appears in at least one assembly.
 
 ## Maven Build Integration
 
@@ -436,14 +435,12 @@ in each assembly module's POM.
 2. Set document-level attributes per the table above.
 3. Add `include::` directives for each topic, using `{topicsdir}` paths and appropriate
    `leveloffset`.
-4. Add the assembly entry to `topic-registry.yaml` with nested `sections` mirroring the
-   heading hierarchy of the assembly.
-5. Build and verify:
+4. Build and verify:
    - All includes resolve.
    - All cross-references resolve.
    - Heading levels render correctly.
    - TOC structure is sensible.
-   - Registry `sections` match the actual assembly structure.
+   - A full `idoc:topic-registry` run lists the assembly and reports `0 findings`.
 
 ## Instructing Claude for Assembly Work
 
@@ -455,6 +452,5 @@ When requesting assembly creation or modification:
 Claude should produce:
 
 - The assembly `.adoc` file.
-- The registry entry for the new assembly.
-- A note if any referenced topic does not exist in the registry (indicating a gap that
-  requires new topic creation).
+- A note if any referenced topic does not exist in the generated topic registry (indicating
+  a gap that requires new topic creation).
