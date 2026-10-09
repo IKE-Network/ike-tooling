@@ -7,6 +7,12 @@ import java.util.Properties;
  */
 public interface ChangeSetExpander extends KnowledgeService<ChangeSetRequest, ChangeSetReport> {
 
+    /**
+     * Writes a format-3 change set again in the format-2 layout.
+     *
+     * @param request the change set, and for a rewrite the target
+     * @return what was written, as {@link ChangeSetReport#summary()}
+     */
     ChangeSetReport expand(ChangeSetRequest request);
 
     @Override

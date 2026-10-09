@@ -7,6 +7,12 @@ import java.util.Properties;
  */
 public interface ChangeSetInspector extends KnowledgeService<ChangeSetRequest, ChangeSetReport> {
 
+    /**
+     * Inspects a change set.
+     *
+     * @param request the change set, and for a rewrite the target
+     * @return what the change set is made of
+     */
     ChangeSetReport inspect(ChangeSetRequest request);
 
     @Override

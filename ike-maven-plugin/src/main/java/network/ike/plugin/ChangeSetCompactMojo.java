@@ -32,6 +32,7 @@ import java.util.List;
 @Mojo(name = IkeGoal.NAME_CHANGESET_COMPACT)
 public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
 
+    /** Instantiated by Maven. */
     public ChangeSetCompactMojo() {
     }
 

@@ -7,6 +7,12 @@ import java.util.Properties;
  */
 public interface ChangeSetCompactor extends KnowledgeService<ChangeSetRequest, ChangeSetReport> {
 
+    /**
+     * Writes a format-1 or format-2 change set in format 3.
+     *
+     * @param request the change set, and for a rewrite the target
+     * @return what was written, as {@link ChangeSetReport#summary()}
+     */
     ChangeSetReport compact(ChangeSetRequest request);
 
     @Override

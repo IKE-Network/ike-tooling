@@ -32,6 +32,7 @@ import java.util.List;
 @Mojo(name = IkeGoal.NAME_CHANGESET_VERIFY)
 public class ChangeSetVerifyMojo implements org.apache.maven.api.plugin.Mojo {
 
+    /** Instantiated by Maven. */
     public ChangeSetVerifyMojo() {
     }
 

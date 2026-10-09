@@ -7,6 +7,12 @@ import java.util.Properties;
  */
 public interface ChangeSetVerifier extends KnowledgeService<ChangeSetRequest, ChangeSetReport> {
 
+    /**
+     * Verifies a change set against its format.
+     *
+     * @param request the change set, and for a rewrite the target
+     * @return the errors and warnings found, {@link ChangeSetReport#ok()} false on any error
+     */
     ChangeSetReport verify(ChangeSetRequest request);
 
     @Override

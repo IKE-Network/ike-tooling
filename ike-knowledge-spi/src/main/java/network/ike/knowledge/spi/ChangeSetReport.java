@@ -16,12 +16,17 @@ import java.util.Properties;
  */
 public record ChangeSetReport(boolean ok, String summary, List<String> lines) {
 
+    /** Copies the lines and checks that nothing is null. */
     public ChangeSetReport {
         Objects.requireNonNull(summary, "summary");
         lines = List.copyOf(Objects.requireNonNull(lines, "lines"));
     }
 
-    /** The summary and the lines as one text. */
+    /**
+     * The summary and the lines as one text.
+     *
+     * @return the summary, then each line on a line of its own
+     */
     public String text() {
         StringBuilder text = new StringBuilder(summary);
         for (String line : lines) {
@@ -30,6 +35,11 @@ public record ChangeSetReport(boolean ok, String summary, List<String> lines) {
         return text.toString();
     }
 
+    /**
+     * The report as properties, for the forked-JVM seam.
+     *
+     * @return the properties: {@code ok}, {@code summary}, and {@code line.N} for each line
+     */
     public Properties toProperties() {
         Properties properties = new Properties();
         PropCodec.put(properties, "ok", Boolean.toString(ok));
@@ -40,6 +50,12 @@ public record ChangeSetReport(boolean ok, String summary, List<String> lines) {
         return properties;
     }
 
+    /**
+     * The report read back from its properties.
+     *
+     * @param properties what {@link #toProperties()} wrote
+     * @return the report
+     */
     public static ChangeSetReport fromProperties(Properties properties) {
         int count = PropCodec.indexedCount(properties, "line.", "");
         List<String> lines = new ArrayList<>();
