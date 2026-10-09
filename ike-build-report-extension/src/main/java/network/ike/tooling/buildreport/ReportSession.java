@@ -80,6 +80,7 @@ public final class ReportSession {
     private static final int ARCHIVE_RETENTION = 20;
 
     private static final List<Finding> FINDINGS = Collections.synchronizedList(new ArrayList<>());
+    private static final List<ModuleLocation> MODULES = Collections.synchronizedList(new ArrayList<>());
     private static final Set<Path> RESOLVED_POMS =
             Collections.synchronizedSet(new LinkedHashSet<>());
     private static final Set<String> OBSERVED_EVENT_TYPES =
@@ -117,6 +118,7 @@ public final class ReportSession {
      */
     public static void reset() {
         FINDINGS.clear();
+        MODULES.clear();
         RESOLVED_POMS.clear();
         OBSERVED_EVENT_TYPES.clear();
         ACTIVITY.reset();
@@ -149,6 +151,21 @@ public final class ReportSession {
     public static void addResolvedPom(Path pomFile) {
         if (pomFile != null) {
             RESOLVED_POMS.add(pomFile);
+        }
+    }
+
+    /**
+     * Records where every reactor module keeps its files, for the
+     * measures read at session end.
+     *
+     * @param modules the reactor's modules in reactor order
+     */
+    public static void captureModules(List<ModuleLocation> modules) {
+        synchronized (MODULES) {
+            MODULES.clear();
+            if (modules != null) {
+                MODULES.addAll(modules);
+            }
         }
     }
 
@@ -344,8 +361,16 @@ public final class ReportSession {
         synchronized (RESOLVED_POMS) {
             resolvedPoms = List.copyOf(RESOLVED_POMS);
         }
-        snapshot = RepositoryProvenance.enrich(
-                snapshot, observations, resolvedPoms, localRepository, root);
+        snapshot = new ArrayList<>(RepositoryProvenance.enrich(
+                snapshot, observations, resolvedPoms, localRepository, root));
+
+        // Measures next: a violated bound is a finding like any other and
+        // is evaluated with the rest (ike-issues#1207).
+        ReceiptRenderer.Console console = ReceiptRenderer.Console.of(
+                consoleTapped, CONSOLE.snapshot(), CONSOLE.overflow(), ledger.consoleIgnores());
+        BuildActivity.Overview overview = ACTIVITY.snapshot();
+        MeasureReport measureReport = measure(root, overview, console, ledger);
+        snapshot.addAll(Ledger.measureFindings(measureReport.statuses()));
 
         LedgerEvaluation evaluation = ledger.evaluate(snapshot);
         List<LedgerEvaluation.AttentionItem> gating = ledger.gatingAttention(evaluation);
@@ -357,10 +382,8 @@ public final class ReportSession {
         Path archiveFile = null;
         ZonedDateTime now = ZonedDateTime.now();
         try {
-            ReceiptRenderer.Console console = ReceiptRenderer.Console.of(
-                    consoleTapped, CONSOLE.snapshot(), CONSOLE.overflow(), ledger.consoleIgnores());
             String receipt = ReceiptRenderer.render(
-                    toolVersion(), now, ledger.mode(), note, evaluation, ACTIVITY.snapshot(), console);
+                    toolVersion(), now, ledger.mode(), note, evaluation, overview, console, measureReport);
             writeConsoleListing(root, console);
             if (Boolean.getBoolean(DEBUG_PROPERTY)) {
                 receipt = receipt + renderDiagnostic();
@@ -375,7 +398,8 @@ public final class ReportSession {
             receiptFile = null;
         }
         try {
-            ObservationsFile.write(root.resolve(OBSERVATIONS_RELATIVE_PATH), evaluation, snapshot);
+            ObservationsFile.write(
+                    root.resolve(OBSERVATIONS_RELATIVE_PATH), evaluation, snapshot, measureReport.measures());
         } catch (Exception e) {
             LOG.warn("ike-build-report: could not write observations sidecar: {}", e.toString());
         }
@@ -393,6 +417,33 @@ public final class ReportSession {
         verdict = new GateVerdict(
                 ledger.mode(), gating, buildAlreadyFailed, skipRequested, receiptFile, archiveFile);
         return verdict;
+    }
+
+    /**
+     * Collects the session's measures, compares them with the ledger's
+     * bounds, and hands them to TeamCity when the build runs there.
+     *
+     * <p>Never throws: a session whose measures cannot be collected
+     * still gets its receipt.</p>
+     */
+    private static MeasureReport measure(
+            Path root, BuildActivity.Overview overview, ReceiptRenderer.Console console, Ledger ledger) {
+        try {
+            List<ModuleLocation> modules;
+            synchronized (MODULES) {
+                modules = List.copyOf(MODULES);
+            }
+            Measures measures = MeasureCollector.collect(root, modules, overview, console, ledger);
+            MeasureReport report = MeasureReport.of(measures, ledger.evaluateMeasures(measures));
+            if (TeamCityStatistics.active()) {
+                report = report.withPublished(
+                        TeamCityStatistics.publish(measures, TeamCityStatistics.processOutput()));
+            }
+            return report;
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("ike-build-report: measures not collected: {}", e.toString());
+            return MeasureReport.of(Measures.empty(), List.of());
+        }
     }
 
     /**

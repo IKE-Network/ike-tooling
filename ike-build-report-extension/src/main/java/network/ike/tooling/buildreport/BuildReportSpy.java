@@ -251,11 +251,17 @@ public class BuildReportSpy implements EventSpy {
             return;
         }
         List<String> modules = new ArrayList<>();
+        List<ModuleLocation> locations = new ArrayList<>();
         if (session.getProjects() != null) {
             for (MavenProject project : session.getProjects()) {
                 modules.add(project.getArtifactId());
+                ModuleLocation location = describeLocation(project);
+                if (location != null) {
+                    locations.add(location);
+                }
             }
         }
+        ReportSession.captureModules(locations);
         MavenExecutionRequest request = session.getRequest();
         List<String> invocation = new ArrayList<>(request.getGoals());
         if (request.getSelectedProjects() != null && !request.getSelectedProjects().isEmpty()) {
@@ -268,6 +274,24 @@ public class BuildReportSpy implements EventSpy {
                 request.getActiveProfiles(),
                 session.getSystemProperties().getProperty("maven.version"),
                 request.getDegreeOfConcurrency());
+    }
+
+    /**
+     * Says where a project keeps its files.
+     *
+     * @return the location, or {@code null} for a project without a
+     *         directory of its own
+     */
+    private static ModuleLocation describeLocation(MavenProject project) {
+        if (project.getBasedir() == null || project.getBuild() == null) {
+            return null;
+        }
+        Path basedir = project.getBasedir().toPath();
+        String build = project.getBuild().getDirectory();
+        String output = project.getBuild().getOutputDirectory();
+        Path buildDirectory = build == null ? basedir.resolve("target") : Path.of(build);
+        Path outputDirectory = output == null ? buildDirectory.resolve("classes") : Path.of(output);
+        return new ModuleLocation(project.getArtifactId(), basedir, buildDirectory, outputDirectory);
     }
 
     private static String describeEventType(Object event) {

@@ -17,5 +17,8 @@ public enum FindingCategory {
     REPOSITORY,
 
     /** Model problems reported while building effective models. */
-    MODEL
+    MODEL,
+
+    /** A measure of the session outside a bound the ledger places on it. */
+    MEASURE
 }

@@ -107,3 +107,26 @@ Framework and coordinate code is high blast radius: write the test matrix as the
 safety proof and test-gate each step. A change to override resolution, the cascade,
 or a save/restore contract is not "done" until an `*ITestFX` exercises it against
 the starter data.
+
+## Measurements
+
+A test that measures something — a load, an export, an iteration, a
+store's read latency — leaves its figures where the build report reads
+them: `target/measurements/<name>.properties` in its module, one
+numeric property per figure, under a key that names the subject, the
+operation and the statistic, with the unit last:
+
+```properties
+bench.rocks.store.scan.median.micros=1234
+import.starter-set.seconds=42.5
+```
+
+Every numeric property becomes a measure of the session
+(IKE-Network/ike-issues#1207): a line in the receipt's MEASURES
+section, a key in the observations sidecar, and under TeamCity a build
+statistic charted across builds. A key is never renamed once published;
+the history hangs on it. The ledger (`.mvn/build-report.yaml`) can
+bound a measure with `at-most` or `at-least`, and
+`ike:build-report-ratchet-publish` tightens the bound as the figure
+improves. Tag such tests `performance`, so the default build leaves
+them out and the nightly build runs them.

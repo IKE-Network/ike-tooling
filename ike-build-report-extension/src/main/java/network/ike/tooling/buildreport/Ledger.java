@@ -32,6 +32,17 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  *   ignore:               # console warnings that should not count
  *     - match: "Using incubator modules: jdk.incubator.vector"
  *       reason: JVM notice, printed once per forked test JVM
+ * measures:               # bounds on the session's measures (ike-issues#1207)
+ *   - key: warnings.compiler.deprecation
+ *     at-most: 415        # may not rise above; at-least is a floor
+ *     reason: the October 2026 clean-up baseline
+ *     since: 2026-10-09
+ *   - key: coverage.line.percent
+ *     at-least: 38.5
+ *     slack: 0.5          # the room a mechanical tightening leaves
+ * sizes:                  # files or trees to size, by glob under the root
+ *   - key: size.komet-desktop.image
+ *     path: komet-desktop/target/image/**
  * }</pre>
  *
  * <p>A missing file yields {@link #empty()}: report mode, no accepted
@@ -42,11 +53,38 @@ public final class Ledger {
     private final LedgerMode mode;
     private final List<AcceptedEntry> entries;
     private final List<ConsoleIgnore> consoleIgnores;
+    private final List<MeasureEntry> measures;
+    private final List<SizeEntry> sizes;
 
-    private Ledger(LedgerMode mode, List<AcceptedEntry> entries, List<ConsoleIgnore> consoleIgnores) {
+    private Ledger(
+            LedgerMode mode,
+            List<AcceptedEntry> entries,
+            List<ConsoleIgnore> consoleIgnores,
+            List<MeasureEntry> measures,
+            List<SizeEntry> sizes) {
         this.mode = mode;
         this.entries = List.copyOf(entries);
         this.consoleIgnores = List.copyOf(consoleIgnores);
+        this.measures = List.copyOf(measures);
+        this.sizes = List.copyOf(sizes);
+    }
+
+    /**
+     * Returns the bounds this ledger places on the session's measures.
+     *
+     * @return the measure entries in declaration order
+     */
+    public List<MeasureEntry> measures() {
+        return measures;
+    }
+
+    /**
+     * Returns the files and trees this ledger asks the session to size.
+     *
+     * @return the size entries in declaration order
+     */
+    public List<SizeEntry> sizes() {
+        return sizes;
     }
 
     /**
@@ -64,7 +102,7 @@ public final class Ledger {
      * @return an empty ledger in {@link LedgerMode#REPORT} mode
      */
     public static Ledger empty() {
-        return new Ledger(LedgerMode.REPORT, List.of(), List.of());
+        return new Ledger(LedgerMode.REPORT, List.of(), List.of(), List.of(), List.of());
     }
 
     /**
@@ -88,8 +126,27 @@ public final class Ledger {
      * @return the ledger
      */
     public static Ledger of(LedgerMode mode, List<AcceptedEntry> entries, List<ConsoleIgnore> consoleIgnores) {
+        return of(mode, entries, consoleIgnores, List.of(), List.of());
+    }
+
+    /**
+     * Creates a ledger from every part, measure bounds and sizes included.
+     *
+     * @param mode           the enforcement posture
+     * @param entries        the accepted entries in declaration order
+     * @param consoleIgnores the console ignore rules in declaration order
+     * @param measures       the bounds on the session's measures
+     * @param sizes          the files and trees to size
+     * @return the ledger
+     */
+    public static Ledger of(
+            LedgerMode mode,
+            List<AcceptedEntry> entries,
+            List<ConsoleIgnore> consoleIgnores,
+            List<MeasureEntry> measures,
+            List<SizeEntry> sizes) {
         Objects.requireNonNull(mode, "mode");
-        return new Ledger(mode, entries, consoleIgnores);
+        return new Ledger(mode, entries, consoleIgnores, measures, sizes);
     }
 
     /**
@@ -118,8 +175,89 @@ public final class Ledger {
             Map<?, ?> map = (Map<?, ?>) root;
             LedgerMode mode = parseMode(map.get("mode"));
             List<AcceptedEntry> entries = parseEntries(map.get("accepted"));
-            return new Ledger(mode, entries, parseConsoleIgnores(map.get("console")));
+            return new Ledger(mode, entries, parseConsoleIgnores(map.get("console")),
+                    parseMeasures(map.get("measures")), parseSizes(map.get("sizes")));
         }
+    }
+
+    private static List<MeasureEntry> parseMeasures(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List)) {
+            throw new IllegalArgumentException(
+                    "measures must be a list, was: " + value.getClass().getSimpleName());
+        }
+        List<MeasureEntry> measures = new ArrayList<>();
+        for (Object item : (List<?>) value) {
+            if (!(item instanceof Map)) {
+                throw new IllegalArgumentException("measure entries must be mappings, found: " + item);
+            }
+            Map<?, ?> entry = (Map<?, ?>) item;
+            Object key = entry.get("key");
+            if (key == null) {
+                throw new IllegalArgumentException("measure entry is missing its key: " + entry);
+            }
+            MeasureEntry.Bound bound = null;
+            Object limit = null;
+            for (MeasureEntry.Bound candidate : MeasureEntry.Bound.values()) {
+                Object declared = entry.get(candidate.yaml());
+                if (declared == null) {
+                    continue;
+                }
+                if (bound != null) {
+                    throw new IllegalArgumentException(
+                            "measure entry '" + key + "' declares both at-most and at-least");
+                }
+                bound = candidate;
+                limit = declared;
+            }
+            if (bound == null) {
+                throw new IllegalArgumentException("measure entry '" + key + "' needs at-most or at-least");
+            }
+            if (!(limit instanceof Number)) {
+                throw new IllegalArgumentException(
+                        "measure entry '" + key + "' " + bound.yaml() + " must be a number, was: " + limit);
+            }
+            Object slack = entry.get("slack");
+            if (slack != null && !(slack instanceof Number)) {
+                throw new IllegalArgumentException(
+                        "measure entry '" + key + "' slack must be a number, was: " + slack);
+            }
+            measures.add(new MeasureEntry(
+                    String.valueOf(key),
+                    bound,
+                    ((Number) limit).doubleValue(),
+                    slack == null ? 0.0 : ((Number) slack).doubleValue(),
+                    entry.get("reason") == null ? "" : String.valueOf(entry.get("reason")),
+                    stringifySince(entry.get("since")),
+                    entry.get("mode") == null ? null : parseMode(entry.get("mode"))));
+        }
+        return measures;
+    }
+
+    private static List<SizeEntry> parseSizes(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List)) {
+            throw new IllegalArgumentException(
+                    "sizes must be a list, was: " + value.getClass().getSimpleName());
+        }
+        List<SizeEntry> sizes = new ArrayList<>();
+        for (Object item : (List<?>) value) {
+            if (!(item instanceof Map)) {
+                throw new IllegalArgumentException("size entries must be mappings, found: " + item);
+            }
+            Map<?, ?> entry = (Map<?, ?>) item;
+            Object key = entry.get("key");
+            Object path = entry.get("path");
+            if (key == null || path == null) {
+                throw new IllegalArgumentException("size entry needs a key and a path: " + entry);
+            }
+            sizes.add(new SizeEntry(String.valueOf(key), String.valueOf(path)));
+        }
+        return sizes;
     }
 
     private static List<ConsoleIgnore> parseConsoleIgnores(Object console) {
@@ -311,12 +449,57 @@ public final class Ledger {
             entriesByKey.put(entry.key(), entry);
         }
         List<LedgerEvaluation.AttentionItem> gating = new ArrayList<>();
+        Map<String, MeasureEntry> measuresByKey = new LinkedHashMap<>();
+        for (MeasureEntry measure : measures) {
+            measuresByKey.put(measure.key(), measure);
+        }
         for (LedgerEvaluation.AttentionItem item : evaluation.attention()) {
+            String measureKey = MeasureStatus.measureKey(item.key());
+            if (measureKey != null) {
+                MeasureEntry bound = measuresByKey.get(measureKey);
+                if (bound == null || bound.entryMode() != LedgerMode.REPORT) {
+                    gating.add(item);
+                }
+                continue;
+            }
             AcceptedEntry entry = entriesByKey.get(item.key());
             if (entry == null || entry.entryMode() != LedgerMode.REPORT) {
                 gating.add(item);
             }
         }
         return gating;
+    }
+
+    /**
+     * Compares a session's measures against this ledger's bounds.
+     *
+     * @param measures what the session measured
+     * @return one status per bound, in ledger order
+     */
+    public List<MeasureStatus> evaluateMeasures(Measures measures) {
+        Objects.requireNonNull(measures, "measures");
+        List<MeasureStatus> statuses = new ArrayList<>();
+        for (MeasureEntry entry : this.measures) {
+            statuses.add(new MeasureStatus(entry, measures.value(entry.key())));
+        }
+        return statuses;
+    }
+
+    /**
+     * Returns the findings violated bounds raise, to be evaluated with
+     * the session's other findings.
+     *
+     * @param statuses the bounds' statuses
+     * @return one finding per violated bound, in status order
+     */
+    public static List<Finding> measureFindings(List<MeasureStatus> statuses) {
+        List<Finding> findings = new ArrayList<>();
+        for (MeasureStatus status : statuses) {
+            Finding finding = status.finding();
+            if (finding != null) {
+                findings.add(finding);
+            }
+        }
+        return findings;
     }
 }

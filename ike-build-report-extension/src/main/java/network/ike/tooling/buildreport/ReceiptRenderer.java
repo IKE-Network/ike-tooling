@@ -3,6 +3,7 @@ package network.ike.tooling.buildreport;
 import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -185,6 +186,35 @@ public final class ReceiptRenderer {
             LedgerEvaluation evaluation,
             BuildActivity.Overview overview,
             Console console) {
+        return render(toolVersion, timestamp, mode, ledgerNote, evaluation, overview, console, null);
+    }
+
+    /**
+     * Renders the receipt, measures included.
+     *
+     * @param toolVersion   the extension version stamped under the title
+     * @param timestamp     the session-end time stamped under the title
+     * @param mode          the ledger's declared enforcement posture
+     * @param ledgerNote    a one-line ledger status (for example a parse
+     *                      failure); empty when the ledger loaded cleanly
+     * @param evaluation    the section content
+     * @param overview      what the session built and how long it took;
+     *                      null omits the BUILD section
+     * @param console       the console's consolidated warnings and errors
+     * @param measureReport the session's measures with the ledger's
+     *                      verdict on each bound; null omits the MEASURES
+     *                      section
+     * @return the receipt as Markdown
+     */
+    public static String render(
+            String toolVersion,
+            ZonedDateTime timestamp,
+            LedgerMode mode,
+            String ledgerNote,
+            LedgerEvaluation evaluation,
+            BuildActivity.Overview overview,
+            Console console,
+            MeasureReport measureReport) {
         Objects.requireNonNull(evaluation, "evaluation");
         Objects.requireNonNull(console, "console");
         StringBuilder out = new StringBuilder(1024);
@@ -202,6 +232,7 @@ public final class ReceiptRenderer {
         }
 
         renderBuild(out, overview, !evaluation.failures().isEmpty(), console.moduleWarnings(), null);
+        renderMeasures(out, measureReport);
         renderFailures(out, evaluation.failures());
         renderAttention(out, evaluation.attention());
         renderAccepted(out, evaluation.accepted());
@@ -648,6 +679,217 @@ public final class ReceiptRenderer {
         out.append(" — full list in `").append(ReportSession.CONSOLE_RELATIVE_PATH).append("`\n");
     }
 
+    /** How many lines of sizes and measurements MEASURES lists before counting the rest. */
+    private static final int MAX_MEASUREMENT_LINES = 40;
+
+    /** How many of the slowest test classes MEASURES names. */
+    private static final int MAX_SLOW_SUITES = 5;
+
+    /** The prefix of a measure key the receipt renders as a byte count. */
+    private static final String SIZE_PREFIX = "size.";
+
+    /**
+     * Renders what the session was like in numbers, then how each
+     * ledger bound fared (ike-issues#1207).
+     *
+     * <p>The derived measures come first, one line each with the figure
+     * in a fixed column; the sizes the ledger named and the measurements
+     * the tests left follow, key by key. A bound's line carries the
+     * colour of its verdict, and a violated bound points at ATTENTION,
+     * where its finding is.</p>
+     */
+    private static void renderMeasures(StringBuilder out, MeasureReport report) {
+        if (report == null || !report.hasContent()) {
+            return;
+        }
+        Measures measures = report.measures();
+        boolean violated = report.statuses().stream().anyMatch(MeasureStatus::violated);
+        out.append("## ").append(violated ? YELLOW : BLUE).append(" MEASURES\n\n");
+        List<String> rows = new ArrayList<>();
+        warningsRow(measures, rows);
+        testsRow(measures, rows);
+        coverageRow(measures, rows);
+        buildRow(measures, rows);
+        int extra = 0;
+        int listed = 0;
+        for (Map.Entry<String, Double> entry : measures.values().entrySet()) {
+            if (MeasureKey.of(entry.getKey()) != null) {
+                continue;
+            }
+            if (listed >= MAX_MEASUREMENT_LINES) {
+                extra++;
+                continue;
+            }
+            listed++;
+            String value = entry.getKey().startsWith(SIZE_PREFIX)
+                    ? Numbers.bytes(entry.getValue())
+                    : Numbers.plain(entry.getValue());
+            rows.add(row(value, entry.getKey()));
+        }
+        if (!rows.isEmpty()) {
+            out.append("```\n");
+            for (String line : rows) {
+                out.append(line).append('\n');
+            }
+            if (extra > 0) {
+                out.append(row("…", extra + " more in " + ReportSession.OBSERVATIONS_RELATIVE_PATH)).append('\n');
+            }
+            out.append("```\n\n");
+        }
+        if (!measures.slowest().isEmpty()) {
+            out.append("Slowest test classes:\n\n```\n");
+            int shown = Math.min(measures.slowest().size(), MAX_SLOW_SUITES);
+            for (Measures.SlowSuite suite : measures.slowest().subList(0, shown)) {
+                out.append(row(TestReports.formatSeconds(suite.seconds()), suite.module() + " · " + suite.suite()))
+                        .append('\n');
+            }
+            out.append("```\n\n");
+        }
+        if (!report.statuses().isEmpty()) {
+            out.append("Ledger bounds:\n\n");
+            for (MeasureStatus status : report.statuses()) {
+                renderBound(out, status);
+            }
+            out.append('\n');
+        }
+        if (report.published() > 0) {
+            out.append("Published to TeamCity as ").append(report.published()).append(" build statistic(s).\n\n");
+        }
+        if (!measures.notes().isEmpty()) {
+            out.append("Not measured:\n\n");
+            for (String note : measures.notes()) {
+                out.append("- ").append(note).append('\n');
+            }
+            out.append('\n');
+        }
+    }
+
+    private static void renderBound(StringBuilder out, MeasureStatus status) {
+        MeasureEntry entry = status.entry();
+        out.append("- ");
+        if (!status.measured()) {
+            out.append(NEUTRAL).append(" `").append(entry.key()).append("` not measured this session (")
+                    .append(entry.describe()).append(')');
+        } else if (status.violated()) {
+            out.append(RED).append(" `").append(entry.key()).append("` ").append(Numbers.plain(status.observed()))
+                    .append(" — outside ").append(entry.describe()).append(", see ATTENTION");
+        } else if (status.canTighten()) {
+            out.append(BLUE).append(" `").append(entry.key()).append("` ").append(Numbers.plain(status.observed()))
+                    .append(" within ").append(entry.describe()).append(" — can tighten to ")
+                    .append(Numbers.plain(status.tightened()));
+        } else {
+            out.append(GREEN).append(" `").append(entry.key()).append("` ").append(Numbers.plain(status.observed()))
+                    .append(" within ").append(entry.describe());
+        }
+        if (!entry.reason().isBlank()) {
+            out.append(" — ").append(entry.reason());
+        }
+        out.append('\n');
+    }
+
+    private static String row(String value, String text) {
+        return String.format(java.util.Locale.ROOT, "%9s  %s", value, text);
+    }
+
+    private static void warningsRow(Measures measures, List<String> rows) {
+        Double total = measures.value(MeasureKey.WARNINGS_TOTAL);
+        if (total == null) {
+            return;
+        }
+        StringBuilder text = new StringBuilder("warnings");
+        String separator = " — ";
+        for (MeasureKey kind : MeasureCollector.warningKinds()) {
+            Double count = measures.value(kind);
+            if (count == null || count == 0) {
+                continue;
+            }
+            text.append(separator).append(Numbers.plain(count)).append(' ').append(kindLabel(kind));
+            separator = " · ";
+        }
+        Double errors = measures.value(MeasureKey.ERRORS_CONSOLE);
+        if (errors != null && errors > 0) {
+            text.append(" · ").append(Numbers.plain(errors)).append(" error line(s)");
+        }
+        rows.add(row(Numbers.plain(total), text.toString()));
+    }
+
+    private static String kindLabel(MeasureKey kind) {
+        return switch (kind) {
+            case WARNINGS_COMPILER_DEPRECATION -> "deprecation";
+            case WARNINGS_COMPILER_REMOVAL -> "removal";
+            case WARNINGS_COMPILER_OTHER -> "other lint";
+            case WARNINGS_JAVADOC -> "javadoc";
+            case WARNINGS_DEPENDENCY -> "dependency analysis";
+            case WARNINGS_STDERR -> "stderr";
+            case WARNINGS_TESTS -> "skipped-test classes";
+            default -> "other";
+        };
+    }
+
+    private static void testsRow(Measures measures, List<String> rows) {
+        Double run = measures.value(MeasureKey.TESTS_RUN);
+        if (run == null) {
+            return;
+        }
+        Double failed = measures.value(MeasureKey.TESTS_FAILED);
+        Double skipped = measures.value(MeasureKey.TESTS_SKIPPED);
+        Double seconds = measures.value(MeasureKey.TESTS_SECONDS);
+        StringBuilder text = new StringBuilder("tests run");
+        if (failed != null) {
+            text.append(" · ").append(Numbers.plain(failed)).append(" failed");
+        }
+        if (skipped != null) {
+            text.append(" · ").append(Numbers.plain(skipped)).append(" skipped");
+        }
+        if (seconds != null) {
+            text.append(" · ").append(TestReports.formatSeconds(seconds)).append(" in tests");
+        }
+        rows.add(row(Numbers.plain(run), text.toString()));
+    }
+
+    private static void coverageRow(Measures measures, List<String> rows) {
+        Double percent = measures.value(MeasureKey.COVERAGE_LINE_PERCENT);
+        if (percent == null) {
+            return;
+        }
+        StringBuilder text = new StringBuilder("lines covered");
+        Double covered = measures.value(MeasureKey.COVERAGE_LINE_COVERED);
+        Double total = measures.value(MeasureKey.COVERAGE_LINE_TOTAL);
+        if (covered != null && total != null) {
+            text.append(" — ").append(Numbers.plain(covered)).append(" of ").append(Numbers.plain(total));
+        }
+        Double branches = measures.value(MeasureKey.COVERAGE_BRANCH_PERCENT);
+        if (branches != null) {
+            text.append(" · ").append(TestReports.percent(branches)).append(" branches");
+        }
+        Double modules = measures.value(MeasureKey.COVERAGE_MODULES);
+        if (modules != null) {
+            text.append(" · ").append(Numbers.plain(modules)).append(" module(s) with execution data");
+        }
+        rows.add(row(TestReports.percent(percent), text.toString()));
+    }
+
+    private static void buildRow(Measures measures, List<String> rows) {
+        Double seconds = measures.value(MeasureKey.BUILD_SECONDS);
+        if (seconds == null) {
+            return;
+        }
+        StringBuilder text = new StringBuilder("build");
+        Double built = measures.value(MeasureKey.BUILD_MODULES_BUILT);
+        if (built != null) {
+            text.append(" · ").append(Numbers.plain(built)).append(" module(s) built");
+        }
+        Double failed = measures.value(MeasureKey.BUILD_MODULES_FAILED);
+        if (failed != null && failed > 0) {
+            text.append(", ").append(Numbers.plain(failed)).append(" failed");
+        }
+        Double threads = measures.value(MeasureKey.BUILD_THREADS);
+        if (threads != null) {
+            text.append(" · ").append(Numbers.plain(threads)).append(threads == 1 ? " thread" : " threads");
+        }
+        rows.add(row(TestReports.formatSeconds(seconds), text.toString()));
+    }
+
     private static void renderFailures(StringBuilder out, List<Finding> failures) {
         if (failures.isEmpty()) {
             return;
@@ -665,6 +907,12 @@ public final class ReceiptRenderer {
         }
         out.append("## ").append(YELLOW).append(" ATTENTION\n\n");
         for (LedgerEvaluation.AttentionItem item : attention) {
+            if (item.category() == FindingCategory.MEASURE) {
+                // A measure is one value against one bound, not a count of
+                // occurrences: its finding's detail says it all.
+                out.append("- `").append(item.key()).append("` — ").append(item.sample()).append('\n');
+                continue;
+            }
             out.append("- `").append(item.key()).append("` — observed ").append(item.observed());
             if (item.expected() == null) {
                 out.append(", not accepted");
@@ -771,6 +1019,12 @@ public final class ReceiptRenderer {
             out.append("from Maven's log. Either change the declaration the finding names, or\n");
             out.append("accept the key in `").append(ReportSession.LEDGER_RELATIVE_PATH)
                     .append("` with a reason.\n\n");
+        }
+        if (categories.contains(FindingCategory.MEASURE)) {
+            out.append("Measure findings are a session value outside a bound the ledger places\n");
+            out.append("on it. Either bring the measure back — fewer warnings, fewer skips, more\n");
+            out.append("coverage — or move the bound in `").append(ReportSession.LEDGER_RELATIVE_PATH)
+                    .append("` with a reason.\nBounds only tighten mechanically, so loosening one is always a hand edit.\n\n");
         }
         if (categories.contains(FindingCategory.EXECUTION)) {
             out.append("Execution findings are build-breaking and are never absorbed by the\n");

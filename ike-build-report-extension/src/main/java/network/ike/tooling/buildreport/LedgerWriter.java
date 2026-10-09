@@ -56,6 +56,41 @@ public final class LedgerWriter {
                         .append(entry.entryMode().name().toLowerCase(Locale.ROOT)).append('\n');
             }
         }
+        if (!ledger.measures().isEmpty()) {
+            out.append("# Bounds on the session's measures (ike-issues#1207): at-most only\n");
+            out.append("# ratchets down and at-least only up; slack is the room a tightening\n");
+            out.append("# leaves. A regressed measure is an attention finding.\n");
+            out.append("measures:\n");
+            for (MeasureEntry measure : ledger.measures()) {
+                out.append("  - key: ").append(measure.key()).append('\n');
+                out.append("    ").append(measure.bound().yaml()).append(": ")
+                        .append(Numbers.plain(measure.limit())).append('\n');
+                if (measure.slack() != 0.0) {
+                    out.append("    slack: ").append(Numbers.plain(measure.slack())).append('\n');
+                }
+                if (!measure.reason().isBlank()) {
+                    out.append("    reason: >\n");
+                    for (String line : foldReason(measure.reason())) {
+                        out.append("      ").append(line).append('\n');
+                    }
+                }
+                if (!measure.since().isBlank()) {
+                    out.append("    since: ").append(measure.since()).append('\n');
+                }
+                if (measure.entryMode() != null) {
+                    out.append("    mode: ")
+                            .append(measure.entryMode().name().toLowerCase(Locale.ROOT)).append('\n');
+                }
+            }
+        }
+        if (!ledger.sizes().isEmpty()) {
+            out.append("# Files or trees the session sizes, by glob under the execution root.\n");
+            out.append("sizes:\n");
+            for (SizeEntry size : ledger.sizes()) {
+                out.append("  - key: ").append(size.key()).append('\n');
+                out.append("    path: ").append(quote(size.path())).append('\n');
+            }
+        }
         if (!ledger.consoleIgnores().isEmpty()) {
             out.append("# Console warnings matching these texts are shown but not counted.\n");
             out.append("console:\n  ignore:\n");
