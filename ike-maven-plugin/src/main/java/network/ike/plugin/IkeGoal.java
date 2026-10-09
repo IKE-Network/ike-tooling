@@ -140,6 +140,28 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "base data plus change sets into a store, classified by "
                     + "default — and optionally install it into a data-source "
                     + "directory a knowledge browser reads (ike-issues#848)."),
+    /** {@code ike:changeset-inspect} — report what a change set is made of. */
+    CHANGESET_INSPECT(IkeGoal.NAME_CHANGESET_INSPECT, ChangeSetInspectMojo.class,
+            "Report what a change set is made of, without a store: its format "
+                    + "version, its entries, its records by kind and pattern, its "
+                    + "component table, and how its references are written "
+                    + "(ike-issues#1275)."),
+    /** {@code ike:changeset-verify} — check a change set against its format. */
+    CHANGESET_VERIFY(IkeGoal.NAME_CHANGESET_VERIFY, ChangeSetVerifyMojo.class,
+            "Check a change set against its format and fail the build on any "
+                    + "error: the manifest, the component table, every entry's "
+                    + "count and SHA-256, the ids and references of every record "
+                    + "(ike-issues#1275)."),
+    /** {@code ike:changeset-expand} — rewrite a format-3 change set with references by UUID. */
+    CHANGESET_EXPAND(IkeGoal.NAME_CHANGESET_EXPAND, ChangeSetExpandMojo.class,
+            "Rewrite a format-3 change set in the format-2 layout, every "
+                    + "reference by UUID, for a reader that knows no sequences "
+                    + "(ike-issues#1275)."),
+    /** {@code ike:changeset-compact} — rewrite an older change set in format 3. */
+    CHANGESET_COMPACT(IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactMojo.class,
+            "Rewrite a format-1 or format-2 change set in format 3: a component "
+                    + "table, one entry per pattern, references by sequence "
+                    + "(ike-issues#1275)."),
     /** {@code ike:starter-set-create-draft} — preview a new starter-set project. */
     STARTER_SET_CREATE_DRAFT(IkeGoal.NAME_STARTER_SET_CREATE_DRAFT, StarterSetCreateDraftMojo.class,
             "Preview the genesis of a new starter-set project: the derived name "
@@ -293,6 +315,15 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
     /** Mirror for {@link #KB_ASSEMBLE}. */
     public static final String NAME_KB_ASSEMBLE = "kb-assemble";
+
+    /** Mirror for {@link #CHANGESET_INSPECT}. */
+    public static final String NAME_CHANGESET_INSPECT = "changeset-inspect";
+    /** Mirror for {@link #CHANGESET_VERIFY}. */
+    public static final String NAME_CHANGESET_VERIFY = "changeset-verify";
+    /** Mirror for {@link #CHANGESET_EXPAND}. */
+    public static final String NAME_CHANGESET_EXPAND = "changeset-expand";
+    /** Mirror for {@link #CHANGESET_COMPACT}. */
+    public static final String NAME_CHANGESET_COMPACT = "changeset-compact";
 
     /** Mirror for {@link #STARTER_SET_CREATE_DRAFT}. */
     public static final String NAME_STARTER_SET_CREATE_DRAFT = "starter-set-create-draft";

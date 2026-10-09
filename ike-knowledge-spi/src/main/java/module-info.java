@@ -12,4 +12,8 @@ module network.ike.knowledge.spi {
     uses network.ike.knowledge.spi.KnowledgeExporter;
     uses network.ike.knowledge.spi.BindingsGenerator;
     uses network.ike.knowledge.spi.KnowledgeVerifier;
+    uses network.ike.knowledge.spi.ChangeSetInspector;
+    uses network.ike.knowledge.spi.ChangeSetVerifier;
+    uses network.ike.knowledge.spi.ChangeSetExpander;
+    uses network.ike.knowledge.spi.ChangeSetCompactor;
 }
