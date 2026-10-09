@@ -1,6 +1,6 @@
 ---
-date_published: 2026-10-02
-date_modified: 2026-10-02
+date_published: 2026-10-08
+date_modified: 2026-10-08
 canonical_url: https://ike.network/ike-tooling/ike-workspace-model/project-info.html
 ---
 

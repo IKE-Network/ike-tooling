@@ -1,6 +1,6 @@
 ---
-date_published: 2026-10-02
-date_modified: 2026-10-02
+date_published: 2026-10-08
+date_modified: 2026-10-08
 canonical_url: https://ike.network/ike-tooling/ike-build-standards/developer-environment.html
 ---
 
@@ -70,7 +70,7 @@ Several `ws:` and `ike:` goals write a Markdown report next to the project root 
 
 Working-set coordination ships with the development folder itself — nothing to install beyond the IDE plugin:
 
-- `~/ike-dev/scripts/lease.sh` — the working-set lease CLI (`list`, `status <ws>`, `acquire`, `release`). It is a thin wrapper over the Java protocol core (`network.ike.lease.core`, the released `ike-lease` artifact); installing the IntelliJ plugin zip is what provisions the jar it execs. One writer per working set, enforced; opening a project in IntelliJ acquires the lease for you.
+- `~/ike-dev/scripts/lease.sh` — the working-set lease CLI (`list`, `status <ws>`, `take`, `return`, `recall`; the pre-7 verbs `acquire` and `release` remain aliases). It is a thin wrapper over the Java protocol core (`network.ike.lease.core`, the released `ike-lease` artifact); installing the IntelliJ plugin zip — which `scripts/setup-machine.sh` does from Nexus — is what provisions the jar it execs. One writer per working set, enforced; opening a project in IntelliJ takes the lease for you, and closing it returns it.
 - `MaterializeCli` — headless git-state repair for a synced tree: `java -cp <plugins>/ike-lease-plugin/lib/ike-lease-core-*.jar network.ike.lease.core.MaterializeCli materialize|verify|repair <ws>`. Normally unnecessary — the IDE open gesture materializes and aligns automatically.
 - The `mvnw` wrapper in each repository is the only Maven you need; Maven-4 workspaces require it (set IntelliJ’s Maven home to "Use Maven wrapper").
 

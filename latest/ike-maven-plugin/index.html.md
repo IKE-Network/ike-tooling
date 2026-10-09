@@ -1,6 +1,6 @@
 ---
-date_published: 2026-10-02
-date_modified: 2026-10-02
+date_published: 2026-10-08
+date_modified: 2026-10-08
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/index.html
 ---
 
@@ -106,6 +106,10 @@ mvn ike:scaffold-publish
 | knowledge-bindings | knowledge | Generate the bindings class for a ledger-form knowledge set |
 | knowledge-export | knowledge | Export a ledger-form knowledge set as a standalone protobuf artifact |
 | knowledge-verify | knowledge | Verify a knowledge artifact in a pristine store (round-trip gate) |
+| changeset-inspect | knowledge | Report what a change set is made of: format, entries, records by kind and pattern, references |
+| changeset-verify | knowledge | Check a change set against its format; fail the build on any error |
+| changeset-expand | knowledge | Rewrite a format-3 change set in the format-2 layout, references by UUID |
+| changeset-compact | knowledge | Rewrite a format-1 or format-2 change set in format 3 |
 | schema-import | knowledge | Import an XML Schema as a ledger section, a node catalog (HL7 ELM first) |
 | starter-set-create-{draft,publish} | genesis | Genesis of a new starter-set project |
 | cascade-export | inspection | Export the foundation release-cascade topology, machine-readable |
