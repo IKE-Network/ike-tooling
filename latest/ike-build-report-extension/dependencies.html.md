@@ -6,13 +6,13 @@ canonical_url: https://ike.network/ike-tooling/ike-build-report-extension/depend
 
 # Dependencies (SBOM)
 
-Full transitive dependency graph for `ike-build-report-extension` 263, generated from [bom.json](bom.json)[1] (CycloneDX 1.6) at build time. Same SBOM source as the SPDX-grouped [licenses.html](licenses.html)[2] and the curated [built-with.html](built-with.html)[3] — three views of the same data.
+Full transitive dependency graph for `ike-build-report-extension` 264, generated from [bom.json](bom.json)[1] (CycloneDX 1.6) at build time. Same SBOM source as the SPDX-grouped [licenses.html](licenses.html)[2] and the curated [built-with.html](built-with.html)[3] — three views of the same data.
 
 ## [#summary](#summary)Summary
 
-| Total components | 53 |
+| Total components | 57 |
 | --- | --- |
-| Distinct license expressions | 5 |
+| Distinct license expressions | 6 |
 
 ## [#components](#components)Components
 
@@ -62,6 +62,7 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 | `org.codehaus.plexus` | `plexus-xml` | `4.1.0` | `Apache-2.0` | library |
 | `org.codehaus.woodstox` | `stax2-api` | `4.2.2` | `BSD-2-Clause` | library |
 | `org.eclipse.sisu` | `org.eclipse.sisu.plexus` | `0.9.0.M4` | `EPL-2.0` | library |
+| `org.jacoco` | `org.jacoco.core` | `0.8.15` | `EPL-2.0` | library |
 | `org.jline` | `jansi-core` | `3.30.6` | `BSD-4-Clause` | library |
 | `org.jline` | `jline-builtins` | `3.30.6` | `BSD-4-Clause` | library |
 | `org.jline` | `jline-console` | `3.30.6` | `BSD-4-Clause` | library |
@@ -71,6 +72,9 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 | `org.jline` | `jline-style` | `3.30.6` | `BSD-4-Clause` | library |
 | `org.jline` | `jline-terminal` | `3.30.6` | `BSD-4-Clause` | library |
 | `org.jline` | `jline-terminal-jni` | `3.30.6` | `BSD-4-Clause` | library |
+| `org.ow2.asm` | `asm` | `9.10.1` | `BSD-3-Clause` | library |
+| `org.ow2.asm` | `asm-commons` | `9.10.1` | `BSD-3-Clause` | library |
+| `org.ow2.asm` | `asm-tree` | `9.10.1` | `BSD-3-Clause` | library |
 | `org.slf4j` | `slf4j-api` | `2.0.17` | `MIT` | library |
 | `org.yaml` | `snakeyaml` | `2.2` | `Apache-2.0` | library |
 
@@ -78,7 +82,7 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 
 - [Software Bill of Materials (CycloneDX, JSON)](bom.json)[1] — raw machine-readable form. Includes purls, hashes, and dependency-graph edges that this page summarizes.
 - [bom.xml](bom.xml)[4] — same content in XML.
-- As a Maven artifact: pull `ike-build-report-extension:​263` with `<classifier>cyclonedx</classifier><type>json</type>` from Nexus / Maven Central.
+- As a Maven artifact: pull `ike-build-report-extension:​264` with `<classifier>cyclonedx</classifier><type>json</type>` from Nexus / Maven Central.
 
 ## [#see-also](#see-also)See also
 

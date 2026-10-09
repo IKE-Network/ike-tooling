@@ -6,41 +6,68 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Computes the downward-only tightening of a ledger against the latest
- * session's observed counts.
+ * Computes the tightening of a ledger against the latest session's
+ * observations: accepted counts move down, measure bounds move the
+ * one way each is allowed.
  *
- * &lt;p&gt;The asymmetry is deliberate: counts only move &lt;em&gt;down&lt;/em&gt;
- * mechanically (an accepted finding class shrank — tighten the
- * baseline, keeping the entry at 0 as a documented tripwire rather
- * than deleting the acceptance record). Accepting new findings or
- * grown counts is always a human edit.&lt;/p&gt;
+ * &lt;p&gt;The asymmetry is deliberate: an accepted count only moves
+ * &lt;em&gt;down&lt;/em&gt; mechanically (an accepted finding class shrank —
+ * tighten the baseline, keeping the entry at 0 as a documented tripwire
+ * rather than deleting the acceptance record), and a measure bound only
+ * tightens ({@code at-most} down, {@code at-least} up, each keeping its
+ * slack). Accepting new findings, grown counts or a regressed measure
+ * is always a human edit.&lt;/p&gt;
  */
 public final class RatchetPlanner {
 
     /**
-     * One proposed tightening.
+     * One proposed tightening of an accepted count.
      *
      * @param entry    the ledger entry as it stands
      * @param observed the latest session's observation for its key
      */
-<span class="fc" id="L26">    public record Tightening(AcceptedEntry entry, long observed) {</span>
+<span class="fc" id="L29">    public record Tightening(AcceptedEntry entry, long observed) {</span>
+    }
+
+    /**
+     * One proposed tightening of a measure bound.
+     *
+     * @param entry    the bound as it stands
+     * @param observed the latest session's value for its key
+     * @param limit    the limit the bound would move to
+     */
+<span class="fc" id="L39">    public record MeasureTightening(MeasureEntry entry, double observed, double limit) {</span>
     }
 
     /**
      * A computed ratchet plan.
      *
-     * @param tightenings entries whose counts would move down
-     * @param result      the ledger with tightenings applied
+     * @param tightenings        accepted entries whose counts would move down
+     * @param measureTightenings measure bounds that would tighten
+     * @param result             the ledger with every tightening applied
      */
-<span class="fc" id="L35">    public record Plan(List&lt;Tightening&gt; tightenings, Ledger result) {</span>
+    public record Plan(List&lt;Tightening&gt; tightenings, List&lt;MeasureTightening&gt; measureTightenings, Ledger result) {
+
+        /**
+         * Defensively copies the lists.
+         *
+         * @param tightenings        accepted entries whose counts would move down
+         * @param measureTightenings measure bounds that would tighten
+         * @param result             the ledger with every tightening applied
+         */
+<span class="fc" id="L58">        public Plan {</span>
+<span class="fc" id="L59">            tightenings = List.copyOf(tightenings);</span>
+<span class="fc" id="L60">            measureTightenings = List.copyOf(measureTightenings);</span>
+<span class="fc" id="L61">            Objects.requireNonNull(result, &quot;result&quot;);</span>
+<span class="fc" id="L62">        }</span>
 
         /**
          * Reports whether the plan changes anything.
          *
-         * @return {@code true} when at least one count tightens
+         * @return {@code true} when at least one count or bound tightens
          */
         public boolean changesAnything() {
-<span class="pc bpc" id="L43" title="1 of 2 branches missed.">            return !tightenings.isEmpty();</span>
+<span class="fc bfc" id="L70" title="All 4 branches covered.">            return !tightenings.isEmpty() || !measureTightenings.isEmpty();</span>
         }
     }
 
@@ -48,7 +75,7 @@ public final class RatchetPlanner {
     }
 
     /**
-     * Plans the tightening of a ledger against observed counts.
+     * Plans the tightening of a ledger's accepted counts.
      *
      * @param ledger   the current ledger
      * @param observed per-key observed counts from the latest session's
@@ -57,21 +84,50 @@ public final class RatchetPlanner {
      *         their observation are untouched
      */
     public static Plan plan(Ledger ledger, Map&lt;String, Long&gt; observed) {
-<span class="fc" id="L60">        Objects.requireNonNull(ledger, &quot;ledger&quot;);</span>
-<span class="fc" id="L61">        Objects.requireNonNull(observed, &quot;observed&quot;);</span>
-<span class="fc" id="L62">        List&lt;Tightening&gt; tightenings = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L63">        List&lt;AcceptedEntry&gt; resultEntries = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L64" title="All 2 branches covered.">        for (AcceptedEntry entry : ledger.entries()) {</span>
-<span class="fc" id="L65">            long seen = observed.getOrDefault(entry.key(), 0L);</span>
-<span class="fc bfc" id="L66" title="All 2 branches covered.">            if (seen &lt; entry.count()) {</span>
-<span class="fc" id="L67">                tightenings.add(new Tightening(entry, seen));</span>
-<span class="fc" id="L68">                resultEntries.add(new AcceptedEntry(</span>
-<span class="fc" id="L69">                        entry.key(), (int) seen, entry.reason(), entry.since(), entry.entryMode()));</span>
+<span class="fc" id="L87">        return plan(ledger, observed, Map.of());</span>
+    }
+
+    /**
+     * Plans the tightening of a ledger's accepted counts and measure
+     * bounds.
+     *
+     * @param ledger   the current ledger
+     * @param observed per-key observed counts from the latest session's
+     *                 sidecar; keys absent from the map observed nothing
+     * @param measures the latest session's measures; a bound whose key
+     *                 is absent was not measured and is left alone
+     * @return the plan; nothing loosens
+     */
+    public static Plan plan(Ledger ledger, Map&lt;String, Long&gt; observed, Map&lt;String, Double&gt; measures) {
+<span class="fc" id="L102">        Objects.requireNonNull(ledger, &quot;ledger&quot;);</span>
+<span class="fc" id="L103">        Objects.requireNonNull(observed, &quot;observed&quot;);</span>
+<span class="fc" id="L104">        Objects.requireNonNull(measures, &quot;measures&quot;);</span>
+<span class="fc" id="L105">        List&lt;Tightening&gt; tightenings = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L106">        List&lt;AcceptedEntry&gt; resultEntries = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">        for (AcceptedEntry entry : ledger.entries()) {</span>
+<span class="fc" id="L108">            long seen = observed.getOrDefault(entry.key(), 0L);</span>
+<span class="fc bfc" id="L109" title="All 2 branches covered.">            if (seen &lt; entry.count()) {</span>
+<span class="fc" id="L110">                tightenings.add(new Tightening(entry, seen));</span>
+<span class="fc" id="L111">                resultEntries.add(new AcceptedEntry(</span>
+<span class="fc" id="L112">                        entry.key(), (int) seen, entry.reason(), entry.since(), entry.entryMode()));</span>
             } else {
-<span class="fc" id="L71">                resultEntries.add(entry);</span>
+<span class="fc" id="L114">                resultEntries.add(entry);</span>
             }
-<span class="fc" id="L73">        }</span>
-<span class="fc" id="L74">        return new Plan(tightenings, Ledger.of(ledger.mode(), resultEntries, ledger.consoleIgnores()));</span>
+<span class="fc" id="L116">        }</span>
+<span class="fc" id="L117">        List&lt;MeasureTightening&gt; measureTightenings = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L118">        List&lt;MeasureEntry&gt; resultMeasures = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">        for (MeasureEntry entry : ledger.measures()) {</span>
+<span class="fc" id="L120">            Double value = measures.get(entry.key());</span>
+<span class="fc bfc" id="L121" title="All 6 branches covered.">            if (value != null &amp;&amp; !entry.violatedBy(value) &amp;&amp; entry.canTightenTo(value)) {</span>
+<span class="fc" id="L122">                double limit = entry.tightened(value);</span>
+<span class="fc" id="L123">                measureTightenings.add(new MeasureTightening(entry, value, limit));</span>
+<span class="fc" id="L124">                resultMeasures.add(entry.withLimit(limit));</span>
+<span class="fc" id="L125">            } else {</span>
+<span class="fc" id="L126">                resultMeasures.add(entry);</span>
+            }
+<span class="fc" id="L128">        }</span>
+<span class="fc" id="L129">        return new Plan(tightenings, measureTightenings, Ledger.of(</span>
+<span class="fc" id="L130">                ledger.mode(), resultEntries, ledger.consoleIgnores(), resultMeasures, ledger.sizes()));</span>
     }
 }
-</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

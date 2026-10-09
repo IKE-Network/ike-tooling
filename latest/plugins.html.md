@@ -8,7 +8,7 @@ canonical_url: https://ike.network/ike-tooling/plugins.html
 
 | GroupId | ArtifactId | Version |
 | --- | --- | --- |
-| network.ike.tooling | [ike-maven-plugin](https://ike.network/ike-tooling/ike-maven-plugin/)[1] | 263-SNAPSHOT |
+| network.ike.tooling | [ike-maven-plugin](https://ike.network/ike-tooling/ike-maven-plugin/)[1] | 264-SNAPSHOT |
 | org.apache.maven.plugins | [maven-assembly-plugin](https://maven.apache.org/plugins/maven-assembly-plugin/)[2] | 3.7.1 |
 | org.apache.maven.plugins | [maven-clean-plugin](https://maven.apache.org/plugins/maven-clean-plugin/)[3] | 3.4.0 |
 | org.apache.maven.plugins | [maven-compiler-plugin](https://maven.apache.org/plugins/maven-compiler-plugin/)[4] | 3.14.0 |
@@ -19,7 +19,7 @@ canonical_url: https://ike.network/ike-tooling/plugins.html
 | org.apache.maven.plugins | [maven-site-plugin](https://maven.apache.org/plugins/maven-site-plugin/)[9] | 3.21.0 |
 | org.apache.maven.plugins | [maven-surefire-plugin](https://maven.apache.org/surefire/maven-surefire-plugin/)[10] | 3.5.3 |
 | org.cyclonedx | [cyclonedx-maven-plugin](https://github.com/CycloneDX/cyclonedx-maven-plugin)[11] | 2.9.0 |
-| org.jacoco | [jacoco-maven-plugin](https://www.jacoco.org/jacoco/trunk/doc/maven.html)[12] | 0.8.14 |
+| org.jacoco | [jacoco-maven-plugin](https://www.jacoco.org/jacoco/trunk/doc/maven.html)[12] | 0.8.15 |
 
 # Project Report Plugins
 
@@ -27,4 +27,4 @@ canonical_url: https://ike.network/ike-tooling/plugins.html
 | --- | --- | --- |
 | org.apache.maven.plugins | [maven-javadoc-plugin](https://maven.apache.org/plugins/maven-javadoc-plugin/)[13] | 3.11.2 |
 | org.apache.maven.plugins | [maven-project-info-reports-plugin](https://maven.apache.org/plugins/maven-project-info-reports-plugin/)[14] | 3.9.0 |
-| org.jacoco | [jacoco-maven-plugin](https://www.jacoco.org/jacoco/trunk/doc/maven.html)[12] | 0.8.14 |
+| org.jacoco | [jacoco-maven-plugin](https://www.jacoco.org/jacoco/trunk/doc/maven.html)[12] | 0.8.15 |

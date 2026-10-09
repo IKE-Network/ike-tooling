@@ -6,7 +6,7 @@ canonical_url: https://ike.network/ike-tooling/ike-build-report-extension/built-
 
 # Built With
 
-Open-source software that `ike-build-report-extension` 263 depends on, links against, ships within, or invokes at runtime.
+Open-source software that `ike-build-report-extension` 264 depends on, links against, ships within, or invokes at runtime.
 
 Three layers of attribution ship with each release:
 
@@ -71,9 +71,10 @@ Direct dependencies of this module, grouped by SPDX expression. Generated from `
 | `Apache-2.0` | 41 |
 | `BSD-2-Clause` | 1 |
 | `BSD-4-Clause` | 9 |
-| `EPL-2.0` | 1 |
+| `EPL-2.0` | 2 |
 | `MIT` | 1 |
-| **Total** | **53** |
+| `BSD-3-Clause` | 3 |
+| **Total** | **57** |
 
 For full per-component detail (group, artifact, version, hashes, transitive deps), see [bom.json](bom.json)[1] or [licenses.html](licenses.html)[2].
 

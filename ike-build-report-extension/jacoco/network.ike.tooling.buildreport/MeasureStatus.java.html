@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MeasureStatus.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">MeasureStatus.java</span></div><h1>MeasureStatus.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * How one ledger bound fared against the session's measures.
+ *
+ * &lt;p&gt;A violated bound raises a finding under {@value #FINDING_PREFIX}
+ * plus the measure key, so it travels the same road as every other
+ * finding: ATTENTION in the receipt, the gate in {@code mode: gate},
+ * and the per-entry {@code mode: report} exemption. A bound whose
+ * measure was not taken this session is neither passed nor violated;
+ * the receipt says so.&lt;/p&gt;
+ *
+ * @param entry    the bound as the ledger declares it
+ * @param observed the session's value, or {@code null} when the measure
+ *                 was not taken
+ */
+public record MeasureStatus(MeasureEntry entry, Double observed) {
+
+    /** The key prefix of the findings violated bounds raise. */
+    public static final String FINDING_PREFIX = &quot;measure/&quot;;
+
+    /** Context key: the session's value. */
+    public static final String CONTEXT_OBSERVED = &quot;observed&quot;;
+
+    /** Context key: the bound as the ledger declares it. */
+    public static final String CONTEXT_BOUND = &quot;bound&quot;;
+
+    /** Context key: the ledger's reason for the bound. */
+    public static final String CONTEXT_REASON = &quot;reason&quot;;
+
+    /**
+     * Validates the status.
+     *
+     * @param entry    the bound as the ledger declares it
+     * @param observed the session's value, or {@code null}
+     */
+<span class="fc" id="L41">    public MeasureStatus {</span>
+<span class="fc" id="L42">        Objects.requireNonNull(entry, &quot;entry&quot;);</span>
+<span class="fc" id="L43">    }</span>
+
+    /**
+     * Says whether the measure was taken this session.
+     *
+     * @return {@code true} when there is a value to compare
+     */
+    public boolean measured() {
+<span class="fc bfc" id="L51" title="All 2 branches covered.">        return observed != null;</span>
+    }
+
+    /**
+     * Says whether the session's value passes the bound.
+     *
+     * @return {@code true} when measured and outside the bound
+     */
+    public boolean violated() {
+<span class="fc bfc" id="L60" title="All 4 branches covered.">        return measured() &amp;&amp; entry.violatedBy(observed);</span>
+    }
+
+    /**
+     * Says whether the session's value lets the bound tighten.
+     *
+     * @return {@code true} when measured, within the bound, and better
+     *         than the limit by more than the slack
+     */
+    public boolean canTighten() {
+<span class="pc bpc" id="L70" title="1 of 6 branches missed.">        return measured() &amp;&amp; !violated() &amp;&amp; entry.canTightenTo(observed);</span>
+    }
+
+    /**
+     * Computes the limit a tightening would move to.
+     *
+     * @return the tightened limit
+     * @throws IllegalStateException when the measure was not taken
+     */
+    public double tightened() {
+<span class="pc bpc" id="L80" title="1 of 2 branches missed.">        if (!measured()) {</span>
+<span class="nc" id="L81">            throw new IllegalStateException(entry.key() + &quot; was not measured&quot;);</span>
+        }
+<span class="fc" id="L83">        return entry.tightened(observed);</span>
+    }
+
+    /**
+     * Returns the finding a violated bound raises.
+     *
+     * @return the finding, or {@code null} when the bound is not violated
+     */
+    public Finding finding() {
+<span class="fc bfc" id="L92" title="All 2 branches covered.">        if (!violated()) {</span>
+<span class="fc" id="L93">            return null;</span>
+        }
+<span class="fc bfc" id="L95" title="All 2 branches covered.">        String direction = entry.bound() == MeasureEntry.Bound.AT_MOST ? &quot;above&quot; : &quot;below&quot;;</span>
+<span class="fc" id="L96">        String detail = entry.key() + &quot; is &quot; + Numbers.plain(observed) + &quot;, &quot; + direction</span>
+<span class="fc" id="L97">                + &quot; the ledger's &quot; + entry.describe();</span>
+<span class="fc" id="L98">        Map&lt;String, String&gt; context = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L99">        context.put(CONTEXT_OBSERVED, Numbers.plain(observed));</span>
+<span class="fc" id="L100">        context.put(CONTEXT_BOUND, entry.describe());</span>
+<span class="pc bpc" id="L101" title="1 of 2 branches missed.">        if (!entry.reason().isBlank()) {</span>
+<span class="nc" id="L102">            context.put(CONTEXT_REASON, entry.reason());</span>
+        }
+<span class="fc" id="L104">        return new Finding(FindingCategory.MEASURE, Severity.WARNING,</span>
+<span class="fc" id="L105">                FINDING_PREFIX + entry.key(), detail, context);</span>
+    }
+
+    /**
+     * Recovers the measure key from a finding key a violation raised.
+     *
+     * @param findingKey the finding's key
+     * @return the measure key, or {@code null} when the finding is not
+     *         a measure violation
+     */
+    public static String measureKey(String findingKey) {
+<span class="pc bpc" id="L116" title="1 of 4 branches missed.">        if (findingKey == null || !findingKey.startsWith(FINDING_PREFIX)) {</span>
+<span class="fc" id="L117">            return null;</span>
+        }
+<span class="fc" id="L119">        return findingKey.substring(FINDING_PREFIX.length());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

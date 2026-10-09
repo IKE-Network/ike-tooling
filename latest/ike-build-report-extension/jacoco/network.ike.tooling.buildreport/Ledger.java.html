@@ -32,6 +32,17 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  *   ignore:               # console warnings that should not count
  *     - match: &quot;Using incubator modules: jdk.incubator.vector&quot;
  *       reason: JVM notice, printed once per forked test JVM
+ * measures:               # bounds on the session's measures (ike-issues#1207)
+ *   - key: warnings.compiler.deprecation
+ *     at-most: 415        # may not rise above; at-least is a floor
+ *     reason: the October 2026 clean-up baseline
+ *     since: 2026-10-09
+ *   - key: coverage.line.percent
+ *     at-least: 38.5
+ *     slack: 0.5          # the room a mechanical tightening leaves
+ * sizes:                  # files or trees to size, by glob under the root
+ *   - key: size.komet-desktop.image
+ *     path: komet-desktop/target/image/**
  * }&lt;/pre&gt;
  *
  * &lt;p&gt;A missing file yields {@link #empty()}: report mode, no accepted
@@ -42,12 +53,39 @@ public final class Ledger {
     private final LedgerMode mode;
     private final List&lt;AcceptedEntry&gt; entries;
     private final List&lt;ConsoleIgnore&gt; consoleIgnores;
+    private final List&lt;MeasureEntry&gt; measures;
+    private final List&lt;SizeEntry&gt; sizes;
 
-<span class="fc" id="L46">    private Ledger(LedgerMode mode, List&lt;AcceptedEntry&gt; entries, List&lt;ConsoleIgnore&gt; consoleIgnores) {</span>
-<span class="fc" id="L47">        this.mode = mode;</span>
-<span class="fc" id="L48">        this.entries = List.copyOf(entries);</span>
-<span class="fc" id="L49">        this.consoleIgnores = List.copyOf(consoleIgnores);</span>
-<span class="fc" id="L50">    }</span>
+    private Ledger(
+            LedgerMode mode,
+            List&lt;AcceptedEntry&gt; entries,
+            List&lt;ConsoleIgnore&gt; consoleIgnores,
+            List&lt;MeasureEntry&gt; measures,
+<span class="fc" id="L64">            List&lt;SizeEntry&gt; sizes) {</span>
+<span class="fc" id="L65">        this.mode = mode;</span>
+<span class="fc" id="L66">        this.entries = List.copyOf(entries);</span>
+<span class="fc" id="L67">        this.consoleIgnores = List.copyOf(consoleIgnores);</span>
+<span class="fc" id="L68">        this.measures = List.copyOf(measures);</span>
+<span class="fc" id="L69">        this.sizes = List.copyOf(sizes);</span>
+<span class="fc" id="L70">    }</span>
+
+    /**
+     * Returns the bounds this ledger places on the session's measures.
+     *
+     * @return the measure entries in declaration order
+     */
+    public List&lt;MeasureEntry&gt; measures() {
+<span class="fc" id="L78">        return measures;</span>
+    }
+
+    /**
+     * Returns the files and trees this ledger asks the session to size.
+     *
+     * @return the size entries in declaration order
+     */
+    public List&lt;SizeEntry&gt; sizes() {
+<span class="fc" id="L87">        return sizes;</span>
+    }
 
     /**
      * Returns the console warnings this project has chosen not to count.
@@ -55,7 +93,7 @@ public final class Ledger {
      * @return the ignore rules in declaration order
      */
     public List&lt;ConsoleIgnore&gt; consoleIgnores() {
-<span class="fc" id="L58">        return consoleIgnores;</span>
+<span class="fc" id="L96">        return consoleIgnores;</span>
     }
 
     /**
@@ -64,7 +102,7 @@ public final class Ledger {
      * @return an empty ledger in {@link LedgerMode#REPORT} mode
      */
     public static Ledger empty() {
-<span class="fc" id="L67">        return new Ledger(LedgerMode.REPORT, List.of(), List.of());</span>
+<span class="fc" id="L105">        return new Ledger(LedgerMode.REPORT, List.of(), List.of(), List.of(), List.of());</span>
     }
 
     /**
@@ -76,7 +114,7 @@ public final class Ledger {
      * @return the ledger
      */
     public static Ledger of(LedgerMode mode, List&lt;AcceptedEntry&gt; entries) {
-<span class="fc" id="L79">        return of(mode, entries, List.of());</span>
+<span class="fc" id="L117">        return of(mode, entries, List.of());</span>
     }
 
     /**
@@ -88,8 +126,27 @@ public final class Ledger {
      * @return the ledger
      */
     public static Ledger of(LedgerMode mode, List&lt;AcceptedEntry&gt; entries, List&lt;ConsoleIgnore&gt; consoleIgnores) {
-<span class="fc" id="L91">        Objects.requireNonNull(mode, &quot;mode&quot;);</span>
-<span class="fc" id="L92">        return new Ledger(mode, entries, consoleIgnores);</span>
+<span class="fc" id="L129">        return of(mode, entries, consoleIgnores, List.of(), List.of());</span>
+    }
+
+    /**
+     * Creates a ledger from every part, measure bounds and sizes included.
+     *
+     * @param mode           the enforcement posture
+     * @param entries        the accepted entries in declaration order
+     * @param consoleIgnores the console ignore rules in declaration order
+     * @param measures       the bounds on the session's measures
+     * @param sizes          the files and trees to size
+     * @return the ledger
+     */
+    public static Ledger of(
+            LedgerMode mode,
+            List&lt;AcceptedEntry&gt; entries,
+            List&lt;ConsoleIgnore&gt; consoleIgnores,
+            List&lt;MeasureEntry&gt; measures,
+            List&lt;SizeEntry&gt; sizes) {
+<span class="fc" id="L148">        Objects.requireNonNull(mode, &quot;mode&quot;);</span>
+<span class="fc" id="L149">        return new Ledger(mode, entries, consoleIgnores, measures, sizes);</span>
     }
 
     /**
@@ -101,100 +158,181 @@ public final class Ledger {
      * @throws IllegalArgumentException when the YAML shape is not a ledger
      */
     public static Ledger load(Path file) throws IOException {
-<span class="fc" id="L104">        Objects.requireNonNull(file, &quot;file&quot;);</span>
-<span class="fc bfc" id="L105" title="All 2 branches covered.">        if (!Files.exists(file)) {</span>
-<span class="fc" id="L106">            return empty();</span>
+<span class="fc" id="L161">        Objects.requireNonNull(file, &quot;file&quot;);</span>
+<span class="fc bfc" id="L162" title="All 2 branches covered.">        if (!Files.exists(file)) {</span>
+<span class="fc" id="L163">            return empty();</span>
         }
-<span class="fc" id="L108">        try (Reader reader = Files.newBufferedReader(file)) {</span>
-<span class="fc" id="L109">            Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));</span>
-<span class="fc" id="L110">            Object root = yaml.load(reader);</span>
-<span class="pc bpc" id="L111" title="1 of 2 branches missed.">            if (root == null) {</span>
-<span class="nc" id="L112">                return empty();</span>
+<span class="fc" id="L165">        try (Reader reader = Files.newBufferedReader(file)) {</span>
+<span class="fc" id="L166">            Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));</span>
+<span class="fc" id="L167">            Object root = yaml.load(reader);</span>
+<span class="pc bpc" id="L168" title="1 of 2 branches missed.">            if (root == null) {</span>
+<span class="nc" id="L169">                return empty();</span>
             }
-<span class="pc bpc" id="L114" title="1 of 2 branches missed.">            if (!(root instanceof Map)) {</span>
-<span class="nc" id="L115">                throw new IllegalArgumentException(</span>
-<span class="nc" id="L116">                        &quot;ledger root must be a mapping, was: &quot; + root.getClass().getSimpleName());</span>
+<span class="pc bpc" id="L171" title="1 of 2 branches missed.">            if (!(root instanceof Map)) {</span>
+<span class="nc" id="L172">                throw new IllegalArgumentException(</span>
+<span class="nc" id="L173">                        &quot;ledger root must be a mapping, was: &quot; + root.getClass().getSimpleName());</span>
             }
-<span class="fc" id="L118">            Map&lt;?, ?&gt; map = (Map&lt;?, ?&gt;) root;</span>
-<span class="fc" id="L119">            LedgerMode mode = parseMode(map.get(&quot;mode&quot;));</span>
-<span class="fc" id="L120">            List&lt;AcceptedEntry&gt; entries = parseEntries(map.get(&quot;accepted&quot;));</span>
-<span class="fc" id="L121">            return new Ledger(mode, entries, parseConsoleIgnores(map.get(&quot;console&quot;)));</span>
-<span class="nc bnc" id="L122" title="All 2 branches missed.">        }</span>
+<span class="fc" id="L175">            Map&lt;?, ?&gt; map = (Map&lt;?, ?&gt;) root;</span>
+<span class="fc" id="L176">            LedgerMode mode = parseMode(map.get(&quot;mode&quot;));</span>
+<span class="fc" id="L177">            List&lt;AcceptedEntry&gt; entries = parseEntries(map.get(&quot;accepted&quot;));</span>
+<span class="fc" id="L178">            return new Ledger(mode, entries, parseConsoleIgnores(map.get(&quot;console&quot;)),</span>
+<span class="fc" id="L179">                    parseMeasures(map.get(&quot;measures&quot;)), parseSizes(map.get(&quot;sizes&quot;)));</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        }</span>
+    }
+
+    private static List&lt;MeasureEntry&gt; parseMeasures(Object value) {
+<span class="fc bfc" id="L184" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L185">            return List.of();</span>
+        }
+<span class="pc bpc" id="L187" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
+<span class="nc" id="L188">            throw new IllegalArgumentException(</span>
+<span class="nc" id="L189">                    &quot;measures must be a list, was: &quot; + value.getClass().getSimpleName());</span>
+        }
+<span class="fc" id="L191">        List&lt;MeasureEntry&gt; measures = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">        for (Object item : (List&lt;?&gt;) value) {</span>
+<span class="pc bpc" id="L193" title="1 of 2 branches missed.">            if (!(item instanceof Map)) {</span>
+<span class="nc" id="L194">                throw new IllegalArgumentException(&quot;measure entries must be mappings, found: &quot; + item);</span>
+            }
+<span class="fc" id="L196">            Map&lt;?, ?&gt; entry = (Map&lt;?, ?&gt;) item;</span>
+<span class="fc" id="L197">            Object key = entry.get(&quot;key&quot;);</span>
+<span class="pc bpc" id="L198" title="1 of 2 branches missed.">            if (key == null) {</span>
+<span class="nc" id="L199">                throw new IllegalArgumentException(&quot;measure entry is missing its key: &quot; + entry);</span>
+            }
+<span class="fc" id="L201">            MeasureEntry.Bound bound = null;</span>
+<span class="fc" id="L202">            Object limit = null;</span>
+<span class="fc bfc" id="L203" title="All 2 branches covered.">            for (MeasureEntry.Bound candidate : MeasureEntry.Bound.values()) {</span>
+<span class="fc" id="L204">                Object declared = entry.get(candidate.yaml());</span>
+<span class="fc bfc" id="L205" title="All 2 branches covered.">                if (declared == null) {</span>
+<span class="fc" id="L206">                    continue;</span>
+                }
+<span class="fc bfc" id="L208" title="All 2 branches covered.">                if (bound != null) {</span>
+<span class="fc" id="L209">                    throw new IllegalArgumentException(</span>
+                            &quot;measure entry '&quot; + key + &quot;' declares both at-most and at-least&quot;);
+                }
+<span class="fc" id="L212">                bound = candidate;</span>
+<span class="fc" id="L213">                limit = declared;</span>
+            }
+<span class="fc bfc" id="L215" title="All 2 branches covered.">            if (bound == null) {</span>
+<span class="fc" id="L216">                throw new IllegalArgumentException(&quot;measure entry '&quot; + key + &quot;' needs at-most or at-least&quot;);</span>
+            }
+<span class="fc bfc" id="L218" title="All 2 branches covered.">            if (!(limit instanceof Number)) {</span>
+<span class="fc" id="L219">                throw new IllegalArgumentException(</span>
+<span class="fc" id="L220">                        &quot;measure entry '&quot; + key + &quot;' &quot; + bound.yaml() + &quot; must be a number, was: &quot; + limit);</span>
+            }
+<span class="fc" id="L222">            Object slack = entry.get(&quot;slack&quot;);</span>
+<span class="pc bpc" id="L223" title="1 of 4 branches missed.">            if (slack != null &amp;&amp; !(slack instanceof Number)) {</span>
+<span class="nc" id="L224">                throw new IllegalArgumentException(</span>
+                        &quot;measure entry '&quot; + key + &quot;' slack must be a number, was: &quot; + slack);
+            }
+<span class="fc" id="L227">            measures.add(new MeasureEntry(</span>
+<span class="fc" id="L228">                    String.valueOf(key),</span>
+                    bound,
+<span class="fc" id="L230">                    ((Number) limit).doubleValue(),</span>
+<span class="fc bfc" id="L231" title="All 2 branches covered.">                    slack == null ? 0.0 : ((Number) slack).doubleValue(),</span>
+<span class="fc bfc" id="L232" title="All 2 branches covered.">                    entry.get(&quot;reason&quot;) == null ? &quot;&quot; : String.valueOf(entry.get(&quot;reason&quot;)),</span>
+<span class="fc" id="L233">                    stringifySince(entry.get(&quot;since&quot;)),</span>
+<span class="fc bfc" id="L234" title="All 2 branches covered.">                    entry.get(&quot;mode&quot;) == null ? null : parseMode(entry.get(&quot;mode&quot;))));</span>
+<span class="fc" id="L235">        }</span>
+<span class="fc" id="L236">        return measures;</span>
+    }
+
+    private static List&lt;SizeEntry&gt; parseSizes(Object value) {
+<span class="fc bfc" id="L240" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L241">            return List.of();</span>
+        }
+<span class="pc bpc" id="L243" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
+<span class="nc" id="L244">            throw new IllegalArgumentException(</span>
+<span class="nc" id="L245">                    &quot;sizes must be a list, was: &quot; + value.getClass().getSimpleName());</span>
+        }
+<span class="fc" id="L247">        List&lt;SizeEntry&gt; sizes = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L248" title="All 2 branches covered.">        for (Object item : (List&lt;?&gt;) value) {</span>
+<span class="pc bpc" id="L249" title="1 of 2 branches missed.">            if (!(item instanceof Map)) {</span>
+<span class="nc" id="L250">                throw new IllegalArgumentException(&quot;size entries must be mappings, found: &quot; + item);</span>
+            }
+<span class="fc" id="L252">            Map&lt;?, ?&gt; entry = (Map&lt;?, ?&gt;) item;</span>
+<span class="fc" id="L253">            Object key = entry.get(&quot;key&quot;);</span>
+<span class="fc" id="L254">            Object path = entry.get(&quot;path&quot;);</span>
+<span class="pc bpc" id="L255" title="1 of 4 branches missed.">            if (key == null || path == null) {</span>
+<span class="fc" id="L256">                throw new IllegalArgumentException(&quot;size entry needs a key and a path: &quot; + entry);</span>
+            }
+<span class="fc" id="L258">            sizes.add(new SizeEntry(String.valueOf(key), String.valueOf(path)));</span>
+<span class="fc" id="L259">        }</span>
+<span class="fc" id="L260">        return sizes;</span>
     }
 
     private static List&lt;ConsoleIgnore&gt; parseConsoleIgnores(Object console) {
-<span class="fc bfc" id="L126" title="All 2 branches covered.">        if (console == null) {</span>
-<span class="fc" id="L127">            return List.of();</span>
+<span class="fc bfc" id="L264" title="All 2 branches covered.">        if (console == null) {</span>
+<span class="fc" id="L265">            return List.of();</span>
         }
-<span class="pc bpc" id="L129" title="1 of 2 branches missed.">        if (!(console instanceof Map)) {</span>
-<span class="nc" id="L130">            throw new IllegalArgumentException(</span>
-<span class="nc" id="L131">                    &quot;console must be a mapping, was: &quot; + console.getClass().getSimpleName());</span>
+<span class="pc bpc" id="L267" title="1 of 2 branches missed.">        if (!(console instanceof Map)) {</span>
+<span class="nc" id="L268">            throw new IllegalArgumentException(</span>
+<span class="nc" id="L269">                    &quot;console must be a mapping, was: &quot; + console.getClass().getSimpleName());</span>
         }
-<span class="fc" id="L133">        Object value = ((Map&lt;?, ?&gt;) console).get(&quot;ignore&quot;);</span>
-<span class="pc bpc" id="L134" title="1 of 2 branches missed.">        if (value == null) {</span>
-<span class="nc" id="L135">            return List.of();</span>
+<span class="fc" id="L271">        Object value = ((Map&lt;?, ?&gt;) console).get(&quot;ignore&quot;);</span>
+<span class="pc bpc" id="L272" title="1 of 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L273">            return List.of();</span>
         }
-<span class="pc bpc" id="L137" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
-<span class="nc" id="L138">            throw new IllegalArgumentException(</span>
-<span class="nc" id="L139">                    &quot;console ignore must be a list, was: &quot; + value.getClass().getSimpleName());</span>
+<span class="pc bpc" id="L275" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
+<span class="nc" id="L276">            throw new IllegalArgumentException(</span>
+<span class="nc" id="L277">                    &quot;console ignore must be a list, was: &quot; + value.getClass().getSimpleName());</span>
         }
-<span class="fc" id="L141">        List&lt;ConsoleIgnore&gt; rules = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L142" title="All 2 branches covered.">        for (Object item : (List&lt;?&gt;) value) {</span>
+<span class="fc" id="L279">        List&lt;ConsoleIgnore&gt; rules = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L280" title="All 2 branches covered.">        for (Object item : (List&lt;?&gt;) value) {</span>
             // A bare string is a rule with no reason.
-<span class="fc bfc" id="L144" title="All 2 branches covered.">            Object match = item instanceof Map ? ((Map&lt;?, ?&gt;) item).get(&quot;match&quot;) : item;</span>
-<span class="fc bfc" id="L145" title="All 2 branches covered.">            Object reason = item instanceof Map ? ((Map&lt;?, ?&gt;) item).get(&quot;reason&quot;) : null;</span>
-<span class="pc bpc" id="L146" title="2 of 4 branches missed.">            if (match == null || String.valueOf(match).isBlank()) {</span>
-<span class="nc" id="L147">                throw new IllegalArgumentException(&quot;console ignore rule is missing its match text: &quot; + item);</span>
+<span class="fc bfc" id="L282" title="All 2 branches covered.">            Object match = item instanceof Map ? ((Map&lt;?, ?&gt;) item).get(&quot;match&quot;) : item;</span>
+<span class="fc bfc" id="L283" title="All 2 branches covered.">            Object reason = item instanceof Map ? ((Map&lt;?, ?&gt;) item).get(&quot;reason&quot;) : null;</span>
+<span class="pc bpc" id="L284" title="2 of 4 branches missed.">            if (match == null || String.valueOf(match).isBlank()) {</span>
+<span class="nc" id="L285">                throw new IllegalArgumentException(&quot;console ignore rule is missing its match text: &quot; + item);</span>
             }
-<span class="fc" id="L149">            rules.add(new ConsoleIgnore(</span>
-<span class="fc bfc" id="L150" title="All 2 branches covered.">                    String.valueOf(match), reason == null ? &quot;&quot; : String.valueOf(reason).strip()));</span>
-<span class="fc" id="L151">        }</span>
-<span class="fc" id="L152">        return rules;</span>
+<span class="fc" id="L287">            rules.add(new ConsoleIgnore(</span>
+<span class="fc bfc" id="L288" title="All 2 branches covered.">                    String.valueOf(match), reason == null ? &quot;&quot; : String.valueOf(reason).strip()));</span>
+<span class="fc" id="L289">        }</span>
+<span class="fc" id="L290">        return rules;</span>
     }
 
     private static LedgerMode parseMode(Object value) {
-<span class="fc bfc" id="L156" title="All 2 branches covered.">        if (value == null) {</span>
-<span class="fc" id="L157">            return LedgerMode.REPORT;</span>
+<span class="fc bfc" id="L294" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L295">            return LedgerMode.REPORT;</span>
         }
-<span class="fc" id="L159">        String text = String.valueOf(value).strip().toUpperCase(Locale.ROOT);</span>
+<span class="fc" id="L297">        String text = String.valueOf(value).strip().toUpperCase(Locale.ROOT);</span>
         try {
-<span class="fc" id="L161">            return LedgerMode.valueOf(text);</span>
-<span class="fc" id="L162">        } catch (IllegalArgumentException e) {</span>
-<span class="fc" id="L163">            throw new IllegalArgumentException(&quot;mode must be report or gate, was: &quot; + value);</span>
+<span class="fc" id="L299">            return LedgerMode.valueOf(text);</span>
+<span class="fc" id="L300">        } catch (IllegalArgumentException e) {</span>
+<span class="fc" id="L301">            throw new IllegalArgumentException(&quot;mode must be report or gate, was: &quot; + value);</span>
         }
     }
 
     private static List&lt;AcceptedEntry&gt; parseEntries(Object value) {
-<span class="fc bfc" id="L168" title="All 2 branches covered.">        if (value == null) {</span>
-<span class="fc" id="L169">            return List.of();</span>
+<span class="fc bfc" id="L306" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L307">            return List.of();</span>
         }
-<span class="pc bpc" id="L171" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
-<span class="nc" id="L172">            throw new IllegalArgumentException(</span>
-<span class="nc" id="L173">                    &quot;accepted must be a list, was: &quot; + value.getClass().getSimpleName());</span>
+<span class="pc bpc" id="L309" title="1 of 2 branches missed.">        if (!(value instanceof List)) {</span>
+<span class="nc" id="L310">            throw new IllegalArgumentException(</span>
+<span class="nc" id="L311">                    &quot;accepted must be a list, was: &quot; + value.getClass().getSimpleName());</span>
         }
-<span class="fc" id="L175">        List&lt;AcceptedEntry&gt; entries = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L176" title="All 2 branches covered.">        for (Object item : (List&lt;?&gt;) value) {</span>
-<span class="pc bpc" id="L177" title="1 of 2 branches missed.">            if (!(item instanceof Map)) {</span>
-<span class="nc" id="L178">                throw new IllegalArgumentException(&quot;accepted entries must be mappings, found: &quot; + item);</span>
+<span class="fc" id="L313">        List&lt;AcceptedEntry&gt; entries = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L314" title="All 2 branches covered.">        for (Object item : (List&lt;?&gt;) value) {</span>
+<span class="pc bpc" id="L315" title="1 of 2 branches missed.">            if (!(item instanceof Map)) {</span>
+<span class="nc" id="L316">                throw new IllegalArgumentException(&quot;accepted entries must be mappings, found: &quot; + item);</span>
             }
-<span class="fc" id="L180">            Map&lt;?, ?&gt; entry = (Map&lt;?, ?&gt;) item;</span>
-<span class="fc" id="L181">            Object key = entry.get(&quot;key&quot;);</span>
-<span class="pc bpc" id="L182" title="1 of 2 branches missed.">            if (key == null) {</span>
-<span class="nc" id="L183">                throw new IllegalArgumentException(&quot;accepted entry is missing its key: &quot; + entry);</span>
+<span class="fc" id="L318">            Map&lt;?, ?&gt; entry = (Map&lt;?, ?&gt;) item;</span>
+<span class="fc" id="L319">            Object key = entry.get(&quot;key&quot;);</span>
+<span class="pc bpc" id="L320" title="1 of 2 branches missed.">            if (key == null) {</span>
+<span class="nc" id="L321">                throw new IllegalArgumentException(&quot;accepted entry is missing its key: &quot; + entry);</span>
             }
-<span class="fc" id="L185">            Object count = entry.get(&quot;count&quot;);</span>
-<span class="fc bfc" id="L186" title="All 2 branches covered.">            if (!(count instanceof Integer)) {</span>
-<span class="fc" id="L187">                throw new IllegalArgumentException(</span>
+<span class="fc" id="L323">            Object count = entry.get(&quot;count&quot;);</span>
+<span class="fc bfc" id="L324" title="All 2 branches covered.">            if (!(count instanceof Integer)) {</span>
+<span class="fc" id="L325">                throw new IllegalArgumentException(</span>
                         &quot;accepted entry '&quot; + key + &quot;' needs an integer count, was: &quot; + count);
             }
-<span class="fc" id="L190">            entries.add(new AcceptedEntry(</span>
-<span class="fc" id="L191">                    String.valueOf(key),</span>
-<span class="fc" id="L192">                    (Integer) count,</span>
-<span class="fc bfc" id="L193" title="All 2 branches covered.">                    entry.get(&quot;reason&quot;) == null ? &quot;&quot; : String.valueOf(entry.get(&quot;reason&quot;)),</span>
-<span class="fc" id="L194">                    stringifySince(entry.get(&quot;since&quot;)),</span>
-<span class="fc bfc" id="L195" title="All 2 branches covered.">                    entry.get(&quot;mode&quot;) == null ? null : parseMode(entry.get(&quot;mode&quot;))));</span>
-<span class="fc" id="L196">        }</span>
-<span class="fc" id="L197">        return entries;</span>
+<span class="fc" id="L328">            entries.add(new AcceptedEntry(</span>
+<span class="fc" id="L329">                    String.valueOf(key),</span>
+<span class="fc" id="L330">                    (Integer) count,</span>
+<span class="fc bfc" id="L331" title="All 2 branches covered.">                    entry.get(&quot;reason&quot;) == null ? &quot;&quot; : String.valueOf(entry.get(&quot;reason&quot;)),</span>
+<span class="fc" id="L332">                    stringifySince(entry.get(&quot;since&quot;)),</span>
+<span class="fc bfc" id="L333" title="All 2 branches covered.">                    entry.get(&quot;mode&quot;) == null ? null : parseMode(entry.get(&quot;mode&quot;))));</span>
+<span class="fc" id="L334">        }</span>
+<span class="fc" id="L335">        return entries;</span>
     }
 
     /**
@@ -205,16 +343,16 @@ public final class Ledger {
      * mapped back to the date the author wrote.&lt;/p&gt;
      */
     private static String stringifySince(Object value) {
-<span class="fc bfc" id="L208" title="All 2 branches covered.">        if (value == null) {</span>
-<span class="fc" id="L209">            return &quot;&quot;;</span>
+<span class="fc bfc" id="L346" title="All 2 branches covered.">        if (value == null) {</span>
+<span class="fc" id="L347">            return &quot;&quot;;</span>
         }
-<span class="pc bpc" id="L211" title="1 of 2 branches missed.">        if (value instanceof java.util.Date date) {</span>
-<span class="fc" id="L212">            return java.time.Instant.ofEpochMilli(date.getTime())</span>
-<span class="fc" id="L213">                    .atZone(java.time.ZoneOffset.UTC)</span>
-<span class="fc" id="L214">                    .toLocalDate()</span>
-<span class="fc" id="L215">                    .toString();</span>
+<span class="pc bpc" id="L349" title="1 of 2 branches missed.">        if (value instanceof java.util.Date date) {</span>
+<span class="fc" id="L350">            return java.time.Instant.ofEpochMilli(date.getTime())</span>
+<span class="fc" id="L351">                    .atZone(java.time.ZoneOffset.UTC)</span>
+<span class="fc" id="L352">                    .toLocalDate()</span>
+<span class="fc" id="L353">                    .toString();</span>
         }
-<span class="nc" id="L217">        return String.valueOf(value);</span>
+<span class="nc" id="L355">        return String.valueOf(value);</span>
     }
 
     /**
@@ -223,7 +361,7 @@ public final class Ledger {
      * @return the ledger's mode; {@link LedgerMode#REPORT} when undeclared
      */
     public LedgerMode mode() {
-<span class="fc" id="L226">        return mode;</span>
+<span class="fc" id="L364">        return mode;</span>
     }
 
     /**
@@ -232,7 +370,7 @@ public final class Ledger {
      * @return an immutable list of accepted entries
      */
     public List&lt;AcceptedEntry&gt; entries() {
-<span class="fc" id="L235">        return entries;</span>
+<span class="fc" id="L373">        return entries;</span>
     }
 
     /**
@@ -248,49 +386,49 @@ public final class Ledger {
      * @return the evaluation backing the receipt's sections
      */
     public LedgerEvaluation evaluate(List&lt;Finding&gt; findings) {
-<span class="fc" id="L251">        Objects.requireNonNull(findings, &quot;findings&quot;);</span>
-<span class="fc" id="L252">        List&lt;Finding&gt; failures = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L253">        Map&lt;String, List&lt;Finding&gt;&gt; warningsByKey = new LinkedHashMap&lt;&gt;();</span>
-<span class="fc bfc" id="L254" title="All 2 branches covered.">        for (Finding finding : findings) {</span>
-<span class="fc bfc" id="L255" title="All 2 branches covered.">            if (finding.severity() == Severity.ERROR) {</span>
-<span class="fc" id="L256">                failures.add(finding);</span>
+<span class="fc" id="L389">        Objects.requireNonNull(findings, &quot;findings&quot;);</span>
+<span class="fc" id="L390">        List&lt;Finding&gt; failures = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L391">        Map&lt;String, List&lt;Finding&gt;&gt; warningsByKey = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L392" title="All 2 branches covered.">        for (Finding finding : findings) {</span>
+<span class="fc bfc" id="L393" title="All 2 branches covered.">            if (finding.severity() == Severity.ERROR) {</span>
+<span class="fc" id="L394">                failures.add(finding);</span>
             } else {
-<span class="fc" id="L258">                warningsByKey.computeIfAbsent(finding.key(), k -&gt; new ArrayList&lt;&gt;()).add(finding);</span>
+<span class="fc" id="L396">                warningsByKey.computeIfAbsent(finding.key(), k -&gt; new ArrayList&lt;&gt;()).add(finding);</span>
             }
-<span class="fc" id="L260">        }</span>
+<span class="fc" id="L398">        }</span>
 
-<span class="fc" id="L262">        Map&lt;String, AcceptedEntry&gt; entriesByKey = new LinkedHashMap&lt;&gt;();</span>
-<span class="fc bfc" id="L263" title="All 2 branches covered.">        for (AcceptedEntry entry : entries) {</span>
-<span class="fc" id="L264">            entriesByKey.put(entry.key(), entry);</span>
-<span class="fc" id="L265">        }</span>
+<span class="fc" id="L400">        Map&lt;String, AcceptedEntry&gt; entriesByKey = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L401" title="All 2 branches covered.">        for (AcceptedEntry entry : entries) {</span>
+<span class="fc" id="L402">            entriesByKey.put(entry.key(), entry);</span>
+<span class="fc" id="L403">        }</span>
 
-<span class="fc" id="L267">        List&lt;LedgerEvaluation.AttentionItem&gt; attention = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L268">        List&lt;LedgerEvaluation.AcceptedStatus&gt; accepted = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L269">        List&lt;LedgerEvaluation.AcceptedStatus&gt; ratchet = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L405">        List&lt;LedgerEvaluation.AttentionItem&gt; attention = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L406">        List&lt;LedgerEvaluation.AcceptedStatus&gt; accepted = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L407">        List&lt;LedgerEvaluation.AcceptedStatus&gt; ratchet = new ArrayList&lt;&gt;();</span>
 
-<span class="fc bfc" id="L271" title="All 2 branches covered.">        for (Map.Entry&lt;String, List&lt;Finding&gt;&gt; observed : warningsByKey.entrySet()) {</span>
-<span class="fc" id="L272">            AcceptedEntry entry = entriesByKey.remove(observed.getKey());</span>
-<span class="fc" id="L273">            long count = observed.getValue().size();</span>
-<span class="fc" id="L274">            List&lt;Finding&gt; observedFindings = observed.getValue();</span>
-<span class="fc bfc" id="L275" title="All 2 branches covered.">            if (entry == null) {</span>
-<span class="fc" id="L276">                attention.add(new LedgerEvaluation.AttentionItem(</span>
-<span class="fc" id="L277">                        observed.getKey(), count, null, observedFindings));</span>
-<span class="fc bfc" id="L278" title="All 2 branches covered.">            } else if (count &gt; entry.count()) {</span>
-<span class="fc" id="L279">                attention.add(new LedgerEvaluation.AttentionItem(</span>
-<span class="fc" id="L280">                        observed.getKey(), count, entry.count(), observedFindings));</span>
-<span class="fc bfc" id="L281" title="All 2 branches covered.">            } else if (count == entry.count()) {</span>
-<span class="fc" id="L282">                accepted.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
+<span class="fc bfc" id="L409" title="All 2 branches covered.">        for (Map.Entry&lt;String, List&lt;Finding&gt;&gt; observed : warningsByKey.entrySet()) {</span>
+<span class="fc" id="L410">            AcceptedEntry entry = entriesByKey.remove(observed.getKey());</span>
+<span class="fc" id="L411">            long count = observed.getValue().size();</span>
+<span class="fc" id="L412">            List&lt;Finding&gt; observedFindings = observed.getValue();</span>
+<span class="fc bfc" id="L413" title="All 2 branches covered.">            if (entry == null) {</span>
+<span class="fc" id="L414">                attention.add(new LedgerEvaluation.AttentionItem(</span>
+<span class="fc" id="L415">                        observed.getKey(), count, null, observedFindings));</span>
+<span class="fc bfc" id="L416" title="All 2 branches covered.">            } else if (count &gt; entry.count()) {</span>
+<span class="fc" id="L417">                attention.add(new LedgerEvaluation.AttentionItem(</span>
+<span class="fc" id="L418">                        observed.getKey(), count, entry.count(), observedFindings));</span>
+<span class="fc bfc" id="L419" title="All 2 branches covered.">            } else if (count == entry.count()) {</span>
+<span class="fc" id="L420">                accepted.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
             } else {
-<span class="fc" id="L284">                accepted.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
-<span class="fc" id="L285">                ratchet.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
+<span class="fc" id="L422">                accepted.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
+<span class="fc" id="L423">                ratchet.add(new LedgerEvaluation.AcceptedStatus(entry, count));</span>
             }
-<span class="fc" id="L287">        }</span>
+<span class="fc" id="L425">        }</span>
 
-<span class="fc bfc" id="L289" title="All 2 branches covered.">        for (AcceptedEntry unobserved : entriesByKey.values()) {</span>
-<span class="fc" id="L290">            ratchet.add(new LedgerEvaluation.AcceptedStatus(unobserved, 0L));</span>
-<span class="fc" id="L291">        }</span>
+<span class="fc bfc" id="L427" title="All 2 branches covered.">        for (AcceptedEntry unobserved : entriesByKey.values()) {</span>
+<span class="fc" id="L428">            ratchet.add(new LedgerEvaluation.AcceptedStatus(unobserved, 0L));</span>
+<span class="fc" id="L429">        }</span>
 
-<span class="fc" id="L293">        return new LedgerEvaluation(failures, attention, accepted, ratchet);</span>
+<span class="fc" id="L431">        return new LedgerEvaluation(failures, attention, accepted, ratchet);</span>
     }
 
     /**
@@ -305,19 +443,64 @@ public final class Ledger {
      * @return the gating attention items, in evaluation order
      */
     public List&lt;LedgerEvaluation.AttentionItem&gt; gatingAttention(LedgerEvaluation evaluation) {
-<span class="fc" id="L308">        Objects.requireNonNull(evaluation, &quot;evaluation&quot;);</span>
-<span class="fc" id="L309">        Map&lt;String, AcceptedEntry&gt; entriesByKey = new LinkedHashMap&lt;&gt;();</span>
-<span class="fc bfc" id="L310" title="All 2 branches covered.">        for (AcceptedEntry entry : entries) {</span>
-<span class="fc" id="L311">            entriesByKey.put(entry.key(), entry);</span>
-<span class="fc" id="L312">        }</span>
-<span class="fc" id="L313">        List&lt;LedgerEvaluation.AttentionItem&gt; gating = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L314" title="All 2 branches covered.">        for (LedgerEvaluation.AttentionItem item : evaluation.attention()) {</span>
-<span class="fc" id="L315">            AcceptedEntry entry = entriesByKey.get(item.key());</span>
-<span class="pc bpc" id="L316" title="1 of 4 branches missed.">            if (entry == null || entry.entryMode() != LedgerMode.REPORT) {</span>
-<span class="fc" id="L317">                gating.add(item);</span>
+<span class="fc" id="L446">        Objects.requireNonNull(evaluation, &quot;evaluation&quot;);</span>
+<span class="fc" id="L447">        Map&lt;String, AcceptedEntry&gt; entriesByKey = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L448" title="All 2 branches covered.">        for (AcceptedEntry entry : entries) {</span>
+<span class="fc" id="L449">            entriesByKey.put(entry.key(), entry);</span>
+<span class="fc" id="L450">        }</span>
+<span class="fc" id="L451">        List&lt;LedgerEvaluation.AttentionItem&gt; gating = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L452">        Map&lt;String, MeasureEntry&gt; measuresByKey = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L453" title="All 2 branches covered.">        for (MeasureEntry measure : measures) {</span>
+<span class="fc" id="L454">            measuresByKey.put(measure.key(), measure);</span>
+<span class="fc" id="L455">        }</span>
+<span class="fc bfc" id="L456" title="All 2 branches covered.">        for (LedgerEvaluation.AttentionItem item : evaluation.attention()) {</span>
+<span class="fc" id="L457">            String measureKey = MeasureStatus.measureKey(item.key());</span>
+<span class="fc bfc" id="L458" title="All 2 branches covered.">            if (measureKey != null) {</span>
+<span class="fc" id="L459">                MeasureEntry bound = measuresByKey.get(measureKey);</span>
+<span class="pc bpc" id="L460" title="1 of 4 branches missed.">                if (bound == null || bound.entryMode() != LedgerMode.REPORT) {</span>
+<span class="fc" id="L461">                    gating.add(item);</span>
+                }
+                continue;
             }
-<span class="fc" id="L319">        }</span>
-<span class="fc" id="L320">        return gating;</span>
+<span class="fc" id="L465">            AcceptedEntry entry = entriesByKey.get(item.key());</span>
+<span class="pc bpc" id="L466" title="1 of 4 branches missed.">            if (entry == null || entry.entryMode() != LedgerMode.REPORT) {</span>
+<span class="fc" id="L467">                gating.add(item);</span>
+            }
+<span class="fc" id="L469">        }</span>
+<span class="fc" id="L470">        return gating;</span>
+    }
+
+    /**
+     * Compares a session's measures against this ledger's bounds.
+     *
+     * @param measures what the session measured
+     * @return one status per bound, in ledger order
+     */
+    public List&lt;MeasureStatus&gt; evaluateMeasures(Measures measures) {
+<span class="fc" id="L480">        Objects.requireNonNull(measures, &quot;measures&quot;);</span>
+<span class="fc" id="L481">        List&lt;MeasureStatus&gt; statuses = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L482" title="All 2 branches covered.">        for (MeasureEntry entry : this.measures) {</span>
+<span class="fc" id="L483">            statuses.add(new MeasureStatus(entry, measures.value(entry.key())));</span>
+<span class="fc" id="L484">        }</span>
+<span class="fc" id="L485">        return statuses;</span>
+    }
+
+    /**
+     * Returns the findings violated bounds raise, to be evaluated with
+     * the session's other findings.
+     *
+     * @param statuses the bounds' statuses
+     * @return one finding per violated bound, in status order
+     */
+    public static List&lt;Finding&gt; measureFindings(List&lt;MeasureStatus&gt; statuses) {
+<span class="fc" id="L496">        List&lt;Finding&gt; findings = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L497" title="All 2 branches covered.">        for (MeasureStatus status : statuses) {</span>
+<span class="fc" id="L498">            Finding finding = status.finding();</span>
+<span class="fc bfc" id="L499" title="All 2 branches covered.">            if (finding != null) {</span>
+<span class="fc" id="L500">                findings.add(finding);</span>
+            }
+<span class="fc" id="L502">        }</span>
+<span class="fc" id="L503">        return findings;</span>
     }
 }
-</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.14.202510111229</span></div></body></html>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

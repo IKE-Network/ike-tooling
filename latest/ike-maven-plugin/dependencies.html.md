@@ -6,13 +6,13 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/dependencies.htm
 
 # Dependencies (SBOM)
 
-Full transitive dependency graph for `ike-maven-plugin` 263, generated from [bom.json](bom.json)[1] (CycloneDX 1.6) at build time. Same SBOM source as the SPDX-grouped [licenses.html](licenses.html)[2] and the curated [built-with.html](built-with.html)[3] — three views of the same data.
+Full transitive dependency graph for `ike-maven-plugin` 264, generated from [bom.json](bom.json)[1] (CycloneDX 1.6) at build time. Same SBOM source as the SPDX-grouped [licenses.html](licenses.html)[2] and the curated [built-with.html](built-with.html)[3] — three views of the same data.
 
 ## [#summary](#summary)Summary
 
-| Total components | 82 |
+| Total components | 83 |
 | --- | --- |
-| Distinct license expressions | 12 |
+| Distinct license expressions | 13 |
 
 ## [#components](#components)Components
 
@@ -54,11 +54,11 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 | `net.java.dev.jna` | `jna-platform` | `5.18.1` | `Apache-2.0 OR LGPL-2.1-or-later` | library |
 | `network.ike` | `ike-base-parent` | `15` | `Apache-2.0` | library |
 | `network.ike` | `ike-java-support` | `10` | `Apache-2.0` | library |
-| `network.ike.tooling` | `ike-build-report-extension` | `263` | `Apache-2.0` | library |
-| `network.ike.tooling` | `ike-build-standards` | `263` | `Apache-2.0` | library |
-| `network.ike.tooling` | `ike-knowledge-spi` | `263` | `Apache-2.0` | library |
-| `network.ike.tooling` | `ike-maven-plugin-support` | `263` | `Apache-2.0` | library |
-| `network.ike.tooling` | `ike-workspace-model` | `263` | `Apache-2.0` | library |
+| `network.ike.tooling` | `ike-build-report-extension` | `264` | `Apache-2.0` | library |
+| `network.ike.tooling` | `ike-build-standards` | `264` | `Apache-2.0` | library |
+| `network.ike.tooling` | `ike-knowledge-spi` | `264` | `Apache-2.0` | library |
+| `network.ike.tooling` | `ike-maven-plugin-support` | `264` | `Apache-2.0` | library |
+| `network.ike.tooling` | `ike-workspace-model` | `264` | `Apache-2.0` | library |
 | `org.antlr` | `antlr4-runtime` | `4.13.2` | `BSD-3-Clause` | library |
 | `org.apache.commons` | `commons-lang3` | `3.20.0` | `Apache-2.0` | library |
 | `org.apache.commons` | `commons-text` | `1.15.0` | `Apache-2.0` | library |
@@ -80,6 +80,7 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 | `org.codehaus.woodstox` | `stax2-api` | `4.2.2` | `BSD-2-Clause` | library |
 | `org.crac` | `crac` | `1.5.0` | `BSD-2-Clause` | library |
 | `org.hdrhistogram` | `HdrHistogram` | `2.1.12` | `BSD-2-Clause OR CC0-1.0` | library |
+| `org.jacoco` | `org.jacoco.core` | `0.8.15` | `EPL-2.0` | library |
 | `org.jboss` | `jandex` | `2.4.2.Final` | `Apache-2.0` | library |
 | `org.jetbrains` | `annotations` | `26.1.0` | `Apache-2.0` | library |
 | `org.jruby` | `dirgra` | `0.5` | `EPL-1.0` | library |
@@ -96,10 +97,10 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 | `org.openrewrite` | `rewrite-xml` | `8.79.2` | `Apache-2.0` | library |
 | `org.openrewrite.tools` | `java-object-diff` | `1.0.1` | `Apache-2.0` | library |
 | `org.openrewrite.tools` | `jgit` | `1.4.1` | `Apache-2.0` | library |
-| `org.ow2.asm` | `asm` | `9.7.1` | `BSD-3-Clause` | library |
+| `org.ow2.asm` | `asm` | `9.10.1` | `BSD-3-Clause` | library |
 | `org.ow2.asm` | `asm-analysis` | `9.7.1` | `BSD-3-Clause` | library |
-| `org.ow2.asm` | `asm-commons` | `9.7.1` | `BSD-3-Clause` | library |
-| `org.ow2.asm` | `asm-tree` | `9.7.1` | `BSD-3-Clause` | library |
+| `org.ow2.asm` | `asm-commons` | `9.10.1` | `BSD-3-Clause` | library |
+| `org.ow2.asm` | `asm-tree` | `9.10.1` | `BSD-3-Clause` | library |
 | `org.ow2.asm` | `asm-util` | `9.7.1` | `BSD-3-Clause` | library |
 | `org.yaml` | `snakeyaml` | `2.2` | `Apache-2.0` | library |
 
@@ -107,7 +108,7 @@ Sorted by group, artifact, version. Click [bom.json](bom.json)[1] for the raw ma
 
 - [Software Bill of Materials (CycloneDX, JSON)](bom.json)[1] — raw machine-readable form. Includes purls, hashes, and dependency-graph edges that this page summarizes.
 - [bom.xml](bom.xml)[4] — same content in XML.
-- As a Maven artifact: pull `ike-maven-plugin:​263` with `<classifier>cyclonedx</classifier><type>json</type>` from Nexus / Maven Central.
+- As a Maven artifact: pull `ike-maven-plugin:​264` with `<classifier>cyclonedx</classifier><type>json</type>` from Nexus / Maven Central.
 
 ## [#see-also](#see-also)See also
 
