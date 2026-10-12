@@ -57,9 +57,6 @@ public final class ReceiptRenderer {
     /** How many distinct console messages the receipt lists before summarizing. */
     private static final int MAX_CONSOLE_ITEMS = 25;
 
-    /** How many messages the receipt lists under each folded kind. */
-    private static final int MAX_KIND_ITEMS = 3;
-
     /** How many module names one console message lists before counting the rest. */
     private static final int MAX_CONSOLE_MODULES = 3;
 
@@ -542,8 +539,8 @@ public final class ReceiptRenderer {
     /**
      * Renders the messages that were folded by kind — compiler warnings
      * by lint category, dependency-analysis lines by the analyzer's
-     * heading — as one entry per kind with its heaviest messages
-     * beneath it.
+     * heading — as one entry per kind with every distinct message beneath
+     * it, heaviest first, so the receipt alone says what was warned about.
      */
     private static void renderConsoleKinds(StringBuilder out, Map<String, List<ConsoleMessages.Item>> kinds) {
         if (kinds.isEmpty()) {
@@ -566,8 +563,7 @@ public final class ReceiptRenderer {
                 out.append(" · ").append(describeModuleCounts(modules));
             }
             out.append('\n');
-            int shown = Math.min(items.size(), MAX_KIND_ITEMS);
-            for (ConsoleMessages.Item item : items.subList(0, shown)) {
+            for (ConsoleMessages.Item item : items) {
                 out.append("  - **").append(item.count()).append("×** `")
                         .append(item.message().replace('`', '\'')).append('`');
                 if (item.files() > 1) {
@@ -576,9 +572,6 @@ public final class ReceiptRenderer {
                     out.append(" — ").append(String.join(", ", item.modules().keySet()));
                 }
                 out.append('\n');
-            }
-            if (items.size() > shown) {
-                out.append("  - … and ").append(items.size() - shown).append(" more\n");
             }
         }
         out.append('\n');

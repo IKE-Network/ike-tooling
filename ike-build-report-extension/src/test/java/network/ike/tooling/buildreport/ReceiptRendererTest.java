@@ -239,7 +239,7 @@ class ReceiptRendererTest {
     }
 
     @Test
-    void foldedKindsRenderAsOneEntryWithTheirHeaviestMessages() {
+    void foldedKindsRenderAsOneEntryWithEveryDistinctMessage() {
         java.util.List<ConsoleMessages.Item> items = new java.util.ArrayList<>();
         for (int index = 1; index <= 5; index++) {
             items.add(new ConsoleMessages.Item(ConsoleMessages.Level.WARNING,
@@ -254,8 +254,9 @@ class ReceiptRendererTest {
 
         assertThat(receipt).contains("- 🟡 **137×** compiler: deprecation — 5 distinct · kview 137\n");
         assertThat(receipt).contains("  - **60×** `Thing1 has been deprecated` — 30 files\n");
-        assertThat(receipt).contains("  - … and 2 more\n");
-        assertThat(receipt).doesNotContain("Thing4");
+        assertThat(receipt).contains("  - **12×** `Thing5 has been deprecated` — 6 files\n");
+        assertThat(receipt).doesNotContain(" more\n");
+        assertThat(receipt.indexOf("Thing1")).isLessThan(receipt.indexOf("Thing4"));
     }
 
     private static ConsoleMessages.Item incubator() {
