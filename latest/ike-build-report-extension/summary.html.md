@@ -1,6 +1,6 @@
 ---
-date_published: 2026-10-08
-date_modified: 2026-10-08
+date_published: 2026-10-11
+date_modified: 2026-10-11
 canonical_url: https://ike.network/ike-tooling/ike-build-report-extension/summary.html
 ---
 
@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-build-report-extension/summar
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-build-report-extension |
-| Version | 264 |
+| Version | 265 |
 | Type | jar |
 | Java Version | 25 |
