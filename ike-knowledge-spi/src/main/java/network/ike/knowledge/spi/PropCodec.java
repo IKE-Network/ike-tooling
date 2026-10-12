@@ -79,6 +79,9 @@ final class PropCodec {
             ArtifactInput input = inputs.get(i);
             properties.setProperty(prefix + (i + 1) + ".role", input.role().name());
             properties.setProperty(prefix + (i + 1) + ".path", input.path().toString());
+            int index = i + 1;
+            input.importer().ifPresent(importer -> properties.setProperty(prefix + index + ".importer", importer));
+            input.options().forEach((name, value) -> properties.setProperty(prefix + index + ".option." + name, value));
         }
     }
 
@@ -86,8 +89,16 @@ final class PropCodec {
         int count = indexedCount(properties, prefix, "role");
         List<ArtifactInput> inputs = new ArrayList<>();
         for (int i = 1; i <= count; i++) {
+            String optionPrefix = prefix + i + ".option.";
+            java.util.Map<String, String> options = new java.util.TreeMap<>();
+            for (String key : properties.stringPropertyNames()) {
+                if (key.startsWith(optionPrefix)) {
+                    options.put(key.substring(optionPrefix.length()), properties.getProperty(key));
+                }
+            }
             inputs.add(new ArtifactInput(ArtifactInput.Role.valueOf(require(properties, prefix + i + ".role")),
-                    Path.of(require(properties, prefix + i + ".path"))));
+                    Path.of(require(properties, prefix + i + ".path")),
+                    Optional.ofNullable(properties.getProperty(prefix + i + ".importer")), options));
         }
         return List.copyOf(inputs);
     }

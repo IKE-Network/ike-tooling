@@ -47,6 +47,29 @@ class RequestCodecTest {
     }
 
     @Test
+    @DisplayName("A SOURCE input round-trips its importer and options; only a source names an importer")
+    void sourceInput() {
+        AssembleRequest request = new AssembleRequest(
+                Path.of("target/kb"), true,
+                List.of(new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip")),
+                        ArtifactInput.source("snomed-rf2", Path.of("SnomedCT_InternationalRF2.zip"),
+                                Map.of("release", "full", "author", "IHTSDO SNOMED CT Author")),
+                        ArtifactInput.source("rxnorm-owl", Path.of("rxnorm.owl"), Map.of())),
+                VIEW, true, Optional.empty(), Optional.empty());
+        AssembleRequest decoded = AssembleRequest.fromProperties(request.toProperties());
+        assertThat(decoded).isEqualTo(request);
+        assertThat(decoded.inputs().get(1).options()).containsEntry("author", "IHTSDO SNOMED CT Author");
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new ArtifactInput(ArtifactInput.Role.SOURCE, Path.of("release.zip")))
+                .withMessageContaining("names the importer");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip"),
+                        Optional.of("snomed-rf2"), Map.of()))
+                .withMessageContaining("Only a SOURCE");
+    }
+
+    @Test
     @DisplayName("Reasoned-pb export round-trips, and demands classification"
             + " — reasoned-pb means inferred results baked in (ike-issues#933)")
     void reasonedPbExport() {
