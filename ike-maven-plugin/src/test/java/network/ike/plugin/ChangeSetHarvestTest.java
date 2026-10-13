@@ -53,6 +53,30 @@ class ChangeSetHarvestTest {
     }
 
     @Test
+    void sortsOutChangeSetsWithoutTheExtensionModule() throws IOException {
+        String overlay = "9ecc154c-e490-5cf8-805d-d2865d62aef3";
+        Path captured = Files.createDirectories(temp.resolve("installed/changeSets"));
+        Path authored = changeSet(captured.resolve("authored ike-cs.zip"), overlay + ",1f2016a6-960e-11e5-8994-feff819cdc9f", "SOLOR overlay module");
+        Path chat = changeSet(captured.resolve("chat ike-cs.zip"), "631d5df5-5011-567a-9367-035d63dc47fb", "Conversation journal module");
+        Path parking = temp.resolve("installed-sessions");
+
+        assertThat(ChangeSetHarvest.sortOut(java.util.List.of(authored, chat), java.util.Set.of(overlay), parking))
+                .containsExactly(authored);
+        assertThat(parking.resolve("chat ike-cs.zip")).exists();
+        assertThat(parking.resolve("authored ike-cs.zip")).doesNotExist();
+    }
+
+    private static Path changeSet(Path file, String name, String description) throws IOException {
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(file))) {
+            zip.putNextEntry(new java.util.zip.ZipEntry("META-INF/MANIFEST.MF"));
+            zip.write(("Manifest-Version: 1.0\r\n\r\nName: " + name + "\r\nDescription: " + description + "\r\n\r\n")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        return file;
+    }
+
+    @Test
     void noStoreMeansNothingCaptured() {
         assertThat(ChangeSetHarvest.captured(temp.resolve("absent"))).isEmpty();
     }

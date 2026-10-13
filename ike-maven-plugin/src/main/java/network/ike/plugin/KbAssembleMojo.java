@@ -161,6 +161,15 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     boolean discardChangeSets;
 
     /**
+     * The extension's modules, by UUID. When set, only a captured change set whose stamps
+     * reference one of them is harvested; the rest (what a browser writes on its own: plugin
+     * bootstraps, assistant conversations) are parked in {@code <installDirectory>-sessions}
+     * beside the store, kept but not replayed. Unset, every captured change set is harvested.
+     */
+    @Parameter
+    List<String> changeSetModules = List.of();
+
+    /**
      * Export the classified store as a full standalone reasoned protobuf — the
      * {@code reasoned-pb} classifier form, inferred results baked in, ready to open
      * without a reasoner run (IKE-Network/ike-issues#933). Requires {@link #classify}.
@@ -343,6 +352,16 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
             return List.of();
         }
         Path directory = Path.of(changeSetDirectory);
+        if (!changeSetModules.isEmpty() && !captured.isEmpty()) {
+            Path parking = Path.of(installDirectory + "-sessions");
+            List<Path> extension = ChangeSetHarvest.sortOut(captured,
+                    changeSetModules.stream().map(String::strip).collect(java.util.stream.Collectors.toSet()), parking);
+            if (extension.size() < captured.size()) {
+                getLog().info("Parked " + (captured.size() - extension.size()) + " change set(s) with no content in "
+                        + changeSetModules + " in " + parking);
+            }
+            captured = extension;
+        }
         List<Path> harvested = ChangeSetHarvest.harvest(captured, directory);
         harvested.forEach(file -> getLog().info("Harvested change set " + file.getFileName() + " into " + directory));
         List<Path> kept = ChangeSetHarvest.kept(directory);

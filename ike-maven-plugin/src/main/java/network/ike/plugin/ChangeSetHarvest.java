@@ -85,6 +85,61 @@ final class ChangeSetHarvest {
     }
 
     /**
+     * Whether a change set carries content in any of the given modules: its manifest names
+     * every concept its stamps reference, modules among them, by their UUIDs.
+     *
+     * @param changeSet   the change set
+     * @param moduleUuids the modules' UUIDs
+     * @return true when the manifest names one of the modules
+     */
+    static boolean carriesModule(Path changeSet, java.util.Set<String> moduleUuids) {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(changeSet.toFile())) {
+            java.util.zip.ZipEntry entry = zip.getEntry("META-INF/MANIFEST.MF");
+            if (entry == null) {
+                return false;
+            }
+            java.util.jar.Manifest manifest = new java.util.jar.Manifest(zip.getInputStream(entry));
+            return manifest.getEntries().keySet().stream()
+                    .flatMap(name -> Arrays.stream(name.split(",")))
+                    .map(String::strip)
+                    .anyMatch(moduleUuids::contains);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Reading the manifest of " + changeSet, e);
+        }
+    }
+
+    /**
+     * Moves the captured change sets that carry no content in the extension's modules out of
+     * the way, into a parking directory beside the store, so the harvest takes only authored
+     * content and nothing a browser wrote on its own (a plugin's bootstrap, an assistant's
+     * conversation) is lost.
+     *
+     * @param captured    the captured change sets
+     * @param moduleUuids the extension's modules' UUIDs
+     * @param parking     where the others go
+     * @return the captured change sets that carry the extension's modules
+     */
+    static List<Path> sortOut(List<Path> captured, java.util.Set<String> moduleUuids, Path parking) {
+        List<Path> extension = new ArrayList<>();
+        try {
+            for (Path file : captured) {
+                if (carriesModule(file, moduleUuids)) {
+                    extension.add(file);
+                } else {
+                    Files.createDirectories(parking);
+                    Path parked = parking.resolve(file.getFileName().toString());
+                    if (!Files.exists(parked)) {
+                        Files.copy(file, parked, StandardCopyOption.COPY_ATTRIBUTES);
+                    }
+                }
+            }
+            return extension;
+        } catch (IOException e) {
+            throw new UncheckedIOException("Parking change sets in " + parking, e);
+        }
+    }
+
+    /**
      * The change sets a project keeps, in name order: the order they are replayed in.
      *
      * @param directory the project's change-set directory
