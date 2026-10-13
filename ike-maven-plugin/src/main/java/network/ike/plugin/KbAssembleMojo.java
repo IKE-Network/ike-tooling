@@ -170,6 +170,40 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     List<String> changeSetModules = List.of();
 
     /**
+     * Replay the change sets {@link #changeSetDirectory} keeps. Off when another module
+     * merges them into an artifact this assembly loads as an input: the directory is then
+     * only where captured change sets are harvested, which still guards the install.
+     */
+    @Parameter(property = "ike.kbAssemble.replayChangeSets", defaultValue = "true")
+    boolean replayChangeSets;
+
+    /**
+     * Write the koncepts YAML of the assembled knowledge base's extension here: the concepts
+     * and patterns with a version in one of {@link #konceptsModules}, read from the whole
+     * classified store so a concept authored under a release's concept keeps its parent's
+     * name. Commit it beside the extension: it is the extension's readable form.
+     */
+    @Parameter(property = "ike.kbAssemble.konceptsYmlFile")
+    String konceptsYmlFile;
+
+    /** The extension's modules, by UUID, for {@link #konceptsYmlFile}. */
+    @Parameter
+    List<String> konceptsModules = List.of();
+
+    /**
+     * Export what the {@code SOURCE} inputs wrote, and only that, to this file: every version
+     * under a stamp an import created, unclassified, its references to the inputs before it by
+     * public id. One source's artifact, layered on its base; attached under
+     * {@link #sourceDeltaClassifier}.
+     */
+    @Parameter(property = "ike.kbAssemble.sourceDeltaFile")
+    String sourceDeltaFile;
+
+    /** The classifier the source delta is attached under; blank leaves it unattached. */
+    @Parameter(property = "ike.kbAssemble.sourceDeltaClassifier", defaultValue = "unreasoned-pb")
+    String sourceDeltaClassifier;
+
+    /**
      * Export the classified store as a full standalone reasoned protobuf — the
      * {@code reasoned-pb} classifier form, inferred results baked in, ready to open
      * without a reasoner run (IKE-Network/ike-issues#933). Requires {@link #classify}.
@@ -265,7 +299,10 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 Path.of(storeRoot), cleanStart, resolvedInputs, ViewSpec.of(view), classify,
                 Optional.ofNullable(reasonerService).filter(s -> !s.isBlank()),
                 Optional.ofNullable(installDirectory).filter(s -> !s.isBlank()).map(Path::of),
-                reasonedPbTarget);
+                reasonedPbTarget,
+                Optional.ofNullable(konceptsYmlFile).filter(s -> !s.isBlank()).map(Path::of),
+                konceptsModules.stream().map(String::strip).collect(java.util.stream.Collectors.toSet()),
+                Optional.ofNullable(sourceDeltaFile).filter(s -> !s.isBlank()).map(Path::of));
         Properties wire = request.toProperties();
         if (implementation != null && !implementation.isBlank()) {
             wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);
@@ -296,6 +333,19 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 getLog().info("Effective view reported: " + report));
         if (installDirectory != null && !installDirectory.isBlank()) {
             getLog().info("Knowledge base installed: " + installDirectory);
+        }
+        if (sourceDeltaFile != null && !sourceDeltaFile.isBlank()) {
+            Path delta = Path.of(sourceDeltaFile);
+            if (!Files.isRegularFile(delta)) {
+                throw new MojoException("Source delta export produced no file at " + delta);
+            }
+            getLog().info("Source delta exported: " + delta.getFileName());
+            if (sourceDeltaClassifier != null && !sourceDeltaClassifier.isBlank()) {
+                ProducedArtifact artifact = session.createProducedArtifact(project.getGroupId(),
+                        project.getArtifactId(), project.getVersion(), sourceDeltaClassifier, "zip", "zip");
+                session.getService(ProjectManager.class).attachArtifact(project, artifact, delta);
+                getLog().info("Attached source delta " + delta.getFileName() + " (classifier: " + sourceDeltaClassifier + ")");
+            }
         }
         if (reasonedPbTarget.isPresent()) {
             Path produced = result.reasonedPbFile().orElseThrow(() -> new MojoException(
@@ -364,6 +414,9 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         }
         List<Path> harvested = ChangeSetHarvest.harvest(captured, directory);
         harvested.forEach(file -> getLog().info("Harvested change set " + file.getFileName() + " into " + directory));
+        if (!replayChangeSets) {
+            return List.of();
+        }
         List<Path> kept = ChangeSetHarvest.kept(directory);
         if (!kept.isEmpty()) {
             getLog().info("Replaying " + kept.size() + " change set(s) from " + directory);

@@ -16,4 +16,5 @@ module network.ike.knowledge.spi {
     uses network.ike.knowledge.spi.ChangeSetVerifier;
     uses network.ike.knowledge.spi.ChangeSetExpander;
     uses network.ike.knowledge.spi.ChangeSetCompactor;
+    uses network.ike.knowledge.spi.ChangeSetMerger;
 }

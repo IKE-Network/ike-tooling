@@ -29,10 +29,21 @@ import java.util.Properties;
  *                         classifier form, inferred results baked in
  *                         (IKE-Network/ike-issues#933); empty means no export;
  *                         requires {@code classify}
+ * @param konceptsYmlFile  the file to write the koncepts YAML of the assembled store's
+ *                         extension to; empty means none
+ * @param konceptsModules  the extension's modules, by UUID: the concepts and patterns with a
+ *                         version in one of them are extracted; required with
+ *                         {@code konceptsYmlFile}
+ * @param sourceDeltaFile  the file to export what the {@link ArtifactInput.Role#SOURCE} inputs
+ *                         wrote to, and only that: every version under a stamp an import
+ *                         created, unclassified, its references to the inputs before it by
+ *                         public id — one source's artifact, layered on its base; empty means none
  */
 public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactInput> inputs,
                               ViewSpec view, boolean classify, Optional<String> reasonerService,
-                              Optional<Path> installDirectory, Optional<Path> reasonedPbFile) {
+                              Optional<Path> installDirectory, Optional<Path> reasonedPbFile,
+                              Optional<Path> konceptsYmlFile, java.util.Set<String> konceptsModules,
+                              Optional<Path> sourceDeltaFile) {
 
     /**
      * Validates and defensively copies the request.
@@ -45,6 +56,9 @@ public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactI
      * @param reasonerService  the reasoner-service simple name when several are present
      * @param installDirectory a directory to copy the assembled store into
      * @param reasonedPbFile   the reasoned-protobuf export file; empty means no export
+     * @param konceptsYmlFile  the extension's koncepts YAML file; empty means none
+     * @param konceptsModules  the extension's modules, by UUID
+     * @param sourceDeltaFile  the source delta export file; empty means none
      * @throws NullPointerException     if any component is null
      * @throws IllegalArgumentException if {@code inputs} is empty, an
      *                                  {@link ArtifactInput.Role#STORE_SEED} appears
@@ -67,6 +81,56 @@ public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactI
                             + " reasoned-pb means inferred results baked in");
         }
         ArtifactInput.requireSeedFirstOnly(inputs);
+        Objects.requireNonNull(konceptsYmlFile, "konceptsYmlFile");
+        konceptsModules = java.util.Set.copyOf(Objects.requireNonNull(konceptsModules, "konceptsModules"));
+        if (konceptsYmlFile.isPresent() && konceptsModules.isEmpty()) {
+            throw new IllegalArgumentException("Extracting the extension's koncepts needs its modules");
+        }
+        Objects.requireNonNull(sourceDeltaFile, "sourceDeltaFile");
+        if (sourceDeltaFile.isPresent() && inputs.stream().noneMatch(i -> i.role() == ArtifactInput.Role.SOURCE)) {
+            throw new IllegalArgumentException("A source delta export needs a SOURCE input");
+        }
+    }
+
+    /**
+     * Creates a request without a source delta export.
+     *
+     * @param storeRoot        the store's root directory
+     * @param cleanStart       whether to delete the store root before assembling
+     * @param inputs           the artifacts, in load order
+     * @param view             the view specification
+     * @param classify         whether to run classification as the final step
+     * @param reasonerService  the reasoner-service simple name when several are present
+     * @param installDirectory a directory to copy the assembled store into
+     * @param reasonedPbFile   the reasoned-protobuf export file; empty means no export
+     * @param konceptsYmlFile  the extension's koncepts YAML file; empty means none
+     * @param konceptsModules  the extension's modules, by UUID
+     */
+    public AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactInput> inputs,
+                           ViewSpec view, boolean classify, Optional<String> reasonerService,
+                           Optional<Path> installDirectory, Optional<Path> reasonedPbFile,
+                           Optional<Path> konceptsYmlFile, java.util.Set<String> konceptsModules) {
+        this(storeRoot, cleanStart, inputs, view, classify, reasonerService, installDirectory, reasonedPbFile,
+                konceptsYmlFile, konceptsModules, Optional.empty());
+    }
+
+    /**
+     * Creates a request without an extension koncepts extraction.
+     *
+     * @param storeRoot        the store's root directory
+     * @param cleanStart       whether to delete the store root before assembling
+     * @param inputs           the artifacts, in load order
+     * @param view             the view specification
+     * @param classify         whether to run classification as the final step
+     * @param reasonerService  the reasoner-service simple name when several are present
+     * @param installDirectory a directory to copy the assembled store into
+     * @param reasonedPbFile   the reasoned-protobuf export file; empty means no export
+     */
+    public AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactInput> inputs,
+                           ViewSpec view, boolean classify, Optional<String> reasonerService,
+                           Optional<Path> installDirectory, Optional<Path> reasonedPbFile) {
+        this(storeRoot, cleanStart, inputs, view, classify, reasonerService, installDirectory, reasonedPbFile,
+                Optional.empty(), java.util.Set.of(), Optional.empty());
     }
 
     /**
@@ -103,6 +167,11 @@ public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactI
         PropCodec.putOptional(properties, "reasonerService", reasonerService);
         PropCodec.putOptional(properties, "installDirectory", installDirectory.map(Path::toString));
         PropCodec.putOptional(properties, "reasonedPbFile", reasonedPbFile.map(Path::toString));
+        PropCodec.putOptional(properties, "konceptsYmlFile", konceptsYmlFile.map(Path::toString));
+        if (!konceptsModules.isEmpty()) {
+            PropCodec.put(properties, "konceptsModules", String.join(",", new java.util.TreeSet<>(konceptsModules)));
+        }
+        PropCodec.putOptional(properties, "sourceDeltaFile", sourceDeltaFile.map(Path::toString));
         return properties;
     }
 
@@ -123,6 +192,10 @@ public record AssembleRequest(Path storeRoot, boolean cleanStart, List<ArtifactI
                 PropCodec.getBoolean(properties, "classify", true),
                 PropCodec.optional(properties, "reasonerService"),
                 PropCodec.optionalPath(properties, "installDirectory"),
-                PropCodec.optionalPath(properties, "reasonedPbFile"));
+                PropCodec.optionalPath(properties, "reasonedPbFile"),
+                PropCodec.optionalPath(properties, "konceptsYmlFile"),
+                PropCodec.optional(properties, "konceptsModules")
+                        .map(list -> java.util.Set.of(list.split(","))).orElse(java.util.Set.of()),
+                PropCodec.optionalPath(properties, "sourceDeltaFile"));
     }
 }

@@ -47,6 +47,44 @@ class RequestCodecTest {
     }
 
     @Test
+    @DisplayName("A source delta export round-trips, and needs a SOURCE input")
+    void sourceDelta() {
+        AssembleRequest request = new AssembleRequest(
+                Path.of("target/kb"), true,
+                List.of(new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip")),
+                        ArtifactInput.source("snomed-rf2", Path.of("snomed.zip"), Map.of())),
+                VIEW, false, Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Set.of(), Optional.of(Path.of("target/snomed-unreasoned-pb.zip")));
+        assertThat(AssembleRequest.fromProperties(request.toProperties())).isEqualTo(request);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> new AssembleRequest(
+                        Path.of("target/kb"), true,
+                        List.of(new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip"))),
+                        VIEW, false, Optional.empty(), Optional.empty(), Optional.empty(),
+                        Optional.empty(), Set.of(), Optional.of(Path.of("target/delta.zip"))))
+                .withMessageContaining("SOURCE");
+    }
+
+    @Test
+    @DisplayName("An extension koncepts extraction round-trips, and needs its modules")
+    void konceptsExtraction() {
+        AssembleRequest request = new AssembleRequest(
+                Path.of("target/kb"), true,
+                List.of(new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip"))),
+                VIEW, true, Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(Path.of("extension/koncepts.yml")),
+                Set.of("9ecc154c-e490-5cf8-805d-d2865d62aef3", "1f2016a6-960e-11e5-8994-feff819cdc9f"));
+        assertThat(AssembleRequest.fromProperties(request.toProperties())).isEqualTo(request);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> new AssembleRequest(
+                        Path.of("target/kb"), true,
+                        List.of(new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip"))),
+                        VIEW, true, Optional.empty(), Optional.empty(), Optional.empty(),
+                        Optional.of(Path.of("extension/koncepts.yml")), Set.of()))
+                .withMessageContaining("modules");
+    }
+
+    @Test
     @DisplayName("A SOURCE input round-trips its importer and options; only a source names an importer")
     void sourceInput() {
         AssembleRequest request = new AssembleRequest(

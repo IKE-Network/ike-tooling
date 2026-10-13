@@ -83,7 +83,7 @@ final class ChangeSetToolSupport {
         }
     }
 
-    private static List<Path> seamClasspath(Session session, Project project, String classesDirectory) {
+    static List<Path> seamClasspath(Session session, Project project, String classesDirectory) {
         List<Path> classpath = new ArrayList<>();
         Path classesDir = Path.of(classesDirectory);
         if (Files.isDirectory(classesDir)) {

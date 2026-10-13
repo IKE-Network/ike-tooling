@@ -162,6 +162,16 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
             "Rewrite a format-1 or format-2 change set in format 3: a component "
                     + "table, one entry per pattern, references by sequence "
                     + "(ike-issues#1275)."),
+    /** {@code ike:changeset-merge} — merge a directory of change sets into one. */
+    CHANGESET_MERGE(IkeGoal.NAME_CHANGESET_MERGE, ChangeSetMergeMojo.class,
+            "Merge a directory of change sets into one: each verified, all loaded "
+                    + "together so an entity in several keeps every version, written in "
+                    + "format 3 and attached as the changeset classifier (ike-issues#1293)."),
+    /** {@code ike:changeset-harvest} — harvest an installed knowledge base's captured change sets. */
+    CHANGESET_HARVEST(IkeGoal.NAME_CHANGESET_HARVEST, ChangeSetHarvestMojo.class,
+            "Copy the change sets a browser captured in an installed knowledge base "
+                    + "into the project before it is rebuilt, parking those with no "
+                    + "content in the extension's modules (ike-issues#1293)."),
     /** {@code ike:starter-set-create-draft} — preview a new starter-set project. */
     STARTER_SET_CREATE_DRAFT(IkeGoal.NAME_STARTER_SET_CREATE_DRAFT, StarterSetCreateDraftMojo.class,
             "Preview the genesis of a new starter-set project: the derived name "
@@ -324,6 +334,10 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_CHANGESET_EXPAND = "changeset-expand";
     /** Mirror for {@link #CHANGESET_COMPACT}. */
     public static final String NAME_CHANGESET_COMPACT = "changeset-compact";
+    /** Mirror for {@link #CHANGESET_MERGE}. */
+    public static final String NAME_CHANGESET_MERGE = "changeset-merge";
+    /** Mirror for {@link #CHANGESET_HARVEST}. */
+    public static final String NAME_CHANGESET_HARVEST = "changeset-harvest";
 
     /** Mirror for {@link #STARTER_SET_CREATE_DRAFT}. */
     public static final String NAME_STARTER_SET_CREATE_DRAFT = "starter-set-create-draft";
