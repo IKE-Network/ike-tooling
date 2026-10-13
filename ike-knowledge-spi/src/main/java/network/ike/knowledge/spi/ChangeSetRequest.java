@@ -12,13 +12,25 @@ import java.util.Properties;
  *
  * @param changeSet the change set zip to read
  * @param target    the file a rewrite writes; empty for a report
+ * @param modules   for a merge, the modules (by UUID) whose versions are kept; empty keeps all
  */
-public record ChangeSetRequest(Path changeSet, Optional<Path> target) {
+public record ChangeSetRequest(Path changeSet, Optional<Path> target, java.util.Set<String> modules) {
 
     /** Checks that neither part is null. */
     public ChangeSetRequest {
         Objects.requireNonNull(changeSet, "changeSet");
         Objects.requireNonNull(target, "target");
+        modules = java.util.Set.copyOf(Objects.requireNonNull(modules, "modules"));
+    }
+
+    /**
+     * A request with no module selection.
+     *
+     * @param changeSet the change set zip to read
+     * @param target    the file a rewrite writes; empty for a report
+     */
+    public ChangeSetRequest(Path changeSet, Optional<Path> target) {
+        this(changeSet, target, java.util.Set.of());
     }
 
     /**
@@ -62,6 +74,9 @@ public record ChangeSetRequest(Path changeSet, Optional<Path> target) {
         Properties properties = new Properties();
         PropCodec.put(properties, "changeSet", changeSet.toString());
         PropCodec.putOptional(properties, "target", target.map(Path::toString));
+        if (!modules.isEmpty()) {
+            PropCodec.put(properties, "modules", String.join(",", new java.util.TreeSet<>(modules)));
+        }
         return properties;
     }
 
@@ -73,6 +88,8 @@ public record ChangeSetRequest(Path changeSet, Optional<Path> target) {
      */
     public static ChangeSetRequest fromProperties(Properties properties) {
         return new ChangeSetRequest(PropCodec.requirePath(properties, "changeSet"),
-                PropCodec.optionalPath(properties, "target"));
+                PropCodec.optionalPath(properties, "target"),
+                PropCodec.optional(properties, "modules")
+                        .map(list -> java.util.Set.of(list.split(","))).orElse(java.util.Set.of()));
     }
 }

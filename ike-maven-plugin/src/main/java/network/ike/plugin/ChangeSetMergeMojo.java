@@ -67,6 +67,14 @@ public class ChangeSetMergeMojo implements org.apache.maven.api.plugin.Mojo {
             defaultValue = "${project.build.directory}/${project.artifactId}-${project.version}-changeset.zip")
     String target;
 
+    /**
+     * The modules, by UUID, whose versions the merge keeps; empty keeps every version. A
+     * knowledge base's extension names its own module, so a session that also carries what a
+     * browser wrote on its own merges into the extension's content alone.
+     */
+    @Parameter
+    List<String> changeSetModules = List.of();
+
     /** Attach the merged change set to the project under the {@code changeset} classifier. */
     @Parameter(property = "ike.changeset.attach", defaultValue = "true")
     boolean attach;
@@ -101,7 +109,8 @@ public class ChangeSetMergeMojo implements org.apache.maven.api.plugin.Mojo {
             throw new MojoException("No change sets to merge at " + source);
         }
         Path merged = Path.of(target);
-        Properties wire = ChangeSetRequest.of(source, merged).toProperties();
+        Properties wire = new ChangeSetRequest(source, java.util.Optional.of(merged),
+                changeSetModules.stream().map(String::strip).collect(java.util.stream.Collectors.toSet())).toProperties();
         if (implementation != null && !implementation.isBlank()) {
             wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);
         }

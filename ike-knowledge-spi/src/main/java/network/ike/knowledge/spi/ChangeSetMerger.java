@@ -8,7 +8,10 @@ import java.util.Properties;
  * change set in the current format. A knowledge base's extension authored over many browser
  * sessions, one change set each, becomes one artifact; a component edited in several sessions
  * comes out once, with all its versions. Each change set is verified against its format first.
- * The request's {@code changeSet} is the directory or file, its {@code target} the merged file.
+ * The request's {@code changeSet} is the directory or file, its {@code target} the merged file;
+ * its {@code modules}, when given, keep only the versions stamped in them, so a session that also
+ * carries what a browser wrote on its own (an assistant's conversation, a plugin's bootstrap)
+ * merges into the extension's content alone.
  */
 public interface ChangeSetMerger extends KnowledgeService<ChangeSetRequest, ChangeSetReport> {
 
