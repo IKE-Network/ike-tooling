@@ -61,7 +61,7 @@ import java.util.List;
  *             <goals><goal>knowledge-bindings</goal></goals>
  *             <configuration>
  *                 <packageName>network.ike.richsurface.bindings</packageName>
- *                 <className>RichSurfaceTerms</className>
+ *                 <className>RichSurface</className>
  *             </configuration>
  *         </execution>
  *     </executions>
@@ -105,7 +105,9 @@ public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {
     String packageName;
 
     /**
-     * Simple name of the generated bindings class, for example {@code RichSurfaceTerms}.
+     * Base name of the generated bindings enums, for example {@code RichSurface}: the generator
+     * writes {@code RichSurfaceConcept}, {@code RichSurfacePattern} and {@code RichSurfaceStamp},
+     * those that have constants, one kind of component per enum.
      */
     @Parameter(property = "ike.knowledgeBindings.className", required = true)
     String className;
@@ -188,7 +190,7 @@ public class KnowledgeBindingsMojo implements org.apache.maven.api.plugin.Mojo {
         Path sourceRoot = Path.of(outputDirectory);
         session.getService(ProjectManager.class)
                 .addSourceRoot(project, ProjectScope.MAIN, Language.JAVA_FAMILY, sourceRoot);
-        getLog().info("Generated " + packageName + "." + className
-                + " into " + sourceRoot + " (registered as compile source root)");
+        getLog().info("Generated the " + packageName + "." + className
+                + " bindings enums into " + sourceRoot + " (registered as compile source root)");
     }
 }
