@@ -95,31 +95,40 @@ convert it to AsciiDoc first, then run the tool.
 
 #### Invocation
 
-Run the `slb:reformat` goal from the doc project. It takes one file or
-one directory; a directory is walked recursively for `*.adoc` files.
+Run the tool with `exec:java` from the `ike-docs` reactor root. It
+accepts one or more files or directories; a directory is walked
+recursively for `*.adoc` files, skipping `target/` directories.
 AsciidoctorJ is initialized once and reused across all files, so
 running it on a directory is significantly faster than per file.
+Paths resolve from the `ike-docs` root, so give the doc project's
+files as absolute paths.
 
 **Directory (recommended):**
 
 ```bash
-mvn slb:reformat -Dfile=topics/src/docs/asciidoc/topics/{domain}/
+mvn exec:java -pl semantic-linebreak \
+  -Dexec.mainClass=network.ike.tools.linebreak.SemanticLineBreaker \
+  -Dexec.args="/path/to/project/topics/src/docs/asciidoc/topics/{domain}/"
 ```
 
 **Single file:**
 
 ```bash
-mvn slb:reformat -Dfile=topics/src/docs/asciidoc/topics/{domain}/{topic}.adoc
+mvn exec:java -pl semantic-linebreak \
+  -Dexec.mainClass=network.ike.tools.linebreak.SemanticLineBreaker \
+  -Dexec.args="/path/to/project/topics/src/docs/asciidoc/topics/{domain}/{topic}.adoc"
 ```
 
 **Dry run — preview to stdout without modifying:**
 
 ```bash
-mvn slb:reformat -DdryRun=true -Dfile=path/to/source.adoc
+mvn exec:java -pl semantic-linebreak \
+  -Dexec.mainClass=network.ike.tools.linebreak.SemanticLineBreaker \
+  -Dexec.args="-n /path/to/source.adoc"
 ```
 
-The goal modifies files in place. Use `-DdryRun=true` to preview, or
-`-DoutputFile=<file>` to write elsewhere (single-file mode only).
+The tool modifies files in place. Use `-n` to preview, or
+`-o <file>` to write elsewhere (single-file mode only).
 
 #### Why normalize before decomposition
 
