@@ -12,14 +12,26 @@ import java.util.Properties;
  *
  * @param changeSet the change set zip to read
  * @param target    the file a rewrite writes; empty for a report
+ * @param modules   for a merge, the modules (by UUID) whose versions are kept; empty keeps all
  */
-public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
+public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java.util.Set&lt;String&gt; modules) {
 
     /** Checks that neither part is null. */
-<span class="nc" id="L19">    public ChangeSetRequest {</span>
-<span class="nc" id="L20">        Objects.requireNonNull(changeSet, &quot;changeSet&quot;);</span>
-<span class="nc" id="L21">        Objects.requireNonNull(target, &quot;target&quot;);</span>
-<span class="nc" id="L22">    }</span>
+<span class="nc" id="L20">    public ChangeSetRequest {</span>
+<span class="nc" id="L21">        Objects.requireNonNull(changeSet, &quot;changeSet&quot;);</span>
+<span class="nc" id="L22">        Objects.requireNonNull(target, &quot;target&quot;);</span>
+<span class="nc" id="L23">        modules = java.util.Set.copyOf(Objects.requireNonNull(modules, &quot;modules&quot;));</span>
+<span class="nc" id="L24">    }</span>
+
+    /**
+     * A request with no module selection.
+     *
+     * @param changeSet the change set zip to read
+     * @param target    the file a rewrite writes; empty for a report
+     */
+    public ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
+<span class="nc" id="L33">        this(changeSet, target, java.util.Set.of());</span>
+<span class="nc" id="L34">    }</span>
 
     /**
      * A request to read a change set and report.
@@ -28,7 +40,7 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
      * @return the request, with no target
      */
     public static ChangeSetRequest of(Path changeSet) {
-<span class="nc" id="L31">        return new ChangeSetRequest(changeSet, Optional.empty());</span>
+<span class="nc" id="L43">        return new ChangeSetRequest(changeSet, Optional.empty());</span>
     }
 
     /**
@@ -39,7 +51,7 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
      * @return the request
      */
     public static ChangeSetRequest of(Path changeSet, Path target) {
-<span class="nc" id="L42">        return new ChangeSetRequest(changeSet, Optional.of(target));</span>
+<span class="nc" id="L54">        return new ChangeSetRequest(changeSet, Optional.of(target));</span>
     }
 
     /**
@@ -50,7 +62,7 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
      * @throws IllegalArgumentException if the request names no target
      */
     public Path requireTarget(String tool) {
-<span class="nc" id="L53">        return target.orElseThrow(() -&gt; new IllegalArgumentException(tool + &quot; writes a file: the request names no target&quot;));</span>
+<span class="nc" id="L65">        return target.orElseThrow(() -&gt; new IllegalArgumentException(tool + &quot; writes a file: the request names no target&quot;));</span>
     }
 
     /**
@@ -59,10 +71,13 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
      * @return the properties: {@code changeSet}, and {@code target} when there is one
      */
     public Properties toProperties() {
-<span class="nc" id="L62">        Properties properties = new Properties();</span>
-<span class="nc" id="L63">        PropCodec.put(properties, &quot;changeSet&quot;, changeSet.toString());</span>
-<span class="nc" id="L64">        PropCodec.putOptional(properties, &quot;target&quot;, target.map(Path::toString));</span>
-<span class="nc" id="L65">        return properties;</span>
+<span class="nc" id="L74">        Properties properties = new Properties();</span>
+<span class="nc" id="L75">        PropCodec.put(properties, &quot;changeSet&quot;, changeSet.toString());</span>
+<span class="nc" id="L76">        PropCodec.putOptional(properties, &quot;target&quot;, target.map(Path::toString));</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        if (!modules.isEmpty()) {</span>
+<span class="nc" id="L78">            PropCodec.put(properties, &quot;modules&quot;, String.join(&quot;,&quot;, new java.util.TreeSet&lt;&gt;(modules)));</span>
+        }
+<span class="nc" id="L80">        return properties;</span>
     }
 
     /**
@@ -72,8 +87,10 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
      * @return the request
      */
     public static ChangeSetRequest fromProperties(Properties properties) {
-<span class="nc" id="L75">        return new ChangeSetRequest(PropCodec.requirePath(properties, &quot;changeSet&quot;),</span>
-<span class="nc" id="L76">                PropCodec.optionalPath(properties, &quot;target&quot;));</span>
+<span class="nc" id="L90">        return new ChangeSetRequest(PropCodec.requirePath(properties, &quot;changeSet&quot;),</span>
+<span class="nc" id="L91">                PropCodec.optionalPath(properties, &quot;target&quot;),</span>
+<span class="nc" id="L92">                PropCodec.optional(properties, &quot;modules&quot;)</span>
+<span class="nc" id="L93">                        .map(list -&gt; java.util.Set.of(list.split(&quot;,&quot;))).orElse(java.util.Set.of()));</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
