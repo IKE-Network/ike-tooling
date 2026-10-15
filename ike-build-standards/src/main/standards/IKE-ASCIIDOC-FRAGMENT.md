@@ -21,6 +21,8 @@ Every topic `.adoc` file must follow this structure:
 :topic-type: concept
 :topic-status: draft
 :topic-keywords: versioning, coordinates, STAMP, temporal
+:topic-summary: Describes the coordinate-based versioning pattern where each component \
+  version is identified by module, path, and temporal coordinates within the STAMP model.
 :topic-scope-note: Covers versioning from the architecture perspective. \
   For version management procedures, see ops-version-migration.
 
@@ -36,7 +38,8 @@ Every topic `.adoc` file must follow this structure:
    viewing raw files. These are AsciiDoc comments and do not render.
 
 2. **Attribute block** (lines 5–9): Machine-readable metadata. These attributes are available
-   to the build pipeline and can be extracted for registry validation.
+   to the build pipeline; `idoc:topic-registry` reads them to generate and validate the topic
+   registry.
 
 3. **Anchor** (line 11): A literal inline anchor matching the `topic-id` value. This is the
    cross-reference target. It must immediately precede the heading. **Always use a literal
@@ -107,6 +110,14 @@ labels for empty sections or as organizational placeholders.
 | `:topic-status:`     | Lifecycle status                 | `published`                            |
 | `:topic-keywords:`   | Comma-separated keyword list     | `versioning, coordinates, STAMP`       |
 | `:topic-scope-note:` | Optional. Clarifies this topic's angle when it intentionally overlaps with a related topic. References the related topic-id. | `Covers classifiers from the authoring perspective. For classifier architecture, see arch-dl-classifier.` |
+| `:topic-summary:`    | 1–3 sentence abstract for search and redundancy detection (see `IKE-TOPIC-REGISTRY.md`) | `Describes coordinate-based versioning within the STAMP model.` |
+| `:topic-dependencies:` | Optional. Comma-separated topic-ids this topic cross-references | `arch-overview`                   |
+| `:topic-related:`    | Optional. Comma-separated topic-ids covering similar ground; keep bidirectional | `term-dl-axioms`   |
+| `:topic-supersedes:` | Optional. topic-id of the deprecated topic this one replaces | `arch-old-versioning`       |
+| `:topic-notes:`      | Optional. Exceptions and notes for authors and Claude | `Exceeds 5000 chars — indivisible reference table` |
+
+These attributes are the only place topic metadata is written. The topic registry is
+generated from them by `idoc:topic-registry`; see `IKE-TOPIC-REGISTRY.md`.
 
 ### External Source Attributes (ext/ domain only)
 
@@ -192,8 +203,8 @@ During decomposition, when the target topic does not yet exist:
 // TODO: xref to description logic classifier topic (not yet decomposed)
 ```
 
-Mark the topic as `status: draft` in the registry with a `notes` field documenting the
-unresolved reference.
+Set `:topic-status: draft` and a `:topic-notes:` attribute documenting the unresolved
+reference.
 
 ## Content Conventions
 
