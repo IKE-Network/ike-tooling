@@ -443,7 +443,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
             if (role == ArtifactInput.Role.SOURCE) {
                 resolved.add(resolveSource(entry, spec));
             } else {
-                resolved.add(new ArtifactInput(role, resolveSpec(spec)));
+                resolved.add(withCoordinate(new ArtifactInput(role, resolveSpec(spec)), spec));
             }
         }
         return resolved;
@@ -468,10 +468,22 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
             options.put(words[i].substring(0, equals), words[i].substring(equals + 1));
         }
         String spec = words[1];
-        Path release = spec.chars().filter(c -> c == ':').count() >= 2 || !Files.isDirectory(Path.of(spec))
+        Path release = isCoordinate(spec) || !Files.isDirectory(Path.of(spec))
                 ? resolveSpec(spec)
                 : Path.of(spec);
-        return ArtifactInput.source(words[0], release, options);
+        return withCoordinate(ArtifactInput.source(words[0], release, options), spec);
+    }
+
+    /**
+     * The input with the coordinate it was resolved from, when its spec is one: the assembly
+     * records it in the knowledge base (IKE-Network/ike-issues#1304).
+     */
+    private static ArtifactInput withCoordinate(ArtifactInput input, String spec) {
+        return isCoordinate(spec) ? input.withCoordinate(spec) : input;
+    }
+
+    private static boolean isCoordinate(String spec) {
+        return spec.chars().filter(c -> c == ':').count() >= 2;
     }
 
     /**
@@ -512,7 +524,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * ({@code g:a[:extension[:classifier]]:v}); anything else is a file path.
      */
     private Path resolveSpec(String spec) {
-        if (spec.chars().filter(c -> c == ':').count() >= 2) {
+        if (isCoordinate(spec)) {
             try {
                 return session.resolveArtifact(session.createArtifactCoordinates(spec)).getPath();
             } catch (Exception e) {

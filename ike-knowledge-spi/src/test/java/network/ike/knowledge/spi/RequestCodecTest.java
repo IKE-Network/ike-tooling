@@ -47,6 +47,23 @@ class RequestCodecTest {
     }
 
     @Test
+    @DisplayName("An input's Maven coordinate round-trips; a path-named input has none")
+    void coordinate() {
+        AssembleRequest request = new AssembleRequest(
+                Path.of("target/kb"), true,
+                List.of(new ArtifactInput(ArtifactInput.Role.PB, Path.of("starter.pb.zip"))
+                                .withCoordinate("network.ike.foundation:ike-starter-set:zip:unreasoned-pb:1"),
+                        ArtifactInput.source("gudid", Path.of("gudid.zip"), Map.of("releaseDate", "2026-10-01"))
+                                .withCoordinate("network.ike.data:gudid-origin:zip:20261001"),
+                        new ArtifactInput(ArtifactInput.Role.CHANGESET, Path.of("set-changeset.zip"))),
+                VIEW, false, Optional.empty(), Optional.empty());
+        AssembleRequest decoded = AssembleRequest.fromProperties(request.toProperties());
+        assertThat(decoded).isEqualTo(request);
+        assertThat(decoded.inputs().get(1).coordinate()).contains("network.ike.data:gudid-origin:zip:20261001");
+        assertThat(decoded.inputs().get(2).coordinate()).isEmpty();
+    }
+
+    @Test
     @DisplayName("A source delta export round-trips, and needs a SOURCE input")
     void sourceDelta() {
         AssembleRequest request = new AssembleRequest(

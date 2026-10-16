@@ -14,9 +14,14 @@ import java.util.Optional;
  * @param path     the artifact file, or for a {@link Role#SOURCE} the release file or directory
  * @param importer for a {@link Role#SOURCE}, the name of the knowledge importer that reads it;
  *                 empty for every other role
- * @param options  for a {@link Role#SOURCE}, the importer's options by name; empty otherwise
+ * @param options    for a {@link Role#SOURCE}, the importer's options by name; empty otherwise
+ * @param coordinate the Maven coordinate the artifact was resolved from, as written
+ *                   ({@code g:a[:extension[:classifier]]:v}); empty for a file named by path.
+ *                   The assembly records it in the knowledge base it builds
+ *                   (IKE-Network/ike-issues#1304).
  */
-public record ArtifactInput(Role role, Path path, Optional<String> importer, Map<String, String> options) {
+public record ArtifactInput(Role role, Path path, Optional<String> importer, Map<String, String> options,
+                            Optional<String> coordinate) {
 
     /** The kinds of assembly input. */
     public enum Role {
@@ -45,6 +50,7 @@ public record ArtifactInput(Role role, Path path, Optional<String> importer, Map
      * @param path     the artifact
      * @param importer the importer's name, for a source
      * @param options  the importer's options, for a source
+     * @param coordinate the Maven coordinate the artifact was resolved from, if any
      * @throws NullPointerException     if a component is null
      * @throws IllegalArgumentException if a source names no importer, or another role names one
      */
@@ -53,12 +59,25 @@ public record ArtifactInput(Role role, Path path, Optional<String> importer, Map
         Objects.requireNonNull(path, "path");
         Objects.requireNonNull(importer, "importer");
         options = Map.copyOf(Objects.requireNonNull(options, "options"));
+        Objects.requireNonNull(coordinate, "coordinate");
         if (role == Role.SOURCE && importer.isEmpty()) {
             throw new IllegalArgumentException("A SOURCE input names the importer that reads it: " + path);
         }
         if (role != Role.SOURCE && (importer.isPresent() || !options.isEmpty())) {
             throw new IllegalArgumentException("Only a SOURCE input names an importer or carries options: " + path);
         }
+    }
+
+    /**
+     * An input named by path, with no Maven coordinate.
+     *
+     * @param role     the artifact's role in assembly
+     * @param path     the artifact
+     * @param importer the importer's name, for a source
+     * @param options  the importer's options, for a source
+     */
+    public ArtifactInput(Role role, Path path, Optional<String> importer, Map<String, String> options) {
+        this(role, path, importer, options, Optional.empty());
     }
 
     /**
@@ -81,6 +100,16 @@ public record ArtifactInput(Role role, Path path, Optional<String> importer, Map
      */
     public static ArtifactInput source(String importer, Path path, Map<String, String> options) {
         return new ArtifactInput(Role.SOURCE, path, Optional.of(importer), options);
+    }
+
+    /**
+     * This input, resolved from a Maven coordinate.
+     *
+     * @param coordinate the coordinate, as written
+     * @return the input with its coordinate
+     */
+    public ArtifactInput withCoordinate(String coordinate) {
+        return new ArtifactInput(role, path, importer, options, Optional.of(coordinate));
     }
 
     /**
