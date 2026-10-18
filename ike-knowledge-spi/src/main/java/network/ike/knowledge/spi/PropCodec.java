@@ -83,6 +83,7 @@ final class PropCodec {
             input.importer().ifPresent(importer -> properties.setProperty(prefix + index + ".importer", importer));
             input.options().forEach((name, value) -> properties.setProperty(prefix + index + ".option." + name, value));
             input.coordinate().ifPresent(coordinate -> properties.setProperty(prefix + index + ".coordinate", coordinate));
+            input.resolvedVersion().ifPresent(version -> properties.setProperty(prefix + index + ".resolvedVersion", version));
         }
     }
 
@@ -100,7 +101,8 @@ final class PropCodec {
             inputs.add(new ArtifactInput(ArtifactInput.Role.valueOf(require(properties, prefix + i + ".role")),
                     Path.of(require(properties, prefix + i + ".path")),
                     Optional.ofNullable(properties.getProperty(prefix + i + ".importer")), options,
-                    Optional.ofNullable(properties.getProperty(prefix + i + ".coordinate"))));
+                    Optional.ofNullable(properties.getProperty(prefix + i + ".coordinate")),
+                    Optional.ofNullable(properties.getProperty(prefix + i + ".resolvedVersion"))));
         }
         return List.copyOf(inputs);
     }

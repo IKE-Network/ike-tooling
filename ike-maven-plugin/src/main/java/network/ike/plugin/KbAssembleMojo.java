@@ -478,9 +478,16 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * The input with the coordinate it was resolved from, when its spec is one: the assembly
      * records it in the knowledge base (IKE-Network/ike-issues#1304).
      */
-    private static ArtifactInput withCoordinate(ArtifactInput input, String spec) {
-        return isCoordinate(spec) ? input.withCoordinate(spec) : input;
+    private ArtifactInput withCoordinate(ArtifactInput input, String spec) {
+        if (!isCoordinate(spec)) {
+            return input;
+        }
+        String version = resolvedVersions.get(spec);
+        return version != null ? input.withCoordinate(spec, version) : input.withCoordinate(spec);
     }
+
+    /** The version each coordinate resolved to, by the coordinate as written. */
+    private final Map<String, String> resolvedVersions = new LinkedHashMap<>();
 
     private static boolean isCoordinate(String spec) {
         return spec.chars().filter(c -> c == ':').count() >= 2;
@@ -526,7 +533,10 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     private Path resolveSpec(String spec) {
         if (isCoordinate(spec)) {
             try {
-                return session.resolveArtifact(session.createArtifactCoordinates(spec)).getPath();
+                org.apache.maven.api.DownloadedArtifact artifact =
+                        session.resolveArtifact(session.createArtifactCoordinates(spec));
+                resolvedVersions.put(spec, artifact.getVersion().toString());
+                return artifact.getPath();
             } catch (Exception e) {
                 throw new MojoException("Cannot resolve knowledge input " + spec, e);
             }
