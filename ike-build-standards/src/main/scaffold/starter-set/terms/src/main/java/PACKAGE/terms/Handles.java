@@ -22,7 +22,7 @@ import dev.ikm.tinkar.terms.EntityProxy;
  * Ledger-internal handles for the @tag@ knowledge set: the session root and the
  * reference handles the sections cite. Handles are conveniences over derived
  * identities — never identity sources. Consumers use the generated bindings class
- * (@basePackage@.bindings.@className@Terms), not this one.
+ * (@basePackage@.bindings.@className@Concept and @className@Pattern), not this one.
  */
 public final class @className@ {
 

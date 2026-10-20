@@ -15,7 +15,7 @@ import java.util.Properties;
  * @param mode               where the declarations come from
  * @param outputDirectory    the generated-sources root to write under
  * @param packageName        the generated class's package
- * @param className          the generated class's simple name
+ * @param className          the base name of the generated enums: {@code <base>Concept}, {@code <base>Pattern}, {@code <base>Stamp}
  * @param sourceClass        the ledger source class to compose when more than one is
  *                           discoverable ({@link Mode#LEDGER} only)
  * @param membershipPatterns for {@link Mode#STORE_SCAN}, restrict to members of these
@@ -44,7 +44,7 @@ public record BindingsRequest(Mode mode, Path outputDirectory, String packageNam
      * @param mode               where the declarations come from
      * @param outputDirectory    the generated-sources root to write under
      * @param packageName        the generated class's package
-     * @param className          the generated class's simple name
+     * @param className          the base name of the generated enums: {@code <base>Concept}, {@code <base>Pattern}, {@code <base>Stamp}
      * @param sourceClass        the ledger source class selection
      * @param membershipPatterns the membership restriction for {@link Mode#STORE_SCAN}
      * @param view               the view specification

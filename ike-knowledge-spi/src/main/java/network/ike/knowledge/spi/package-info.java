@@ -8,7 +8,12 @@
  * ({@code ike:kb-assemble}), {@link network.ike.knowledge.spi.KnowledgeExporter}
  * ({@code ike:knowledge-export}), {@link network.ike.knowledge.spi.BindingsGenerator}
  * ({@code ike:knowledge-bindings}), and {@link network.ike.knowledge.spi.KnowledgeVerifier}
- * ({@code ike:kb-verify}). All extend {@link network.ike.knowledge.spi.KnowledgeService},
+ * ({@code ike:kb-verify}); and the four change set tools, which need no store:
+ * {@link network.ike.knowledge.spi.ChangeSetInspector} ({@code ike:changeset-inspect}),
+ * {@link network.ike.knowledge.spi.ChangeSetVerifier} ({@code ike:changeset-verify}),
+ * {@link network.ike.knowledge.spi.ChangeSetExpander} ({@code ike:changeset-expand}) and
+ * {@link network.ike.knowledge.spi.ChangeSetCompactor} ({@code ike:changeset-compact}).
+ * All extend {@link network.ike.knowledge.spi.KnowledgeService},
  * whose properties-codec bridge keeps {@link network.ike.knowledge.spi.IkeServiceBootstrap}
  * — the generic forked-JVM entry point — free of any per-service knowledge.
  *

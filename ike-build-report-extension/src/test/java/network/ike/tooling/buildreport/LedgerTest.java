@@ -17,6 +17,27 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class LedgerTest {
 
+    @Test
+    void consoleIgnoreRulesLoadAndSurviveARewrite() throws java.io.IOException {
+        java.nio.file.Path file = java.nio.file.Files.createTempFile("build-report", ".yaml");
+        file.toFile().deleteOnExit();
+        java.nio.file.Files.writeString(file, """
+                mode: gate
+                console:
+                  ignore:
+                    - match: "Using incubator modules: jdk.incubator.vector"
+                      reason: JVM notice
+                    - bare text rule
+                """);
+
+        Ledger ledger = Ledger.load(file);
+        LedgerWriter.write(file, ledger);
+
+        assertThat(Ledger.load(file).consoleIgnores()).containsExactly(
+                new ConsoleIgnore("Using incubator modules: jdk.incubator.vector", "JVM notice"),
+                new ConsoleIgnore("bare text rule", ""));
+    }
+
     @TempDir
     Path tempDir;
 

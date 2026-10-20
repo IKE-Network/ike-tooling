@@ -588,7 +588,7 @@ public final class ReleaseNotesSupport {
                 "-X", "PATCH", "-f", "state=closed");
     }
 
-    // ── pending-release label removal ───────────────────────────────
+    // ── Commit-trailer issue references ─────────────────────────────
 
     /**
      * A GitHub issue reference parsed from a closing-keyword commit
@@ -655,93 +655,6 @@ public final class ReleaseNotesSupport {
      */
     private static final Pattern MACHINERY_SUBJECT_PATTERN = Pattern.compile(
             "(?i)^(?:release:|merge:|post-release:|workspace: pre-|bump |\\[maven-release).*");
-
-    /**
-     * Remove the {@code pending-release} label from every issue
-     * referenced by a release-closing trailer ({@code Fixes},
-     * {@code Closes}, {@code Resolves} and grammatical variants) in
-     * commits between {@code previousTag} and {@code headRef}.
-     *
-     * <p>Implements the "label = live state" half of the
-     * {@code pending-release} pattern defined in {@code IKE-COMMITS.md}:
-     * a commit lands marking an issue {@code Fixes …}, the issue gets
-     * the {@code pending-release} label as a not-yet-shipped marker,
-     * and when the release actually ships the label comes off so
-     * {@code is:closed label:pending-release} accurately reflects
-     * fixes still awaiting a release.
-     *
-     * <p>Trailer references must use the full
-     * {@code <owner>/<repo>#N} form; bare {@code #N} references are
-     * resolved against {@code fallbackRepo}.
-     *
-     * <p>Pass {@code null} for {@code previousTag} to auto-derive it
-     * via {@code git describe --tags --abbrev=0 <headRef>^}. If no
-     * previous tag is reachable, label removal is skipped with an
-     * informational message.
-     *
-     * <p>Non-fatal: any failure (missing {@code gh} CLI, missing
-     * label, network error, auth error) is logged and the method
-     * continues processing the remaining references. The release is
-     * already done at this point.
-     *
-     * @param gitDir       the git working tree
-     * @param previousTag  the previous release tag, or null to auto-derive
-     * @param headRef      the new release commit or tag (e.g., "v57")
-     * @param fallbackRepo {@code owner/repo} for bare {@code #N} refs;
-     *                     may be null to ignore bare refs
-     * @param log          Maven logger (may be null)
-     * @return number of issues from which the label was actually removed
-     */
-    public static int removePendingReleaseLabels(File gitDir,
-                                                  String previousTag,
-                                                  String headRef,
-                                                  String fallbackRepo,
-                                                  Log log) {
-        try {
-            String prev = previousTag != null ? previousTag
-                    : resolvePreviousTag(gitDir, headRef);
-            if (prev == null || prev.isBlank()) {
-                if (log != null) {
-                    log.info("No previous release tag found; "
-                            + "skipping pending-release label removal");
-                }
-                return 0;
-            }
-
-            Set<IssueRef> refs = collectClosingTrailerRefs(
-                    gitDir, prev, headRef, fallbackRepo);
-            if (refs.isEmpty()) {
-                if (log != null) {
-                    log.info("No release-closing trailers found in "
-                            + prev + ".." + headRef);
-                }
-                return 0;
-            }
-
-            if (log != null) {
-                log.info("Removing pending-release label from "
-                        + refs.size() + " referenced issue(s)...");
-            }
-            int removed = 0;
-            for (IssueRef ref : refs) {
-                if (removePendingReleaseLabelOnIssue(ref, log)) {
-                    removed++;
-                }
-            }
-            if (log != null) {
-                log.info("Removed pending-release label from "
-                        + removed + " of " + refs.size()
-                        + " referenced issue(s)");
-            }
-            return removed;
-        } catch (Exception e) {
-            if (log != null) {
-                log.warn("Could not process pending-release labels: "
-                        + e.getMessage());
-            }
-            return 0;
-        }
-    }
 
     /**
      * Auto-derive the previous release tag via
@@ -840,7 +753,7 @@ public final class ReleaseNotesSupport {
      * <p>Public so the workspace plugin (in a different module) can
      * call this from {@code ws:checkpoint-publish} per
      * IKE-Network/ike-issues#394 — checkpoint reporting needs the
-     * same trailer parser that release-time label removal uses.
+     * same trailer parser that the release-time issue close uses.
      *
      * @param commitMessages concatenated commit message bodies
      * @param fallbackRepo   {@code owner/repo} for bare references, or null
@@ -867,36 +780,6 @@ public final class ReleaseNotesSupport {
         return refs;
     }
 
-    /**
-     * Remove the {@code pending-release} label from a single issue
-     * via the {@code gh} CLI. Returns true on success; returns false
-     * (and logs at debug level) when the label is not applied, which
-     * is the most common case — gh returns HTTP 404 for "Label does
-     * not exist" on the target issue.
-     */
-    private static boolean removePendingReleaseLabelOnIssue(IssueRef ref,
-                                                             Log log) {
-        try {
-            ReleaseSupport.execCapture(new File("."),
-                    "gh", "api", "-X", "DELETE",
-                    "/repos/" + ref.repo() + "/issues/" + ref.number()
-                            + "/labels/pending-release");
-            if (log != null) {
-                log.info("  Removed pending-release from " + ref.repo()
-                        + "#" + ref.number());
-            }
-            return true;
-        } catch (Exception e) {
-            if (log != null) {
-                log.debug("  pending-release not removed from "
-                        + ref.repo() + "#" + ref.number()
-                        + " (label not applied or remove failed): "
-                        + e.getMessage());
-            }
-            return false;
-        }
-    }
-
     // ── Fixes-trailer issue closing (IKE-Network/ike-issues#799) ────
 
     /**
@@ -905,13 +788,14 @@ public final class ReleaseNotesSupport {
      * variants) in commits between {@code previousTag} and
      * {@code headRef}.
      *
-     * <p>GitHub's native {@code Fixes #N} auto-close only fires when the
-     * issue lives in the commit's own repository. IKE centralizes issues
-     * in a separate tracker repo, so cross-repo trailers never auto-close
-     * — this redeems that trailer contract at release time so fixed
-     * issues don't dangle open (IKE-Network/ike-issues#799). Call it
-     * before milestone-notes generation so the notes reflect what
-     * shipped.
+     * <p>GitHub closes a referenced issue itself when the commit reaches
+     * the default branch, across repositories, provided the pushing
+     * account can push to the repository that holds the issue
+     * (IKE-Network/ike-issues#1176). This is the backstop for a push
+     * that did not close its issue: it redeems the trailer contract at
+     * release time so a fixed issue does not stay open
+     * (IKE-Network/ike-issues#799). Call it before milestone-notes
+     * generation so the notes reflect what shipped.
      *
      * <p>Idempotent (issues already closed are skipped) and non-fatal:
      * the artifact has already deployed at this point, so any failure is
