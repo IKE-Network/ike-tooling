@@ -95,40 +95,35 @@ convert it to AsciiDoc first, then run the tool.
 
 #### Invocation
 
-Run the tool with `exec:java` from the `ike-docs` reactor root. It
-accepts one or more files or directories; a directory is walked
-recursively for `*.adoc` files, skipping `target/` directories.
-AsciidoctorJ is initialized once and reused across all files, so
-running it on a directory is significantly faster than per file.
-Paths resolve from the `ike-docs` root, so give the doc project's
-files as absolute paths.
+Run the tool with the `slb:reformat` goal from the doc project's
+reactor root; `ike-parent` provides the goal and its version. `-Dfile`
+takes one file or one directory; a directory is walked recursively
+for `*.adoc` files, skipping `target/` directories. All files are
+processed in one run, so running it on a directory is significantly
+faster than per file. Paths resolve from the directory where `mvn`
+runs, and `-N` keeps the goal on the reactor root, so give paths
+relative to the reactor root.
 
 **Directory (recommended):**
 
 ```bash
-mvn exec:java -pl semantic-linebreak \
-  -Dexec.mainClass=network.ike.tools.linebreak.SemanticLineBreaker \
-  -Dexec.args="/path/to/project/topics/src/docs/asciidoc/topics/{domain}/"
+mvn -N slb:reformat -Dfile=topics/src/docs/asciidoc/topics/{domain}/
 ```
 
 **Single file:**
 
 ```bash
-mvn exec:java -pl semantic-linebreak \
-  -Dexec.mainClass=network.ike.tools.linebreak.SemanticLineBreaker \
-  -Dexec.args="/path/to/project/topics/src/docs/asciidoc/topics/{domain}/{topic}.adoc"
+mvn -N slb:reformat -Dfile=topics/src/docs/asciidoc/topics/{domain}/{topic}.adoc
 ```
 
-**Dry run — preview to stdout without modifying:**
+**Dry run — preview in the build log without modifying:**
 
 ```bash
-mvn exec:java -pl semantic-linebreak \
-  -Dexec.mainClass=network.ike.tools.linebreak.SemanticLineBreaker \
-  -Dexec.args="-n /path/to/source.adoc"
+mvn -N slb:reformat -Dfile=path/to/source.adoc -DdryRun=true
 ```
 
-The tool modifies files in place. Use `-n` to preview, or
-`-o <file>` to write elsewhere (single-file mode only).
+The tool modifies files in place. Use `-DdryRun=true` to preview, or
+`-DoutputFile=<file>` to write elsewhere (single-file mode only).
 
 #### Why normalize before decomposition
 
