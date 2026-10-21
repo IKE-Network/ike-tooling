@@ -224,6 +224,49 @@ As discussed in the architecture overview, we need a versioning approach. This s
 explains coordinates.
 ```
 
+### Line Breaks
+
+Write prose with semantic line breaks: each sentence starts on a line of its own, and a long
+sentence breaks again after a clause or a comma. Never wrap at a fixed column. A break never
+changes the rendered output; it changes what a diff, a blame and an annotation see.
+([Semantic Line Breaks](https://sembr.org); the Asciidoctor project recommends the same,
+one sentence per line.)
+
+Why it matters here:
+
+- A sentence materialized into Komet is a vertex of its own, with its own identity, history
+  and annotations; its identity comes from its words, never from where its lines break, so
+  a reflow costs a sentence nothing. A line's history is the line's: in wrapped prose a
+  one-word edit re-wraps the rest of the paragraph, and every later line is revised and loses
+  its annotations. With a sentence per line, an edit touches the lines of the sentence it
+  changes and no other.
+- Komet's sentence editor writes this way: an edited sentence goes on a line of its own, a
+  part of it whose words survive keeps its line, and only changed text is broken anew.
+
+Guard the line starts. AsciiDoc is line-sensitive, so no line inside a paragraph may begin
+with a token that opens structure: `=` and a space, a list marker (`*`, `-`, `.`, `1.`), `|`,
+`//`, a wholly bracketed `[...]`, a lone `+`, a delimiter, or an admonition label; and no
+joined line may read as `term::`. Keep a hard line break (` +` at a line's end) where it is.
+
+Existing wrapped topics are not reflowed wholesale by hand. Normalize a topic with the
+`semantic-linebreak` tool (see `IKE-INGEST.md`), as a commit of its own that changes nothing
+else, and list that commit in the repository's `.git-blame-ignore-revs` so line blame and
+Komet's line attribution pass over it.
+
+Good:
+```asciidoc
+A working-set lease grants one machine at a time the right to write a working set.
+The lease record lives in the synced folder itself,
+so taking a lease and announcing it are the same act.
+```
+
+Bad:
+```asciidoc
+A working-set lease grants one machine at a time the right to write a
+working set. The lease record lives in the synced folder itself, so taking
+a lease and announcing it are the same act.
+```
+
 ### Admonitions
 
 Use standard AsciiDoc admonitions. Keep them concise:
