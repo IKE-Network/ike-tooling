@@ -58,6 +58,9 @@ public final class ReportSession {
     /** Machine-readable observations sidecar, relative to the execution root. */
     public static final String OBSERVATIONS_RELATIVE_PATH = "target/build-report-observations.yaml";
 
+    /** The console's full listing, relative to the execution root. */
+    public static final String CONSOLE_RELATIVE_PATH = "target/build-report-console.md";
+
     /**
      * Where receipts that demanded attention are kept, relative to the
      * execution root.
@@ -77,12 +80,32 @@ public final class ReportSession {
     private static final int ARCHIVE_RETENTION = 20;
 
     private static final List<Finding> FINDINGS = Collections.synchronizedList(new ArrayList<>());
+    private static final List<ModuleLocation> MODULES = Collections.synchronizedList(new ArrayList<>());
     private static final Set<Path> RESOLVED_POMS =
             Collections.synchronizedSet(new LinkedHashSet<>());
     private static final Set<String> OBSERVED_EVENT_TYPES =
             Collections.synchronizedSet(new LinkedHashSet<>());
 
+    private static final BuildActivity ACTIVITY = new BuildActivity();
+    private static final ConsoleMessages CONSOLE = new ConsoleMessages();
+
     private static volatile Path executionRoot;
+    private static volatile boolean consoleTapped;
+
+    /** Shortest interval between live receipt updates driven by goal changes. */
+    private static final long LIVE_INTERVAL_NANOS = 1_000_000_000L;
+
+    /**
+     * How often the live receipt is refreshed when no build event
+     * arrives — during a long test run, say — so its elapsed times keep
+     * moving. Deliberately slow: every rewrite of a synced file is a
+     * change for the other machines to fetch.
+     */
+    private static final long HEARTBEAT_MILLIS = 5_000L;
+
+    private static volatile Thread heartbeat;
+    private static long lastLiveNanos;
+    private static List<ConsoleIgnore> liveIgnores;
     private static volatile Path localRepository;
     private static volatile GateVerdict verdict;
 
@@ -95,8 +118,15 @@ public final class ReportSession {
      */
     public static void reset() {
         FINDINGS.clear();
+        MODULES.clear();
         RESOLVED_POMS.clear();
         OBSERVED_EVENT_TYPES.clear();
+        ACTIVITY.reset();
+        CONSOLE.reset();
+        consoleTapped = false;
+        lastLiveNanos = 0L;
+        liveIgnores = null;
+        stopHeartbeat();
         executionRoot = null;
         localRepository = null;
         verdict = null;
@@ -125,6 +155,21 @@ public final class ReportSession {
     }
 
     /**
+     * Records where every reactor module keeps its files, for the
+     * measures read at session end.
+     *
+     * @param modules the reactor's modules in reactor order
+     */
+    public static void captureModules(List<ModuleLocation> modules) {
+        synchronized (MODULES) {
+            MODULES.clear();
+            if (modules != null) {
+                MODULES.addAll(modules);
+            }
+        }
+    }
+
+    /**
      * Captures the local repository's base directory once per session,
      * which anchors the group id of a resolved POM.
      *
@@ -134,6 +179,37 @@ public final class ReportSession {
         if (localRepository == null && base != null) {
             localRepository = base;
         }
+    }
+
+    /**
+     * Returns the collector of what the session built and how long it
+     * took.
+     *
+     * @return the session's build activity
+     */
+    public static BuildActivity activity() {
+        return ACTIVITY;
+    }
+
+    /**
+     * Starts listening to Maven's console output, if it is not being
+     * listened to already. Safe to call repeatedly.
+     */
+    public static void tapConsole() {
+        if (ConsoleTap.install()) {
+            consoleTapped = true;
+        }
+    }
+
+    /**
+     * Offers one rendered console line for consolidation, attributed to
+     * whatever the calling thread is building.
+     *
+     * @param line the line as Maven rendered it
+     */
+    public static void addConsoleLine(String line) {
+        Path root = executionRoot;
+        CONSOLE.accept(line, ACTIVITY.current(), root == null ? "" : root.toString());
     }
 
     /**
@@ -157,6 +233,93 @@ public final class ReportSession {
     }
 
     /**
+     * Rewrites the receipt with the build so far, so it can be watched
+     * instead of the console.
+     *
+     * <p>A module starting or ending always updates; goal changes are
+     * throttled, so a large reactor does not rewrite the file hundreds
+     * of times a second. Never throws, and does nothing once the session
+     * is finalized — the final receipt is never overwritten by a late
+     * event.</p>
+     *
+     * @param moduleBoundary true when a module started or ended
+     */
+    public static synchronized void writeLive(boolean moduleBoundary) {
+        Path root = executionRoot;
+        if (verdict != null || root == null) {
+            return;
+        }
+        long now = System.nanoTime();
+        if (!moduleBoundary && lastLiveNanos != 0L && now - lastLiveNanos < LIVE_INTERVAL_NANOS) {
+            return;
+        }
+        lastLiveNanos = now;
+        try {
+            if (liveIgnores == null) {
+                liveIgnores = loadIgnores(root);
+            }
+            String receipt = ReceiptRenderer.renderLive(
+                    toolVersion(), ZonedDateTime.now(), ACTIVITY.snapshot(),
+                    ReceiptRenderer.Console.of(consoleTapped, CONSOLE.snapshot(),
+                            CONSOLE.overflow(), liveIgnores));
+            Files.writeString(root.resolve(RECEIPT_FILE_NAME), receipt, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            // A missed live update costs nothing; the final receipt follows.
+        }
+    }
+
+    /**
+     * Starts the thread that keeps the live receipt's elapsed times
+     * moving between build events. Safe to call repeatedly.
+     */
+    public static synchronized void startHeartbeat() {
+        if (heartbeat != null || verdict != null) {
+            return;
+        }
+        Thread thread = new Thread(() -> {
+            try {
+                while (heartbeat == Thread.currentThread()) {
+                    Thread.sleep(HEARTBEAT_MILLIS);
+                    if (heartbeat == Thread.currentThread()) {
+                        writeLive(true);
+                    }
+                }
+            } catch (InterruptedException e) {
+                // Stopped: the session ended or was reset.
+            }
+        }, "ike-build-report-heartbeat");
+        thread.setDaemon(true);
+        heartbeat = thread;
+        thread.start();
+    }
+
+    private static void stopHeartbeat() {
+        Thread thread = heartbeat;
+        heartbeat = null;
+        if (thread != null) {
+            thread.interrupt();
+        }
+    }
+
+    private static void writeConsoleListing(Path root, ReceiptRenderer.Console console) {
+        try {
+            Path file = root.resolve(CONSOLE_RELATIVE_PATH);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, ReceiptRenderer.renderConsoleListing(console), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            LOG.warn("ike-build-report: could not write console listing: {}", e.toString());
+        }
+    }
+
+    private static List<ConsoleIgnore> loadIgnores(Path root) {
+        try {
+            return Ledger.load(root.resolve(LEDGER_RELATIVE_PATH)).consoleIgnores();
+        } catch (IOException | IllegalArgumentException e) {
+            return List.of();
+        }
+    }
+
+    /**
      * Finalizes the session exactly once: evaluates the ledger, writes
      * the receipt and the observations sidecar, and computes the gate
      * verdict. Safe to call from both the spy and the gate participant;
@@ -171,6 +334,11 @@ public final class ReportSession {
         if (verdict != null) {
             return verdict;
         }
+        // Stop listening first: everything Maven prints from here on —
+        // its own failure summary included — describes this receipt's
+        // content rather than adding to it.
+        ConsoleTap.uninstall();
+        stopHeartbeat();
         Path root = executionRoot != null ? executionRoot : Path.of(System.getProperty("user.dir"));
         boolean skipRequested = Boolean.getBoolean(GATE_SKIP_PROPERTY);
         Ledger ledger = Ledger.empty();
@@ -193,8 +361,16 @@ public final class ReportSession {
         synchronized (RESOLVED_POMS) {
             resolvedPoms = List.copyOf(RESOLVED_POMS);
         }
-        snapshot = RepositoryProvenance.enrich(
-                snapshot, observations, resolvedPoms, localRepository, root);
+        snapshot = new ArrayList<>(RepositoryProvenance.enrich(
+                snapshot, observations, resolvedPoms, localRepository, root));
+
+        // Measures next: a violated bound is a finding like any other and
+        // is evaluated with the rest (ike-issues#1207).
+        ReceiptRenderer.Console console = ReceiptRenderer.Console.of(
+                consoleTapped, CONSOLE.snapshot(), CONSOLE.overflow(), ledger.consoleIgnores());
+        BuildActivity.Overview overview = ACTIVITY.snapshot();
+        MeasureReport measureReport = measure(root, overview, console, ledger);
+        snapshot.addAll(Ledger.measureFindings(measureReport.statuses()));
 
         LedgerEvaluation evaluation = ledger.evaluate(snapshot);
         List<LedgerEvaluation.AttentionItem> gating = ledger.gatingAttention(evaluation);
@@ -207,7 +383,8 @@ public final class ReportSession {
         ZonedDateTime now = ZonedDateTime.now();
         try {
             String receipt = ReceiptRenderer.render(
-                    toolVersion(), now, ledger.mode(), note, evaluation);
+                    toolVersion(), now, ledger.mode(), note, evaluation, overview, console, measureReport);
+            writeConsoleListing(root, console);
             if (Boolean.getBoolean(DEBUG_PROPERTY)) {
                 receipt = receipt + renderDiagnostic();
             }
@@ -221,7 +398,8 @@ public final class ReportSession {
             receiptFile = null;
         }
         try {
-            ObservationsFile.write(root.resolve(OBSERVATIONS_RELATIVE_PATH), evaluation, snapshot);
+            ObservationsFile.write(
+                    root.resolve(OBSERVATIONS_RELATIVE_PATH), evaluation, snapshot, measureReport.measures());
         } catch (Exception e) {
             LOG.warn("ike-build-report: could not write observations sidecar: {}", e.toString());
         }
@@ -239,6 +417,33 @@ public final class ReportSession {
         verdict = new GateVerdict(
                 ledger.mode(), gating, buildAlreadyFailed, skipRequested, receiptFile, archiveFile);
         return verdict;
+    }
+
+    /**
+     * Collects the session's measures, compares them with the ledger's
+     * bounds, and hands them to TeamCity when the build runs there.
+     *
+     * <p>Never throws: a session whose measures cannot be collected
+     * still gets its receipt.</p>
+     */
+    private static MeasureReport measure(
+            Path root, BuildActivity.Overview overview, ReceiptRenderer.Console console, Ledger ledger) {
+        try {
+            List<ModuleLocation> modules;
+            synchronized (MODULES) {
+                modules = List.copyOf(MODULES);
+            }
+            Measures measures = MeasureCollector.collect(root, modules, overview, console, ledger);
+            MeasureReport report = MeasureReport.of(measures, ledger.evaluateMeasures(measures));
+            if (TeamCityStatistics.active()) {
+                report = report.withPublished(
+                        TeamCityStatistics.publish(measures, TeamCityStatistics.processOutput()));
+            }
+            return report;
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("ike-build-report: measures not collected: {}", e.toString());
+            return MeasureReport.of(Measures.empty(), List.of());
+        }
     }
 
     /**

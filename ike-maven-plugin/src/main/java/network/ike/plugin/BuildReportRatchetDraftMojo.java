@@ -1,6 +1,8 @@
 package network.ike.plugin;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -18,14 +20,16 @@ import org.apache.maven.api.plugin.annotations.Mojo;
 
 /**
  * Preview tightening the build-report acceptance ledger against the
- * latest session's observations (ike-issues#989).
+ * latest session's observations (ike-issues#989, #1207).
  *
  * <p>Reads {@code .mvn/build-report.yaml} and the machine-readable
  * sidecar the build-report extension writes at session end
  * ({@code target/build-report-observations.yaml} — data, not scraped
  * receipt Markdown), and reports which accepted counts would move
- * <em>down</em>. Counts never loosen mechanically: accepting new or
- * grown findings is a deliberate human edit. Side-effect-free; the
+ * <em>down</em> and which measure bounds would tighten — an
+ * {@code at-most} down, an {@code at-least} up, each keeping its slack.
+ * Nothing loosens mechanically: accepting new or grown findings, or a
+ * regressed measure, is a deliberate human edit. Side-effect-free; the
  * {@code -publish} counterpart applies the plan.
  *
  * @see BuildReportRatchetPublishMojo
@@ -47,7 +51,7 @@ public class BuildReportRatchetDraftMojo extends AbstractGoalMojo {
     public BuildReportRatchetDraftMojo() {}
 
     /**
-     * Computes (and in publish mode applies) the downward ratchet plan.
+     * Computes (and in publish mode applies) the ratchet plan.
      *
      * @return the goal report
      * @throws MojoException when the ledger or sidecar cannot be read,
@@ -71,21 +75,15 @@ public class BuildReportRatchetDraftMojo extends AbstractGoalMojo {
         } catch (IOException | IllegalArgumentException e) {
             throw new MojoException("Cannot read " + ledgerPath + ": " + e.getMessage(), e);
         }
-        if (ledger.entries().isEmpty()) {
-            body.append("No accepted entries in `")
+        if (ledger.entries().isEmpty() && ledger.measures().isEmpty()) {
+            body.append("No accepted entries or measure bounds in `")
                     .append(ReportSession.LEDGER_RELATIVE_PATH)
                     .append("` — nothing to ratchet.\n");
-            getLog().info("build-report ratchet: no accepted entries — nothing to do");
+            getLog().info("build-report ratchet: no accepted entries or measure bounds — nothing to do");
             return new GoalReportSpec(goal, root, body.toString());
         }
 
-        Map<String, Long> observed;
-        try {
-            observed = ObservationsFile.readObserved(sidecarPath);
-        } catch (IOException | IllegalArgumentException e) {
-            throw new MojoException("Cannot read " + sidecarPath + ": " + e.getMessage(), e);
-        }
-        if (observed.isEmpty()) {
+        if (!Files.exists(sidecarPath)) {
             body.append("No observations sidecar at `")
                     .append(ReportSession.OBSERVATIONS_RELATIVE_PATH)
                     .append("` — run a build with the build-report extension "
@@ -93,11 +91,20 @@ public class BuildReportRatchetDraftMojo extends AbstractGoalMojo {
             getLog().warn("build-report ratchet: no observations sidecar — run a build first");
             return new GoalReportSpec(goal, root, body.toString());
         }
+        Map<String, Long> observed;
+        Map<String, Double> measures;
+        try {
+            observed = ObservationsFile.readObserved(sidecarPath);
+            measures = ObservationsFile.readMeasures(sidecarPath);
+        } catch (IOException | IllegalArgumentException e) {
+            throw new MojoException("Cannot read " + sidecarPath + ": " + e.getMessage(), e);
+        }
 
-        RatchetPlanner.Plan plan = RatchetPlanner.plan(ledger, observed);
+        RatchetPlanner.Plan plan = RatchetPlanner.plan(ledger, observed, measures);
         if (!plan.changesAnything()) {
-            body.append("Ledger is already tight: every accepted count is at "
-                    + "or below its latest observation.\n");
+            body.append("Ledger is already tight: every accepted count is at or below its "
+                    + "latest observation, and every measure bound is as tight as its "
+                    + "latest value allows.\n");
             getLog().info("build-report ratchet: ledger already tight");
             return new GoalReportSpec(goal, root, body.toString());
         }
@@ -115,6 +122,15 @@ public class BuildReportRatchetDraftMojo extends AbstractGoalMojo {
                     + tightening.entry().key() + ": " + tightening.entry().count()
                     + " -> " + tightening.observed());
         }
+        for (RatchetPlanner.MeasureTightening tightening : plan.measureTightenings()) {
+            String from = tightening.entry().describe();
+            String to = tightening.entry().withLimit(tightening.limit()).describe();
+            body.append("- `").append(tightening.entry().key()).append("` — ")
+                    .append(from).append(" → ").append(to)
+                    .append(" (measured ").append(plain(tightening.observed())).append(")\n");
+            getLog().info("  " + (publish ? "tightened " : "would tighten ")
+                    + tightening.entry().key() + ": " + from + " -> " + to);
+        }
         body.append('\n');
 
         if (publish) {
@@ -125,11 +141,17 @@ public class BuildReportRatchetDraftMojo extends AbstractGoalMojo {
             }
             body.append("Ledger rewritten canonically at `")
                     .append(ReportSession.LEDGER_RELATIVE_PATH)
-                    .append("`. Counts only move down; loosening is a human edit.\n");
+                    .append("`. Counts only move down and bounds only tighten; "
+                            + "loosening is a human edit.\n");
         } else {
             body.append("Apply with `mvn ike:")
                     .append(IkeGoal.NAME_BUILD_REPORT_RATCHET_PUBLISH).append("`.\n");
         }
         return new GoalReportSpec(goal, root, body.toString());
+    }
+
+    /** Renders a measured value without a trailing {@code .0}. */
+    private static String plain(double value) {
+        return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
     }
 }

@@ -78,6 +78,12 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     /** {@code ike:generate-bom} — generate the auto-managed BOM. */
     GENERATE_BOM(IkeGoal.NAME_GENERATE_BOM, GenerateBomMojo.class,
             "Generate the auto-managed BOM from the current dependencyManagement."),
+    /** {@code ike:heal-snapshot-metadata} — repair a snapshot's inconsistent metadata before deploy (#1160). */
+    HEAL_SNAPSHOT_METADATA(IkeGoal.NAME_HEAL_SNAPSHOT_METADATA, HealSnapshotMetadataMojo.class,
+            "Before a snapshot deploy, delete the version's maven-metadata.xml "
+                    + "and checksum files on the deploy target when they "
+                    + "disagree, so the deploy rewrites them (Nexus "
+                    + "metadata-rebuild fault, IKE-Network/ike-issues#1107)."),
     /** {@code ike:help} — list {@code ike:*} goals from the plugin descriptor. */
     HELP(IkeGoal.NAME_HELP, IkeHelpMojo.class,
             "List ike:* goals discovered from the plugin descriptor."),
@@ -134,6 +140,38 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "base data plus change sets into a store, classified by "
                     + "default — and optionally install it into a data-source "
                     + "directory a knowledge browser reads (ike-issues#848)."),
+    /** {@code ike:changeset-inspect} — report what a change set is made of. */
+    CHANGESET_INSPECT(IkeGoal.NAME_CHANGESET_INSPECT, ChangeSetInspectMojo.class,
+            "Report what a change set is made of, without a store: its format "
+                    + "version, its entries, its records by kind and pattern, its "
+                    + "component table, and how its references are written "
+                    + "(ike-issues#1275)."),
+    /** {@code ike:changeset-verify} — check a change set against its format. */
+    CHANGESET_VERIFY(IkeGoal.NAME_CHANGESET_VERIFY, ChangeSetVerifyMojo.class,
+            "Check a change set against its format and fail the build on any "
+                    + "error: the manifest, the component table, every entry's "
+                    + "count and SHA-256, the ids and references of every record "
+                    + "(ike-issues#1275)."),
+    /** {@code ike:changeset-expand} — rewrite a format-3 change set with references by UUID. */
+    CHANGESET_EXPAND(IkeGoal.NAME_CHANGESET_EXPAND, ChangeSetExpandMojo.class,
+            "Rewrite a format-3 change set in the format-2 layout, every "
+                    + "reference by UUID, for a reader that knows no sequences "
+                    + "(ike-issues#1275)."),
+    /** {@code ike:changeset-compact} — rewrite an older change set in format 3. */
+    CHANGESET_COMPACT(IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactMojo.class,
+            "Rewrite a format-1 or format-2 change set in format 3: a component "
+                    + "table, one entry per pattern, references by sequence "
+                    + "(ike-issues#1275)."),
+    /** {@code ike:changeset-merge} — merge a directory of change sets into one. */
+    CHANGESET_MERGE(IkeGoal.NAME_CHANGESET_MERGE, ChangeSetMergeMojo.class,
+            "Merge a directory of change sets into one: each verified, all loaded "
+                    + "together so an entity in several keeps every version, written in "
+                    + "format 3 and attached as the changeset classifier (ike-issues#1293)."),
+    /** {@code ike:changeset-harvest} — harvest an installed knowledge base's captured change sets. */
+    CHANGESET_HARVEST(IkeGoal.NAME_CHANGESET_HARVEST, ChangeSetHarvestMojo.class,
+            "Copy the change sets a browser captured in an installed knowledge base "
+                    + "into the project before it is rebuilt, parking those with no "
+                    + "content in the extension's modules (ike-issues#1293)."),
     /** {@code ike:starter-set-create-draft} — preview a new starter-set project. */
     STARTER_SET_CREATE_DRAFT(IkeGoal.NAME_STARTER_SET_CREATE_DRAFT, StarterSetCreateDraftMojo.class,
             "Preview the genesis of a new starter-set project: the derived name "
@@ -262,6 +300,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     public static final String NAME_ENV = "env";
     /** Mirror for {@link #GENERATE_BOM}. */
     public static final String NAME_GENERATE_BOM = "generate-bom";
+    /** Mirror for {@link #HEAL_SNAPSHOT_METADATA}. */
+    public static final String NAME_HEAL_SNAPSHOT_METADATA = "heal-snapshot-metadata";
     /** Mirror for {@link #HELP}. */
     public static final String NAME_HELP = "help";
     /** Mirror for {@link #INJECT_BREADCRUMB}. */
@@ -285,6 +325,19 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
     /** Mirror for {@link #KB_ASSEMBLE}. */
     public static final String NAME_KB_ASSEMBLE = "kb-assemble";
+
+    /** Mirror for {@link #CHANGESET_INSPECT}. */
+    public static final String NAME_CHANGESET_INSPECT = "changeset-inspect";
+    /** Mirror for {@link #CHANGESET_VERIFY}. */
+    public static final String NAME_CHANGESET_VERIFY = "changeset-verify";
+    /** Mirror for {@link #CHANGESET_EXPAND}. */
+    public static final String NAME_CHANGESET_EXPAND = "changeset-expand";
+    /** Mirror for {@link #CHANGESET_COMPACT}. */
+    public static final String NAME_CHANGESET_COMPACT = "changeset-compact";
+    /** Mirror for {@link #CHANGESET_MERGE}. */
+    public static final String NAME_CHANGESET_MERGE = "changeset-merge";
+    /** Mirror for {@link #CHANGESET_HARVEST}. */
+    public static final String NAME_CHANGESET_HARVEST = "changeset-harvest";
 
     /** Mirror for {@link #STARTER_SET_CREATE_DRAFT}. */
     public static final String NAME_STARTER_SET_CREATE_DRAFT = "starter-set-create-draft";

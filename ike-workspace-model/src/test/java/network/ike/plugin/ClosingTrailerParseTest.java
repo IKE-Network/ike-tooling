@@ -9,8 +9,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Tests for {@link ReleaseNotesSupport#parseClosingTrailers} — the
- * closing-trailer parser that drives {@code pending-release} label
- * removal at release time.
+ * closing-trailer parser that drives the release-time issue close and
+ * the checkpoint's "issues since last release" list.
  *
  * <p>Conventions enforced:
  *
@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>{@code Refs} is intentionally not a closing keyword.</li>
  * </ul>
  */
-class PendingReleaseTrailerParseTest {
+class ClosingTrailerParseTest {
 
     private static final String FALLBACK = "IKE-Network/ike-tooling";
 

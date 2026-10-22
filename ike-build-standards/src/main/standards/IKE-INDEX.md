@@ -165,11 +165,34 @@ coordinates
   STAMP coordinate
   temporal coordinate
 
+decision analysis
+  alternative
+  clairvoyance
+  decision
+  expected net benefit of sampling
+  expected value
+  expected value of sample information
+  net monetary benefit
+  preposterior analysis
+  prior
+  sensitivity analysis
+  state of the world
+  value of information
+
+diagnostic accuracy
+  false alarm
+  sensitivity
+  specificity
+
 governance
   editorial rules
   namespace registration
   promotion pathway
   quality assurance
+
+health economics
+  price of a QALY
+  quality-adjusted life year
 
 interoperability
   ANF
@@ -179,26 +202,40 @@ interoperability
   TINKAR
 
 multi-machine development
-  contested acquisition
+  contested take
   non-participant
   onboarding
   fencing token
   git-state materialization
   Jini leasing
   lease renewal
+  lease vocabulary
   machine identity
   propagation window
   safety net
   silent peer
   single-writer
+  recall
+  sibling history bundles
   staleness horizon
-  takeover
   working-set lease
 
 organizations
   IHTSDO
   NLM
   Regenstrief Institute
+
+regulatory science
+  approval decision
+  benefit-risk uncertainty
+  cost of delay
+  cost of exposure
+  least burdensome
+  oculostenotic reflex
+  post-approval study
+  public health value
+  surveillance horizon
+  surveillance imaging
 
 safety
   hazard analysis
