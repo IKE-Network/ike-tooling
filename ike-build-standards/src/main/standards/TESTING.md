@@ -9,7 +9,7 @@ behavior is verified against real data; only pure mechanism is verified in isola
 | Kind | Suffix | Runs against | Use for |
 |------|--------|--------------|---------|
 | Hermetic unit | `*Test` | nothing — no datastore, no JavaFX toolkit | pure algorithms, value-object math, the override **primitive** (`OverrideOf`), and type / wiring / sealed-hierarchy contracts |
-| Integration | `*ITestFX` | the **starter dataset** in an ephemeral store, on the JavaFX thread | anything that composes real coordinates, entities, calculators, or UI gadgets |
+| Integration | `*ITestFX` | the **starter dataset** in a memory-only store, on the JavaFX thread | anything that composes real coordinates, entities, calculators, or UI gadgets |
 
 `src/test/java` mirrors `src/main/java` package-for-package. One invariant per
 `@Test`; the method name states the invariant. JUnit 5 (Jupiter).
@@ -41,12 +41,12 @@ edit), each with its own dimensions — exercising the *composition* requires a 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class FooITestFX {
     private static final File STARTER =
-            new File("target/data", "tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data", "ike-starter-set-reasoned-pb.zip");
 
     @BeforeAll
     void startStore() {
         CachingService.clearAll();
-        PrimitiveData.selectControllerByName("Load Ephemeral Store");
+        PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
     }
 
@@ -64,8 +64,14 @@ class FooITestFX {
   default `ViewCoordinateRecord` — never hand-built records.
 - Every test that touches the store or a JavaFX node runs on the FX thread
   (`@RunOnJavaFXThread`); order data-loading first (`@Order(1)`).
-- The starter zip (`tinkar-starter-data-reasoned-pb.zip`) is provisioned under
+- The starter zip (`ike-starter-set-reasoned-pb.zip`) is provisioned under
   `target/data/` by the build; reference it there.
+- The memory-only store is the 64-bit spined array's
+  `"Load Memory-Only 64-bit Store"`
+  (`SpinedArray64Provider.LoadController`).
+  The sequential spined array's `"Load Ephemeral Store"` held that role until
+  2026-10-21, when it moved to the 64-bit store (IKE-Network/ike-issues#1313);
+  Komet no longer offers it, so new tests never select it.
 
 ## Plugins outside the komet reactor — classpath integration tests
 
@@ -74,7 +80,7 @@ A module parented directly on `ike-parent` (a standalone plugin such as
 tests on the **classpath** (`useModulePath=false`), not the module path. The tinkar
 datastore providers declare their services only through `module-info provides`, with no
 `META-INF/services` entries, so a classpath `ServiceLoader` cannot discover them and the
-store fails to start (`No controller found with name: "Load Ephemeral Store"`,
+store fails to start (`No controller found with name: "Load Memory-Only 64-bit Store"`,
 `No PathService found`).
 
 Such a module **MUST** declare the providers the legacy way — one
