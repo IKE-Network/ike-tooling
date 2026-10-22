@@ -91,11 +91,11 @@ Apply semantic line breaks to the source before any structural editing.
 Run the `semantic-linebreak` tool on every AsciiDoc file being ingested.
 
 If the source is not yet AsciiDoc (e.g., DocBook, Markdown, HTML),
-convert it to AsciiDoc first, then run the tool.
+convert it to AsciiDoc first, then run the `semantic-linebreak` tool.
 
 #### Invocation
 
-Run the tool with the `slb:reformat` goal from the doc project's
+Run the `semantic-linebreak` tool with the `slb:reformat` goal from the doc project's
 reactor root; `ike-parent` provides the goal and its version. `-Dfile`
 takes one file or one directory; a directory is walked recursively
 for `*.adoc` files, skipping `target/` directories. All files are
@@ -107,22 +107,25 @@ relative to the reactor root.
 **Directory (recommended):**
 
 ```bash
-mvn -N slb:reformat -Dfile=topics/src/docs/asciidoc/topics/{domain}/
+mvn -N slb:reformat \
+  "-Dfile=topics/src/docs/asciidoc/topics/{domain}/"
 ```
 
 **Single file:**
 
 ```bash
-mvn -N slb:reformat -Dfile=topics/src/docs/asciidoc/topics/{domain}/{topic}.adoc
+mvn -N slb:reformat \
+  "-Dfile=topics/src/docs/asciidoc/topics/{domain}/{topic}.adoc" \
+  "-DoutputFile=target/{topic}.adoc"
 ```
 
 **Dry run — preview in the build log without modifying:**
 
 ```bash
-mvn -N slb:reformat -Dfile=path/to/source.adoc -DdryRun=true
+mvn -N slb:reformat "-Dfile=path/to/source.adoc" -DdryRun=true
 ```
 
-The tool modifies files in place. Use `-DdryRun=true` to preview, or
+The `semantic-linebreak` tool modifies files in place. Use `-DdryRun=true` to preview, or
 `-DoutputFile=<file>` to write elsewhere (single-file mode only).
 
 #### Why normalize before decomposition
@@ -140,13 +143,13 @@ normalization must happen **before** decomposition because:
 - **Granularity estimation** against the 500–5000 character bounds is
   easier when each line is a semantic unit.
 
-The tool only modifies paragraph blocks identified by the AsciidoctorJ
+The `semantic-linebreak` tool only modifies paragraph blocks identified by the AsciidoctorJ
 AST. Source listings, diagrams, tables, and all other block types are
 preserved unchanged.
 
 #### Re-normalize after authoring
 
-Run the tool again after Step 5 (Place) on any files authored or
+Run the `semantic-linebreak` tool again after Step 5 (Place) on any files authored or
 substantially edited during ingestion — fragment files, assembly
 documents, and updated `index.adoc` previews. This ensures all
 committed AsciiDoc follows uniform line structure.
