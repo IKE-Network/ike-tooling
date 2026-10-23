@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ChangeSetRequest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">ChangeSetRequest.java</span></div><h1>ChangeSetRequest.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.nio.file.Path;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * A change set tool's request: the change set, and for a rewrite the file to write. The
+ * inspector and the verifier read {@code changeSet} alone; the expander and the compactor
+ * write {@code target}, and refuse a request without one.
+ *
+ * @param changeSet the change set zip to read
+ * @param target    the file a rewrite writes; empty for a report
+ * @param modules   for a merge, the modules (by UUID) whose versions are kept; empty keeps all
+ */
+public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java.util.Set&lt;String&gt; modules) {
+
+    /** Checks that neither part is null. */
+<span class="nc" id="L20">    public ChangeSetRequest {</span>
+<span class="nc" id="L21">        Objects.requireNonNull(changeSet, &quot;changeSet&quot;);</span>
+<span class="nc" id="L22">        Objects.requireNonNull(target, &quot;target&quot;);</span>
+<span class="nc" id="L23">        modules = java.util.Set.copyOf(Objects.requireNonNull(modules, &quot;modules&quot;));</span>
+<span class="nc" id="L24">    }</span>
+
+    /**
+     * A request with no module selection.
+     *
+     * @param changeSet the change set zip to read
+     * @param target    the file a rewrite writes; empty for a report
+     */
+    public ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
+<span class="nc" id="L33">        this(changeSet, target, java.util.Set.of());</span>
+<span class="nc" id="L34">    }</span>
+
+    /**
+     * A request to read a change set and report.
+     *
+     * @param changeSet the change set zip to read
+     * @return the request, with no target
+     */
+    public static ChangeSetRequest of(Path changeSet) {
+<span class="nc" id="L43">        return new ChangeSetRequest(changeSet, Optional.empty());</span>
+    }
+
+    /**
+     * A request to rewrite a change set as another file.
+     *
+     * @param changeSet the change set zip to read
+     * @param target    the file to write
+     * @return the request
+     */
+    public static ChangeSetRequest of(Path changeSet, Path target) {
+<span class="nc" id="L54">        return new ChangeSetRequest(changeSet, Optional.of(target));</span>
+    }
+
+    /**
+     * The target, for a tool that writes one.
+     *
+     * @param tool the goal's name, for the message when there is no target
+     * @return the target
+     * @throws IllegalArgumentException if the request names no target
+     */
+    public Path requireTarget(String tool) {
+<span class="nc" id="L65">        return target.orElseThrow(() -&gt; new IllegalArgumentException(tool + &quot; writes a file: the request names no target&quot;));</span>
+    }
+
+    /**
+     * The request as properties, for the forked-JVM seam.
+     *
+     * @return the properties: {@code changeSet}, and {@code target} when there is one
+     */
+    public Properties toProperties() {
+<span class="nc" id="L74">        Properties properties = new Properties();</span>
+<span class="nc" id="L75">        PropCodec.put(properties, &quot;changeSet&quot;, changeSet.toString());</span>
+<span class="nc" id="L76">        PropCodec.putOptional(properties, &quot;target&quot;, target.map(Path::toString));</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        if (!modules.isEmpty()) {</span>
+<span class="nc" id="L78">            PropCodec.put(properties, &quot;modules&quot;, String.join(&quot;,&quot;, new java.util.TreeSet&lt;&gt;(modules)));</span>
+        }
+<span class="nc" id="L80">        return properties;</span>
+    }
+
+    /**
+     * The request read back from its properties.
+     *
+     * @param properties what {@link #toProperties()} wrote
+     * @return the request
+     */
+    public static ChangeSetRequest fromProperties(Properties properties) {
+<span class="nc" id="L90">        return new ChangeSetRequest(PropCodec.requirePath(properties, &quot;changeSet&quot;),</span>
+<span class="nc" id="L91">                PropCodec.optionalPath(properties, &quot;target&quot;),</span>
+<span class="nc" id="L92">                PropCodec.optional(properties, &quot;modules&quot;)</span>
+<span class="nc" id="L93">                        .map(list -&gt; java.util.Set.of(list.split(&quot;,&quot;))).orElse(java.util.Set.of()));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

@@ -3,6 +3,7 @@
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
@@ -19,9 +20,17 @@ import java.util.Properties;
  *                            produced one
  * @param reasonedPbFile      the reasoned-protobuf export the assembly produced, when
  *                            one was requested (IKE-Network/ike-issues#933)
+ * @param storeAttributes     what the implementation knows about the store it built, as
+ *                            {@code Ike-*} manifest attributes by name ({@code Ike-Open-Controller},
+ *                            {@code Ike-Store-Layout}, {@code Ike-Assembly-Identity}, ...): the
+ *                            goal writes them into the store's {@code META-INF/MANIFEST.MF}
  */
 public record AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;ClassificationSummary&gt; classification,
-                             Optional&lt;Path&gt; effectiveViewReport, Optional&lt;Path&gt; reasonedPbFile) {
+                             Optional&lt;Path&gt; effectiveViewReport, Optional&lt;Path&gt; reasonedPbFile,
+                             Map&lt;String, String&gt; storeAttributes) {
+
+    /** The prefix every store attribute's name carries, on the wire and in the manifest. */
+    public static final String STORE_ATTRIBUTE_PREFIX = &quot;Ike-&quot;;
 
     /**
      * Validates and defensively copies the result.
@@ -29,14 +38,37 @@ public record AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;Classifi
      * @param loads               one summary per input artifact, in load order
      * @param classification      the classification summary
      * @param effectiveViewReport the effective-view report file
-     * @throws NullPointerException if any component is null
+     * @param reasonedPbFile      the reasoned-protobuf export
+     * @param storeAttributes     the store's {@code Ike-*} manifest attributes
+     * @throws NullPointerException     if any component is null
+     * @throws IllegalArgumentException if a store attribute's name lacks the {@code Ike-} prefix
      */
-<span class="fc" id="L34">    public AssembleResult {</span>
-<span class="fc" id="L35">        loads = List.copyOf(Objects.requireNonNull(loads, &quot;loads&quot;));</span>
-<span class="fc" id="L36">        Objects.requireNonNull(classification, &quot;classification&quot;);</span>
-<span class="fc" id="L37">        Objects.requireNonNull(effectiveViewReport, &quot;effectiveViewReport&quot;);</span>
-<span class="fc" id="L38">        Objects.requireNonNull(reasonedPbFile, &quot;reasonedPbFile&quot;);</span>
-<span class="fc" id="L39">    }</span>
+<span class="fc" id="L46">    public AssembleResult {</span>
+<span class="fc" id="L47">        loads = List.copyOf(Objects.requireNonNull(loads, &quot;loads&quot;));</span>
+<span class="fc" id="L48">        Objects.requireNonNull(classification, &quot;classification&quot;);</span>
+<span class="fc" id="L49">        Objects.requireNonNull(effectiveViewReport, &quot;effectiveViewReport&quot;);</span>
+<span class="fc" id="L50">        Objects.requireNonNull(reasonedPbFile, &quot;reasonedPbFile&quot;);</span>
+<span class="fc" id="L51">        storeAttributes = Map.copyOf(Objects.requireNonNull(storeAttributes, &quot;storeAttributes&quot;));</span>
+<span class="fc bfc" id="L52" title="All 2 branches covered.">        storeAttributes.keySet().stream().filter(name -&gt; !name.startsWith(STORE_ATTRIBUTE_PREFIX)).findFirst()</span>
+<span class="fc" id="L53">                .ifPresent(name -&gt; {</span>
+<span class="fc" id="L54">                    throw new IllegalArgumentException(&quot;A store attribute is named &quot; + STORE_ATTRIBUTE_PREFIX</span>
+                            + &quot;*, not &quot; + name);
+                });
+<span class="fc" id="L57">    }</span>
+
+    /**
+     * Creates a result that reports no store attributes — the shape before the store
+     * carried its manifest, kept for source compatibility with existing implementations.
+     *
+     * @param loads               one summary per input artifact, in load order
+     * @param classification      the classification summary
+     * @param effectiveViewReport the effective-view report file
+     * @param reasonedPbFile      the reasoned-protobuf export
+     */
+    public AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;ClassificationSummary&gt; classification,
+                          Optional&lt;Path&gt; effectiveViewReport, Optional&lt;Path&gt; reasonedPbFile) {
+<span class="fc" id="L70">        this(loads, classification, effectiveViewReport, reasonedPbFile, Map.of());</span>
+<span class="fc" id="L71">    }</span>
 
     /**
      * Creates a result without a reasoned-protobuf export — the pre-#933 shape, kept
@@ -48,8 +80,8 @@ public record AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;Classifi
      */
     public AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;ClassificationSummary&gt; classification,
                           Optional&lt;Path&gt; effectiveViewReport) {
-<span class="fc" id="L51">        this(loads, classification, effectiveViewReport, Optional.empty());</span>
-<span class="fc" id="L52">    }</span>
+<span class="fc" id="L83">        this(loads, classification, effectiveViewReport, Optional.empty(), Map.of());</span>
+<span class="fc" id="L84">    }</span>
 
     /**
      * Encodes this result in the seam wire format.
@@ -57,22 +89,23 @@ public record AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;Classifi
      * @return the result properties
      */
     public Properties toProperties() {
-<span class="fc" id="L60">        Properties properties = new Properties();</span>
-<span class="fc bfc" id="L61" title="All 2 branches covered.">        for (int i = 0; i &lt; loads.size(); i++) {</span>
-<span class="fc" id="L62">            LoadSummary load = loads.get(i);</span>
-<span class="fc" id="L63">            PropCodec.put(properties, &quot;load.&quot; + (i + 1) + &quot;.artifact&quot;, load.artifact());</span>
-<span class="fc" id="L64">            PropCodec.putCounts(properties, &quot;load.&quot; + (i + 1) + &quot;.&quot;, load.counts());</span>
+<span class="fc" id="L92">        Properties properties = new Properties();</span>
+<span class="fc bfc" id="L93" title="All 2 branches covered.">        for (int i = 0; i &lt; loads.size(); i++) {</span>
+<span class="fc" id="L94">            LoadSummary load = loads.get(i);</span>
+<span class="fc" id="L95">            PropCodec.put(properties, &quot;load.&quot; + (i + 1) + &quot;.artifact&quot;, load.artifact());</span>
+<span class="fc" id="L96">            PropCodec.putCounts(properties, &quot;load.&quot; + (i + 1) + &quot;.&quot;, load.counts());</span>
         }
-<span class="fc" id="L66">        classification.ifPresent(summary -&gt; {</span>
-<span class="fc" id="L67">            PropCodec.put(properties, &quot;classification.service&quot;, summary.service());</span>
-<span class="fc" id="L68">            PropCodec.put(properties, &quot;classification.conceptCount&quot;, Long.toString(summary.conceptCount()));</span>
-<span class="fc" id="L69">            PropCodec.put(properties, &quot;classification.inferredChanges&quot;, Long.toString(summary.inferredChanges()));</span>
-<span class="fc" id="L70">            PropCodec.put(properties, &quot;classification.navigationChanges&quot;, Long.toString(summary.navigationChanges()));</span>
-<span class="fc" id="L71">            PropCodec.put(properties, &quot;classification.elapsedMillis&quot;, Long.toString(summary.elapsedMillis()));</span>
-<span class="fc" id="L72">        });</span>
-<span class="fc" id="L73">        PropCodec.putOptional(properties, &quot;effectiveViewReport&quot;, effectiveViewReport.map(Path::toString));</span>
-<span class="fc" id="L74">        PropCodec.putOptional(properties, &quot;reasonedPbFile&quot;, reasonedPbFile.map(Path::toString));</span>
-<span class="fc" id="L75">        return properties;</span>
+<span class="fc" id="L98">        classification.ifPresent(summary -&gt; {</span>
+<span class="fc" id="L99">            PropCodec.put(properties, &quot;classification.service&quot;, summary.service());</span>
+<span class="fc" id="L100">            PropCodec.put(properties, &quot;classification.conceptCount&quot;, Long.toString(summary.conceptCount()));</span>
+<span class="fc" id="L101">            PropCodec.put(properties, &quot;classification.inferredChanges&quot;, Long.toString(summary.inferredChanges()));</span>
+<span class="fc" id="L102">            PropCodec.put(properties, &quot;classification.navigationChanges&quot;, Long.toString(summary.navigationChanges()));</span>
+<span class="fc" id="L103">            PropCodec.put(properties, &quot;classification.elapsedMillis&quot;, Long.toString(summary.elapsedMillis()));</span>
+<span class="fc" id="L104">        });</span>
+<span class="fc" id="L105">        PropCodec.putOptional(properties, &quot;effectiveViewReport&quot;, effectiveViewReport.map(Path::toString));</span>
+<span class="fc" id="L106">        PropCodec.putOptional(properties, &quot;reasonedPbFile&quot;, reasonedPbFile.map(Path::toString));</span>
+<span class="fc" id="L107">        storeAttributes.forEach((name, value) -&gt; PropCodec.put(properties, STORE_ATTRIBUTE_KEY + name, value));</span>
+<span class="fc" id="L108">        return properties;</span>
     }
 
     /**
@@ -83,22 +116,31 @@ public record AssembleResult(List&lt;LoadSummary&gt; loads, Optional&lt;Classifi
      * @throws IllegalArgumentException if present keys are malformed
      */
     public static AssembleResult fromProperties(Properties properties) {
-<span class="fc" id="L86">        int count = PropCodec.indexedCount(properties, &quot;load.&quot;, &quot;artifact&quot;);</span>
-<span class="fc" id="L87">        List&lt;LoadSummary&gt; loads = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L88" title="All 2 branches covered.">        for (int i = 1; i &lt;= count; i++) {</span>
-<span class="fc" id="L89">            loads.add(new LoadSummary(PropCodec.require(properties, &quot;load.&quot; + i + &quot;.artifact&quot;),</span>
-<span class="fc" id="L90">                    PropCodec.getCounts(properties, &quot;load.&quot; + i + &quot;.&quot;)));</span>
+<span class="fc" id="L119">        int count = PropCodec.indexedCount(properties, &quot;load.&quot;, &quot;artifact&quot;);</span>
+<span class="fc" id="L120">        List&lt;LoadSummary&gt; loads = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L121" title="All 2 branches covered.">        for (int i = 1; i &lt;= count; i++) {</span>
+<span class="fc" id="L122">            loads.add(new LoadSummary(PropCodec.require(properties, &quot;load.&quot; + i + &quot;.artifact&quot;),</span>
+<span class="fc" id="L123">                    PropCodec.getCounts(properties, &quot;load.&quot; + i + &quot;.&quot;)));</span>
         }
-<span class="fc" id="L92">        Optional&lt;ClassificationSummary&gt; classification =</span>
-<span class="fc" id="L93">                PropCodec.optional(properties, &quot;classification.service&quot;).map(service -&gt;</span>
-<span class="fc" id="L94">                        new ClassificationSummary(service,</span>
-<span class="fc" id="L95">                                PropCodec.requireLong(properties, &quot;classification.conceptCount&quot;),</span>
-<span class="fc" id="L96">                                PropCodec.requireLong(properties, &quot;classification.inferredChanges&quot;),</span>
-<span class="fc" id="L97">                                PropCodec.requireLong(properties, &quot;classification.navigationChanges&quot;),</span>
-<span class="fc" id="L98">                                PropCodec.requireLong(properties, &quot;classification.elapsedMillis&quot;)));</span>
-<span class="fc" id="L99">        return new AssembleResult(loads, classification,</span>
-<span class="fc" id="L100">                PropCodec.optionalPath(properties, &quot;effectiveViewReport&quot;),</span>
-<span class="fc" id="L101">                PropCodec.optionalPath(properties, &quot;reasonedPbFile&quot;));</span>
+<span class="fc" id="L125">        Optional&lt;ClassificationSummary&gt; classification =</span>
+<span class="fc" id="L126">                PropCodec.optional(properties, &quot;classification.service&quot;).map(service -&gt;</span>
+<span class="fc" id="L127">                        new ClassificationSummary(service,</span>
+<span class="fc" id="L128">                                PropCodec.requireLong(properties, &quot;classification.conceptCount&quot;),</span>
+<span class="fc" id="L129">                                PropCodec.requireLong(properties, &quot;classification.inferredChanges&quot;),</span>
+<span class="fc" id="L130">                                PropCodec.requireLong(properties, &quot;classification.navigationChanges&quot;),</span>
+<span class="fc" id="L131">                                PropCodec.requireLong(properties, &quot;classification.elapsedMillis&quot;)));</span>
+<span class="fc" id="L132">        Map&lt;String, String&gt; storeAttributes = new java.util.HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L133" title="All 2 branches covered.">        for (String key : properties.stringPropertyNames()) {</span>
+<span class="fc bfc" id="L134" title="All 2 branches covered.">            if (key.startsWith(STORE_ATTRIBUTE_KEY)) {</span>
+<span class="fc" id="L135">                storeAttributes.put(key.substring(STORE_ATTRIBUTE_KEY.length()), properties.getProperty(key));</span>
+            }
+<span class="fc" id="L137">        }</span>
+<span class="fc" id="L138">        return new AssembleResult(loads, classification,</span>
+<span class="fc" id="L139">                PropCodec.optionalPath(properties, &quot;effectiveViewReport&quot;),</span>
+<span class="fc" id="L140">                PropCodec.optionalPath(properties, &quot;reasonedPbFile&quot;), storeAttributes);</span>
     }
+
+    /** The wire key prefix of a store attribute, followed by the attribute's name. */
+    private static final String STORE_ATTRIBUTE_KEY = &quot;storeAttribute.&quot;;
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
