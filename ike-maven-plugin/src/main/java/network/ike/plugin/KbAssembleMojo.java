@@ -30,8 +30,10 @@ import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
 import org.apache.maven.api.plugin.annotations.Parameter;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -269,6 +271,31 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     String buildDirectory;
 
     /**
+     * Write what the store is into it, in the files any Maven or JDK tool reads: the Maven
+     * descriptor {@code META-INF/maven/<groupId>/<artifactId>/pom.properties} and
+     * {@code pom.xml}, and the {@code Ike-*} attributes of {@code META-INF/MANIFEST.MF}. Written
+     * into the store root, so every zip made from it carries them, and into the install
+     * directory.
+     */
+    @Parameter(property = "ike.kbAssemble.descriptor", defaultValue = "true")
+    boolean descriptor;
+
+    /**
+     * The groupId of the coordinate the store is a build of, for its Maven descriptor.
+     */
+    @Parameter(property = "ike.kbAssemble.descriptorGroupId", defaultValue = "${project.groupId}")
+    String descriptorGroupId;
+
+    /**
+     * The artifactId of the coordinate the store is a build of, for its Maven descriptor —
+     * the project its zips publish under, as {@code ike:knowledge-attach}'s
+     * {@code targetArtifactId} names it when a subproject assembles the store. Its version and
+     * POM are that reactor project's.
+     */
+    @Parameter(property = "ike.kbAssemble.descriptorArtifactId", defaultValue = "${project.artifactId}")
+    String descriptorArtifactId;
+
+    /**
      * Skip knowledge-base assembly.
      */
     @Parameter(property = "ike.kbAssemble.skip", defaultValue = "false")
@@ -331,6 +358,9 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 () -> getLog().info("Classification skipped by request"));
         result.effectiveViewReport().ifPresent(report ->
                 getLog().info("Effective view reported: " + report));
+        if (descriptor) {
+            describe(result);
+        }
         if (installDirectory != null && !installDirectory.isBlank()) {
             getLog().info("Knowledge base installed: " + installDirectory);
         }
@@ -362,6 +392,63 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 getLog().info("Attached reasoned knowledge export " + produced.getFileName()
                         + " (classifier: reasoned-pb, extension: zip)");
             }
+        }
+    }
+
+    /**
+     * Writes the Maven descriptor and the manifest into the store root and the install
+     * directory. The coordinate is the reactor project {@link #descriptorArtifactId} names;
+     * when that project is not in this build ({@code -pl} alone), this project's version stands
+     * in and no POM is copied.
+     */
+    private void describe(AssembleResult result) {
+        Project described = project.getGroupId().equals(descriptorGroupId)
+                && project.getArtifactId().equals(descriptorArtifactId)
+                ? project
+                : session.getProjects().stream()
+                        .filter(candidate -> candidate.getGroupId().equals(descriptorGroupId)
+                                && candidate.getArtifactId().equals(descriptorArtifactId))
+                        .findFirst().orElse(null);
+        if (described == null) {
+            getLog().warn("Descriptor project " + descriptorGroupId + ":" + descriptorArtifactId
+                    + " is not in this build; describing the store with this project's version and no POM");
+        }
+        String version = described != null ? described.getVersion() : project.getVersion();
+        Optional<Path> pom = Optional.ofNullable(described).map(Project::getPomPath).filter(Files::isRegularFile);
+
+        Map<String, String> attributes = new LinkedHashMap<>();
+        attributes.put(StoreDescriptor.LAUNCH_INTERFACE_VERSION, StoreDescriptor.LAUNCH_INTERFACE);
+        attributes.put(StoreDescriptor.ASSEMBLED_AT, Instant.now().toString());
+        result.classification().ifPresent(summary -> attributes.put(StoreDescriptor.REASONER, summary.service()));
+        // What only the implementation knows about the store (its controller, layout, the
+        // assembly it registered) is reported in the result and wins over the goal's own.
+        attributes.putAll(result.storeAttributes());
+
+        List<Path> stores = new ArrayList<>(List.of(Path.of(storeRoot)));
+        Optional.ofNullable(installDirectory).filter(s -> !s.isBlank()).map(Path::of)
+                .filter(Files::isDirectory).ifPresent(stores::add);
+        String createdBy = createdBy();
+        for (Path store : stores) {
+            try {
+                StoreDescriptor.write(store, descriptorGroupId, descriptorArtifactId, version, pom, createdBy,
+                        attributes);
+            } catch (IOException e) {
+                throw new MojoException("Cannot describe the store at " + store, e);
+            }
+        }
+        getLog().info("Described the store as " + descriptorGroupId + ":" + descriptorArtifactId + ":" + version
+                + " (" + attributes.size() + " manifest attributes)");
+    }
+
+    /**
+     * This plugin and its version, for the store manifest's {@code Created-By}; the name alone
+     * when the plugin runs from classes rather than its jar, which carries the version.
+     */
+    private static String createdBy() {
+        try {
+            return "ike-maven-plugin " + StarterSetCreateSupport.pluginVersion();
+        } catch (MojoException e) {
+            return "ike-maven-plugin";
         }
     }
 

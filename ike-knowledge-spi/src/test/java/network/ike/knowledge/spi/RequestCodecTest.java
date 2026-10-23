@@ -152,6 +152,22 @@ class RequestCodecTest {
     }
 
     @Test
+    @DisplayName("Store attributes round-trip by name, and only Ike-* names are store attributes")
+    void storeAttributes() {
+        AssembleResult described = new AssembleResult(
+                List.of(new LoadSummary("starter.pb.zip", new EntityCounts(1, 2, 3, 4))),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                Map.of("Ike-Open-Controller", "Open SpinedArrayStore", "Ike-Store-Layout", "64-bit"));
+        assertThat(AssembleResult.fromProperties(described.toProperties())).isEqualTo(described);
+        assertThat(new AssembleResult(described.loads(), Optional.empty(), Optional.empty(), Optional.empty())
+                .storeAttributes()).isEmpty();
+
+        assertThatIllegalArgumentException().isThrownBy(() -> new AssembleResult(described.loads(),
+                        Optional.empty(), Optional.empty(), Optional.empty(), Map.of("Created-By", "x")))
+                .withMessageContaining("Created-By");
+    }
+
+    @Test
     @DisplayName("Indexed lists fail closed: a gap is an error, never a silent truncation")
     void indexedListsFailClosed() {
         AssembleRequest request = new AssembleRequest(Path.of("target/kb"), false,
