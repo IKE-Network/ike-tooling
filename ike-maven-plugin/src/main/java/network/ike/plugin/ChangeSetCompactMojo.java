@@ -57,7 +57,10 @@ public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
     @Inject
     private Project project;
 
-    /** The change set zip to read. */
+    /**
+     * The change set zip to read; with knowledge bases or modules, also a directory of them, each
+     * written to the target directory under its own name, the knowledge bases loaded once.
+     */
     @Parameter(property = "ike.changeset.file", required = true)
     String file;
 
@@ -114,7 +117,7 @@ public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
             return;
         }
         Path changeSet = Path.of(file);
-        if (!Files.isRegularFile(changeSet)) {
+        if (!Files.exists(changeSet)) {
             throw new MojoException("Change set does not exist: " + changeSet);
         }
         if (target == null || target.isBlank()) {
