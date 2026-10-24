@@ -59,6 +59,16 @@ final class ChangeSetToolSupport {
         } else {
             request = ChangeSetRequest.of(changeSet);
         }
+        run(log, session, project, goal, service, request, parameters);
+    }
+
+    /**
+     * Runs a goal's service on a request the goal built itself, for a goal that adds to what
+     * every change set goal takes.
+     */
+    static void run(Log log, Session session, Project project, String goal, Class<?> service,
+                    ChangeSetRequest request, Parameters parameters) {
+        Path changeSet = request.changeSet();
         Properties wire = request.toProperties();
         if (parameters.implementation() != null && !parameters.implementation().isBlank()) {
             wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, parameters.implementation());

@@ -10,17 +10,33 @@ import java.util.Properties;
  * inspector and the verifier read {@code changeSet} alone; the expander and the compactor
  * write {@code target}, and refuse a request without one.
  *
- * @param changeSet the change set zip to read
- * @param target    the file a rewrite writes; empty for a report
- * @param modules   for a merge, the modules (by UUID) whose versions are kept; empty keeps all
+ * @param changeSet      the change set zip to read
+ * @param target         the file a rewrite writes; empty for a report
+ * @param modules        for a merge, the modules (by UUID) whose versions are kept; empty keeps all
+ * @param knowledgeBases for a compaction, the knowledge bases (protobuf exports or change sets)
+ *                       holding what the change set references but does not carry, so each
+ *                       reference is written with its pattern; empty rewrites the layout alone
  */
-public record ChangeSetRequest(Path changeSet, Optional<Path> target, java.util.Set<String> modules) {
+public record ChangeSetRequest(Path changeSet, Optional<Path> target, java.util.Set<String> modules,
+                               java.util.List<ArtifactInput> knowledgeBases) {
 
-    /** Checks that neither part is null. */
+    /** Checks that no part is null. */
     public ChangeSetRequest {
         Objects.requireNonNull(changeSet, "changeSet");
         Objects.requireNonNull(target, "target");
         modules = java.util.Set.copyOf(Objects.requireNonNull(modules, "modules"));
+        knowledgeBases = java.util.List.copyOf(Objects.requireNonNull(knowledgeBases, "knowledgeBases"));
+    }
+
+    /**
+     * A request with no knowledge bases.
+     *
+     * @param changeSet the change set zip to read
+     * @param target    the file a rewrite writes; empty for a report
+     * @param modules   for a merge, the modules (by UUID) whose versions are kept; empty keeps all
+     */
+    public ChangeSetRequest(Path changeSet, Optional<Path> target, java.util.Set<String> modules) {
+        this(changeSet, target, modules, java.util.List.of());
     }
 
     /**
@@ -68,7 +84,8 @@ public record ChangeSetRequest(Path changeSet, Optional<Path> target, java.util.
     /**
      * The request as properties, for the forked-JVM seam.
      *
-     * @return the properties: {@code changeSet}, and {@code target} when there is one
+     * @return the properties: {@code changeSet}, {@code target} when there is one, and the
+     *         modules and knowledge bases when there are any
      */
     public Properties toProperties() {
         Properties properties = new Properties();
@@ -77,6 +94,7 @@ public record ChangeSetRequest(Path changeSet, Optional<Path> target, java.util.
         if (!modules.isEmpty()) {
             PropCodec.put(properties, "modules", String.join(",", new java.util.TreeSet<>(modules)));
         }
+        PropCodec.putInputs(properties, "knowledgeBase", knowledgeBases);
         return properties;
     }
 
@@ -90,6 +108,7 @@ public record ChangeSetRequest(Path changeSet, Optional<Path> target, java.util.
         return new ChangeSetRequest(PropCodec.requirePath(properties, "changeSet"),
                 PropCodec.optionalPath(properties, "target"),
                 PropCodec.optional(properties, "modules")
-                        .map(list -> java.util.Set.of(list.split(","))).orElse(java.util.Set.of()));
+                        .map(list -> java.util.Set.of(list.split(","))).orElse(java.util.Set.of()),
+                PropCodec.getInputs(properties, "knowledgeBase"));
     }
 }
