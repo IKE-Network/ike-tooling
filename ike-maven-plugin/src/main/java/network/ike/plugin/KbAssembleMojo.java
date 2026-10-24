@@ -415,6 +415,8 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         }
         String version = described != null ? described.getVersion() : project.getVersion();
         Optional<Path> pom = Optional.ofNullable(described).map(Project::getPomPath).filter(Files::isRegularFile);
+        Project owner = described != null ? described : project;
+        Optional<Path> icon = StoreDescriptor.icon(owner.getBasedir());
 
         Map<String, String> attributes = new LinkedHashMap<>();
         attributes.put(StoreDescriptor.LAUNCH_INTERFACE_VERSION, StoreDescriptor.LAUNCH_INTERFACE);
@@ -431,13 +433,33 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         for (Path store : stores) {
             try {
                 StoreDescriptor.write(store, descriptorGroupId, descriptorArtifactId, version, pom, createdBy,
-                        attributes);
+                        icon, attributes);
             } catch (IOException e) {
                 throw new MojoException("Cannot describe the store at " + store, e);
             }
         }
         getLog().info("Described the store as " + descriptorGroupId + ":" + descriptorArtifactId + ":" + version
-                + " (" + attributes.size() + " manifest attributes)");
+                + " (" + attributes.size() + " manifest attributes"
+                + icon.map(path -> ", icon " + StoreDescriptor.ICON_SOURCE).orElse("") + ")");
+        icon.ifPresent(path -> attachIcon(owner, path));
+    }
+
+    /**
+     * Attaches the knowledge base's icon as {@code <artifactId>:<version>:png:icon}, so it
+     * deploys beside the store zips and a program browsing the repository can show it. A
+     * project that assembles more than one store attaches it once.
+     */
+    private void attachIcon(Project owner, Path icon) {
+        ProjectManager projectManager = session.getService(ProjectManager.class);
+        boolean attached = projectManager.getAttachedArtifacts(owner).stream()
+                .anyMatch(artifact -> "icon".equals(artifact.getClassifier())
+                        && "png".equals(artifact.getExtension()));
+        if (!attached) {
+            ProducedArtifact artifact = session.createProducedArtifact(owner.getGroupId(),
+                    owner.getArtifactId(), owner.getVersion(), "icon", "png", "png");
+            projectManager.attachArtifact(owner, artifact, icon);
+            getLog().info("Attached the knowledge base's icon (classifier: icon, extension: png)");
+        }
     }
 
     /**
