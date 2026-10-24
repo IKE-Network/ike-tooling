@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ChangeSetCompactMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ChangeSetCompactMojo.java</span></div><h1>ChangeSetCompactMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import network.ike.knowledge.spi.ArtifactInput;
+import network.ike.knowledge.spi.ChangeSetCompactor;
+import network.ike.knowledge.spi.ChangeSetRequest;
+import org.apache.maven.api.DownloadedArtifact;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * {@code ike:changeset-compact} — rewrite a format-1 or format-2 change set in format 3: a component table, one entry per pattern, references by sequence.
+ * The work is done by the {@link ChangeSetCompactor} on the project's runtime classpath,
+ * in a forked JVM by default. With no knowledge bases no store is opened, and a reference the
+ * change set does not carry keeps the pattern it had, none for one written by a store whose nids
+ * carry no pattern. With knowledge bases, which hold what the change set references, every
+ * reference is written with its pattern, so a store that mints by pattern can load the result
+ * without a base; this also rewrites a format-3 change set whose references name no pattern.
+ */
+@Mojo(name = IkeGoal.NAME_CHANGESET_COMPACT)
+public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
+
+    /** Instantiated by Maven. */
+<span class="fc" id="L49">    public ChangeSetCompactMojo() {</span>
+<span class="fc" id="L50">    }</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    @Inject
+    private Session session;
+
+    @Inject
+    private Project project;
+
+    /** The change set zip to read. */
+    @Parameter(property = &quot;ike.changeset.file&quot;, required = true)
+    String file;
+
+    @Parameter(property = &quot;ike.changeset.target&quot;, required = true)
+    String target;
+
+    /** The implementation's simple class name, when several are on the classpath. */
+    @Parameter(property = &quot;ike.changeset.implementation&quot;)
+    String implementation;
+
+    @Parameter(property = &quot;ike.changeset.fork&quot;, defaultValue = &quot;true&quot;)
+    boolean fork;
+
+<span class="fc" id="L75">    @Parameter</span>
+<span class="fc" id="L76">    List&lt;String&gt; forkJvmArguments = List.of();</span>
+
+    @Parameter(property = &quot;ike.changeset.classesDirectory&quot;, defaultValue = &quot;${project.build.outputDirectory}&quot;)
+    String classesDirectory;
+
+    @Parameter(property = &quot;ike.changeset.buildDirectory&quot;, defaultValue = &quot;${project.build.directory}&quot;)
+    String buildDirectory;
+
+    @Parameter(property = &quot;ike.changeset.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    /**
+     * The knowledge bases holding what the change set references but does not carry, each a
+     * Maven coordinate ({@code g:a:zip:classifier:v}) or a file: protobuf exports or change
+     * sets. A UUID names the same component in every one of them, so each reference resolves to
+     * its kind and pattern. Empty rewrites the layout alone.
+     */
+<span class="fc" id="L93">    @Parameter(property = &quot;ike.changeset.knowledgeBases&quot;)</span>
+<span class="fc" id="L94">    List&lt;String&gt; knowledgeBases = List.of();</span>
+
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L99">            log.info(&quot;ike:changeset-compact skipped (ike.changeset.skip=true)&quot;);</span>
+<span class="nc" id="L100">            return;</span>
+        }
+<span class="nc" id="L102">        ChangeSetToolSupport.Parameters parameters = new ChangeSetToolSupport.Parameters(file, target, implementation,</span>
+                fork, forkJvmArguments, classesDirectory, buildDirectory);
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        if (knowledgeBases.isEmpty()) {</span>
+<span class="nc" id="L105">            ChangeSetToolSupport.run(log, session, project, IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactor.class,</span>
+                    true, parameters);
+<span class="nc" id="L107">            return;</span>
+        }
+<span class="nc" id="L109">        Path changeSet = Path.of(file);</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (!Files.isRegularFile(changeSet)) {</span>
+<span class="nc" id="L111">            throw new MojoException(&quot;Change set does not exist: &quot; + changeSet);</span>
+        }
+<span class="nc bnc" id="L113" title="All 4 branches missed.">        if (target == null || target.isBlank()) {</span>
+<span class="nc" id="L114">            throw new MojoException(&quot;ike:changeset-compact writes a file: set ike.changeset.target&quot;);</span>
+        }
+<span class="nc" id="L116">        List&lt;ArtifactInput&gt; bases = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        for (String spec : knowledgeBases) {</span>
+<span class="nc" id="L118">            bases.add(resolve(spec.strip()));</span>
+<span class="nc" id="L119">        }</span>
+<span class="nc" id="L120">        ChangeSetToolSupport.run(log, session, project, IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactor.class,</span>
+<span class="nc" id="L121">                new ChangeSetRequest(changeSet, Optional.of(Path.of(target)), Set.of(), bases), parameters);</span>
+<span class="nc" id="L122">    }</span>
+
+    /** A knowledge base by coordinate (two or more colons) or by file. */
+    private ArtifactInput resolve(String spec) {
+<span class="nc bnc" id="L126" title="All 4 branches missed.">        if (spec.chars().filter(c -&gt; c == ':').count() &gt;= 2) {</span>
+            try {
+<span class="nc" id="L128">                DownloadedArtifact artifact = session.resolveArtifact(session.createArtifactCoordinates(spec));</span>
+<span class="nc" id="L129">                return new ArtifactInput(ArtifactInput.Role.PB, artifact.getPath())</span>
+<span class="nc" id="L130">                        .withCoordinate(spec, artifact.getVersion().toString());</span>
+<span class="nc" id="L131">            } catch (Exception e) {</span>
+<span class="nc" id="L132">                throw new MojoException(&quot;Cannot resolve knowledge base &quot; + spec, e);</span>
+            }
+        }
+<span class="nc" id="L135">        Path base = Path.of(spec);</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        if (!Files.isRegularFile(base)) {</span>
+<span class="nc" id="L137">            throw new MojoException(&quot;Knowledge base file does not exist: &quot; + base);</span>
+        }
+<span class="nc" id="L139">        return new ArtifactInput(ArtifactInput.Role.PB, base);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

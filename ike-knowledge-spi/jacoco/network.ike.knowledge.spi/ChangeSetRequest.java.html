@@ -10,18 +10,34 @@ import java.util.Properties;
  * inspector and the verifier read {@code changeSet} alone; the expander and the compactor
  * write {@code target}, and refuse a request without one.
  *
- * @param changeSet the change set zip to read
- * @param target    the file a rewrite writes; empty for a report
- * @param modules   for a merge, the modules (by UUID) whose versions are kept; empty keeps all
+ * @param changeSet      the change set zip to read
+ * @param target         the file a rewrite writes; empty for a report
+ * @param modules        for a merge, the modules (by UUID) whose versions are kept; empty keeps all
+ * @param knowledgeBases for a compaction, the knowledge bases (protobuf exports or change sets)
+ *                       holding what the change set references but does not carry, so each
+ *                       reference is written with its pattern; empty rewrites the layout alone
  */
-public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java.util.Set&lt;String&gt; modules) {
+public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java.util.Set&lt;String&gt; modules,
+                               java.util.List&lt;ArtifactInput&gt; knowledgeBases) {
 
-    /** Checks that neither part is null. */
-<span class="nc" id="L20">    public ChangeSetRequest {</span>
-<span class="nc" id="L21">        Objects.requireNonNull(changeSet, &quot;changeSet&quot;);</span>
-<span class="nc" id="L22">        Objects.requireNonNull(target, &quot;target&quot;);</span>
-<span class="nc" id="L23">        modules = java.util.Set.copyOf(Objects.requireNonNull(modules, &quot;modules&quot;));</span>
-<span class="nc" id="L24">    }</span>
+    /** Checks that no part is null. */
+<span class="nc" id="L24">    public ChangeSetRequest {</span>
+<span class="nc" id="L25">        Objects.requireNonNull(changeSet, &quot;changeSet&quot;);</span>
+<span class="nc" id="L26">        Objects.requireNonNull(target, &quot;target&quot;);</span>
+<span class="nc" id="L27">        modules = java.util.Set.copyOf(Objects.requireNonNull(modules, &quot;modules&quot;));</span>
+<span class="nc" id="L28">        knowledgeBases = java.util.List.copyOf(Objects.requireNonNull(knowledgeBases, &quot;knowledgeBases&quot;));</span>
+<span class="nc" id="L29">    }</span>
+
+    /**
+     * A request with no knowledge bases.
+     *
+     * @param changeSet the change set zip to read
+     * @param target    the file a rewrite writes; empty for a report
+     * @param modules   for a merge, the modules (by UUID) whose versions are kept; empty keeps all
+     */
+    public ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java.util.Set&lt;String&gt; modules) {
+<span class="nc" id="L39">        this(changeSet, target, modules, java.util.List.of());</span>
+<span class="nc" id="L40">    }</span>
 
     /**
      * A request with no module selection.
@@ -30,8 +46,8 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java
      * @param target    the file a rewrite writes; empty for a report
      */
     public ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target) {
-<span class="nc" id="L33">        this(changeSet, target, java.util.Set.of());</span>
-<span class="nc" id="L34">    }</span>
+<span class="nc" id="L49">        this(changeSet, target, java.util.Set.of());</span>
+<span class="nc" id="L50">    }</span>
 
     /**
      * A request to read a change set and report.
@@ -40,7 +56,7 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java
      * @return the request, with no target
      */
     public static ChangeSetRequest of(Path changeSet) {
-<span class="nc" id="L43">        return new ChangeSetRequest(changeSet, Optional.empty());</span>
+<span class="nc" id="L59">        return new ChangeSetRequest(changeSet, Optional.empty());</span>
     }
 
     /**
@@ -51,7 +67,7 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java
      * @return the request
      */
     public static ChangeSetRequest of(Path changeSet, Path target) {
-<span class="nc" id="L54">        return new ChangeSetRequest(changeSet, Optional.of(target));</span>
+<span class="nc" id="L70">        return new ChangeSetRequest(changeSet, Optional.of(target));</span>
     }
 
     /**
@@ -62,22 +78,24 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java
      * @throws IllegalArgumentException if the request names no target
      */
     public Path requireTarget(String tool) {
-<span class="nc" id="L65">        return target.orElseThrow(() -&gt; new IllegalArgumentException(tool + &quot; writes a file: the request names no target&quot;));</span>
+<span class="nc" id="L81">        return target.orElseThrow(() -&gt; new IllegalArgumentException(tool + &quot; writes a file: the request names no target&quot;));</span>
     }
 
     /**
      * The request as properties, for the forked-JVM seam.
      *
-     * @return the properties: {@code changeSet}, and {@code target} when there is one
+     * @return the properties: {@code changeSet}, {@code target} when there is one, and the
+     *         modules and knowledge bases when there are any
      */
     public Properties toProperties() {
-<span class="nc" id="L74">        Properties properties = new Properties();</span>
-<span class="nc" id="L75">        PropCodec.put(properties, &quot;changeSet&quot;, changeSet.toString());</span>
-<span class="nc" id="L76">        PropCodec.putOptional(properties, &quot;target&quot;, target.map(Path::toString));</span>
-<span class="nc bnc" id="L77" title="All 2 branches missed.">        if (!modules.isEmpty()) {</span>
-<span class="nc" id="L78">            PropCodec.put(properties, &quot;modules&quot;, String.join(&quot;,&quot;, new java.util.TreeSet&lt;&gt;(modules)));</span>
+<span class="nc" id="L91">        Properties properties = new Properties();</span>
+<span class="nc" id="L92">        PropCodec.put(properties, &quot;changeSet&quot;, changeSet.toString());</span>
+<span class="nc" id="L93">        PropCodec.putOptional(properties, &quot;target&quot;, target.map(Path::toString));</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if (!modules.isEmpty()) {</span>
+<span class="nc" id="L95">            PropCodec.put(properties, &quot;modules&quot;, String.join(&quot;,&quot;, new java.util.TreeSet&lt;&gt;(modules)));</span>
         }
-<span class="nc" id="L80">        return properties;</span>
+<span class="nc" id="L97">        PropCodec.putInputs(properties, &quot;knowledgeBase&quot;, knowledgeBases);</span>
+<span class="nc" id="L98">        return properties;</span>
     }
 
     /**
@@ -87,10 +105,11 @@ public record ChangeSetRequest(Path changeSet, Optional&lt;Path&gt; target, java
      * @return the request
      */
     public static ChangeSetRequest fromProperties(Properties properties) {
-<span class="nc" id="L90">        return new ChangeSetRequest(PropCodec.requirePath(properties, &quot;changeSet&quot;),</span>
-<span class="nc" id="L91">                PropCodec.optionalPath(properties, &quot;target&quot;),</span>
-<span class="nc" id="L92">                PropCodec.optional(properties, &quot;modules&quot;)</span>
-<span class="nc" id="L93">                        .map(list -&gt; java.util.Set.of(list.split(&quot;,&quot;))).orElse(java.util.Set.of()));</span>
+<span class="nc" id="L108">        return new ChangeSetRequest(PropCodec.requirePath(properties, &quot;changeSet&quot;),</span>
+<span class="nc" id="L109">                PropCodec.optionalPath(properties, &quot;target&quot;),</span>
+<span class="nc" id="L110">                PropCodec.optional(properties, &quot;modules&quot;)</span>
+<span class="nc" id="L111">                        .map(list -&gt; java.util.Set.of(list.split(&quot;,&quot;))).orElse(java.util.Set.of()),</span>
+<span class="nc" id="L112">                PropCodec.getInputs(properties, &quot;knowledgeBase&quot;));</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
