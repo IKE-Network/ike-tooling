@@ -30,7 +30,7 @@ class StoreDescriptorTest {
         Path pom = Files.writeString(temp.resolve("pom.xml"), "<project/>\n");
 
         StoreDescriptor.write(store, "network.ike.data", "solor-kb", "1-SNAPSHOT", Optional.of(pom),
-                "ike-maven-plugin 300", Optional.empty(), Map.of());
+                "ike-maven-plugin 300", Map.of());
 
         Path maven = store.resolve("META-INF/maven/network.ike.data/solor-kb");
         Properties descriptor = new Properties();
@@ -53,7 +53,7 @@ class StoreDescriptorTest {
                 "Manifest-Version: 1.0\nIke-Store-Layout: 32-bit\nIke-Last-Opened-By: Komet 26.1016.346\n\n");
 
         StoreDescriptor.write(store, "network.ike.data", "solor-kb", "1-SNAPSHOT", Optional.empty(),
-                "ike-maven-plugin 300", Optional.empty(), Map.of(StoreDescriptor.LAUNCH_INTERFACE_VERSION, StoreDescriptor.LAUNCH_INTERFACE,
+                "ike-maven-plugin 300", Map.of(StoreDescriptor.LAUNCH_INTERFACE_VERSION, StoreDescriptor.LAUNCH_INTERFACE,
                         StoreDescriptor.REASONER, "ElkSnomedReasonerService", "Ike-Store-Layout", "64-bit"));
 
         Manifest manifest = new Manifest();
@@ -69,50 +69,5 @@ class StoreDescriptorTest {
                 .isEqualTo("Komet 26.1016.346");
         assertThat(store.resolve("META-INF/maven/network.ike.data/solor-kb/pom.xml"))
                 .as("no POM to copy").doesNotExist();
-    }
-
-    @Test
-    void iconIsCopiedAndNamedInTheManifest() throws IOException {
-        Path project = Files.createDirectories(temp.resolve("pizza-kb"));
-        Path kb = Files.createDirectories(project.resolve("src/main/kb"));
-        byte[] png = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1};
-        byte[] png2x = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 2};
-        Files.write(kb.resolve("icon.png"), png);
-        Files.write(kb.resolve("icon@2x.png"), png2x);
-        Path store = Files.createDirectories(temp.resolve("kb"));
-
-        Optional<Path> icon = StoreDescriptor.icon(project);
-        StoreDescriptor.write(store, "network.ike.data", "pizza-kb", "1-SNAPSHOT", Optional.empty(),
-                "ike-maven-plugin 300", icon, Map.of());
-
-        assertThat(icon).contains(kb.resolve("icon.png"));
-        assertThat(store.resolve("META-INF/ike/icon.png")).hasBinaryContent(png);
-        assertThat(store.resolve("META-INF/ike/icon@2x.png")).hasBinaryContent(png2x);
-        assertThat(manifest(store).getValue("Ike-Icon")).isEqualTo("META-INF/ike/icon.png");
-    }
-
-    @Test
-    void projectWithoutIconWritesNoneAndRemovesAnEarlierOne() throws IOException {
-        Path project = Files.createDirectories(temp.resolve("solor-kb"));
-        Path store = Files.createDirectories(temp.resolve("kb"));
-        Files.createDirectories(store.resolve("META-INF/ike"));
-        Files.write(store.resolve("META-INF/ike/icon.png"), new byte[] {1});
-        Files.writeString(store.resolve("META-INF/MANIFEST.MF"),
-                "Manifest-Version: 1.0\nIke-Icon: META-INF/ike/icon.png\n\n");
-
-        assertThat(StoreDescriptor.icon(project)).isEmpty();
-        StoreDescriptor.write(store, "network.ike.data", "solor-kb", "1-SNAPSHOT", Optional.empty(),
-                "ike-maven-plugin 300", StoreDescriptor.icon(project), Map.of());
-
-        assertThat(store.resolve("META-INF/ike/icon.png")).doesNotExist();
-        assertThat(manifest(store).getValue("Ike-Icon")).isNull();
-    }
-
-    private static Attributes manifest(Path store) throws IOException {
-        Manifest manifest = new Manifest();
-        try (InputStream in = Files.newInputStream(store.resolve("META-INF/MANIFEST.MF"))) {
-            manifest.read(in);
-        }
-        return manifest.getMainAttributes();
     }
 }

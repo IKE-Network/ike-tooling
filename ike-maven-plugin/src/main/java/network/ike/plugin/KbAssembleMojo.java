@@ -25,6 +25,7 @@ import org.apache.maven.api.ProducedArtifact;
 import org.apache.maven.api.Project;
 import org.apache.maven.api.Session;
 import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.model.DistributionManagement;
 import org.apache.maven.api.services.ProjectManager;
 import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.annotations.Mojo;
@@ -273,9 +274,11 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     /**
      * Write what the store is into it, in the files any Maven or JDK tool reads: the Maven
      * descriptor {@code META-INF/maven/<groupId>/<artifactId>/pom.properties} and
-     * {@code pom.xml}, and the {@code Ike-*} attributes of {@code META-INF/MANIFEST.MF}. Written
-     * into the store root, so every zip made from it carries them, and into the install
-     * directory.
+     * {@code pom.xml}, the {@code Ike-*} attributes of {@code META-INF/MANIFEST.MF}, and the
+     * knowledge-base descriptor {@code META-INF/ike/knowledge-base.properties} (level 1) with its
+     * icon. Written into the store root, so every zip made from it carries them, and into the
+     * install directory; the descriptor and icon are attached as {@code properties:kb-descriptor}
+     * and {@code png:icon}.
      */
     @Parameter(property = "ike.kbAssemble.descriptor", defaultValue = "true")
     boolean descriptor;
@@ -294,6 +297,14 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      */
     @Parameter(property = "ike.kbAssemble.descriptorArtifactId", defaultValue = "${project.artifactId}")
     String descriptorArtifactId;
+
+    /**
+     * Who may download the knowledge base, for its descriptor: {@code public} or
+     * {@code restricted}. When unset, restricted when the project deploys to a repository whose id
+     * or URL says restricted, as licensed knowledge bases do, else public.
+     */
+    @Parameter(property = "ike.kbAssemble.access")
+    String access;
 
     /**
      * Skip knowledge-base assembly.
@@ -396,10 +407,11 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     }
 
     /**
-     * Writes the Maven descriptor and the manifest into the store root and the install
-     * directory. The coordinate is the reactor project {@link #descriptorArtifactId} names;
-     * when that project is not in this build ({@code -pl} alone), this project's version stands
-     * in and no POM is copied.
+     * Writes the Maven descriptor, the manifest, and the knowledge-base descriptor with its icon
+     * into the store root and the install directory, and attaches the descriptor and the icon so
+     * they deploy beside the store zips. The coordinate is the reactor project
+     * {@link #descriptorArtifactId} names; when that project is not in this build ({@code -pl}
+     * alone), this project's version stands in and no POM is copied.
      */
     private void describe(AssembleResult result) {
         Project described = project.getGroupId().equals(descriptorGroupId)
@@ -416,49 +428,118 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         String version = described != null ? described.getVersion() : project.getVersion();
         Optional<Path> pom = Optional.ofNullable(described).map(Project::getPomPath).filter(Files::isRegularFile);
         Project owner = described != null ? described : project;
-        Optional<Path> icon = StoreDescriptor.icon(owner.getBasedir());
 
+        Instant assembledAt = Instant.now();
         Map<String, String> attributes = new LinkedHashMap<>();
         attributes.put(StoreDescriptor.LAUNCH_INTERFACE_VERSION, StoreDescriptor.LAUNCH_INTERFACE);
-        attributes.put(StoreDescriptor.ASSEMBLED_AT, Instant.now().toString());
+        attributes.put(StoreDescriptor.ASSEMBLED_AT, assembledAt.toString());
         result.classification().ifPresent(summary -> attributes.put(StoreDescriptor.REASONER, summary.service()));
         // What only the implementation knows about the store (its controller, layout, the
         // assembly it registered) is reported in the result and wins over the goal's own.
         attributes.putAll(result.storeAttributes());
 
+        String displayName = Optional.ofNullable(owner.getModel().getName()).map(String::strip)
+                .filter(name -> !name.isEmpty()).orElse(descriptorArtifactId);
+        KnowledgeBaseDescriptor.Fields fields = new KnowledgeBaseDescriptor.Fields(descriptorGroupId,
+                descriptorArtifactId, version, displayName, entityFormat(attributes), assembledAt, access(owner));
+        Path icon = knowledgeBaseIcon(owner, displayName);
+
         List<Path> stores = new ArrayList<>(List.of(Path.of(storeRoot)));
         Optional.ofNullable(installDirectory).filter(s -> !s.isBlank()).map(Path::of)
                 .filter(Files::isDirectory).ifPresent(stores::add);
         String createdBy = createdBy();
+        Path written = null;
         for (Path store : stores) {
             try {
                 StoreDescriptor.write(store, descriptorGroupId, descriptorArtifactId, version, pom, createdBy,
-                        icon, attributes);
+                        attributes);
+                Path file = KnowledgeBaseDescriptor.write(store, fields, icon);
+                written = written == null ? file : written;
             } catch (IOException e) {
                 throw new MojoException("Cannot describe the store at " + store, e);
             }
         }
         getLog().info("Described the store as " + descriptorGroupId + ":" + descriptorArtifactId + ":" + version
-                + " (" + attributes.size() + " manifest attributes"
-                + icon.map(path -> ", icon " + StoreDescriptor.ICON_SOURCE).orElse("") + ")");
-        icon.ifPresent(path -> attachIcon(owner, path));
+                + " (" + attributes.size() + " manifest attributes; knowledge-base descriptor level "
+                + KnowledgeBaseDescriptor.LEVEL + ", " + fields.access().value() + ")");
+        attachOnce(owner, KnowledgeBaseDescriptor.CLASSIFIER, "properties", written);
+        attachOnce(owner, KnowledgeBaseDescriptor.ICON_CLASSIFIER, "png", icon);
     }
 
     /**
-     * Attaches the knowledge base's icon as {@code <artifactId>:<version>:png:icon}, so it
-     * deploys beside the store zips and a program browsing the repository can show it. A
-     * project that assembles more than one store attaches it once.
+     * The entity format the store was written in: as the assembly reported it, else as the store's
+     * own files record it.
      */
-    private void attachIcon(Project owner, Path icon) {
+    private int entityFormat(Map<String, String> attributes) {
+        String reported = attributes.get("Ike-Entity-Format");
+        try {
+            if (reported != null) {
+                return Integer.parseInt(reported.strip());
+            }
+            return KnowledgeBaseDescriptor.recordedEntityFormat(Path.of(storeRoot)).orElseThrow(() -> new MojoException(
+                    "The assembly reported no entity format and the store at " + storeRoot + " records none;"
+                            + " the knowledge-base descriptor requires one"));
+        } catch (NumberFormatException e) {
+            throw new MojoException("The assembly reported an entity format that is not a number: " + reported, e);
+        } catch (IOException e) {
+            throw new MojoException("Cannot read the store's format at " + storeRoot, e);
+        }
+    }
+
+    /**
+     * Who may download the knowledge base: {@link #access} when set, else restricted when the
+     * project deploys to a restricted repository, as licensed knowledge bases do, else public.
+     */
+    private KnowledgeBaseDescriptor.Access access(Project owner) {
+        if (access != null && !access.isBlank()) {
+            try {
+                return KnowledgeBaseDescriptor.Access.valueOf(access.strip().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new MojoException("ike.kbAssemble.access is public or restricted, not " + access, e);
+            }
+        }
+        DistributionManagement distribution = owner.getModel().getDistributionManagement();
+        boolean restricted = distribution != null && java.util.stream.Stream
+                .of(distribution.getRepository(), distribution.getSnapshotRepository())
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(repository -> mentionsRestricted(repository.getId()) || mentionsRestricted(repository.getUrl()));
+        return restricted ? KnowledgeBaseDescriptor.Access.RESTRICTED : KnowledgeBaseDescriptor.Access.PUBLIC;
+    }
+
+    private static boolean mentionsRestricted(String text) {
+        return text != null && text.toLowerCase(java.util.Locale.ROOT).contains("restricted");
+    }
+
+    /**
+     * The knowledge base's icon: the project's own at {@code src/main/kb/icon.png}, else a
+     * monogram of its display name, drawn into the build directory.
+     */
+    private Path knowledgeBaseIcon(Project owner, String displayName) {
+        Optional<Path> own = KnowledgeBaseDescriptor.icon(owner.getBasedir());
+        if (own.isPresent()) {
+            return own.get();
+        }
+        try {
+            return KnowledgeBaseMonogram.write(Path.of(buildDirectory, "ike-kb-icon"), displayName, descriptorArtifactId);
+        } catch (IOException e) {
+            throw new MojoException("Cannot draw the knowledge base's monogram icon", e);
+        }
+    }
+
+    /**
+     * Attaches a file as {@code <artifactId>:<version>:<extension>:<classifier>}, so it deploys
+     * beside the store zips; a project that assembles more than one store attaches it once, from
+     * the first.
+     */
+    private void attachOnce(Project owner, String classifier, String extension, Path file) {
         ProjectManager projectManager = session.getService(ProjectManager.class);
         boolean attached = projectManager.getAttachedArtifacts(owner).stream()
-                .anyMatch(artifact -> "icon".equals(artifact.getClassifier())
-                        && "png".equals(artifact.getExtension()));
+                .anyMatch(artifact -> classifier.equals(artifact.getClassifier()) && extension.equals(artifact.getExtension()));
         if (!attached) {
             ProducedArtifact artifact = session.createProducedArtifact(owner.getGroupId(),
-                    owner.getArtifactId(), owner.getVersion(), "icon", "png", "png");
-            projectManager.attachArtifact(owner, artifact, icon);
-            getLog().info("Attached the knowledge base's icon (classifier: icon, extension: png)");
+                    owner.getArtifactId(), owner.getVersion(), classifier, extension, extension);
+            projectManager.attachArtifact(owner, artifact, file);
+            getLog().info("Attached " + file.getFileName() + " (classifier: " + classifier + ", extension: " + extension + ")");
         }
     }
 
