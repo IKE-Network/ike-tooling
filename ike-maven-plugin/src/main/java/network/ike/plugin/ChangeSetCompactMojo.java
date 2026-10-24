@@ -31,7 +31,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * {@code ike:changeset-compact} — rewrite a format-1 or format-2 change set in format 3: a component table, one entry per pattern, references by sequence.
@@ -93,6 +92,14 @@ public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
     @Parameter(property = "ike.changeset.knowledgeBases")
     List<String> knowledgeBases = List.of();
 
+    /**
+     * The modules, by UUID, whose versions the compaction keeps; empty keeps every version. A
+     * session file carries what Komet wrote on its own beside an extension's content; naming the
+     * extension's module keeps that content alone, as {@code ike:changeset-merge} does.
+     */
+    @Parameter(property = "ike.changeset.modules")
+    List<String> changeSetModules = List.of();
+
     @Override
     public void execute() {
         if (skip) {
@@ -101,7 +108,7 @@ public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
         }
         ChangeSetToolSupport.Parameters parameters = new ChangeSetToolSupport.Parameters(file, target, implementation,
                 fork, forkJvmArguments, classesDirectory, buildDirectory);
-        if (knowledgeBases.isEmpty()) {
+        if (knowledgeBases.isEmpty() && changeSetModules.isEmpty()) {
             ChangeSetToolSupport.run(log, session, project, IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactor.class,
                     true, parameters);
             return;
@@ -118,7 +125,9 @@ public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
             bases.add(resolve(spec.strip()));
         }
         ChangeSetToolSupport.run(log, session, project, IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactor.class,
-                new ChangeSetRequest(changeSet, Optional.of(Path.of(target)), Set.of(), bases), parameters);
+                new ChangeSetRequest(changeSet, Optional.of(Path.of(target)),
+                        changeSetModules.stream().map(String::strip).collect(java.util.stream.Collectors.toSet()), bases),
+                parameters);
     }
 
     /** A knowledge base by coordinate (two or more colons) or by file. */
