@@ -1,7 +1,11 @@
 package network.ike.plugin;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -217,5 +221,17 @@ class NotarizeMojoTest {
     void backoff_zero_for_empty_schedule() {
         assertEquals(0, NotarizeMojo.backoffWait(List.of(), 2));
         assertEquals(0, NotarizeMojo.backoffWait(List.of(), 5));
+    }
+
+    @Test
+    void an_app_directory_is_a_bundle_assessed_for_execution(@TempDir Path dir) throws IOException {
+        Path app = Files.createDirectories(dir.resolve("IKE Dashboard.app/Contents"));
+        Path bundle = app.getParent();
+        Path file = Files.writeString(dir.resolve("not-a-bundle.app"), "file");
+        assertTrue(NotarizeMojo.isAppBundle(bundle));
+        assertFalse(NotarizeMojo.isAppBundle(file), "a file named .app is no bundle");
+        assertEquals("execute", NotarizeMojo.assessType(bundle));
+        assertEquals("install", NotarizeMojo.assessType(dir.resolve("Komet.pkg")));
+        assertEquals("open", NotarizeMojo.assessType(dir.resolve("Komet.dmg")));
     }
 }

@@ -18,7 +18,13 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * Sign and notarize macOS installer packages ({@code .pkg}, {@code .dmg}).
+ * Sign and notarize macOS installer packages ({@code .pkg}, {@code .dmg}) and application
+ * bundles ({@code .app}).
+ *
+ * <p>An {@code .app} is what a program that installs and updates itself ships (the IKE
+ * Dashboard): notarytool takes it zipped, so the goal zips it with {@code ditto}, submits the
+ * zip, staples the ticket to the {@code .app} itself, and assesses it for execution. The zip is
+ * removed; whoever distributes the stapled {@code .app} zips it again.
  *
  * <p>This goal automates the Apple notarization workflow for installer
  * artifacts produced by JReleaser's jpackage assembler:
@@ -142,7 +148,7 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
 
         List<Path> artifacts = findInstallerArtifacts();
         if (artifacts.isEmpty()) {
-            getLog().warn("No .pkg or .dmg files found in " + artifactDir);
+            getLog().warn("No .pkg, .dmg or .app found in " + artifactDir);
             return;
         }
 
@@ -167,14 +173,34 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
     /**
      * Submit, staple, and verify a single installer artifact.
      *
-     * @param artifact path to the .pkg or .dmg file
+     * @param artifact path to the .pkg or .dmg file, or the .app bundle
      * @throws MojoException if any step fails
      */
     private void notarize(Path artifact) throws MojoException {
         String fileName = artifact.getFileName().toString();
         File workDir = artifact.getParent().toFile();
+        boolean bundle = isAppBundle(artifact);
 
-        SubmitResult submission = submitWithRetry(workDir, artifact, fileName);
+        // notarytool takes an application bundle zipped; ditto keeps its symbolic links and
+        // extended attributes, which a zip made any other way can break the signature of.
+        Path submitted = artifact;
+        if (bundle) {
+            submitted = artifact.resolveSibling(fileName + ".notarize.zip");
+            ReleaseSupport.exec(workDir, getLog(),
+                    "ditto", "-c", "-k", "--keepParent", artifact.toString(), submitted.toString());
+        }
+        SubmitResult submission;
+        try {
+            submission = submitWithRetry(workDir, submitted, fileName);
+        } finally {
+            if (bundle) {
+                try {
+                    Files.deleteIfExists(submitted);
+                } catch (IOException e) {
+                    getLog().warn("Could not remove " + submitted + ": " + e.getMessage());
+                }
+            }
+        }
 
         if (submission.status() == null || !submission.status().equalsIgnoreCase("Accepted")) {
             getLog().error("Notarization REJECTED for " + fileName
@@ -206,7 +232,7 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
                 artifact.toString());
 
         getLog().info("Verifying: " + fileName);
-        String assessType = fileName.endsWith(".pkg") ? "install" : "open";
+        String assessType = assessType(artifact);
         ReleaseSupport.exec(workDir, getLog(),
                 "spctl", "--assess",
                 "--type", assessType,
@@ -538,10 +564,10 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
                 artifactDir.toPath(),
                 entry -> {
                     String name = entry.getFileName().toString().toLowerCase(Locale.ROOT);
-                    return name.endsWith(".pkg") || name.endsWith(".dmg");
+                    return name.endsWith(".pkg") || name.endsWith(".dmg") || name.endsWith(".app");
                 })) {
             for (Path entry : stream) {
-                if (Files.isRegularFile(entry)) {
+                if (Files.isRegularFile(entry) || isAppBundle(entry)) {
                     result.add(entry);
                 }
             }
@@ -550,6 +576,32 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
                     "Failed to scan for installer artifacts in " + artifactDir, e);
         }
         return result;
+    }
+
+    /**
+     * Whether a path is an application bundle: a directory named {@code *.app}.
+     *
+     * @param path the path
+     * @return {@code true} for an {@code .app} directory
+     */
+    static boolean isAppBundle(Path path) {
+        return Files.isDirectory(path)
+                && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".app");
+    }
+
+    /**
+     * The {@code spctl --assess --type} an artifact is assessed for: an installer package is
+     * installed, an application bundle executed, a disk image opened.
+     *
+     * @param artifact the notarized artifact
+     * @return {@code install}, {@code execute} or {@code open}
+     */
+    static String assessType(Path artifact) {
+        String name = artifact.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".pkg")) {
+            return "install";
+        }
+        return isAppBundle(artifact) ? "execute" : "open";
     }
 
     /**
