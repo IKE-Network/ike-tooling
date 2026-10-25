@@ -441,7 +441,8 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         String displayName = Optional.ofNullable(owner.getModel().getName()).map(String::strip)
                 .filter(name -> !name.isEmpty()).orElse(descriptorArtifactId);
         KnowledgeBaseDescriptor.Fields fields = new KnowledgeBaseDescriptor.Fields(descriptorGroupId,
-                descriptorArtifactId, version, displayName, entityFormat(attributes), assembledAt, access(owner));
+                descriptorArtifactId, version, displayName, entityFormat(attributes), assembledAt, access(owner),
+                KnowledgeBaseDescriptor.memory(attributes));
         Path icon = knowledgeBaseIcon(owner, displayName);
 
         List<Path> stores = new ArrayList<>(List.of(Path.of(storeRoot)));

@@ -61,6 +61,26 @@ class KnowledgeBaseDescriptorTest {
     }
 
     @Test
+    void theMemoryTheAssemblyMeasuredIsCarriedInTheDescriptor() throws IOException {
+        Path store = Files.createDirectories(temp.resolve("kb/rocks")).getParent();
+        Map<String, Long> memory = KnowledgeBaseDescriptor.memory(Map.of(
+                "Ike-Stated-Axiom-Bytes", "168032664",
+                "Ike-Loaded-Heap-Bytes", "1469861888",
+                "Ike-Reasoner-Heap-Bytes", "not a size",
+                "Ike-Open-Controller", "Open Rocks KB"));
+        assertThat(memory).containsExactly(Map.entry("statedAxiomBytes", 168032664L),
+                Map.entry("loadedHeapBytes", 1469861888L));
+
+        KnowledgeBaseDescriptor.Fields measured = new KnowledgeBaseDescriptor.Fields(PIZZA.groupId(), PIZZA.artifactId(),
+                PIZZA.version(), PIZZA.displayName(), PIZZA.entityFormat(), PIZZA.assembledAt(), PIZZA.access(), memory);
+        Properties descriptor = read(KnowledgeBaseDescriptor.write(store, measured, monogram()));
+
+        assertThat(descriptor.getProperty("statedAxiomBytes")).isEqualTo("168032664");
+        assertThat(descriptor.getProperty("loadedHeapBytes")).isEqualTo("1469861888");
+        assertThat(descriptor.getProperty("reasonerHeapBytes")).as("left out, not a size").isNull();
+    }
+
+    @Test
     void aReleaseNamesItsResolvedVersionAndEachLayoutIsReadFromTheStore() throws IOException {
         Path spined = Files.createDirectories(temp.resolve("sa"));
         Files.writeString(spined.resolve("store-format.properties"), "layout=64-bit\nentityFormat=3\n");

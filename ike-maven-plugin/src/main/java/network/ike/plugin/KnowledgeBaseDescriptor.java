@@ -33,7 +33,8 @@ import java.util.Properties;
  * Every store {@code ike:kb-assemble} writes carries it with its icon:
  *
  * <pre>
- * META-INF/ike/knowledge-base.properties   descriptorLevel, coordinate, displayName, layout, …, icon
+ * META-INF/ike/knowledge-base.properties   descriptorLevel, coordinate, displayName, layout, …, icon,
+ *                                          and the memory the assembly measured, when it did
  * META-INF/ike/icon.png, icon@2x.png       the knowledge base's icon
  * </pre>
  *
@@ -63,6 +64,22 @@ final class KnowledgeBaseDescriptor {
     /** The classifier the icon deploys under, extension {@code png}. */
     static final String ICON_CLASSIFIER = "icon";
 
+    /**
+     * The memory facts the assembly reports in the store's manifest, by manifest attribute, and the
+     * descriptor entry each is carried in. They are optional at level {@value #LEVEL}; a program
+     * sizing a store's heap reads them from Nexus before the store is downloaded (the IKE Dashboard
+     * design, decision 10; IKE-Network/ike-issues#1324).
+     */
+    static final Map<String, String> MEMORY = memoryEntries();
+
+    private static Map<String, String> memoryEntries() {
+        Map<String, String> entries = new LinkedHashMap<>();
+        entries.put("Ike-Stated-Axiom-Bytes", "statedAxiomBytes");
+        entries.put("Ike-Loaded-Heap-Bytes", "loadedHeapBytes");
+        entries.put("Ike-Reasoner-Heap-Bytes", "reasonerHeapBytes");
+        return java.util.Collections.unmodifiableMap(entries);
+    }
+
     /** Who may download the knowledge base: anyone, or only those the restricted repositories admit. */
     enum Access {
         /** Served to anyone. */
@@ -85,9 +102,64 @@ final class KnowledgeBaseDescriptor {
      * @param entityFormat the entity format the store was written in
      * @param assembledAt  when the store was assembled
      * @param access       who may download it
+     * @param memory       what the assembly measured, by descriptor entry, in bytes ({@link #MEMORY})
      */
     record Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
-                  Instant assembledAt, Access access) {
+                  Instant assembledAt, Access access, Map<String, Long> memory) {
+
+        /**
+         * Copies the memory facts.
+         *
+         * @param groupId      the coordinate's groupId
+         * @param artifactId   the coordinate's artifactId
+         * @param version      the coordinate's version
+         * @param displayName  the name a person reads
+         * @param entityFormat the entity format the store was written in
+         * @param assembledAt  when the store was assembled
+         * @param access       who may download it
+         * @param memory       what the assembly measured, by descriptor entry
+         */
+        Fields {
+            memory = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(memory));
+        }
+
+        /**
+         * Fields with no memory measured.
+         *
+         * @param groupId      the coordinate's groupId
+         * @param artifactId   the coordinate's artifactId
+         * @param version      the coordinate's version
+         * @param displayName  the name a person reads
+         * @param entityFormat the entity format the store was written in
+         * @param assembledAt  when the store was assembled
+         * @param access       who may download it
+         */
+        Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
+               Instant assembledAt, Access access) {
+            this(groupId, artifactId, version, displayName, entityFormat, assembledAt, access, Map.of());
+        }
+    }
+
+    /**
+     * The memory facts among a store's manifest attributes, by descriptor entry; an attribute that is
+     * not a whole number of bytes is left out.
+     *
+     * @param attributes the manifest attributes the assembly reported
+     * @return the facts, in {@link #MEMORY}'s order
+     */
+    static Map<String, Long> memory(Map<String, String> attributes) {
+        Map<String, Long> memory = new LinkedHashMap<>();
+        MEMORY.forEach((attribute, entry) -> {
+            String value = attributes.get(attribute);
+            if (value != null) {
+                try {
+                    memory.put(entry, Long.parseLong(value.strip()));
+                } catch (NumberFormatException e) {
+                    // not a size: the descriptor leaves it out
+                }
+            }
+        });
+        return memory;
     }
 
     private KnowledgeBaseDescriptor() {
@@ -187,6 +259,7 @@ final class KnowledgeBaseDescriptor {
         entries.put("assembledAt", fields.assembledAt().toString());
         entries.put("access", fields.access().value());
         entries.put("icon", ICON);
+        fields.memory().forEach((entry, bytes) -> entries.put(entry, Long.toString(bytes)));
         Path file = store.resolve(FILE);
         Files.writeString(file, text(entries), StandardCharsets.ISO_8859_1);
         return file;
