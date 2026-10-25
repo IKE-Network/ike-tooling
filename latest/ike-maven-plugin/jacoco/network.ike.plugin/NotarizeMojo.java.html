@@ -18,7 +18,13 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * Sign and notarize macOS installer packages ({@code .pkg}, {@code .dmg}).
+ * Sign and notarize macOS installer packages ({@code .pkg}, {@code .dmg}) and application
+ * bundles ({@code .app}).
+ *
+ * &lt;p&gt;An {@code .app} is what a program that installs and updates itself ships (the IKE
+ * Dashboard): notarytool takes it zipped, so the goal zips it with {@code ditto}, submits the
+ * zip, staples the ticket to the {@code .app} itself, and assesses it for execution. The zip is
+ * removed; whoever distributes the stapled {@code .app} zips it again.
  *
  * &lt;p&gt;This goal automates the Apple notarization workflow for installer
  * artifacts produced by JReleaser's jpackage assembler:
@@ -76,10 +82,10 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      *
      * @return the logger
      */
-<span class="nc" id="L79">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+<span class="nc" id="L85">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
 
     /** Creates this goal instance. */
-<span class="fc" id="L82">    public NotarizeMojo() {}</span>
+<span class="fc" id="L88">    public NotarizeMojo() {}</span>
 
     /**
      * Directory containing jpackage output artifacts.
@@ -130,91 +136,111 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
 
     @Override
     public void execute() throws MojoException {
-<span class="nc bnc" id="L133" title="All 2 branches missed.">        if (skip) {</span>
-<span class="nc" id="L134">            getLog().info(&quot;Notarization skipped (notarize.skip=true)&quot;);</span>
-<span class="nc" id="L135">            return;</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L140">            getLog().info(&quot;Notarization skipped (notarize.skip=true)&quot;);</span>
+<span class="nc" id="L141">            return;</span>
         }
 
-<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (!isMacOS()) {</span>
-<span class="nc" id="L139">            getLog().info(&quot;Notarization skipped — not running on macOS&quot;);</span>
-<span class="nc" id="L140">            return;</span>
-        }
-
-<span class="nc" id="L143">        List&lt;Path&gt; artifacts = findInstallerArtifacts();</span>
-<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (artifacts.isEmpty()) {</span>
-<span class="nc" id="L145">            getLog().warn(&quot;No .pkg or .dmg files found in &quot; + artifactDir);</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (!isMacOS()) {</span>
+<span class="nc" id="L145">            getLog().info(&quot;Notarization skipped — not running on macOS&quot;);</span>
 <span class="nc" id="L146">            return;</span>
         }
 
-<span class="nc" id="L149">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L150">        getLog().info(&quot;Apple Notarization&quot;);</span>
-<span class="nc" id="L151">        getLog().info(&quot;\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550&quot;);</span>
-<span class="nc" id="L152">        getLog().info(&quot;  Artifact directory:  &quot; + artifactDir);</span>
-<span class="nc" id="L153">        getLog().info(&quot;  Keychain profile:    &quot; + keychainProfile);</span>
-<span class="nc" id="L154">        getLog().info(&quot;  Timeout:             &quot; + timeoutMinutes + &quot; minutes&quot;);</span>
-<span class="nc" id="L155">        getLog().info(&quot;  Artifacts found:     &quot; + artifacts.size());</span>
+<span class="nc" id="L149">        List&lt;Path&gt; artifacts = findInstallerArtifacts();</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (artifacts.isEmpty()) {</span>
+<span class="nc" id="L151">            getLog().warn(&quot;No .pkg, .dmg or .app found in &quot; + artifactDir);</span>
+<span class="nc" id="L152">            return;</span>
+        }
 
-<span class="nc bnc" id="L157" title="All 2 branches missed.">        for (Path artifact : artifacts) {</span>
-<span class="nc" id="L158">            getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L159">            notarize(artifact);</span>
-<span class="nc" id="L160">        }</span>
+<span class="nc" id="L155">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L156">        getLog().info(&quot;Apple Notarization&quot;);</span>
+<span class="nc" id="L157">        getLog().info(&quot;\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550&quot;);</span>
+<span class="nc" id="L158">        getLog().info(&quot;  Artifact directory:  &quot; + artifactDir);</span>
+<span class="nc" id="L159">        getLog().info(&quot;  Keychain profile:    &quot; + keychainProfile);</span>
+<span class="nc" id="L160">        getLog().info(&quot;  Timeout:             &quot; + timeoutMinutes + &quot; minutes&quot;);</span>
+<span class="nc" id="L161">        getLog().info(&quot;  Artifacts found:     &quot; + artifacts.size());</span>
 
-<span class="nc" id="L162">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L163">        getLog().info(&quot;Notarization complete — &quot; + artifacts.size() + &quot; artifact(s) processed&quot;);</span>
-<span class="nc" id="L164">        getLog().info(&quot;&quot;);</span>
-<span class="nc" id="L165">    }</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">        for (Path artifact : artifacts) {</span>
+<span class="nc" id="L164">            getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L165">            notarize(artifact);</span>
+<span class="nc" id="L166">        }</span>
+
+<span class="nc" id="L168">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L169">        getLog().info(&quot;Notarization complete — &quot; + artifacts.size() + &quot; artifact(s) processed&quot;);</span>
+<span class="nc" id="L170">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L171">    }</span>
 
     /**
      * Submit, staple, and verify a single installer artifact.
      *
-     * @param artifact path to the .pkg or .dmg file
+     * @param artifact path to the .pkg or .dmg file, or the .app bundle
      * @throws MojoException if any step fails
      */
     private void notarize(Path artifact) throws MojoException {
-<span class="nc" id="L174">        String fileName = artifact.getFileName().toString();</span>
-<span class="nc" id="L175">        File workDir = artifact.getParent().toFile();</span>
+<span class="nc" id="L180">        String fileName = artifact.getFileName().toString();</span>
+<span class="nc" id="L181">        File workDir = artifact.getParent().toFile();</span>
+<span class="nc" id="L182">        boolean bundle = isAppBundle(artifact);</span>
 
-<span class="nc" id="L177">        SubmitResult submission = submitWithRetry(workDir, artifact, fileName);</span>
-
-<span class="nc bnc" id="L179" title="All 4 branches missed.">        if (submission.status() == null || !submission.status().equalsIgnoreCase(&quot;Accepted&quot;)) {</span>
-<span class="nc" id="L180">            getLog().error(&quot;Notarization REJECTED for &quot; + fileName</span>
-<span class="nc bnc" id="L181" title="All 2 branches missed.">                    + &quot; — status: &quot; + (submission.status() != null ? submission.status() : &quot;unknown&quot;));</span>
-
-<span class="nc bnc" id="L183" title="All 2 branches missed.">            if (submission.submissionId() != null) {</span>
-<span class="nc" id="L184">                getLog().error(&quot;Fetching rejection details (id: &quot; + submission.submissionId() + &quot;)...&quot;);</span>
+        // notarytool takes an application bundle zipped; ditto keeps its symbolic links and
+        // extended attributes, which a zip made any other way can break the signature of.
+<span class="nc" id="L186">        Path submitted = artifact;</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">        if (bundle) {</span>
+<span class="nc" id="L188">            submitted = artifact.resolveSibling(fileName + &quot;.notarize.zip&quot;);</span>
+<span class="nc" id="L189">            ReleaseSupport.exec(workDir, getLog(),</span>
+<span class="nc" id="L190">                    &quot;ditto&quot;, &quot;-c&quot;, &quot;-k&quot;, &quot;--keepParent&quot;, artifact.toString(), submitted.toString());</span>
+        }
+        SubmitResult submission;
+        try {
+<span class="nc" id="L194">            submission = submitWithRetry(workDir, submitted, fileName);</span>
+        } finally {
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            if (bundle) {</span>
                 try {
-<span class="nc" id="L186">                    ReleaseSupport.exec(workDir, getLog(),</span>
-                            &quot;xcrun&quot;, &quot;notarytool&quot;, &quot;log&quot;,
-<span class="nc" id="L188">                            submission.submissionId(),</span>
-                            &quot;--keychain-profile&quot;, keychainProfile);
-<span class="nc" id="L190">                } catch (Exception e) {</span>
-<span class="nc" id="L191">                    getLog().warn(&quot;Could not fetch notarization log: &quot; + e.getMessage());</span>
-<span class="nc" id="L192">                }</span>
+<span class="nc" id="L198">                    Files.deleteIfExists(submitted);</span>
+<span class="nc" id="L199">                } catch (IOException e) {</span>
+<span class="nc" id="L200">                    getLog().warn(&quot;Could not remove &quot; + submitted + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L201">                }</span>
             }
-
-<span class="nc" id="L195">            throw new MojoException(</span>
-                    &quot;Notarization failed for &quot; + fileName
-<span class="nc bnc" id="L197" title="All 2 branches missed.">                            + &quot; — status: &quot; + (submission.status() != null ? submission.status() : &quot;unknown&quot;)</span>
-<span class="nc bnc" id="L198" title="All 2 branches missed.">                            + (submission.submissionId() != null ? &quot; (id: &quot; + submission.submissionId() + &quot;)&quot; : &quot;&quot;));</span>
         }
 
-<span class="nc" id="L201">        getLog().info(&quot;Notarization accepted — stapling ticket&quot;);</span>
+<span class="nc bnc" id="L205" title="All 4 branches missed.">        if (submission.status() == null || !submission.status().equalsIgnoreCase(&quot;Accepted&quot;)) {</span>
+<span class="nc" id="L206">            getLog().error(&quot;Notarization REJECTED for &quot; + fileName</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                    + &quot; — status: &quot; + (submission.status() != null ? submission.status() : &quot;unknown&quot;));</span>
 
-<span class="nc" id="L203">        getLog().info(&quot;Stapling ticket: &quot; + fileName);</span>
-<span class="nc" id="L204">        ReleaseSupport.exec(workDir, getLog(),</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">            if (submission.submissionId() != null) {</span>
+<span class="nc" id="L210">                getLog().error(&quot;Fetching rejection details (id: &quot; + submission.submissionId() + &quot;)...&quot;);</span>
+                try {
+<span class="nc" id="L212">                    ReleaseSupport.exec(workDir, getLog(),</span>
+                            &quot;xcrun&quot;, &quot;notarytool&quot;, &quot;log&quot;,
+<span class="nc" id="L214">                            submission.submissionId(),</span>
+                            &quot;--keychain-profile&quot;, keychainProfile);
+<span class="nc" id="L216">                } catch (Exception e) {</span>
+<span class="nc" id="L217">                    getLog().warn(&quot;Could not fetch notarization log: &quot; + e.getMessage());</span>
+<span class="nc" id="L218">                }</span>
+            }
+
+<span class="nc" id="L221">            throw new MojoException(</span>
+                    &quot;Notarization failed for &quot; + fileName
+<span class="nc bnc" id="L223" title="All 2 branches missed.">                            + &quot; — status: &quot; + (submission.status() != null ? submission.status() : &quot;unknown&quot;)</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">                            + (submission.submissionId() != null ? &quot; (id: &quot; + submission.submissionId() + &quot;)&quot; : &quot;&quot;));</span>
+        }
+
+<span class="nc" id="L227">        getLog().info(&quot;Notarization accepted — stapling ticket&quot;);</span>
+
+<span class="nc" id="L229">        getLog().info(&quot;Stapling ticket: &quot; + fileName);</span>
+<span class="nc" id="L230">        ReleaseSupport.exec(workDir, getLog(),</span>
                 &quot;xcrun&quot;, &quot;stapler&quot;, &quot;staple&quot;,
-<span class="nc" id="L206">                artifact.toString());</span>
+<span class="nc" id="L232">                artifact.toString());</span>
 
-<span class="nc" id="L208">        getLog().info(&quot;Verifying: &quot; + fileName);</span>
-<span class="nc bnc" id="L209" title="All 2 branches missed.">        String assessType = fileName.endsWith(&quot;.pkg&quot;) ? &quot;install&quot; : &quot;open&quot;;</span>
-<span class="nc" id="L210">        ReleaseSupport.exec(workDir, getLog(),</span>
+<span class="nc" id="L234">        getLog().info(&quot;Verifying: &quot; + fileName);</span>
+<span class="nc" id="L235">        String assessType = assessType(artifact);</span>
+<span class="nc" id="L236">        ReleaseSupport.exec(workDir, getLog(),</span>
                 &quot;spctl&quot;, &quot;--assess&quot;,
                 &quot;--type&quot;, assessType,
                 &quot;--verbose=4&quot;,
-<span class="nc" id="L214">                artifact.toString());</span>
+<span class="nc" id="L240">                artifact.toString());</span>
 
-<span class="nc" id="L216">        getLog().info(&quot;Notarized and verified: &quot; + fileName);</span>
-<span class="nc" id="L217">    }</span>
+<span class="nc" id="L242">        getLog().info(&quot;Notarized and verified: &quot; + fileName);</span>
+<span class="nc" id="L243">    }</span>
 
     /**
      * Submit the artifact (or resume an in-flight submission) with bounded
@@ -240,77 +266,77 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      */
     private SubmitResult submitWithRetry(File workDir, Path artifact, String fileName)
             throws MojoException {
-<span class="nc" id="L243">        List&lt;Integer&gt; backoff = parseBackoffSchedule(retryBackoffSeconds);</span>
-<span class="nc" id="L244">        int attempts = Math.max(1, maxAttempts);</span>
-<span class="nc" id="L245">        String knownSubmissionId = null;</span>
-<span class="nc" id="L246">        ExecOutcome lastOutcome = null;</span>
+<span class="nc" id="L269">        List&lt;Integer&gt; backoff = parseBackoffSchedule(retryBackoffSeconds);</span>
+<span class="nc" id="L270">        int attempts = Math.max(1, maxAttempts);</span>
+<span class="nc" id="L271">        String knownSubmissionId = null;</span>
+<span class="nc" id="L272">        ExecOutcome lastOutcome = null;</span>
 
-<span class="nc bnc" id="L248" title="All 2 branches missed.">        for (int attempt = 1; attempt &lt;= attempts; attempt++) {</span>
-<span class="nc bnc" id="L249" title="All 2 branches missed.">            if (attempt &gt; 1) {</span>
-<span class="nc" id="L250">                int waitSeconds = backoffWait(backoff, attempt);</span>
-<span class="nc" id="L251">                getLog().warn(&quot;Notarize attempt &quot; + attempt + &quot;/&quot; + attempts</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">        for (int attempt = 1; attempt &lt;= attempts; attempt++) {</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">            if (attempt &gt; 1) {</span>
+<span class="nc" id="L276">                int waitSeconds = backoffWait(backoff, attempt);</span>
+<span class="nc" id="L277">                getLog().warn(&quot;Notarize attempt &quot; + attempt + &quot;/&quot; + attempts</span>
                         + &quot; in &quot; + waitSeconds + &quot;s &quot;
-<span class="nc" id="L253">                        + &quot;(previous attempt: &quot; + summarizeOutcome(lastOutcome) + &quot;)&quot;);</span>
-<span class="nc" id="L254">                sleepSeconds(waitSeconds);</span>
+<span class="nc" id="L279">                        + &quot;(previous attempt: &quot; + summarizeOutcome(lastOutcome) + &quot;)&quot;);</span>
+<span class="nc" id="L280">                sleepSeconds(waitSeconds);</span>
             }
 
             String[] command;
-<span class="nc bnc" id="L258" title="All 2 branches missed.">            if (knownSubmissionId != null) {</span>
-<span class="nc" id="L259">                getLog().info(&quot;Resuming wait on submission &quot; + knownSubmissionId</span>
+<span class="nc bnc" id="L284" title="All 2 branches missed.">            if (knownSubmissionId != null) {</span>
+<span class="nc" id="L285">                getLog().info(&quot;Resuming wait on submission &quot; + knownSubmissionId</span>
                         + &quot; (attempt &quot; + attempt + &quot;/&quot; + attempts + &quot;)&quot;);
-<span class="nc" id="L261">                command = new String[] {</span>
+<span class="nc" id="L287">                command = new String[] {</span>
                         &quot;xcrun&quot;, &quot;notarytool&quot;, &quot;info&quot;,
                         knownSubmissionId,
                         &quot;--keychain-profile&quot;, keychainProfile,
                         &quot;--wait&quot;
                 };
             } else {
-<span class="nc" id="L268">                getLog().info(&quot;Submitting for notarization: &quot; + fileName</span>
+<span class="nc" id="L294">                getLog().info(&quot;Submitting for notarization: &quot; + fileName</span>
                         + &quot; (attempt &quot; + attempt + &quot;/&quot; + attempts + &quot;)&quot;);
-<span class="nc" id="L270">                command = new String[] {</span>
+<span class="nc" id="L296">                command = new String[] {</span>
                         &quot;xcrun&quot;, &quot;notarytool&quot;, &quot;submit&quot;,
-<span class="nc" id="L272">                        artifact.toString(),</span>
+<span class="nc" id="L298">                        artifact.toString(),</span>
                         &quot;--keychain-profile&quot;, keychainProfile,
                         &quot;--timeout&quot;, timeoutMinutes + &quot;m&quot;,
                         &quot;--wait&quot;
                 };
             }
 
-<span class="nc" id="L279">            lastOutcome = runCapturing(workDir, getLog(), command);</span>
+<span class="nc" id="L305">            lastOutcome = runCapturing(workDir, getLog(), command);</span>
 
-<span class="nc" id="L281">            String idFromThisAttempt = extractSubmissionId(lastOutcome.output());</span>
-<span class="nc bnc" id="L282" title="All 2 branches missed.">            if (idFromThisAttempt != null) {</span>
-<span class="nc" id="L283">                knownSubmissionId = idFromThisAttempt;</span>
+<span class="nc" id="L307">            String idFromThisAttempt = extractSubmissionId(lastOutcome.output());</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">            if (idFromThisAttempt != null) {</span>
+<span class="nc" id="L309">                knownSubmissionId = idFromThisAttempt;</span>
             }
 
-<span class="nc bnc" id="L286" title="All 2 branches missed.">            if (lastOutcome.exitCode() == 0) {</span>
-<span class="nc" id="L287">                return new SubmitResult(extractStatus(lastOutcome.output()),</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">            if (lastOutcome.exitCode() == 0) {</span>
+<span class="nc" id="L313">                return new SubmitResult(extractStatus(lastOutcome.output()),</span>
                         knownSubmissionId,
-<span class="nc" id="L289">                        lastOutcome.output());</span>
+<span class="nc" id="L315">                        lastOutcome.output());</span>
             }
 
-<span class="nc bnc" id="L292" title="All 2 branches missed.">            if (!isTransientNetworkError(lastOutcome.output())) {</span>
-<span class="nc" id="L293">                throw new MojoException(</span>
-<span class="nc" id="L294">                        &quot;Notarization command failed (exit &quot; + lastOutcome.exitCode()</span>
-<span class="nc" id="L295">                                + &quot;, non-transient): &quot; + String.join(&quot; &quot;, command)</span>
-<span class="nc bnc" id="L296" title="All 2 branches missed.">                                + (lastOutcome.output().isEmpty()</span>
-<span class="nc" id="L297">                                        ? &quot;&quot;</span>
-<span class="nc" id="L298">                                        : &quot;\nOutput:\n&quot; + lastOutcome.output().trim()));</span>
+<span class="nc bnc" id="L318" title="All 2 branches missed.">            if (!isTransientNetworkError(lastOutcome.output())) {</span>
+<span class="nc" id="L319">                throw new MojoException(</span>
+<span class="nc" id="L320">                        &quot;Notarization command failed (exit &quot; + lastOutcome.exitCode()</span>
+<span class="nc" id="L321">                                + &quot;, non-transient): &quot; + String.join(&quot; &quot;, command)</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">                                + (lastOutcome.output().isEmpty()</span>
+<span class="nc" id="L323">                                        ? &quot;&quot;</span>
+<span class="nc" id="L324">                                        : &quot;\nOutput:\n&quot; + lastOutcome.output().trim()));</span>
             }
 
-<span class="nc" id="L301">            getLog().warn(&quot;Transient network error on attempt &quot; + attempt + &quot;/&quot;</span>
+<span class="nc" id="L327">            getLog().warn(&quot;Transient network error on attempt &quot; + attempt + &quot;/&quot;</span>
                     + attempts + &quot; — &quot;
-<span class="nc bnc" id="L303" title="All 2 branches missed.">                    + (knownSubmissionId != null</span>
-<span class="nc" id="L304">                            ? &quot;will resume wait on submission &quot; + knownSubmissionId</span>
-<span class="nc" id="L305">                            : &quot;will resubmit&quot;));</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">                    + (knownSubmissionId != null</span>
+<span class="nc" id="L330">                            ? &quot;will resume wait on submission &quot; + knownSubmissionId</span>
+<span class="nc" id="L331">                            : &quot;will resubmit&quot;));</span>
         }
 
-<span class="nc" id="L308">        throw new MojoException(</span>
+<span class="nc" id="L334">        throw new MojoException(</span>
                 &quot;Notarization exhausted &quot; + attempts + &quot; attempt(s) for &quot; + fileName
-<span class="nc" id="L310">                        + &quot; — last error: &quot; + summarizeOutcome(lastOutcome)</span>
-<span class="nc bnc" id="L311" title="All 2 branches missed.">                        + (knownSubmissionId != null</span>
-<span class="nc" id="L312">                                ? &quot; (submission id: &quot; + knownSubmissionId + &quot;)&quot;</span>
-<span class="nc" id="L313">                                : &quot;&quot;));</span>
+<span class="nc" id="L336">                        + &quot; — last error: &quot; + summarizeOutcome(lastOutcome)</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">                        + (knownSubmissionId != null</span>
+<span class="nc" id="L338">                                ? &quot; (submission id: &quot; + knownSubmissionId + &quot;)&quot;</span>
+<span class="nc" id="L339">                                : &quot;&quot;));</span>
     }
 
     /**
@@ -323,7 +349,7 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      *                       was ever captured (e.g. transport error before upload)
      * @param fullOutput     captured stdout+stderr from the final attempt
      */
-<span class="nc" id="L326">    private record SubmitResult(String status, String submissionId, String fullOutput) {}</span>
+<span class="nc" id="L352">    private record SubmitResult(String status, String submissionId, String fullOutput) {}</span>
 
     /**
      * Captured result of a single subprocess invocation.
@@ -331,7 +357,7 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @param exitCode process exit code; {@code -1} for runner-side I/O failure
      * @param output   captured stdout+stderr (combined)
      */
-<span class="nc" id="L334">    private record ExecOutcome(int exitCode, String output) {}</span>
+<span class="nc" id="L360">    private record ExecOutcome(int exitCode, String output) {}</span>
 
     /**
      * Transport-layer error patterns from {@code xcrun notarytool}. Matching
@@ -341,7 +367,7 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * &lt;p&gt;Intentionally narrow — only well-known network conditions, never
      * keychain or signing errors.
      */
-<span class="fc" id="L344">    private static final Pattern TRANSIENT_NETWORK = Pattern.compile(</span>
+<span class="fc" id="L370">    private static final Pattern TRANSIENT_NETWORK = Pattern.compile(</span>
             &quot;NSURLErrorDomain Code=-1001&quot;
             + &quot;|kCFErrorDomainCFNetwork&quot;
             + &quot;|Could not connect to the notary service&quot;
@@ -358,7 +384,7 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @return {@code true} if the output matches a known transient pattern
      */
     static boolean isTransientNetworkError(String output) {
-<span class="fc bfc" id="L361" title="All 4 branches covered.">        return output != null &amp;&amp; TRANSIENT_NETWORK.matcher(output).find();</span>
+<span class="fc bfc" id="L387" title="All 4 branches covered.">        return output != null &amp;&amp; TRANSIENT_NETWORK.matcher(output).find();</span>
     }
 
     /**
@@ -374,17 +400,17 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @return the submission id, or {@code null} if none found
      */
     static String extractSubmissionId(String output) {
-<span class="fc bfc" id="L377" title="All 2 branches covered.">        if (output == null) return null;</span>
-<span class="fc bfc" id="L378" title="All 2 branches covered.">        for (String line : output.lines().toList()) {</span>
-<span class="fc" id="L379">            String trimmed = line.trim();</span>
-<span class="fc bfc" id="L380" title="All 2 branches covered.">            if (trimmed.startsWith(&quot;id:&quot;)) {</span>
-<span class="fc" id="L381">                String candidate = trimmed.substring(3).trim();</span>
-<span class="pc bpc" id="L382" title="1 of 2 branches missed.">                if (!candidate.isEmpty()) {</span>
-<span class="fc" id="L383">                    return candidate;</span>
+<span class="fc bfc" id="L403" title="All 2 branches covered.">        if (output == null) return null;</span>
+<span class="fc bfc" id="L404" title="All 2 branches covered.">        for (String line : output.lines().toList()) {</span>
+<span class="fc" id="L405">            String trimmed = line.trim();</span>
+<span class="fc bfc" id="L406" title="All 2 branches covered.">            if (trimmed.startsWith(&quot;id:&quot;)) {</span>
+<span class="fc" id="L407">                String candidate = trimmed.substring(3).trim();</span>
+<span class="pc bpc" id="L408" title="1 of 2 branches missed.">                if (!candidate.isEmpty()) {</span>
+<span class="fc" id="L409">                    return candidate;</span>
                 }
             }
-<span class="fc" id="L386">        }</span>
-<span class="fc" id="L387">        return null;</span>
+<span class="fc" id="L412">        }</span>
+<span class="fc" id="L413">        return null;</span>
     }
 
     /**
@@ -397,15 +423,15 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @return the terminal status, or {@code null} if not found
      */
     static String extractStatus(String output) {
-<span class="pc bpc" id="L400" title="1 of 2 branches missed.">        if (output == null) return null;</span>
-<span class="fc" id="L401">        String last = null;</span>
-<span class="fc bfc" id="L402" title="All 2 branches covered.">        for (String line : output.lines().toList()) {</span>
-<span class="fc" id="L403">            String trimmed = line.trim();</span>
-<span class="fc bfc" id="L404" title="All 2 branches covered.">            if (trimmed.startsWith(&quot;status:&quot;)) {</span>
-<span class="fc" id="L405">                last = trimmed.substring(&quot;status:&quot;.length()).trim();</span>
+<span class="pc bpc" id="L426" title="1 of 2 branches missed.">        if (output == null) return null;</span>
+<span class="fc" id="L427">        String last = null;</span>
+<span class="fc bfc" id="L428" title="All 2 branches covered.">        for (String line : output.lines().toList()) {</span>
+<span class="fc" id="L429">            String trimmed = line.trim();</span>
+<span class="fc bfc" id="L430" title="All 2 branches covered.">            if (trimmed.startsWith(&quot;status:&quot;)) {</span>
+<span class="fc" id="L431">                last = trimmed.substring(&quot;status:&quot;.length()).trim();</span>
             }
-<span class="fc" id="L407">        }</span>
-<span class="fc" id="L408">        return last;</span>
+<span class="fc" id="L433">        }</span>
+<span class="fc" id="L434">        return last;</span>
     }
 
     /**
@@ -416,21 +442,21 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @return parsed list of positive seconds, possibly empty
      */
     static List&lt;Integer&gt; parseBackoffSchedule(String csv) {
-<span class="fc" id="L419">        List&lt;Integer&gt; out = new ArrayList&lt;&gt;();</span>
-<span class="fc bfc" id="L420" title="All 4 branches covered.">        if (csv == null || csv.isBlank()) {</span>
-<span class="fc" id="L421">            return out;</span>
+<span class="fc" id="L445">        List&lt;Integer&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L446" title="All 4 branches covered.">        if (csv == null || csv.isBlank()) {</span>
+<span class="fc" id="L447">            return out;</span>
         }
-<span class="fc bfc" id="L423" title="All 2 branches covered.">        for (String token : csv.split(&quot;,&quot;)) {</span>
-<span class="fc" id="L424">            String t = token.trim();</span>
-<span class="fc bfc" id="L425" title="All 2 branches covered.">            if (t.isEmpty()) continue;</span>
+<span class="fc bfc" id="L449" title="All 2 branches covered.">        for (String token : csv.split(&quot;,&quot;)) {</span>
+<span class="fc" id="L450">            String t = token.trim();</span>
+<span class="fc bfc" id="L451" title="All 2 branches covered.">            if (t.isEmpty()) continue;</span>
             try {
-<span class="fc" id="L427">                int v = Integer.parseInt(t);</span>
-<span class="fc bfc" id="L428" title="All 2 branches covered.">                if (v &gt; 0) out.add(v);</span>
-<span class="fc" id="L429">            } catch (NumberFormatException ignored) {</span>
+<span class="fc" id="L453">                int v = Integer.parseInt(t);</span>
+<span class="fc bfc" id="L454" title="All 2 branches covered.">                if (v &gt; 0) out.add(v);</span>
+<span class="fc" id="L455">            } catch (NumberFormatException ignored) {</span>
                 // skip non-numeric entries silently
-<span class="fc" id="L431">            }</span>
+<span class="fc" id="L457">            }</span>
         }
-<span class="fc" id="L433">        return out;</span>
+<span class="fc" id="L459">        return out;</span>
     }
 
     /**
@@ -443,9 +469,9 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @return seconds to wait before this attempt
      */
     static int backoffWait(List&lt;Integer&gt; schedule, int attempt) {
-<span class="fc bfc" id="L446" title="All 4 branches covered.">        if (schedule.isEmpty() || attempt &lt; 2) return 0;</span>
-<span class="fc" id="L447">        int idx = Math.min(attempt - 2, schedule.size() - 1);</span>
-<span class="fc" id="L448">        return schedule.get(idx);</span>
+<span class="fc bfc" id="L472" title="All 4 branches covered.">        if (schedule.isEmpty() || attempt &lt; 2) return 0;</span>
+<span class="fc" id="L473">        int idx = Math.min(attempt - 2, schedule.size() - 1);</span>
+<span class="fc" id="L474">        return schedule.get(idx);</span>
     }
 
     /**
@@ -456,14 +482,14 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @throws MojoException if interrupted while sleeping
      */
     private void sleepSeconds(int seconds) throws MojoException {
-<span class="nc bnc" id="L459" title="All 2 branches missed.">        if (seconds &lt;= 0) return;</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">        if (seconds &lt;= 0) return;</span>
         try {
-<span class="nc" id="L461">            Thread.sleep(seconds * 1000L);</span>
-<span class="nc" id="L462">        } catch (InterruptedException ie) {</span>
-<span class="nc" id="L463">            Thread.currentThread().interrupt();</span>
-<span class="nc" id="L464">            throw new MojoException(&quot;Interrupted during retry backoff&quot;, ie);</span>
-<span class="nc" id="L465">        }</span>
-<span class="nc" id="L466">    }</span>
+<span class="nc" id="L487">            Thread.sleep(seconds * 1000L);</span>
+<span class="nc" id="L488">        } catch (InterruptedException ie) {</span>
+<span class="nc" id="L489">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L490">            throw new MojoException(&quot;Interrupted during retry backoff&quot;, ie);</span>
+<span class="nc" id="L491">        }</span>
+<span class="nc" id="L492">    }</span>
 
     /**
      * One-line summary of a captured outcome for log messages.
@@ -472,14 +498,14 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @return short human-readable summary
      */
     private static String summarizeOutcome(ExecOutcome o) {
-<span class="nc bnc" id="L475" title="All 2 branches missed.">        if (o == null) return &quot;no attempts made&quot;;</span>
-<span class="nc" id="L476">        String firstNonEmpty = o.output().lines()</span>
-<span class="nc" id="L477">                .map(String::trim)</span>
-<span class="nc bnc" id="L478" title="All 2 branches missed.">                .filter(s -&gt; !s.isEmpty())</span>
-<span class="nc" id="L479">                .findFirst()</span>
-<span class="nc" id="L480">                .orElse(&quot;&quot;);</span>
-<span class="nc" id="L481">        return &quot;exit=&quot; + o.exitCode()</span>
-<span class="nc bnc" id="L482" title="All 2 branches missed.">                + (firstNonEmpty.isEmpty() ? &quot;&quot; : &quot; — &quot; + firstNonEmpty);</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">        if (o == null) return &quot;no attempts made&quot;;</span>
+<span class="nc" id="L502">        String firstNonEmpty = o.output().lines()</span>
+<span class="nc" id="L503">                .map(String::trim)</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">                .filter(s -&gt; !s.isEmpty())</span>
+<span class="nc" id="L505">                .findFirst()</span>
+<span class="nc" id="L506">                .orElse(&quot;&quot;);</span>
+<span class="nc" id="L507">        return &quot;exit=&quot; + o.exitCode()</span>
+<span class="nc bnc" id="L508" title="All 2 branches missed.">                + (firstNonEmpty.isEmpty() ? &quot;&quot; : &quot; — &quot; + firstNonEmpty);</span>
     }
 
     /**
@@ -496,29 +522,29 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
     private static ExecOutcome runCapturing(File workDir,
                                             org.apache.maven.api.plugin.Log log,
                                             String... command) {
-<span class="nc" id="L499">        log.debug(&quot;» &quot; + String.join(&quot; &quot;, command));</span>
-<span class="nc" id="L500">        StringBuilder captured = new StringBuilder();</span>
+<span class="nc" id="L525">        log.debug(&quot;» &quot; + String.join(&quot; &quot;, command));</span>
+<span class="nc" id="L526">        StringBuilder captured = new StringBuilder();</span>
         try {
-<span class="nc" id="L502">            Process proc = new ProcessBuilder(command)</span>
-<span class="nc" id="L503">                    .directory(workDir)</span>
-<span class="nc" id="L504">                    .redirectErrorStream(true)</span>
-<span class="nc" id="L505">                    .start();</span>
-<span class="nc" id="L506">            try (BufferedReader reader = new BufferedReader(</span>
-<span class="nc" id="L507">                    new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {</span>
+<span class="nc" id="L528">            Process proc = new ProcessBuilder(command)</span>
+<span class="nc" id="L529">                    .directory(workDir)</span>
+<span class="nc" id="L530">                    .redirectErrorStream(true)</span>
+<span class="nc" id="L531">                    .start();</span>
+<span class="nc" id="L532">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="nc" id="L533">                    new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {</span>
                 String line;
-<span class="nc bnc" id="L509" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
-<span class="nc" id="L510">                    ReleaseSupport.routeSubprocessLine(log, line);</span>
-<span class="nc" id="L511">                    captured.append(line).append('\n');</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
+<span class="nc" id="L536">                    ReleaseSupport.routeSubprocessLine(log, line);</span>
+<span class="nc" id="L537">                    captured.append(line).append('\n');</span>
                 }
             }
-<span class="nc" id="L514">            int exit = proc.waitFor();</span>
-<span class="nc" id="L515">            return new ExecOutcome(exit, captured.toString());</span>
-<span class="nc" id="L516">        } catch (IOException | InterruptedException e) {</span>
-<span class="nc bnc" id="L517" title="All 2 branches missed.">            if (e instanceof InterruptedException) {</span>
-<span class="nc" id="L518">                Thread.currentThread().interrupt();</span>
+<span class="nc" id="L540">            int exit = proc.waitFor();</span>
+<span class="nc" id="L541">            return new ExecOutcome(exit, captured.toString());</span>
+<span class="nc" id="L542">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L543" title="All 2 branches missed.">            if (e instanceof InterruptedException) {</span>
+<span class="nc" id="L544">                Thread.currentThread().interrupt();</span>
             }
-<span class="nc" id="L520">            return new ExecOutcome(-1,</span>
-<span class="nc" id="L521">                    captured.toString() + &quot;\n[runner-error] &quot; + e.getMessage());</span>
+<span class="nc" id="L546">            return new ExecOutcome(-1,</span>
+<span class="nc" id="L547">                    captured.toString() + &quot;\n[runner-error] &quot; + e.getMessage());</span>
         }
     }
 
@@ -529,27 +555,53 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @throws MojoException if the directory cannot be read
      */
     private List&lt;Path&gt; findInstallerArtifacts() throws MojoException {
-<span class="nc" id="L532">        List&lt;Path&gt; result = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L533" title="All 2 branches missed.">        if (!artifactDir.isDirectory()) {</span>
-<span class="nc" id="L534">            return result;</span>
+<span class="nc" id="L558">        List&lt;Path&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L559" title="All 2 branches missed.">        if (!artifactDir.isDirectory()) {</span>
+<span class="nc" id="L560">            return result;</span>
         }
 
-<span class="nc" id="L537">        try (DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(</span>
-<span class="nc" id="L538">                artifactDir.toPath(),</span>
+<span class="nc" id="L563">        try (DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(</span>
+<span class="nc" id="L564">                artifactDir.toPath(),</span>
                 entry -&gt; {
-<span class="nc" id="L540">                    String name = entry.getFileName().toString().toLowerCase(Locale.ROOT);</span>
-<span class="nc bnc" id="L541" title="All 4 branches missed.">                    return name.endsWith(&quot;.pkg&quot;) || name.endsWith(&quot;.dmg&quot;);</span>
+<span class="nc" id="L566">                    String name = entry.getFileName().toString().toLowerCase(Locale.ROOT);</span>
+<span class="nc bnc" id="L567" title="All 6 branches missed.">                    return name.endsWith(&quot;.pkg&quot;) || name.endsWith(&quot;.dmg&quot;) || name.endsWith(&quot;.app&quot;);</span>
                 })) {
-<span class="nc bnc" id="L543" title="All 2 branches missed.">            for (Path entry : stream) {</span>
-<span class="nc bnc" id="L544" title="All 2 branches missed.">                if (Files.isRegularFile(entry)) {</span>
-<span class="nc" id="L545">                    result.add(entry);</span>
+<span class="nc bnc" id="L569" title="All 2 branches missed.">            for (Path entry : stream) {</span>
+<span class="nc bnc" id="L570" title="All 4 branches missed.">                if (Files.isRegularFile(entry) || isAppBundle(entry)) {</span>
+<span class="nc" id="L571">                    result.add(entry);</span>
                 }
-<span class="nc" id="L547">            }</span>
-<span class="nc" id="L548">        } catch (IOException e) {</span>
-<span class="nc" id="L549">            throw new MojoException(</span>
+<span class="nc" id="L573">            }</span>
+<span class="nc" id="L574">        } catch (IOException e) {</span>
+<span class="nc" id="L575">            throw new MojoException(</span>
                     &quot;Failed to scan for installer artifacts in &quot; + artifactDir, e);
-<span class="nc" id="L551">        }</span>
-<span class="nc" id="L552">        return result;</span>
+<span class="nc" id="L577">        }</span>
+<span class="nc" id="L578">        return result;</span>
+    }
+
+    /**
+     * Whether a path is an application bundle: a directory named {@code *.app}.
+     *
+     * @param path the path
+     * @return {@code true} for an {@code .app} directory
+     */
+    static boolean isAppBundle(Path path) {
+<span class="fc bfc" id="L588" title="All 2 branches covered.">        return Files.isDirectory(path)</span>
+<span class="pc bpc" id="L589" title="1 of 2 branches missed.">                &amp;&amp; path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(&quot;.app&quot;);</span>
+    }
+
+    /**
+     * The {@code spctl --assess --type} an artifact is assessed for: an installer package is
+     * installed, an application bundle executed, a disk image opened.
+     *
+     * @param artifact the notarized artifact
+     * @return {@code install}, {@code execute} or {@code open}
+     */
+    static String assessType(Path artifact) {
+<span class="fc" id="L600">        String name = artifact.getFileName().toString().toLowerCase(Locale.ROOT);</span>
+<span class="fc bfc" id="L601" title="All 2 branches covered.">        if (name.endsWith(&quot;.pkg&quot;)) {</span>
+<span class="fc" id="L602">            return &quot;install&quot;;</span>
+        }
+<span class="fc bfc" id="L604" title="All 2 branches covered.">        return isAppBundle(artifact) ? &quot;execute&quot; : &quot;open&quot;;</span>
     }
 
     /**
@@ -558,7 +610,7 @@ public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
      * @return true if running on macOS
      */
     static boolean isMacOS() {
-<span class="nc" id="L561">        return ReleaseSupport.isMacOS();</span>
+<span class="nc" id="L613">        return ReleaseSupport.isMacOS();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

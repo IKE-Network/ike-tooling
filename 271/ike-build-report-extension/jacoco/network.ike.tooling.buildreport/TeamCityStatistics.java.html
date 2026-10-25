@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TeamCityStatistics.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">TeamCityStatistics.java</span></div><h1>TeamCityStatistics.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Hands the session's measures to TeamCity as build statistics
+ * (ike-issues#1207).
+ *
+ * &lt;p&gt;TeamCity reads {@code ##teamcity[buildStatisticValue …]} service
+ * messages from a build's output and keeps each key's value with the
+ * build, which is what its charts, its &quot;fail build on metric change&quot;
+ * conditions and its REST API then read. Coverage is also reported
+ * under the keys TeamCity reserves for it, so the server's own coverage
+ * views and conditions see the same numbers. The extension prints only
+ * when {@value #ENVIRONMENT_VARIABLE} is set, which every TeamCity build
+ * step has; a local build prints nothing.&lt;/p&gt;
+ */
+public final class TeamCityStatistics {
+
+    /** The environment variable every TeamCity build step carries. */
+    public static final String ENVIRONMENT_VARIABLE = &quot;TEAMCITY_VERSION&quot;;
+
+    /**
+     * TeamCity's own coverage keys, reported beside the extension's so
+     * the server computes its percentages and shows coverage on the
+     * build overview.
+     */
+<span class="fc" id="L35">    private static final Map&lt;MeasureKey, String&gt; PREDEFINED = Map.of(</span>
+            MeasureKey.COVERAGE_LINE_COVERED, &quot;CodeCoverageAbsLCovered&quot;,
+            MeasureKey.COVERAGE_LINE_TOTAL, &quot;CodeCoverageAbsLTotal&quot;,
+            MeasureKey.COVERAGE_BRANCH_COVERED, &quot;CodeCoverageAbsRCovered&quot;,
+            MeasureKey.COVERAGE_BRANCH_TOTAL, &quot;CodeCoverageAbsRTotal&quot;);
+
+    private TeamCityStatistics() {
+    }
+
+    /**
+     * Says whether this build runs under TeamCity.
+     *
+     * @return {@code true} when the TeamCity environment variable is set
+     */
+    public static boolean active() {
+<span class="nc" id="L50">        String version = System.getenv(ENVIRONMENT_VARIABLE);</span>
+<span class="nc bnc" id="L51" title="All 4 branches missed.">        return version != null &amp;&amp; !version.isBlank();</span>
+    }
+
+    /**
+     * Opens the process's own standard output, which TeamCity reads.
+     *
+     * &lt;p&gt;Not {@code System.out}: Maven 4 replaces that stream and
+     * relays whatever a plugin or extension writes to it through its
+     * logger as {@code [INFO] [stdout] …}, and a service message that
+     * does not start its line is not one to TeamCity. Writing to the
+     * file descriptor itself goes past the relay. The stream is never
+     * closed, since closing it would close the process's output.&lt;/p&gt;
+     *
+     * @return a line-flushing stream on file descriptor 1
+     */
+    public static PrintStream processOutput() {
+<span class="nc" id="L67">        return new PrintStream(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8);</span>
+    }
+
+    /**
+     * Renders the service messages for a session's measures, one per
+     * statistic.
+     *
+     * @param measures the session's measures
+     * @return the messages in measure order; a coverage measure with a
+     *         TeamCity key of its own yields two
+     */
+    public static List&lt;String&gt; messages(Measures measures) {
+<span class="fc" id="L79">        Objects.requireNonNull(measures, &quot;measures&quot;);</span>
+<span class="fc" id="L80">        List&lt;String&gt; messages = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">        for (Map.Entry&lt;String, Double&gt; entry : measures.values().entrySet()) {</span>
+<span class="fc" id="L82">            messages.add(message(key(entry.getKey()), entry.getValue()));</span>
+<span class="fc" id="L83">            MeasureKey known = MeasureKey.of(entry.getKey());</span>
+<span class="fc bfc" id="L84" title="All 2 branches covered.">            String predefined = known == null ? null : PREDEFINED.get(known);</span>
+<span class="fc bfc" id="L85" title="All 2 branches covered.">            if (predefined != null) {</span>
+<span class="fc" id="L86">                messages.add(message(predefined, entry.getValue()));</span>
+            }
+<span class="fc" id="L88">        }</span>
+<span class="fc" id="L89">        return messages;</span>
+    }
+
+    /**
+     * Prints the service messages for a session's measures.
+     *
+     * @param measures the session's measures
+     * @param out      where TeamCity listens — the build's standard output
+     * @return how many statistics were printed
+     */
+    public static int publish(Measures measures, PrintStream out) {
+<span class="fc" id="L100">        Objects.requireNonNull(out, &quot;out&quot;);</span>
+<span class="fc" id="L101">        List&lt;String&gt; messages = messages(measures);</span>
+<span class="fc bfc" id="L102" title="All 2 branches covered.">        for (String message : messages) {</span>
+<span class="fc" id="L103">            out.println(message);</span>
+<span class="fc" id="L104">        }</span>
+<span class="fc" id="L105">        out.flush();</span>
+<span class="fc" id="L106">        return messages.size();</span>
+    }
+
+    /**
+     * Renders one statistic message.
+     *
+     * @param key   the statistic key, already sanitized
+     * @param value its value
+     * @return the service message
+     */
+    static String message(String key, double value) {
+<span class="fc" id="L117">        return &quot;##teamcity[buildStatisticValue key='&quot; + escape(key) + &quot;' value='&quot; + Numbers.plain(value) + &quot;']&quot;;</span>
+    }
+
+    /**
+     * Keeps a key to the characters TeamCity charts and conditions take
+     * as given, replacing anything else with an underscore.
+     *
+     * @param key the measure key
+     * @return the key with only letters, digits, dots, underscores and dashes
+     */
+    static String key(String key) {
+<span class="fc" id="L128">        StringBuilder out = new StringBuilder(key.length());</span>
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        for (int index = 0; index &lt; key.length(); index++) {</span>
+<span class="fc" id="L130">            char c = key.charAt(index);</span>
+<span class="pc bpc" id="L131" title="2 of 18 branches missed.">            boolean kept = (c &gt;= 'a' &amp;&amp; c &lt;= 'z') || (c &gt;= 'A' &amp;&amp; c &lt;= 'Z') || (c &gt;= '0' &amp;&amp; c &lt;= '9')</span>
+                    || c == '.' || c == '_' || c == '-';
+<span class="fc bfc" id="L133" title="All 2 branches covered.">            out.append(kept ? c : '_');</span>
+        }
+<span class="fc" id="L135">        return out.toString();</span>
+    }
+
+    /**
+     * Escapes text for a service message attribute.
+     *
+     * @param text the raw text
+     * @return the text with TeamCity's escapes applied
+     */
+    static String escape(String text) {
+<span class="fc" id="L145">        StringBuilder out = new StringBuilder(text.length() + 8);</span>
+<span class="fc bfc" id="L146" title="All 2 branches covered.">        for (int index = 0; index &lt; text.length(); index++) {</span>
+<span class="fc" id="L147">            char c = text.charAt(index);</span>
+<span class="fc bfc" id="L148" title="All 7 branches covered.">            switch (c) {</span>
+<span class="fc" id="L149">                case '|' -&gt; out.append(&quot;||&quot;);</span>
+<span class="fc" id="L150">                case '\'' -&gt; out.append(&quot;|'&quot;);</span>
+<span class="fc" id="L151">                case '\n' -&gt; out.append(&quot;|n&quot;);</span>
+<span class="fc" id="L152">                case '\r' -&gt; out.append(&quot;|r&quot;);</span>
+<span class="fc" id="L153">                case '[' -&gt; out.append(&quot;|[&quot;);</span>
+<span class="fc" id="L154">                case ']' -&gt; out.append(&quot;|]&quot;);</span>
+<span class="fc" id="L155">                default -&gt; out.append(c);</span>
+            }
+        }
+<span class="fc" id="L158">        return out.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
