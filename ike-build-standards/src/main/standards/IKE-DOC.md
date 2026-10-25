@@ -140,24 +140,50 @@ automatically. To override:
 
 ## Build Commands
 
+`ike-parent` turns three renderers on by default: HTML, self-contained
+HTML and the Prince PDF, plus the `pdf-default` copy of the Prince PDF
+(`ike.skip.html`, `ike.skip.html-single`, `ike.skip.prince` and
+`ike.skip.pdf-default` are `false`; `ike.pdf.default` is `prince`). The
+other PDF renderers are off until asked for. A default build therefore
+needs Prince installed: the `prince` executable on `PATH`, or
+`-Dprince.executable=/path/to/prince`. Where it is missing the build
+fails with `Renderer executable not found: prince`.
+
 ```bash
-# HTML only (default):
+# Default: HTML, self-contained HTML and the Prince PDF (needs Prince):
 mvn clean verify
 
-# HTML + specific PDF renderer:
+# HTML only, on a machine without Prince:
+mvn clean verify -Dike.skip.prince=true -Dike.skip.pdf-default=true
+
+# Add a PDF renderer:
 mvn clean verify -Dike.pdf.prawn
 mvn clean verify -Dike.pdf.fop
-mvn clean verify -Dike.pdf.prince
 mvn clean verify -Dike.pdf.ah
 mvn clean verify -Dike.pdf.weasyprint
 mvn clean verify -Dike.pdf.xep
 
-# Multiple renderers:
+# Several renderers:
 mvn clean verify -Dike.pdf.prawn -Dike.pdf.fop
-
-# Self-contained HTML:
-mvn clean verify -Dike.html.single
 ```
+
+A project whose collaborators may lack Prince can make the switch
+automatic: a root-POM profile activated by
+`<file><missing>/usr/local/bin/prince</missing></file>` that sets the
+two skip properties renders HTML only on those machines and leaves a
+machine with Prince unchanged (ike-lab-unlv/ike-lab-proposals does this).
+
+### Renderer Prerequisites
+
+| Renderer | Runs | Needs on the machine |
+|----------|------|----------------------|
+| HTML, HTML-Single | in the JVM (AsciidoctorJ) | nothing |
+| Prawn | in the JVM (asciidoctorj-pdf) | Ghostscript. The pipeline sets `optimize`, and asciidoctor-pdf's optimizer looks for `gs` at `$GS`, then at `/usr/local/bin/gs` on macOS, never on `PATH`. Homebrew on Apple Silicon: `brew install ghostscript` and `export GS=/opt/homebrew/bin/gs`. |
+| FOP | in the JVM (dependency added by the `pdf-fop` profile) | nothing |
+| Prince | external | `prince` (`prince.executable`); commercial license |
+| AH | external | `AHFCmd` (`antennahouse.executable`); commercial license |
+| WeasyPrint | external | `weasyprint` |
+| XEP | external | XEP under `xep.home` (default `/Library/Java/xep`); commercial license |
 
 ## Output Locations
 
@@ -439,15 +465,24 @@ The top-level POM uses `pom` packaging and lists subprojects:
 # IDE setup (unpack dependencies for preview):
 mvn generate-sources
 
-# All assemblies, HTML only:
+# All assemblies: HTML, self-contained HTML and the Prince PDF (needs Prince):
 mvn clean verify
 
-# All assemblies with PDF:
+# All assemblies, HTML only (no Prince):
+mvn clean verify -Dike.skip.prince=true -Dike.skip.pdf-default=true
+
+# All assemblies with the Prawn PDF as well:
 mvn clean verify -Dike.pdf.prawn
 
-# Single assembly with PDF:
+# Single assembly with the Prawn PDF:
 mvn clean verify -pl my-compendium -am -Dike.pdf.prawn
 ```
+
+On a fresh clone the first build has to run to `package` or beyond, as
+`clean verify` does: the assembly modules depend on the topic library's
+`adoc` ZIP, which the reactor produces only at `package`, so
+`mvn validate` on its own cannot resolve it. After one full build
+`validate` resolves the ZIP from the previous build's output.
 
 ### Cross-Project Composition
 
