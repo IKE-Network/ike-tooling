@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ArtifactInput.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Knowledge SPI</a> &gt; <a href="index.source.html" class="el_package">network.ike.knowledge.spi</a> &gt; <span class="el_source">ArtifactInput.java</span></div><h1>ArtifactInput.java</h1><pre class="source lang-java linenums">package network.ike.knowledge.spi;
+
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * One knowledge artifact in an ordered input list — list position is load order, the
+ * fit contract: the base comes first so every identity later inputs reference is
+ * present, and each change set then merges by public id.
+ *
+ * @param role     the artifact's role in assembly
+ * @param path     the artifact file, or for a {@link Role#SOURCE} the release file or directory
+ * @param importer for a {@link Role#SOURCE}, the name of the knowledge importer that reads it;
+ *                 empty for every other role
+ * @param options    for a {@link Role#SOURCE}, the importer's options by name; empty otherwise
+ * @param coordinate the Maven coordinate the artifact was resolved from, as written
+ *                   ({@code g:a[:extension[:classifier]]:v}); empty for a file named by path.
+ *                   The assembly records it in the knowledge base it builds
+ *                   (IKE-Network/ike-issues#1304).
+ * @param resolvedVersion the version the coordinate resolved to: for a snapshot, its timestamped
+ *                   version ({@code 1-20261017.165120-21}); empty for a file named by path
+ */
+public record ArtifactInput(Role role, Path path, Optional&lt;String&gt; importer, Map&lt;String, String&gt; options,
+                            Optional&lt;String&gt; coordinate, Optional&lt;String&gt; resolvedVersion) {
+
+    /** The kinds of assembly input. */
+<span class="fc" id="L29">    public enum Role {</span>
+        /**
+         * A zipped store snapshot unpacked as the base layer instead of replaying
+         * entity loads — the large-base optimization (the ecosystem's {@code *-sa}
+         * classifier artifacts are this kind). Valid only as the first input.
+         */
+<span class="fc" id="L35">        STORE_SEED,</span>
+        /** A protobuf entity export loaded into the store. */
+<span class="fc" id="L37">        PB,</span>
+        /** A knowledge-set change set loaded into the store. */
+<span class="fc" id="L39">        CHANGESET,</span>
+        /**
+         * A source release (SNOMED CT RF2, RxNorm OWL, ...) written into the store by the
+         * knowledge importer it names, found by name on the assembly's classpath.
+         */
+<span class="fc" id="L44">        SOURCE</span>
+    }
+
+    /**
+     * Validates the components: a {@link Role#SOURCE} names its importer, and no other role
+     * names one or carries options.
+     *
+     * @param role     the artifact's role in assembly
+     * @param path     the artifact
+     * @param importer the importer's name, for a source
+     * @param options  the importer's options, for a source
+     * @param coordinate the Maven coordinate the artifact was resolved from, if any
+     * @param resolvedVersion the version the coordinate resolved to, if any
+     * @throws NullPointerException     if a component is null
+     * @throws IllegalArgumentException if a source names no importer, or another role names one
+     */
+<span class="fc" id="L60">    public ArtifactInput {</span>
+<span class="fc" id="L61">        Objects.requireNonNull(role, &quot;role&quot;);</span>
+<span class="fc" id="L62">        Objects.requireNonNull(path, &quot;path&quot;);</span>
+<span class="fc" id="L63">        Objects.requireNonNull(importer, &quot;importer&quot;);</span>
+<span class="fc" id="L64">        options = Map.copyOf(Objects.requireNonNull(options, &quot;options&quot;));</span>
+<span class="fc" id="L65">        Objects.requireNonNull(coordinate, &quot;coordinate&quot;);</span>
+<span class="fc" id="L66">        Objects.requireNonNull(resolvedVersion, &quot;resolvedVersion&quot;);</span>
+<span class="fc bfc" id="L67" title="All 4 branches covered.">        if (role == Role.SOURCE &amp;&amp; importer.isEmpty()) {</span>
+<span class="fc" id="L68">            throw new IllegalArgumentException(&quot;A SOURCE input names the importer that reads it: &quot; + path);</span>
+        }
+<span class="pc bpc" id="L70" title="1 of 6 branches missed.">        if (role != Role.SOURCE &amp;&amp; (importer.isPresent() || !options.isEmpty())) {</span>
+<span class="fc" id="L71">            throw new IllegalArgumentException(&quot;Only a SOURCE input names an importer or carries options: &quot; + path);</span>
+        }
+<span class="fc" id="L73">    }</span>
+
+    /**
+     * An input named by path, with no Maven coordinate.
+     *
+     * @param role     the artifact's role in assembly
+     * @param path     the artifact
+     * @param importer the importer's name, for a source
+     * @param options  the importer's options, for a source
+     */
+    public ArtifactInput(Role role, Path path, Optional&lt;String&gt; importer, Map&lt;String, String&gt; options) {
+<span class="fc" id="L84">        this(role, path, importer, options, Optional.empty(), Optional.empty());</span>
+<span class="fc" id="L85">    }</span>
+
+    /**
+     * An input that is an artifact, not a source.
+     *
+     * @param role the artifact's role in assembly
+     * @param path the artifact file
+     */
+    public ArtifactInput(Role role, Path path) {
+<span class="fc" id="L94">        this(role, path, Optional.empty(), Map.of());</span>
+<span class="fc" id="L95">    }</span>
+
+    /**
+     * A source release and the importer that reads it.
+     *
+     * @param importer the importer's name
+     * @param path     the release file or directory
+     * @param options  the importer's options by name
+     * @return the input
+     */
+    public static ArtifactInput source(String importer, Path path, Map&lt;String, String&gt; options) {
+<span class="fc" id="L106">        return new ArtifactInput(Role.SOURCE, path, Optional.of(importer), options);</span>
+    }
+
+    /**
+     * This input, resolved from a Maven coordinate.
+     *
+     * @param coordinate the coordinate, as written
+     * @return the input with its coordinate
+     */
+    public ArtifactInput withCoordinate(String coordinate) {
+<span class="fc" id="L116">        return new ArtifactInput(role, path, importer, options, Optional.of(coordinate), resolvedVersion);</span>
+    }
+
+    /**
+     * This input, resolved from a Maven coordinate to a version.
+     *
+     * @param coordinate      the coordinate, as written
+     * @param resolvedVersion the version it resolved to
+     * @return the input with its coordinate and resolved version
+     */
+    public ArtifactInput withCoordinate(String coordinate, String resolvedVersion) {
+<span class="fc" id="L127">        return new ArtifactInput(role, path, importer, options, Optional.of(coordinate), Optional.of(resolvedVersion));</span>
+    }
+
+    /**
+     * Enforces the seed rule on an ordered input list: a {@link Role#STORE_SEED} is the
+     * base layer and is valid only in first position.
+     *
+     * @param inputs the ordered inputs
+     * @throws IllegalArgumentException if a {@link Role#STORE_SEED} appears after the
+     *                                  first position
+     */
+    public static void requireSeedFirstOnly(java.util.List&lt;ArtifactInput&gt; inputs) {
+<span class="fc bfc" id="L139" title="All 2 branches covered.">        for (int i = 1; i &lt; inputs.size(); i++) {</span>
+<span class="fc bfc" id="L140" title="All 2 branches covered.">            if (inputs.get(i).role() == Role.STORE_SEED) {</span>
+<span class="fc" id="L141">                throw new IllegalArgumentException(</span>
+                        &quot;A STORE_SEED input is the base layer and is valid only in first position (found at &quot;
+                                + (i + 1) + &quot;)&quot;);
+            }
+        }
+<span class="fc" id="L146">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

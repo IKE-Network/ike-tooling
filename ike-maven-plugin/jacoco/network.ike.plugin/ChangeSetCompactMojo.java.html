@@ -31,7 +31,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * {@code ike:changeset-compact} — rewrite a format-1 or format-2 change set in format 3: a component table, one entry per pattern, references by sequence.
@@ -46,8 +45,8 @@ import java.util.Set;
 public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
 
     /** Instantiated by Maven. */
-<span class="fc" id="L49">    public ChangeSetCompactMojo() {</span>
-<span class="fc" id="L50">    }</span>
+<span class="fc" id="L48">    public ChangeSetCompactMojo() {</span>
+<span class="fc" id="L49">    }</span>
 
     @Inject
     private org.apache.maven.api.plugin.Log log;
@@ -58,7 +57,10 @@ public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
     @Inject
     private Project project;
 
-    /** The change set zip to read. */
+    /**
+     * The change set zip to read; with knowledge bases or modules, also a directory of them, each
+     * written to the target directory under its own name, the knowledge bases loaded once.
+     */
     @Parameter(property = &quot;ike.changeset.file&quot;, required = true)
     String file;
 
@@ -72,8 +74,8 @@ public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
     @Parameter(property = &quot;ike.changeset.fork&quot;, defaultValue = &quot;true&quot;)
     boolean fork;
 
-<span class="fc" id="L75">    @Parameter</span>
-<span class="fc" id="L76">    List&lt;String&gt; forkJvmArguments = List.of();</span>
+<span class="fc" id="L77">    @Parameter</span>
+<span class="fc" id="L78">    List&lt;String&gt; forkJvmArguments = List.of();</span>
 
     @Parameter(property = &quot;ike.changeset.classesDirectory&quot;, defaultValue = &quot;${project.build.outputDirectory}&quot;)
     String classesDirectory;
@@ -90,53 +92,63 @@ public class ChangeSetCompactMojo implements org.apache.maven.api.plugin.Mojo {
      * sets. A UUID names the same component in every one of them, so each reference resolves to
      * its kind and pattern. Empty rewrites the layout alone.
      */
-<span class="fc" id="L93">    @Parameter(property = &quot;ike.changeset.knowledgeBases&quot;)</span>
-<span class="fc" id="L94">    List&lt;String&gt; knowledgeBases = List.of();</span>
+<span class="fc" id="L95">    @Parameter(property = &quot;ike.changeset.knowledgeBases&quot;)</span>
+<span class="fc" id="L96">    List&lt;String&gt; knowledgeBases = List.of();</span>
+
+    /**
+     * The modules, by UUID, whose versions the compaction keeps; empty keeps every version. A
+     * session file carries what Komet wrote on its own beside an extension's content; naming the
+     * extension's module keeps that content alone, as {@code ike:changeset-merge} does.
+     */
+<span class="fc" id="L103">    @Parameter(property = &quot;ike.changeset.modules&quot;)</span>
+<span class="fc" id="L104">    List&lt;String&gt; changeSetModules = List.of();</span>
 
     @Override
     public void execute() {
-<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (skip) {</span>
-<span class="nc" id="L99">            log.info(&quot;ike:changeset-compact skipped (ike.changeset.skip=true)&quot;);</span>
-<span class="nc" id="L100">            return;</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L109">            log.info(&quot;ike:changeset-compact skipped (ike.changeset.skip=true)&quot;);</span>
+<span class="nc" id="L110">            return;</span>
         }
-<span class="nc" id="L102">        ChangeSetToolSupport.Parameters parameters = new ChangeSetToolSupport.Parameters(file, target, implementation,</span>
+<span class="nc" id="L112">        ChangeSetToolSupport.Parameters parameters = new ChangeSetToolSupport.Parameters(file, target, implementation,</span>
                 fork, forkJvmArguments, classesDirectory, buildDirectory);
-<span class="nc bnc" id="L104" title="All 2 branches missed.">        if (knowledgeBases.isEmpty()) {</span>
-<span class="nc" id="L105">            ChangeSetToolSupport.run(log, session, project, IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactor.class,</span>
+<span class="nc bnc" id="L114" title="All 4 branches missed.">        if (knowledgeBases.isEmpty() &amp;&amp; changeSetModules.isEmpty()) {</span>
+<span class="nc" id="L115">            ChangeSetToolSupport.run(log, session, project, IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactor.class,</span>
                     true, parameters);
-<span class="nc" id="L107">            return;</span>
+<span class="nc" id="L117">            return;</span>
         }
-<span class="nc" id="L109">        Path changeSet = Path.of(file);</span>
-<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (!Files.isRegularFile(changeSet)) {</span>
-<span class="nc" id="L111">            throw new MojoException(&quot;Change set does not exist: &quot; + changeSet);</span>
+<span class="nc" id="L119">        Path changeSet = Path.of(file);</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">        if (!Files.exists(changeSet)) {</span>
+<span class="nc" id="L121">            throw new MojoException(&quot;Change set does not exist: &quot; + changeSet);</span>
         }
-<span class="nc bnc" id="L113" title="All 4 branches missed.">        if (target == null || target.isBlank()) {</span>
-<span class="nc" id="L114">            throw new MojoException(&quot;ike:changeset-compact writes a file: set ike.changeset.target&quot;);</span>
+<span class="nc bnc" id="L123" title="All 4 branches missed.">        if (target == null || target.isBlank()) {</span>
+<span class="nc" id="L124">            throw new MojoException(&quot;ike:changeset-compact writes a file: set ike.changeset.target&quot;);</span>
         }
-<span class="nc" id="L116">        List&lt;ArtifactInput&gt; bases = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L117" title="All 2 branches missed.">        for (String spec : knowledgeBases) {</span>
-<span class="nc" id="L118">            bases.add(resolve(spec.strip()));</span>
-<span class="nc" id="L119">        }</span>
-<span class="nc" id="L120">        ChangeSetToolSupport.run(log, session, project, IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactor.class,</span>
-<span class="nc" id="L121">                new ChangeSetRequest(changeSet, Optional.of(Path.of(target)), Set.of(), bases), parameters);</span>
-<span class="nc" id="L122">    }</span>
+<span class="nc" id="L126">        List&lt;ArtifactInput&gt; bases = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        for (String spec : knowledgeBases) {</span>
+<span class="nc" id="L128">            bases.add(resolve(spec.strip()));</span>
+<span class="nc" id="L129">        }</span>
+<span class="nc" id="L130">        ChangeSetToolSupport.run(log, session, project, IkeGoal.NAME_CHANGESET_COMPACT, ChangeSetCompactor.class,</span>
+<span class="nc" id="L131">                new ChangeSetRequest(changeSet, Optional.of(Path.of(target)),</span>
+<span class="nc" id="L132">                        changeSetModules.stream().map(String::strip).collect(java.util.stream.Collectors.toSet()), bases),</span>
+                parameters);
+<span class="nc" id="L134">    }</span>
 
     /** A knowledge base by coordinate (two or more colons) or by file. */
     private ArtifactInput resolve(String spec) {
-<span class="nc bnc" id="L126" title="All 4 branches missed.">        if (spec.chars().filter(c -&gt; c == ':').count() &gt;= 2) {</span>
+<span class="nc bnc" id="L138" title="All 4 branches missed.">        if (spec.chars().filter(c -&gt; c == ':').count() &gt;= 2) {</span>
             try {
-<span class="nc" id="L128">                DownloadedArtifact artifact = session.resolveArtifact(session.createArtifactCoordinates(spec));</span>
-<span class="nc" id="L129">                return new ArtifactInput(ArtifactInput.Role.PB, artifact.getPath())</span>
-<span class="nc" id="L130">                        .withCoordinate(spec, artifact.getVersion().toString());</span>
-<span class="nc" id="L131">            } catch (Exception e) {</span>
-<span class="nc" id="L132">                throw new MojoException(&quot;Cannot resolve knowledge base &quot; + spec, e);</span>
+<span class="nc" id="L140">                DownloadedArtifact artifact = session.resolveArtifact(session.createArtifactCoordinates(spec));</span>
+<span class="nc" id="L141">                return new ArtifactInput(ArtifactInput.Role.PB, artifact.getPath())</span>
+<span class="nc" id="L142">                        .withCoordinate(spec, artifact.getVersion().toString());</span>
+<span class="nc" id="L143">            } catch (Exception e) {</span>
+<span class="nc" id="L144">                throw new MojoException(&quot;Cannot resolve knowledge base &quot; + spec, e);</span>
             }
         }
-<span class="nc" id="L135">        Path base = Path.of(spec);</span>
-<span class="nc bnc" id="L136" title="All 2 branches missed.">        if (!Files.isRegularFile(base)) {</span>
-<span class="nc" id="L137">            throw new MojoException(&quot;Knowledge base file does not exist: &quot; + base);</span>
+<span class="nc" id="L147">        Path base = Path.of(spec);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (!Files.isRegularFile(base)) {</span>
+<span class="nc" id="L149">            throw new MojoException(&quot;Knowledge base file does not exist: &quot; + base);</span>
         }
-<span class="nc" id="L139">        return new ArtifactInput(ArtifactInput.Role.PB, base);</span>
+<span class="nc" id="L151">        return new ArtifactInput(ArtifactInput.Role.PB, base);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
