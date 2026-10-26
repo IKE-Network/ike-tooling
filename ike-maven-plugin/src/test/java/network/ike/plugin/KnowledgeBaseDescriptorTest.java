@@ -96,6 +96,28 @@ class KnowledgeBaseDescriptorTest {
     }
 
     @Test
+    void theInputsAreRecordedInOrder() throws IOException {
+        Path store = Files.createDirectories(temp.resolve("kb/rocks")).getParent();
+        KnowledgeBaseDescriptor.Fields assembled = new KnowledgeBaseDescriptor.Fields(PIZZA.groupId(), PIZZA.artifactId(),
+                PIZZA.version(), PIZZA.displayName(), PIZZA.entityFormat(), PIZZA.assembledAt(), PIZZA.access(), Map.of(),
+                Optional.empty(), java.util.List.of(
+                        new KnowledgeBaseDescriptor.Input("PB", "network.ike.foundation:ike-starter-set:zip:unreasoned-pb:1-SNAPSHOT",
+                                Optional.of("1-20261020.101010-4"), Optional.empty()),
+                        new KnowledgeBaseDescriptor.Input("SOURCE", "dev.ikm.tinkar.data:pizzakb:zip:pb:1.0",
+                                Optional.empty(), Optional.of("owl"))));
+
+        Properties descriptor = read(KnowledgeBaseDescriptor.write(store, assembled, monogram()));
+
+        assertThat(descriptor.getProperty("input.1"))
+                .isEqualTo("PB network.ike.foundation:ike-starter-set:zip:unreasoned-pb:1-SNAPSHOT");
+        assertThat(descriptor.getProperty("input.1.resolvedVersion")).isEqualTo("1-20261020.101010-4");
+        assertThat(descriptor.getProperty("input.1.importer")).isNull();
+        assertThat(descriptor.getProperty("input.2")).isEqualTo("SOURCE dev.ikm.tinkar.data:pizzakb:zip:pb:1.0");
+        assertThat(descriptor.getProperty("input.2.importer")).isEqualTo("owl");
+        assertThat(descriptor.getProperty("input.3")).isNull();
+    }
+
+    @Test
     void aReleaseNamesItsResolvedVersionAndEachLayoutIsReadFromTheStore() throws IOException {
         Path spined = Files.createDirectories(temp.resolve("sa"));
         Files.writeString(spined.resolve("store-format.properties"), "layout=64-bit\nentityFormat=3\n");

@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
@@ -34,8 +35,9 @@ import java.util.Properties;
  *
  * <pre>
  * META-INF/ike/knowledge-base.properties   descriptorLevel, coordinate, displayName, layout, …, icon,
- *                                          the collection, when it is in one, and the memory the
- *                                          assembly measured, when it did
+ *                                          the collection, when it is in one, the memory the
+ *                                          assembly measured, when it did, and the inputs it was
+ *                                          assembled from
  * META-INF/ike/icon.png, icon@2x.png       the knowledge base's icon
  * </pre>
  *
@@ -94,6 +96,24 @@ final class KnowledgeBaseDescriptor {
     }
 
     /**
+     * One input a store was assembled from, in the order kb-assemble took it, written as
+     * {@code input.<n>=<role> <reference>} with {@code input.<n>.resolvedVersion} and
+     * {@code input.<n>.importer} beside it when known. A program managing stores reads them to show
+     * which knowledge bases a store includes (decision 18 of the IKE Dashboard design).
+     *
+     * @param role            how the assembly took it: {@code STORE_SEED}, {@code PB}, {@code CHANGESET}
+     *                        or {@code SOURCE}
+     * @param reference       the Maven coordinate as the build wrote it
+     *                        ({@code g:a[:extension[:classifier]]:v}), or {@code file:<name>} for a file
+     *                        that is no artifact of a repository
+     * @param resolvedVersion the version the coordinate resolved to, when it differs from the one
+     *                        written: a snapshot's deploy
+     * @param importer        a {@code SOURCE} input's importer
+     */
+    record Input(String role, String reference, Optional<String> resolvedVersion, Optional<String> importer) {
+    }
+
+    /**
      * What a build knows about the knowledge base, the same for every store it assembles.
      *
      * @param groupId      the coordinate's groupId
@@ -108,12 +128,34 @@ final class KnowledgeBaseDescriptor {
      *                     knowledge bases one pipeline builds and publishes together, which a program
      *                     managing stores keeps at hand without being told to (decision 17 of the
      *                     IKE Dashboard design)
+     * @param inputs       what the store was assembled from, in order
      */
     record Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
-                  Instant assembledAt, Access access, Map<String, Long> memory, Optional<String> collection) {
+                  Instant assembledAt, Access access, Map<String, Long> memory, Optional<String> collection,
+                  List<Input> inputs) {
 
         /**
-         * Copies the memory facts, and takes a blank collection for none.
+         * Copies the memory facts and the inputs, and takes a blank collection for none.
+         *
+         * @param groupId      the coordinate's groupId
+         * @param artifactId   the coordinate's artifactId
+         * @param version      the coordinate's version
+         * @param displayName  the name a person reads
+         * @param entityFormat the entity format the store was written in
+         * @param assembledAt  when the store was assembled
+         * @param access       who may download it
+         * @param memory       what the assembly measured, by descriptor entry
+         * @param collection   the collection the knowledge base belongs to
+         * @param inputs       what the store was assembled from, in order
+         */
+        Fields {
+            memory = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(memory));
+            collection = collection.map(String::strip).filter(name -> !name.isEmpty());
+            inputs = List.copyOf(inputs);
+        }
+
+        /**
+         * Fields with no inputs recorded.
          *
          * @param groupId      the coordinate's groupId
          * @param artifactId   the coordinate's artifactId
@@ -125,9 +167,10 @@ final class KnowledgeBaseDescriptor {
          * @param memory       what the assembly measured, by descriptor entry
          * @param collection   the collection the knowledge base belongs to
          */
-        Fields {
-            memory = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(memory));
-            collection = collection.map(String::strip).filter(name -> !name.isEmpty());
+        Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
+               Instant assembledAt, Access access, Map<String, Long> memory, Optional<String> collection) {
+            this(groupId, artifactId, version, displayName, entityFormat, assembledAt, access, memory, collection,
+                    List.of());
         }
 
         /**
@@ -285,6 +328,13 @@ final class KnowledgeBaseDescriptor {
         entries.put("icon", ICON);
         fields.collection().ifPresent(collection -> entries.put("collection", collection));
         fields.memory().forEach((entry, bytes) -> entries.put(entry, Long.toString(bytes)));
+        for (int i = 0; i < fields.inputs().size(); i++) {
+            Input input = fields.inputs().get(i);
+            String key = "input." + (i + 1);
+            entries.put(key, input.role() + " " + input.reference());
+            input.resolvedVersion().ifPresent(version -> entries.put(key + ".resolvedVersion", version));
+            input.importer().ifPresent(importer -> entries.put(key + ".importer", importer));
+        }
         Path file = store.resolve(FILE);
         Files.writeString(file, text(entries), StandardCharsets.ISO_8859_1);
         return file;

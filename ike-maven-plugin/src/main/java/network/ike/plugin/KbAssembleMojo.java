@@ -380,7 +380,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         result.effectiveViewReport().ifPresent(report ->
                 getLog().info("Effective view reported: " + report));
         if (descriptor) {
-            describe(result);
+            describe(result, resolvedInputs);
         }
         if (installDirectory != null && !installDirectory.isBlank()) {
             getLog().info("Knowledge base installed: " + installDirectory);
@@ -423,7 +423,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * {@link #descriptorArtifactId} names; when that project is not in this build ({@code -pl}
      * alone), this project's version stands in and no POM is copied.
      */
-    private void describe(AssembleResult result) {
+    private void describe(AssembleResult result, List<ArtifactInput> assembledFrom) {
         Project described = project.getGroupId().equals(descriptorGroupId)
                 && project.getArtifactId().equals(descriptorArtifactId)
                 ? project
@@ -452,7 +452,8 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 .filter(name -> !name.isEmpty()).orElse(descriptorArtifactId);
         KnowledgeBaseDescriptor.Fields fields = new KnowledgeBaseDescriptor.Fields(descriptorGroupId,
                 descriptorArtifactId, version, displayName, entityFormat(attributes), assembledAt, access(owner),
-                KnowledgeBaseDescriptor.memory(attributes), Optional.ofNullable(collection));
+                KnowledgeBaseDescriptor.memory(attributes), Optional.ofNullable(collection),
+                descriptorInputs(assembledFrom, descriptorGroupId, descriptorArtifactId, version));
         Path icon = knowledgeBaseIcon(owner, displayName);
 
         List<Path> stores = new ArrayList<>(List.of(Path.of(storeRoot)));
@@ -473,7 +474,8 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         getLog().info("Described the store as " + descriptorGroupId + ":" + descriptorArtifactId + ":" + version
                 + " (" + attributes.size() + " manifest attributes; knowledge-base descriptor level "
                 + KnowledgeBaseDescriptor.LEVEL + ", " + fields.access().value()
-                + fields.collection().map(name -> ", collection " + name).orElse("") + ")");
+                + fields.collection().map(name -> ", collection " + name).orElse("") + ", "
+                + fields.inputs().size() + " input(s))");
         attachOnce(owner, KnowledgeBaseDescriptor.CLASSIFIER, "properties", written);
         attachOnce(owner, KnowledgeBaseDescriptor.ICON_CLASSIFIER, "png", icon);
     }
@@ -583,6 +585,40 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                     project.getArtifactId() + "-" + project.getVersion() + "-reasoned-pb.zip"));
         }
         return Optional.empty();
+    }
+
+    /**
+     * The inputs as the knowledge-base descriptor records them: each coordinate as written, with
+     * the version it resolved to when that differs, and each file by name. A file that is an
+     * artifact of the described knowledge base itself, such as the reasoned protobuf a store is
+     * loaded from, is recorded as that artifact's coordinate.
+     *
+     * @param inputs     the inputs, in the order the assembly took them
+     * @param groupId    the described knowledge base's groupId
+     * @param artifactId the described knowledge base's artifactId
+     * @param version    the described knowledge base's version
+     * @return the descriptor's inputs
+     */
+    static List<KnowledgeBaseDescriptor.Input> descriptorInputs(List<ArtifactInput> inputs, String groupId,
+                                                                String artifactId, String version) {
+        String ownPrefix = artifactId + "-" + version + "-";
+        List<KnowledgeBaseDescriptor.Input> recorded = new ArrayList<>();
+        for (ArtifactInput input : inputs) {
+            String reference;
+            Optional<String> resolved = Optional.empty();
+            if (input.coordinate().isPresent()) {
+                reference = input.coordinate().get();
+                resolved = input.resolvedVersion().filter(resolvedVersion -> !reference.endsWith(":" + resolvedVersion));
+            } else {
+                String name = input.path().getFileName().toString();
+                reference = name.startsWith(ownPrefix) && name.endsWith(".zip")
+                        ? groupId + ":" + artifactId + ":zip:"
+                                + name.substring(ownPrefix.length(), name.length() - ".zip".length()) + ":" + version
+                        : "file:" + name;
+            }
+            recorded.add(new KnowledgeBaseDescriptor.Input(input.role().name(), reference, resolved, input.importer()));
+        }
+        return recorded;
     }
 
     /**
