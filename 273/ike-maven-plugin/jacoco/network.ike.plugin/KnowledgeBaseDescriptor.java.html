@@ -1,0 +1,367 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KnowledgeBaseDescriptor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KnowledgeBaseDescriptor.java</span></div><h1>KnowledgeBaseDescriptor.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+
+/**
+ * The knowledge-base descriptor: what a store is, in one small file a program managing stores reads
+ * without opening the store (the IKE Dashboard design, {@code dev-ike-dashboard} in ike-lab-documents).
+ * Every store {@code ike:kb-assemble} writes carries it with its icon:
+ *
+ * &lt;pre&gt;
+ * META-INF/ike/knowledge-base.properties   descriptorLevel, coordinate, displayName, layout, …, icon,
+ *                                          the collection, when it is in one, the memory the
+ *                                          assembly measured, when it did, and the inputs it was
+ *                                          assembled from
+ * META-INF/ike/icon.png, icon@2x.png       the knowledge base's icon
+ * &lt;/pre&gt;
+ *
+ * &lt;p&gt;Level {@value #LEVEL} requires every field this class writes but {@code resolvedVersion}, which
+ * a build knows only for a release, and the icon file at the path {@code icon} names. A project
+ * keeps its icon at {@value #ICON_SOURCE}; one that has none gets a monogram
+ * ({@link KnowledgeBaseMonogram}), so every store reaches level 1. The same descriptor and icon
+ * deploy beside the store zips as {@code properties:kb-descriptor} and {@code png:icon}.
+ */
+final class KnowledgeBaseDescriptor {
+
+    /** The descriptor, relative to the store root. */
+    static final String FILE = &quot;META-INF/ike/knowledge-base.properties&quot;;
+
+    /** The icon, relative to the store root. */
+    static final String ICON = &quot;META-INF/ike/icon.png&quot;;
+
+    /** Where a knowledge-base project keeps its icon, relative to its base directory. */
+    static final String ICON_SOURCE = &quot;src/main/kb/icon.png&quot;;
+
+    /** The descriptor level this class writes. */
+    static final int LEVEL = 1;
+
+    /** The classifier the descriptor deploys under, extension {@code properties}. */
+    static final String CLASSIFIER = &quot;kb-descriptor&quot;;
+
+    /** The classifier the icon deploys under, extension {@code png}. */
+    static final String ICON_CLASSIFIER = &quot;icon&quot;;
+
+    /**
+     * The memory facts the assembly reports in the store's manifest, by manifest attribute, and the
+     * descriptor entry each is carried in. They are optional at level {@value #LEVEL}; a program
+     * sizing a store's heap reads them from Nexus before the store is downloaded (the IKE Dashboard
+     * design, decision 10; IKE-Network/ike-issues#1324).
+     */
+<span class="fc" id="L76">    static final Map&lt;String, String&gt; MEMORY = memoryEntries();</span>
+
+    private static Map&lt;String, String&gt; memoryEntries() {
+<span class="fc" id="L79">        Map&lt;String, String&gt; entries = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L80">        entries.put(&quot;Ike-Stated-Axiom-Bytes&quot;, &quot;statedAxiomBytes&quot;);</span>
+<span class="fc" id="L81">        entries.put(&quot;Ike-Loaded-Heap-Bytes&quot;, &quot;loadedHeapBytes&quot;);</span>
+<span class="fc" id="L82">        entries.put(&quot;Ike-Reasoner-Heap-Bytes&quot;, &quot;reasonerHeapBytes&quot;);</span>
+<span class="fc" id="L83">        return java.util.Collections.unmodifiableMap(entries);</span>
+    }
+
+    /** Who may download the knowledge base: anyone, or only those the restricted repositories admit. */
+<span class="fc" id="L87">    enum Access {</span>
+        /** Served to anyone. */
+<span class="fc" id="L89">        PUBLIC,</span>
+        /** Served only to those the restricted repositories admit, as licensed content requires. */
+<span class="fc" id="L91">        RESTRICTED;</span>
+
+        String value() {
+<span class="fc" id="L94">            return name().toLowerCase(java.util.Locale.ROOT);</span>
+        }
+    }
+
+    /**
+     * One input a store was assembled from, in the order kb-assemble took it, written as
+     * {@code input.&lt;n&gt;=&lt;role&gt; &lt;reference&gt;} with {@code input.&lt;n&gt;.resolvedVersion} and
+     * {@code input.&lt;n&gt;.importer} beside it when known. A program managing stores reads them to show
+     * which knowledge bases a store includes (decision 18 of the IKE Dashboard design).
+     *
+     * @param role            how the assembly took it: {@code STORE_SEED}, {@code PB}, {@code CHANGESET}
+     *                        or {@code SOURCE}
+     * @param reference       the Maven coordinate as the build wrote it
+     *                        ({@code g:a[:extension[:classifier]]:v}), or {@code file:&lt;name&gt;} for a file
+     *                        that is no artifact of a repository
+     * @param resolvedVersion the version the coordinate resolved to, when it differs from the one
+     *                        written: a snapshot's deploy
+     * @param importer        a {@code SOURCE} input's importer
+     */
+<span class="fc" id="L113">    record Input(String role, String reference, Optional&lt;String&gt; resolvedVersion, Optional&lt;String&gt; importer) {</span>
+    }
+
+    /**
+     * What a build knows about the knowledge base, the same for every store it assembles.
+     *
+     * @param groupId      the coordinate's groupId
+     * @param artifactId   the coordinate's artifactId
+     * @param version      the coordinate's version
+     * @param displayName  the name a person reads, the project's {@code &lt;name&gt;}
+     * @param entityFormat the entity format the store was written in
+     * @param assembledAt  when the store was assembled
+     * @param access       who may download it
+     * @param memory       what the assembly measured, by descriptor entry, in bytes ({@link #MEMORY})
+     * @param collection   the collection the knowledge base belongs to, such as {@code SOLOR}: the
+     *                     knowledge bases one pipeline builds and publishes together, which a program
+     *                     managing stores keeps at hand without being told to (decision 17 of the
+     *                     IKE Dashboard design)
+     * @param inputs       what the store was assembled from, in order
+     */
+    record Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
+                  Instant assembledAt, Access access, Map&lt;String, Long&gt; memory, Optional&lt;String&gt; collection,
+                  List&lt;Input&gt; inputs) {
+
+        /**
+         * Copies the memory facts and the inputs, and takes a blank collection for none.
+         *
+         * @param groupId      the coordinate's groupId
+         * @param artifactId   the coordinate's artifactId
+         * @param version      the coordinate's version
+         * @param displayName  the name a person reads
+         * @param entityFormat the entity format the store was written in
+         * @param assembledAt  when the store was assembled
+         * @param access       who may download it
+         * @param memory       what the assembly measured, by descriptor entry
+         * @param collection   the collection the knowledge base belongs to
+         * @param inputs       what the store was assembled from, in order
+         */
+<span class="fc" id="L151">        Fields {</span>
+<span class="fc" id="L152">            memory = java.util.Collections.unmodifiableMap(new LinkedHashMap&lt;&gt;(memory));</span>
+<span class="fc bfc" id="L153" title="All 2 branches covered.">            collection = collection.map(String::strip).filter(name -&gt; !name.isEmpty());</span>
+<span class="fc" id="L154">            inputs = List.copyOf(inputs);</span>
+<span class="fc" id="L155">        }</span>
+
+        /**
+         * Fields with no inputs recorded.
+         *
+         * @param groupId      the coordinate's groupId
+         * @param artifactId   the coordinate's artifactId
+         * @param version      the coordinate's version
+         * @param displayName  the name a person reads
+         * @param entityFormat the entity format the store was written in
+         * @param assembledAt  when the store was assembled
+         * @param access       who may download it
+         * @param memory       what the assembly measured, by descriptor entry
+         * @param collection   the collection the knowledge base belongs to
+         */
+        Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
+               Instant assembledAt, Access access, Map&lt;String, Long&gt; memory, Optional&lt;String&gt; collection) {
+<span class="fc" id="L172">            this(groupId, artifactId, version, displayName, entityFormat, assembledAt, access, memory, collection,</span>
+<span class="fc" id="L173">                    List.of());</span>
+<span class="fc" id="L174">        }</span>
+
+        /**
+         * Fields of a knowledge base in no collection.
+         *
+         * @param groupId      the coordinate's groupId
+         * @param artifactId   the coordinate's artifactId
+         * @param version      the coordinate's version
+         * @param displayName  the name a person reads
+         * @param entityFormat the entity format the store was written in
+         * @param assembledAt  when the store was assembled
+         * @param access       who may download it
+         * @param memory       what the assembly measured, by descriptor entry
+         */
+        Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
+               Instant assembledAt, Access access, Map&lt;String, Long&gt; memory) {
+<span class="fc" id="L190">            this(groupId, artifactId, version, displayName, entityFormat, assembledAt, access, memory, Optional.empty());</span>
+<span class="fc" id="L191">        }</span>
+
+        /**
+         * Fields with no memory measured.
+         *
+         * @param groupId      the coordinate's groupId
+         * @param artifactId   the coordinate's artifactId
+         * @param version      the coordinate's version
+         * @param displayName  the name a person reads
+         * @param entityFormat the entity format the store was written in
+         * @param assembledAt  when the store was assembled
+         * @param access       who may download it
+         */
+        Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
+               Instant assembledAt, Access access) {
+<span class="fc" id="L206">            this(groupId, artifactId, version, displayName, entityFormat, assembledAt, access, Map.of());</span>
+<span class="fc" id="L207">        }</span>
+    }
+
+    /**
+     * The memory facts among a store's manifest attributes, by descriptor entry; an attribute that is
+     * not a whole number of bytes is left out.
+     *
+     * @param attributes the manifest attributes the assembly reported
+     * @return the facts, in {@link #MEMORY}'s order
+     */
+    static Map&lt;String, Long&gt; memory(Map&lt;String, String&gt; attributes) {
+<span class="fc" id="L218">        Map&lt;String, Long&gt; memory = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L219">        MEMORY.forEach((attribute, entry) -&gt; {</span>
+<span class="fc" id="L220">            String value = attributes.get(attribute);</span>
+<span class="pc bpc" id="L221" title="1 of 2 branches missed.">            if (value != null) {</span>
+                try {
+<span class="fc" id="L223">                    memory.put(entry, Long.parseLong(value.strip()));</span>
+<span class="fc" id="L224">                } catch (NumberFormatException e) {</span>
+                    // not a size: the descriptor leaves it out
+<span class="fc" id="L226">                }</span>
+            }
+<span class="fc" id="L228">        });</span>
+<span class="fc" id="L229">        return memory;</span>
+    }
+
+    private KnowledgeBaseDescriptor() {
+    }
+
+    /**
+     * The icon a knowledge-base project keeps at {@value #ICON_SOURCE}, when it has one.
+     *
+     * @param basedir the project's base directory
+     * @return the icon file, or empty when the project has none
+     */
+    static Optional&lt;Path&gt; icon(Path basedir) {
+<span class="fc" id="L242">        return Optional.of(basedir.resolve(ICON_SOURCE)).filter(Files::isRegularFile);</span>
+    }
+
+    /**
+     * The store's layout, from its files: {@code rocks}, {@code spined-32} or {@code spined-64}.
+     *
+     * @param store the store directory
+     * @return the layout
+     * @throws IOException if the store's files name no layout this descriptor level knows
+     */
+    static String layout(Path store) throws IOException {
+<span class="fc bfc" id="L253" title="All 2 branches covered.">        if (Files.isDirectory(store.resolve(&quot;rocks&quot;))) {</span>
+<span class="fc" id="L254">            return &quot;rocks&quot;;</span>
+        }
+<span class="fc bfc" id="L256" title="All 2 branches covered.">        if (Files.isDirectory(store.resolve(&quot;nidToByteArrayMap&quot;))) {</span>
+<span class="fc" id="L257">            return &quot;spined-32&quot;;</span>
+        }
+<span class="fc" id="L259">        Path format = store.resolve(&quot;store-format.properties&quot;);</span>
+<span class="fc bfc" id="L260" title="All 2 branches covered.">        if (Files.isRegularFile(format)) {</span>
+<span class="fc" id="L261">            Properties properties = new Properties();</span>
+<span class="fc" id="L262">            try (InputStream in = Files.newInputStream(format)) {</span>
+<span class="fc" id="L263">                properties.load(in);</span>
+            }
+<span class="pc bpc" id="L265" title="1 of 2 branches missed.">            if (&quot;64-bit&quot;.equals(properties.getProperty(&quot;layout&quot;))) {</span>
+<span class="fc" id="L266">                return &quot;spined-64&quot;;</span>
+            }
+        }
+<span class="fc" id="L269">        throw new IOException(&quot;No layout the knowledge-base descriptor knows (rocks, spined-32, spined-64) in &quot; + store);</span>
+    }
+
+    /**
+     * The entity format a store's own files record, for a store whose assembly did not report one.
+     *
+     * @param store the store directory
+     * @return the entity format {@code store-format.properties} records, if it does
+     * @throws IOException if the file exists but cannot be read
+     */
+    static Optional&lt;Integer&gt; recordedEntityFormat(Path store) throws IOException {
+<span class="fc" id="L280">        Path format = store.resolve(&quot;store-format.properties&quot;);</span>
+<span class="pc bpc" id="L281" title="1 of 2 branches missed.">        if (!Files.isRegularFile(format)) {</span>
+<span class="nc" id="L282">            return Optional.empty();</span>
+        }
+<span class="fc" id="L284">        Properties properties = new Properties();</span>
+<span class="fc" id="L285">        try (InputStream in = Files.newInputStream(format)) {</span>
+<span class="fc" id="L286">            properties.load(in);</span>
+        }
+        try {
+<span class="fc" id="L289">            return Optional.ofNullable(properties.getProperty(&quot;entityFormat&quot;)).map(String::strip).map(Integer::valueOf);</span>
+<span class="nc" id="L290">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L291">            return Optional.empty();</span>
+        }
+    }
+
+    /**
+     * Writes the descriptor and the icon into a store, replacing any an earlier build left.
+     *
+     * @param store  the store directory
+     * @param fields what the build knows
+     * @param icon   the icon to copy, with its {@code @2x} companion when there is one
+     * @return the descriptor file written
+     * @throws IOException if a file cannot be written, or the store names no known layout
+     */
+    static Path write(Path store, Fields fields, Path icon) throws IOException {
+<span class="fc" id="L305">        Path storedIcon = store.resolve(ICON);</span>
+<span class="fc" id="L306">        Files.createDirectories(storedIcon.getParent());</span>
+<span class="fc" id="L307">        Files.deleteIfExists(storedIcon);</span>
+<span class="fc" id="L308">        Files.deleteIfExists(doubleResolution(storedIcon));</span>
+<span class="fc" id="L309">        Files.copy(icon, storedIcon);</span>
+<span class="pc bpc" id="L310" title="1 of 2 branches missed.">        if (Files.isRegularFile(doubleResolution(icon))) {</span>
+<span class="fc" id="L311">            Files.copy(doubleResolution(icon), doubleResolution(storedIcon));</span>
+        }
+
+<span class="fc" id="L314">        Map&lt;String, String&gt; entries = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L315">        entries.put(&quot;descriptorLevel&quot;, Integer.toString(LEVEL));</span>
+<span class="fc" id="L316">        entries.put(&quot;groupId&quot;, fields.groupId());</span>
+<span class="fc" id="L317">        entries.put(&quot;artifactId&quot;, fields.artifactId());</span>
+<span class="fc" id="L318">        entries.put(&quot;version&quot;, fields.version());</span>
+<span class="fc bfc" id="L319" title="All 2 branches covered.">        if (!fields.version().endsWith(&quot;-SNAPSHOT&quot;)) {</span>
+            // A snapshot's deploy is named only when it is deployed; a release is its own.
+<span class="fc" id="L321">            entries.put(&quot;resolvedVersion&quot;, fields.version());</span>
+        }
+<span class="fc" id="L323">        entries.put(&quot;displayName&quot;, fields.displayName());</span>
+<span class="fc" id="L324">        entries.put(&quot;layout&quot;, layout(store));</span>
+<span class="fc" id="L325">        entries.put(&quot;entityFormat&quot;, Integer.toString(fields.entityFormat()));</span>
+<span class="fc" id="L326">        entries.put(&quot;assembledAt&quot;, fields.assembledAt().toString());</span>
+<span class="fc" id="L327">        entries.put(&quot;access&quot;, fields.access().value());</span>
+<span class="fc" id="L328">        entries.put(&quot;icon&quot;, ICON);</span>
+<span class="fc" id="L329">        fields.collection().ifPresent(collection -&gt; entries.put(&quot;collection&quot;, collection));</span>
+<span class="fc" id="L330">        fields.memory().forEach((entry, bytes) -&gt; entries.put(entry, Long.toString(bytes)));</span>
+<span class="fc bfc" id="L331" title="All 2 branches covered.">        for (int i = 0; i &lt; fields.inputs().size(); i++) {</span>
+<span class="fc" id="L332">            Input input = fields.inputs().get(i);</span>
+<span class="fc" id="L333">            String key = &quot;input.&quot; + (i + 1);</span>
+<span class="fc" id="L334">            entries.put(key, input.role() + &quot; &quot; + input.reference());</span>
+<span class="fc" id="L335">            input.resolvedVersion().ifPresent(version -&gt; entries.put(key + &quot;.resolvedVersion&quot;, version));</span>
+<span class="fc" id="L336">            input.importer().ifPresent(importer -&gt; entries.put(key + &quot;.importer&quot;, importer));</span>
+        }
+<span class="fc" id="L338">        Path file = store.resolve(FILE);</span>
+<span class="fc" id="L339">        Files.writeString(file, text(entries), StandardCharsets.ISO_8859_1);</span>
+<span class="fc" id="L340">        return file;</span>
+    }
+
+    /**
+     * The entries in order, escaped as {@link Properties#store(java.io.OutputStream, String)}
+     * escapes them, without its timestamp, so a rebuild writes the same bytes.
+     */
+    private static String text(Map&lt;String, String&gt; entries) throws IOException {
+<span class="fc" id="L348">        StringBuilder text = new StringBuilder(&quot;#Knowledge-base descriptor, level &quot; + LEVEL + &quot;\n&quot;);</span>
+<span class="fc bfc" id="L349" title="All 2 branches covered.">        for (Map.Entry&lt;String, String&gt; entry : entries.entrySet()) {</span>
+<span class="fc" id="L350">            Properties one = new Properties();</span>
+<span class="fc" id="L351">            one.setProperty(entry.getKey(), entry.getValue());</span>
+<span class="fc" id="L352">            ByteArrayOutputStream out = new ByteArrayOutputStream();</span>
+<span class="fc" id="L353">            one.store(out, null);</span>
+<span class="fc bfc" id="L354" title="All 2 branches covered.">            out.toString(StandardCharsets.ISO_8859_1).lines().filter(line -&gt; !line.startsWith(&quot;#&quot;))</span>
+<span class="fc" id="L355">                    .forEach(line -&gt; text.append(line).append('\n'));</span>
+<span class="fc" id="L356">        }</span>
+<span class="fc" id="L357">        return text.toString();</span>
+    }
+
+    /** The high-resolution companion of an icon: {@code icon@2x.png} beside {@code icon.png}. */
+    static Path doubleResolution(Path icon) {
+<span class="fc" id="L362">        String name = icon.getFileName().toString();</span>
+<span class="fc" id="L363">        int dot = name.lastIndexOf('.');</span>
+<span class="fc" id="L364">        return icon.resolveSibling(name.substring(0, dot) + &quot;@2x&quot; + name.substring(dot));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

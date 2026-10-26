@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MeasureEntry.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">MeasureEntry.java</span></div><h1>MeasureEntry.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.util.Locale;
+import java.util.Objects;
+
+/**
+ * One bound the ledger places on a measure (ike-issues#1207): a count
+ * that may not rise above a value, or a coverage that may not fall
+ * below one.
+ *
+ * &lt;p&gt;A bound is ratcheted the way accepted counts are, in the one
+ * direction that tightens it: {@code at-most} only moves down,
+ * {@code at-least} only moves up, and loosening is a human edit.
+ * {@code slack} is the room a mechanical tightening leaves — a
+ * coverage bound set half a point under the observation does not trip
+ * on the next build's rounding.&lt;/p&gt;
+ *
+ * @param key       the measure the bound applies to
+ * @param bound     which way the measure may not move
+ * @param limit     the value it may not pass
+ * @param slack     the margin a tightening keeps; zero for exact counts
+ * @param reason    why the bound is where it is — carried into the receipt
+ * @param since     ISO date the bound was recorded
+ * @param entryMode per-entry enforcement override, as for
+ *                  {@link AcceptedEntry#entryMode()}; {@code null} inherits
+ */
+public record MeasureEntry(
+        String key,
+        Bound bound,
+        double limit,
+        double slack,
+        String reason,
+        String since,
+        LedgerMode entryMode) {
+
+    /** Which way a bounded measure may not move. */
+<span class="fc" id="L37">    public enum Bound {</span>
+
+        /** The measure may not rise above the limit: warnings, skips, time. */
+<span class="fc" id="L40">        AT_MOST(&quot;at-most&quot;),</span>
+
+        /** The measure may not fall below the limit: coverage. */
+<span class="fc" id="L43">        AT_LEAST(&quot;at-least&quot;);</span>
+
+        private final String yaml;
+
+<span class="fc" id="L47">        Bound(String yaml) {</span>
+<span class="fc" id="L48">            this.yaml = yaml;</span>
+<span class="fc" id="L49">        }</span>
+
+        /**
+         * Returns the bound's field name in the ledger.
+         *
+         * @return {@code at-most} or {@code at-least}
+         */
+        public String yaml() {
+<span class="fc" id="L57">            return yaml;</span>
+        }
+    }
+
+    /**
+     * Validates the entry.
+     *
+     * @param key       the measure the bound applies to
+     * @param bound     which way the measure may not move
+     * @param limit     the value it may not pass; must be a finite number
+     * @param slack     the margin a tightening keeps; must not be negative
+     * @param reason    why the bound is where it is; null becomes empty
+     * @param since     ISO date the bound was recorded; null becomes empty
+     * @param entryMode per-entry enforcement override; {@code null} inherits
+     */
+<span class="fc" id="L72">    public MeasureEntry {</span>
+<span class="fc" id="L73">        Objects.requireNonNull(key, &quot;key&quot;);</span>
+<span class="fc" id="L74">        Objects.requireNonNull(bound, &quot;bound&quot;);</span>
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">        if (key.isBlank()) {</span>
+<span class="nc" id="L76">            throw new IllegalArgumentException(&quot;a measure entry needs a non-blank key&quot;);</span>
+        }
+<span class="pc bpc" id="L78" title="2 of 4 branches missed.">        if (Double.isNaN(limit) || Double.isInfinite(limit)) {</span>
+<span class="nc" id="L79">            throw new IllegalArgumentException(&quot;measure entry '&quot; + key + &quot;' needs a finite limit, was: &quot; + limit);</span>
+        }
+<span class="pc bpc" id="L81" title="2 of 4 branches missed.">        if (Double.isNaN(slack) || slack &lt; 0) {</span>
+<span class="nc" id="L82">            throw new IllegalArgumentException(&quot;measure entry '&quot; + key + &quot;' slack must not be negative: &quot; + slack);</span>
+        }
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">        reason = reason == null ? &quot;&quot; : reason.strip();</span>
+<span class="pc bpc" id="L85" title="1 of 2 branches missed.">        since = since == null ? &quot;&quot; : since;</span>
+<span class="fc" id="L86">    }</span>
+
+    /**
+     * Creates an exact bound with no reason, date or mode override.
+     *
+     * @param key   the measure the bound applies to
+     * @param bound which way the measure may not move
+     * @param limit the value it may not pass
+     */
+    public MeasureEntry(String key, Bound bound, double limit) {
+<span class="fc" id="L96">        this(key, bound, limit, 0.0, &quot;&quot;, &quot;&quot;, null);</span>
+<span class="fc" id="L97">    }</span>
+
+    /**
+     * Says whether an observation passes the bound.
+     *
+     * @param observed the session's value
+     * @return {@code true} when the value is above an {@code at-most}
+     *         limit or below an {@code at-least} limit
+     */
+    public boolean violatedBy(double observed) {
+<span class="fc bfc" id="L107" title="All 2 branches covered.">        return switch (bound) {</span>
+<span class="fc bfc" id="L108" title="All 2 branches covered.">            case AT_MOST -&gt; observed &gt; limit;</span>
+<span class="fc bfc" id="L109" title="All 2 branches covered.">            case AT_LEAST -&gt; observed &lt; limit;</span>
+        };
+    }
+
+    /**
+     * Computes the limit a mechanical tightening would move to.
+     *
+     * @param observed the session's value
+     * @return the observation plus or minus the slack, or the current
+     *         limit when that would loosen it
+     */
+    public double tightened(double observed) {
+<span class="fc bfc" id="L121" title="All 2 branches covered.">        return switch (bound) {</span>
+<span class="fc" id="L122">            case AT_MOST -&gt; Math.min(limit, observed + slack);</span>
+<span class="fc" id="L123">            case AT_LEAST -&gt; Math.max(limit, observed - slack);</span>
+        };
+    }
+
+    /**
+     * Says whether an observation lets the bound tighten.
+     *
+     * @param observed the session's value
+     * @return {@code true} when {@link #tightened(double)} differs from
+     *         the current limit
+     */
+    public boolean canTightenTo(double observed) {
+<span class="fc bfc" id="L135" title="All 2 branches covered.">        return tightened(observed) != limit;</span>
+    }
+
+    /**
+     * Returns a copy with another limit.
+     *
+     * @param newLimit the limit for the copy
+     * @return the copy; every other field unchanged
+     */
+    public MeasureEntry withLimit(double newLimit) {
+<span class="fc" id="L145">        return new MeasureEntry(key, bound, newLimit, slack, reason, since, entryMode);</span>
+    }
+
+    /**
+     * Describes the bound the way the ledger writes it.
+     *
+     * @return for example {@code at-most 415}
+     */
+    public String describe() {
+<span class="fc" id="L154">        return bound.yaml() + &quot; &quot; + Numbers.plain(limit);</span>
+    }
+
+    /**
+     * Parses a bound's field name.
+     *
+     * @param text {@code at-most} or {@code at-least}, in any case
+     * @return the bound, or {@code null} when the text names neither
+     */
+    public static Bound boundOf(String text) {
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (text == null) {</span>
+<span class="nc" id="L165">            return null;</span>
+        }
+<span class="nc" id="L167">        String wanted = text.strip().toLowerCase(Locale.ROOT);</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        for (Bound candidate : Bound.values()) {</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">            if (candidate.yaml.equals(wanted)) {</span>
+<span class="nc" id="L170">                return candidate;</span>
+            }
+        }
+<span class="nc" id="L173">        return null;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

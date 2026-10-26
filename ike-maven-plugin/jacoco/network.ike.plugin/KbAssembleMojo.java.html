@@ -380,7 +380,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
 <span class="nc" id="L380">        result.effectiveViewReport().ifPresent(report -&gt;</span>
 <span class="nc" id="L381">                getLog().info(&quot;Effective view reported: &quot; + report));</span>
 <span class="nc bnc" id="L382" title="All 2 branches missed.">        if (descriptor) {</span>
-<span class="nc" id="L383">            describe(result);</span>
+<span class="nc" id="L383">            describe(result, resolvedInputs);</span>
         }
 <span class="nc bnc" id="L385" title="All 4 branches missed.">        if (installDirectory != null &amp;&amp; !installDirectory.isBlank()) {</span>
 <span class="nc" id="L386">            getLog().info(&quot;Knowledge base installed: &quot; + installDirectory);</span>
@@ -423,7 +423,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * {@link #descriptorArtifactId} names; when that project is not in this build ({@code -pl}
      * alone), this project's version stands in and no POM is copied.
      */
-    private void describe(AssembleResult result) {
+    private void describe(AssembleResult result, List&lt;ArtifactInput&gt; assembledFrom) {
 <span class="nc bnc" id="L427" title="All 2 branches missed.">        Project described = project.getGroupId().equals(descriptorGroupId)</span>
 <span class="nc bnc" id="L428" title="All 2 branches missed.">                &amp;&amp; project.getArtifactId().equals(descriptorArtifactId)</span>
 <span class="nc" id="L429">                ? project</span>
@@ -452,49 +452,51 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
 <span class="nc bnc" id="L452" title="All 2 branches missed.">                .filter(name -&gt; !name.isEmpty()).orElse(descriptorArtifactId);</span>
 <span class="nc" id="L453">        KnowledgeBaseDescriptor.Fields fields = new KnowledgeBaseDescriptor.Fields(descriptorGroupId,</span>
 <span class="nc" id="L454">                descriptorArtifactId, version, displayName, entityFormat(attributes), assembledAt, access(owner),</span>
-<span class="nc" id="L455">                KnowledgeBaseDescriptor.memory(attributes), Optional.ofNullable(collection));</span>
-<span class="nc" id="L456">        Path icon = knowledgeBaseIcon(owner, displayName);</span>
+<span class="nc" id="L455">                KnowledgeBaseDescriptor.memory(attributes), Optional.ofNullable(collection),</span>
+<span class="nc" id="L456">                descriptorInputs(assembledFrom, descriptorGroupId, descriptorArtifactId, version));</span>
+<span class="nc" id="L457">        Path icon = knowledgeBaseIcon(owner, displayName);</span>
 
-<span class="nc" id="L458">        List&lt;Path&gt; stores = new ArrayList&lt;&gt;(List.of(Path.of(storeRoot)));</span>
-<span class="nc bnc" id="L459" title="All 2 branches missed.">        Optional.ofNullable(installDirectory).filter(s -&gt; !s.isBlank()).map(Path::of)</span>
-<span class="nc" id="L460">                .filter(Files::isDirectory).ifPresent(stores::add);</span>
-<span class="nc" id="L461">        String createdBy = createdBy();</span>
-<span class="nc" id="L462">        Path written = null;</span>
-<span class="nc bnc" id="L463" title="All 2 branches missed.">        for (Path store : stores) {</span>
+<span class="nc" id="L459">        List&lt;Path&gt; stores = new ArrayList&lt;&gt;(List.of(Path.of(storeRoot)));</span>
+<span class="nc bnc" id="L460" title="All 2 branches missed.">        Optional.ofNullable(installDirectory).filter(s -&gt; !s.isBlank()).map(Path::of)</span>
+<span class="nc" id="L461">                .filter(Files::isDirectory).ifPresent(stores::add);</span>
+<span class="nc" id="L462">        String createdBy = createdBy();</span>
+<span class="nc" id="L463">        Path written = null;</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">        for (Path store : stores) {</span>
             try {
-<span class="nc" id="L465">                StoreDescriptor.write(store, descriptorGroupId, descriptorArtifactId, version, pom, createdBy,</span>
+<span class="nc" id="L466">                StoreDescriptor.write(store, descriptorGroupId, descriptorArtifactId, version, pom, createdBy,</span>
                         attributes);
-<span class="nc" id="L467">                Path file = KnowledgeBaseDescriptor.write(store, fields, icon);</span>
-<span class="nc bnc" id="L468" title="All 2 branches missed.">                written = written == null ? file : written;</span>
-<span class="nc" id="L469">            } catch (IOException e) {</span>
-<span class="nc" id="L470">                throw new MojoException(&quot;Cannot describe the store at &quot; + store, e);</span>
-<span class="nc" id="L471">            }</span>
-<span class="nc" id="L472">        }</span>
-<span class="nc" id="L473">        getLog().info(&quot;Described the store as &quot; + descriptorGroupId + &quot;:&quot; + descriptorArtifactId + &quot;:&quot; + version</span>
-<span class="nc" id="L474">                + &quot; (&quot; + attributes.size() + &quot; manifest attributes; knowledge-base descriptor level &quot;</span>
-<span class="nc" id="L475">                + KnowledgeBaseDescriptor.LEVEL + &quot;, &quot; + fields.access().value()</span>
-<span class="nc" id="L476">                + fields.collection().map(name -&gt; &quot;, collection &quot; + name).orElse(&quot;&quot;) + &quot;)&quot;);</span>
-<span class="nc" id="L477">        attachOnce(owner, KnowledgeBaseDescriptor.CLASSIFIER, &quot;properties&quot;, written);</span>
-<span class="nc" id="L478">        attachOnce(owner, KnowledgeBaseDescriptor.ICON_CLASSIFIER, &quot;png&quot;, icon);</span>
-<span class="nc" id="L479">    }</span>
+<span class="nc" id="L468">                Path file = KnowledgeBaseDescriptor.write(store, fields, icon);</span>
+<span class="nc bnc" id="L469" title="All 2 branches missed.">                written = written == null ? file : written;</span>
+<span class="nc" id="L470">            } catch (IOException e) {</span>
+<span class="nc" id="L471">                throw new MojoException(&quot;Cannot describe the store at &quot; + store, e);</span>
+<span class="nc" id="L472">            }</span>
+<span class="nc" id="L473">        }</span>
+<span class="nc" id="L474">        getLog().info(&quot;Described the store as &quot; + descriptorGroupId + &quot;:&quot; + descriptorArtifactId + &quot;:&quot; + version</span>
+<span class="nc" id="L475">                + &quot; (&quot; + attributes.size() + &quot; manifest attributes; knowledge-base descriptor level &quot;</span>
+<span class="nc" id="L476">                + KnowledgeBaseDescriptor.LEVEL + &quot;, &quot; + fields.access().value()</span>
+<span class="nc" id="L477">                + fields.collection().map(name -&gt; &quot;, collection &quot; + name).orElse(&quot;&quot;) + &quot;, &quot;</span>
+<span class="nc" id="L478">                + fields.inputs().size() + &quot; input(s))&quot;);</span>
+<span class="nc" id="L479">        attachOnce(owner, KnowledgeBaseDescriptor.CLASSIFIER, &quot;properties&quot;, written);</span>
+<span class="nc" id="L480">        attachOnce(owner, KnowledgeBaseDescriptor.ICON_CLASSIFIER, &quot;png&quot;, icon);</span>
+<span class="nc" id="L481">    }</span>
 
     /**
      * The entity format the store was written in: as the assembly reported it, else as the store's
      * own files record it.
      */
     private int entityFormat(Map&lt;String, String&gt; attributes) {
-<span class="nc" id="L486">        String reported = attributes.get(&quot;Ike-Entity-Format&quot;);</span>
+<span class="nc" id="L488">        String reported = attributes.get(&quot;Ike-Entity-Format&quot;);</span>
         try {
-<span class="nc bnc" id="L488" title="All 2 branches missed.">            if (reported != null) {</span>
-<span class="nc" id="L489">                return Integer.parseInt(reported.strip());</span>
+<span class="nc bnc" id="L490" title="All 2 branches missed.">            if (reported != null) {</span>
+<span class="nc" id="L491">                return Integer.parseInt(reported.strip());</span>
             }
-<span class="nc" id="L491">            return KnowledgeBaseDescriptor.recordedEntityFormat(Path.of(storeRoot)).orElseThrow(() -&gt; new MojoException(</span>
+<span class="nc" id="L493">            return KnowledgeBaseDescriptor.recordedEntityFormat(Path.of(storeRoot)).orElseThrow(() -&gt; new MojoException(</span>
                     &quot;The assembly reported no entity format and the store at &quot; + storeRoot + &quot; records none;&quot;
                             + &quot; the knowledge-base descriptor requires one&quot;));
-<span class="nc" id="L494">        } catch (NumberFormatException e) {</span>
-<span class="nc" id="L495">            throw new MojoException(&quot;The assembly reported an entity format that is not a number: &quot; + reported, e);</span>
-<span class="nc" id="L496">        } catch (IOException e) {</span>
-<span class="nc" id="L497">            throw new MojoException(&quot;Cannot read the store's format at &quot; + storeRoot, e);</span>
+<span class="nc" id="L496">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L497">            throw new MojoException(&quot;The assembly reported an entity format that is not a number: &quot; + reported, e);</span>
+<span class="nc" id="L498">        } catch (IOException e) {</span>
+<span class="nc" id="L499">            throw new MojoException(&quot;Cannot read the store's format at &quot; + storeRoot, e);</span>
         }
     }
 
@@ -503,23 +505,23 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * project deploys to a restricted repository, as licensed knowledge bases do, else public.
      */
     private KnowledgeBaseDescriptor.Access access(Project owner) {
-<span class="nc bnc" id="L506" title="All 4 branches missed.">        if (access != null &amp;&amp; !access.isBlank()) {</span>
+<span class="nc bnc" id="L508" title="All 4 branches missed.">        if (access != null &amp;&amp; !access.isBlank()) {</span>
             try {
-<span class="nc" id="L508">                return KnowledgeBaseDescriptor.Access.valueOf(access.strip().toUpperCase(java.util.Locale.ROOT));</span>
-<span class="nc" id="L509">            } catch (IllegalArgumentException e) {</span>
-<span class="nc" id="L510">                throw new MojoException(&quot;ike.kbAssemble.access is public or restricted, not &quot; + access, e);</span>
+<span class="nc" id="L510">                return KnowledgeBaseDescriptor.Access.valueOf(access.strip().toUpperCase(java.util.Locale.ROOT));</span>
+<span class="nc" id="L511">            } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L512">                throw new MojoException(&quot;ike.kbAssemble.access is public or restricted, not &quot; + access, e);</span>
             }
         }
-<span class="nc" id="L513">        DistributionManagement distribution = owner.getModel().getDistributionManagement();</span>
-<span class="nc bnc" id="L514" title="All 2 branches missed.">        boolean restricted = distribution != null &amp;&amp; java.util.stream.Stream</span>
-<span class="nc" id="L515">                .of(distribution.getRepository(), distribution.getSnapshotRepository())</span>
-<span class="nc" id="L516">                .filter(java.util.Objects::nonNull)</span>
-<span class="nc bnc" id="L517" title="All 6 branches missed.">                .anyMatch(repository -&gt; mentionsRestricted(repository.getId()) || mentionsRestricted(repository.getUrl()));</span>
-<span class="nc bnc" id="L518" title="All 2 branches missed.">        return restricted ? KnowledgeBaseDescriptor.Access.RESTRICTED : KnowledgeBaseDescriptor.Access.PUBLIC;</span>
+<span class="nc" id="L515">        DistributionManagement distribution = owner.getModel().getDistributionManagement();</span>
+<span class="nc bnc" id="L516" title="All 2 branches missed.">        boolean restricted = distribution != null &amp;&amp; java.util.stream.Stream</span>
+<span class="nc" id="L517">                .of(distribution.getRepository(), distribution.getSnapshotRepository())</span>
+<span class="nc" id="L518">                .filter(java.util.Objects::nonNull)</span>
+<span class="nc bnc" id="L519" title="All 6 branches missed.">                .anyMatch(repository -&gt; mentionsRestricted(repository.getId()) || mentionsRestricted(repository.getUrl()));</span>
+<span class="nc bnc" id="L520" title="All 2 branches missed.">        return restricted ? KnowledgeBaseDescriptor.Access.RESTRICTED : KnowledgeBaseDescriptor.Access.PUBLIC;</span>
     }
 
     private static boolean mentionsRestricted(String text) {
-<span class="nc bnc" id="L522" title="All 4 branches missed.">        return text != null &amp;&amp; text.toLowerCase(java.util.Locale.ROOT).contains(&quot;restricted&quot;);</span>
+<span class="nc bnc" id="L524" title="All 4 branches missed.">        return text != null &amp;&amp; text.toLowerCase(java.util.Locale.ROOT).contains(&quot;restricted&quot;);</span>
     }
 
     /**
@@ -527,14 +529,14 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * monogram of its display name, drawn into the build directory.
      */
     private Path knowledgeBaseIcon(Project owner, String displayName) {
-<span class="nc" id="L530">        Optional&lt;Path&gt; own = KnowledgeBaseDescriptor.icon(owner.getBasedir());</span>
-<span class="nc bnc" id="L531" title="All 2 branches missed.">        if (own.isPresent()) {</span>
-<span class="nc" id="L532">            return own.get();</span>
+<span class="nc" id="L532">        Optional&lt;Path&gt; own = KnowledgeBaseDescriptor.icon(owner.getBasedir());</span>
+<span class="nc bnc" id="L533" title="All 2 branches missed.">        if (own.isPresent()) {</span>
+<span class="nc" id="L534">            return own.get();</span>
         }
         try {
-<span class="nc" id="L535">            return KnowledgeBaseMonogram.write(Path.of(buildDirectory, &quot;ike-kb-icon&quot;), displayName, descriptorArtifactId);</span>
-<span class="nc" id="L536">        } catch (IOException e) {</span>
-<span class="nc" id="L537">            throw new MojoException(&quot;Cannot draw the knowledge base's monogram icon&quot;, e);</span>
+<span class="nc" id="L537">            return KnowledgeBaseMonogram.write(Path.of(buildDirectory, &quot;ike-kb-icon&quot;), displayName, descriptorArtifactId);</span>
+<span class="nc" id="L538">        } catch (IOException e) {</span>
+<span class="nc" id="L539">            throw new MojoException(&quot;Cannot draw the knowledge base's monogram icon&quot;, e);</span>
         }
     }
 
@@ -544,16 +546,16 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * the first.
      */
     private void attachOnce(Project owner, String classifier, String extension, Path file) {
-<span class="nc" id="L547">        ProjectManager projectManager = session.getService(ProjectManager.class);</span>
-<span class="nc" id="L548">        boolean attached = projectManager.getAttachedArtifacts(owner).stream()</span>
-<span class="nc bnc" id="L549" title="All 4 branches missed.">                .anyMatch(artifact -&gt; classifier.equals(artifact.getClassifier()) &amp;&amp; extension.equals(artifact.getExtension()));</span>
-<span class="nc bnc" id="L550" title="All 2 branches missed.">        if (!attached) {</span>
-<span class="nc" id="L551">            ProducedArtifact artifact = session.createProducedArtifact(owner.getGroupId(),</span>
-<span class="nc" id="L552">                    owner.getArtifactId(), owner.getVersion(), classifier, extension, extension);</span>
-<span class="nc" id="L553">            projectManager.attachArtifact(owner, artifact, file);</span>
-<span class="nc" id="L554">            getLog().info(&quot;Attached &quot; + file.getFileName() + &quot; (classifier: &quot; + classifier + &quot;, extension: &quot; + extension + &quot;)&quot;);</span>
+<span class="nc" id="L549">        ProjectManager projectManager = session.getService(ProjectManager.class);</span>
+<span class="nc" id="L550">        boolean attached = projectManager.getAttachedArtifacts(owner).stream()</span>
+<span class="nc bnc" id="L551" title="All 4 branches missed.">                .anyMatch(artifact -&gt; classifier.equals(artifact.getClassifier()) &amp;&amp; extension.equals(artifact.getExtension()));</span>
+<span class="nc bnc" id="L552" title="All 2 branches missed.">        if (!attached) {</span>
+<span class="nc" id="L553">            ProducedArtifact artifact = session.createProducedArtifact(owner.getGroupId(),</span>
+<span class="nc" id="L554">                    owner.getArtifactId(), owner.getVersion(), classifier, extension, extension);</span>
+<span class="nc" id="L555">            projectManager.attachArtifact(owner, artifact, file);</span>
+<span class="nc" id="L556">            getLog().info(&quot;Attached &quot; + file.getFileName() + &quot; (classifier: &quot; + classifier + &quot;, extension: &quot; + extension + &quot;)&quot;);</span>
         }
-<span class="nc" id="L556">    }</span>
+<span class="nc" id="L558">    }</span>
 
     /**
      * This plugin and its version, for the store manifest's {@code Created-By}; the name alone
@@ -561,9 +563,9 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      */
     private static String createdBy() {
         try {
-<span class="nc" id="L564">            return &quot;ike-maven-plugin &quot; + StarterSetCreateSupport.pluginVersion();</span>
-<span class="nc" id="L565">        } catch (MojoException e) {</span>
-<span class="nc" id="L566">            return &quot;ike-maven-plugin&quot;;</span>
+<span class="nc" id="L566">            return &quot;ike-maven-plugin &quot; + StarterSetCreateSupport.pluginVersion();</span>
+<span class="nc" id="L567">        } catch (MojoException e) {</span>
+<span class="nc" id="L568">            return &quot;ike-maven-plugin&quot;;</span>
         }
     }
 
@@ -575,14 +577,48 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * @return the export target, when an export was requested
      */
     private Optional&lt;Path&gt; reasonedPbTarget() {
-<span class="nc bnc" id="L578" title="All 4 branches missed.">        if (reasonedPbFile != null &amp;&amp; !reasonedPbFile.isBlank()) {</span>
-<span class="nc" id="L579">            return Optional.of(Path.of(reasonedPbFile));</span>
+<span class="nc bnc" id="L580" title="All 4 branches missed.">        if (reasonedPbFile != null &amp;&amp; !reasonedPbFile.isBlank()) {</span>
+<span class="nc" id="L581">            return Optional.of(Path.of(reasonedPbFile));</span>
         }
-<span class="nc bnc" id="L581" title="All 2 branches missed.">        if (reasonedPb) {</span>
-<span class="nc" id="L582">            return Optional.of(Path.of(buildDirectory).resolve(</span>
-<span class="nc" id="L583">                    project.getArtifactId() + &quot;-&quot; + project.getVersion() + &quot;-reasoned-pb.zip&quot;));</span>
+<span class="nc bnc" id="L583" title="All 2 branches missed.">        if (reasonedPb) {</span>
+<span class="nc" id="L584">            return Optional.of(Path.of(buildDirectory).resolve(</span>
+<span class="nc" id="L585">                    project.getArtifactId() + &quot;-&quot; + project.getVersion() + &quot;-reasoned-pb.zip&quot;));</span>
         }
-<span class="nc" id="L585">        return Optional.empty();</span>
+<span class="nc" id="L587">        return Optional.empty();</span>
+    }
+
+    /**
+     * The inputs as the knowledge-base descriptor records them: each coordinate as written, with
+     * the version it resolved to when that differs, and each file by name. A file that is an
+     * artifact of the described knowledge base itself, such as the reasoned protobuf a store is
+     * loaded from, is recorded as that artifact's coordinate.
+     *
+     * @param inputs     the inputs, in the order the assembly took them
+     * @param groupId    the described knowledge base's groupId
+     * @param artifactId the described knowledge base's artifactId
+     * @param version    the described knowledge base's version
+     * @return the descriptor's inputs
+     */
+    static List&lt;KnowledgeBaseDescriptor.Input&gt; descriptorInputs(List&lt;ArtifactInput&gt; inputs, String groupId,
+                                                                String artifactId, String version) {
+<span class="fc" id="L604">        String ownPrefix = artifactId + &quot;-&quot; + version + &quot;-&quot;;</span>
+<span class="fc" id="L605">        List&lt;KnowledgeBaseDescriptor.Input&gt; recorded = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L606" title="All 2 branches covered.">        for (ArtifactInput input : inputs) {</span>
+            String reference;
+<span class="fc" id="L608">            Optional&lt;String&gt; resolved = Optional.empty();</span>
+<span class="fc bfc" id="L609" title="All 2 branches covered.">            if (input.coordinate().isPresent()) {</span>
+<span class="fc" id="L610">                reference = input.coordinate().get();</span>
+<span class="fc bfc" id="L611" title="All 2 branches covered.">                resolved = input.resolvedVersion().filter(resolvedVersion -&gt; !reference.endsWith(&quot;:&quot; + resolvedVersion));</span>
+            } else {
+<span class="fc" id="L613">                String name = input.path().getFileName().toString();</span>
+<span class="pc bpc" id="L614" title="1 of 4 branches missed.">                reference = name.startsWith(ownPrefix) &amp;&amp; name.endsWith(&quot;.zip&quot;)</span>
+                        ? groupId + &quot;:&quot; + artifactId + &quot;:zip:&quot;
+<span class="fc" id="L616">                                + name.substring(ownPrefix.length(), name.length() - &quot;.zip&quot;.length()) + &quot;:&quot; + version</span>
+<span class="fc" id="L617">                        : &quot;file:&quot; + name;</span>
+            }
+<span class="fc" id="L619">            recorded.add(new KnowledgeBaseDescriptor.Input(input.role().name(), reference, resolved, input.importer()));</span>
+<span class="fc" id="L620">        }</span>
+<span class="fc" id="L621">        return recorded;</span>
     }
 
     /**
@@ -592,63 +628,63 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * was asked for: the install replaces the store, and them with it.
      */
     private List&lt;ArtifactInput&gt; changeSetInputs() {
-<span class="nc bnc" id="L595" title="All 2 branches missed.">        List&lt;Path&gt; captured = Optional.ofNullable(installDirectory).filter(s -&gt; !s.isBlank()).map(Path::of)</span>
-<span class="nc" id="L596">                .map(ChangeSetHarvest::captured).orElse(List.of());</span>
-<span class="nc bnc" id="L597" title="All 4 branches missed.">        if (changeSetDirectory == null || changeSetDirectory.isBlank()) {</span>
-<span class="nc bnc" id="L598" title="All 4 branches missed.">            if (!captured.isEmpty() &amp;&amp; !discardChangeSets) {</span>
-<span class="nc" id="L599">                throw new MojoException(&quot;The installed knowledge base &quot; + installDirectory + &quot; holds &quot;</span>
-<span class="nc" id="L600">                        + captured.size() + &quot; captured change set(s) the install would destroy: &quot; + captured</span>
+<span class="nc bnc" id="L631" title="All 2 branches missed.">        List&lt;Path&gt; captured = Optional.ofNullable(installDirectory).filter(s -&gt; !s.isBlank()).map(Path::of)</span>
+<span class="nc" id="L632">                .map(ChangeSetHarvest::captured).orElse(List.of());</span>
+<span class="nc bnc" id="L633" title="All 4 branches missed.">        if (changeSetDirectory == null || changeSetDirectory.isBlank()) {</span>
+<span class="nc bnc" id="L634" title="All 4 branches missed.">            if (!captured.isEmpty() &amp;&amp; !discardChangeSets) {</span>
+<span class="nc" id="L635">                throw new MojoException(&quot;The installed knowledge base &quot; + installDirectory + &quot; holds &quot;</span>
+<span class="nc" id="L636">                        + captured.size() + &quot; captured change set(s) the install would destroy: &quot; + captured</span>
                         + &quot;. Set &lt;changeSetDirectory&gt; to harvest and replay them, or&quot;
                         + &quot; -Dike.kbAssemble.discardChangeSets=true to replace the store without them.&quot;);
             }
-<span class="nc" id="L604">            return List.of();</span>
+<span class="nc" id="L640">            return List.of();</span>
         }
-<span class="nc" id="L606">        Path directory = Path.of(changeSetDirectory);</span>
-<span class="nc bnc" id="L607" title="All 4 branches missed.">        if (!changeSetModules.isEmpty() &amp;&amp; !captured.isEmpty()) {</span>
-<span class="nc" id="L608">            Path parking = Path.of(installDirectory + &quot;-sessions&quot;);</span>
-<span class="nc" id="L609">            List&lt;Path&gt; extension = ChangeSetHarvest.sortOut(captured,</span>
-<span class="nc" id="L610">                    changeSetModules.stream().map(String::strip).collect(java.util.stream.Collectors.toSet()), parking);</span>
-<span class="nc bnc" id="L611" title="All 2 branches missed.">            if (extension.size() &lt; captured.size()) {</span>
-<span class="nc" id="L612">                getLog().info(&quot;Parked &quot; + (captured.size() - extension.size()) + &quot; change set(s) with no content in &quot;</span>
+<span class="nc" id="L642">        Path directory = Path.of(changeSetDirectory);</span>
+<span class="nc bnc" id="L643" title="All 4 branches missed.">        if (!changeSetModules.isEmpty() &amp;&amp; !captured.isEmpty()) {</span>
+<span class="nc" id="L644">            Path parking = Path.of(installDirectory + &quot;-sessions&quot;);</span>
+<span class="nc" id="L645">            List&lt;Path&gt; extension = ChangeSetHarvest.sortOut(captured,</span>
+<span class="nc" id="L646">                    changeSetModules.stream().map(String::strip).collect(java.util.stream.Collectors.toSet()), parking);</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">            if (extension.size() &lt; captured.size()) {</span>
+<span class="nc" id="L648">                getLog().info(&quot;Parked &quot; + (captured.size() - extension.size()) + &quot; change set(s) with no content in &quot;</span>
                         + changeSetModules + &quot; in &quot; + parking);
             }
-<span class="nc" id="L615">            captured = extension;</span>
+<span class="nc" id="L651">            captured = extension;</span>
         }
-<span class="nc" id="L617">        List&lt;Path&gt; harvested = ChangeSetHarvest.harvest(captured, directory);</span>
-<span class="nc" id="L618">        harvested.forEach(file -&gt; getLog().info(&quot;Harvested change set &quot; + file.getFileName() + &quot; into &quot; + directory));</span>
-<span class="nc bnc" id="L619" title="All 2 branches missed.">        if (!replayChangeSets) {</span>
-<span class="nc" id="L620">            return List.of();</span>
+<span class="nc" id="L653">        List&lt;Path&gt; harvested = ChangeSetHarvest.harvest(captured, directory);</span>
+<span class="nc" id="L654">        harvested.forEach(file -&gt; getLog().info(&quot;Harvested change set &quot; + file.getFileName() + &quot; into &quot; + directory));</span>
+<span class="nc bnc" id="L655" title="All 2 branches missed.">        if (!replayChangeSets) {</span>
+<span class="nc" id="L656">            return List.of();</span>
         }
-<span class="nc" id="L622">        List&lt;Path&gt; kept = ChangeSetHarvest.kept(directory);</span>
-<span class="nc bnc" id="L623" title="All 2 branches missed.">        if (!kept.isEmpty()) {</span>
-<span class="nc" id="L624">            getLog().info(&quot;Replaying &quot; + kept.size() + &quot; change set(s) from &quot; + directory);</span>
+<span class="nc" id="L658">        List&lt;Path&gt; kept = ChangeSetHarvest.kept(directory);</span>
+<span class="nc bnc" id="L659" title="All 2 branches missed.">        if (!kept.isEmpty()) {</span>
+<span class="nc" id="L660">            getLog().info(&quot;Replaying &quot; + kept.size() + &quot; change set(s) from &quot; + directory);</span>
         }
-<span class="nc" id="L626">        return kept.stream().map(file -&gt; new ArtifactInput(ArtifactInput.Role.CHANGESET, file)).toList();</span>
+<span class="nc" id="L662">        return kept.stream().map(file -&gt; new ArtifactInput(ArtifactInput.Role.CHANGESET, file)).toList();</span>
     }
 
     private List&lt;ArtifactInput&gt; resolveInputs() {
-<span class="nc" id="L630">        List&lt;ArtifactInput&gt; resolved = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L631" title="All 2 branches missed.">        for (String entry : inputs) {</span>
-<span class="nc" id="L632">            String stripped = entry.strip();</span>
-<span class="nc" id="L633">            int space = stripped.indexOf(' ');</span>
-<span class="nc bnc" id="L634" title="All 2 branches missed.">            if (space &lt;= 0) {</span>
-<span class="nc" id="L635">                throw new MojoException(&quot;Input entry needs \&quot;ROLE spec\&quot;: &quot; + entry);</span>
+<span class="nc" id="L666">        List&lt;ArtifactInput&gt; resolved = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L667" title="All 2 branches missed.">        for (String entry : inputs) {</span>
+<span class="nc" id="L668">            String stripped = entry.strip();</span>
+<span class="nc" id="L669">            int space = stripped.indexOf(' ');</span>
+<span class="nc bnc" id="L670" title="All 2 branches missed.">            if (space &lt;= 0) {</span>
+<span class="nc" id="L671">                throw new MojoException(&quot;Input entry needs \&quot;ROLE spec\&quot;: &quot; + entry);</span>
             }
             ArtifactInput.Role role;
             try {
-<span class="nc" id="L639">                role = ArtifactInput.Role.valueOf(stripped.substring(0, space));</span>
-<span class="nc" id="L640">            } catch (IllegalArgumentException e) {</span>
-<span class="nc" id="L641">                throw new MojoException(&quot;Unknown input role in \&quot;&quot; + entry</span>
+<span class="nc" id="L675">                role = ArtifactInput.Role.valueOf(stripped.substring(0, space));</span>
+<span class="nc" id="L676">            } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L677">                throw new MojoException(&quot;Unknown input role in \&quot;&quot; + entry</span>
                         + &quot;\&quot; — use STORE_SEED, PB, CHANGESET, or SOURCE&quot;, e);
-<span class="nc" id="L643">            }</span>
-<span class="nc" id="L644">            String spec = stripped.substring(space + 1).strip();</span>
-<span class="nc bnc" id="L645" title="All 2 branches missed.">            if (role == ArtifactInput.Role.SOURCE) {</span>
-<span class="nc" id="L646">                resolved.add(resolveSource(entry, spec));</span>
+<span class="nc" id="L679">            }</span>
+<span class="nc" id="L680">            String spec = stripped.substring(space + 1).strip();</span>
+<span class="nc bnc" id="L681" title="All 2 branches missed.">            if (role == ArtifactInput.Role.SOURCE) {</span>
+<span class="nc" id="L682">                resolved.add(resolveSource(entry, spec));</span>
             } else {
-<span class="nc" id="L648">                resolved.add(withCoordinate(new ArtifactInput(role, resolveSpec(spec)), spec));</span>
+<span class="nc" id="L684">                resolved.add(withCoordinate(new ArtifactInput(role, resolveSpec(spec)), spec));</span>
             }
-<span class="nc" id="L650">        }</span>
-<span class="nc" id="L651">        return resolved;</span>
+<span class="nc" id="L686">        }</span>
+<span class="nc" id="L687">        return resolved;</span>
     }
 
     /**
@@ -657,23 +693,23 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * importer's options; a value with spaces is double-quoted ({@code author=&quot;IHTSDO SNOMED CT Author&quot;}).
      */
     private ArtifactInput resolveSource(String entry, String rest) {
-<span class="nc" id="L660">        String[] words = words(rest);</span>
-<span class="nc bnc" id="L661" title="All 2 branches missed.">        if (words.length &lt; 2) {</span>
-<span class="nc" id="L662">            throw new MojoException(&quot;A SOURCE input needs \&quot;SOURCE importer spec [name=value ...]\&quot;: &quot; + entry);</span>
+<span class="nc" id="L696">        String[] words = words(rest);</span>
+<span class="nc bnc" id="L697" title="All 2 branches missed.">        if (words.length &lt; 2) {</span>
+<span class="nc" id="L698">            throw new MojoException(&quot;A SOURCE input needs \&quot;SOURCE importer spec [name=value ...]\&quot;: &quot; + entry);</span>
         }
-<span class="nc" id="L664">        Map&lt;String, String&gt; options = new LinkedHashMap&lt;&gt;();</span>
-<span class="nc bnc" id="L665" title="All 2 branches missed.">        for (int i = 2; i &lt; words.length; i++) {</span>
-<span class="nc" id="L666">            int equals = words[i].indexOf('=');</span>
-<span class="nc bnc" id="L667" title="All 2 branches missed.">            if (equals &lt;= 0) {</span>
-<span class="nc" id="L668">                throw new MojoException(&quot;A SOURCE option is name=value, not \&quot;&quot; + words[i] + &quot;\&quot;: &quot; + entry);</span>
+<span class="nc" id="L700">        Map&lt;String, String&gt; options = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L701" title="All 2 branches missed.">        for (int i = 2; i &lt; words.length; i++) {</span>
+<span class="nc" id="L702">            int equals = words[i].indexOf('=');</span>
+<span class="nc bnc" id="L703" title="All 2 branches missed.">            if (equals &lt;= 0) {</span>
+<span class="nc" id="L704">                throw new MojoException(&quot;A SOURCE option is name=value, not \&quot;&quot; + words[i] + &quot;\&quot;: &quot; + entry);</span>
             }
-<span class="nc" id="L670">            options.put(words[i].substring(0, equals), words[i].substring(equals + 1));</span>
+<span class="nc" id="L706">            options.put(words[i].substring(0, equals), words[i].substring(equals + 1));</span>
         }
-<span class="nc" id="L672">        String spec = words[1];</span>
-<span class="nc bnc" id="L673" title="All 4 branches missed.">        Path release = isCoordinate(spec) || !Files.isDirectory(Path.of(spec))</span>
-<span class="nc" id="L674">                ? resolveSpec(spec)</span>
-<span class="nc" id="L675">                : Path.of(spec);</span>
-<span class="nc" id="L676">        return withCoordinate(ArtifactInput.source(words[0], release, options), spec);</span>
+<span class="nc" id="L708">        String spec = words[1];</span>
+<span class="nc bnc" id="L709" title="All 4 branches missed.">        Path release = isCoordinate(spec) || !Files.isDirectory(Path.of(spec))</span>
+<span class="nc" id="L710">                ? resolveSpec(spec)</span>
+<span class="nc" id="L711">                : Path.of(spec);</span>
+<span class="nc" id="L712">        return withCoordinate(ArtifactInput.source(words[0], release, options), spec);</span>
     }
 
     /**
@@ -681,18 +717,18 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * records it in the knowledge base (IKE-Network/ike-issues#1304).
      */
     private ArtifactInput withCoordinate(ArtifactInput input, String spec) {
-<span class="nc bnc" id="L684" title="All 2 branches missed.">        if (!isCoordinate(spec)) {</span>
-<span class="nc" id="L685">            return input;</span>
+<span class="nc bnc" id="L720" title="All 2 branches missed.">        if (!isCoordinate(spec)) {</span>
+<span class="nc" id="L721">            return input;</span>
         }
-<span class="nc" id="L687">        String version = resolvedVersions.get(spec);</span>
-<span class="nc bnc" id="L688" title="All 2 branches missed.">        return version != null ? input.withCoordinate(spec, version) : input.withCoordinate(spec);</span>
+<span class="nc" id="L723">        String version = resolvedVersions.get(spec);</span>
+<span class="nc bnc" id="L724" title="All 2 branches missed.">        return version != null ? input.withCoordinate(spec, version) : input.withCoordinate(spec);</span>
     }
 
     /** The version each coordinate resolved to, by the coordinate as written. */
-<span class="fc" id="L692">    private final Map&lt;String, String&gt; resolvedVersions = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L728">    private final Map&lt;String, String&gt; resolvedVersions = new LinkedHashMap&lt;&gt;();</span>
 
     private static boolean isCoordinate(String spec) {
-<span class="nc bnc" id="L695" title="All 4 branches missed.">        return spec.chars().filter(c -&gt; c == ':').count() &gt;= 2;</span>
+<span class="nc bnc" id="L731" title="All 4 branches missed.">        return spec.chars().filter(c -&gt; c == ':').count() &gt;= 2;</span>
     }
 
     /**
@@ -700,32 +736,32 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * {@code a b=&quot;c d&quot;} is {@code a} and {@code b=c d}.
      */
     static String[] words(String text) {
-<span class="fc" id="L703">        List&lt;String&gt; words = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L704">        StringBuilder word = new StringBuilder();</span>
-<span class="fc" id="L705">        boolean quoted = false;</span>
-<span class="fc" id="L706">        boolean any = false;</span>
-<span class="fc bfc" id="L707" title="All 2 branches covered.">        for (char c : text.strip().toCharArray()) {</span>
-<span class="fc bfc" id="L708" title="All 2 branches covered.">            if (c == '&quot;') {</span>
-<span class="fc bfc" id="L709" title="All 2 branches covered.">                quoted = !quoted;</span>
-<span class="fc" id="L710">                any = true;</span>
-<span class="fc bfc" id="L711" title="All 4 branches covered.">            } else if (Character.isWhitespace(c) &amp;&amp; !quoted) {</span>
-<span class="fc bfc" id="L712" title="All 2 branches covered.">                if (any) {</span>
-<span class="fc" id="L713">                    words.add(word.toString());</span>
-<span class="fc" id="L714">                    word.setLength(0);</span>
-<span class="fc" id="L715">                    any = false;</span>
+<span class="fc" id="L739">        List&lt;String&gt; words = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L740">        StringBuilder word = new StringBuilder();</span>
+<span class="fc" id="L741">        boolean quoted = false;</span>
+<span class="fc" id="L742">        boolean any = false;</span>
+<span class="fc bfc" id="L743" title="All 2 branches covered.">        for (char c : text.strip().toCharArray()) {</span>
+<span class="fc bfc" id="L744" title="All 2 branches covered.">            if (c == '&quot;') {</span>
+<span class="fc bfc" id="L745" title="All 2 branches covered.">                quoted = !quoted;</span>
+<span class="fc" id="L746">                any = true;</span>
+<span class="fc bfc" id="L747" title="All 4 branches covered.">            } else if (Character.isWhitespace(c) &amp;&amp; !quoted) {</span>
+<span class="fc bfc" id="L748" title="All 2 branches covered.">                if (any) {</span>
+<span class="fc" id="L749">                    words.add(word.toString());</span>
+<span class="fc" id="L750">                    word.setLength(0);</span>
+<span class="fc" id="L751">                    any = false;</span>
                 }
             } else {
-<span class="fc" id="L718">                word.append(c);</span>
-<span class="fc" id="L719">                any = true;</span>
+<span class="fc" id="L754">                word.append(c);</span>
+<span class="fc" id="L755">                any = true;</span>
             }
         }
-<span class="fc bfc" id="L722" title="All 2 branches covered.">        if (quoted) {</span>
-<span class="fc" id="L723">            throw new MojoException(&quot;Unbalanced quote in \&quot;&quot; + text + &quot;\&quot;&quot;);</span>
+<span class="fc bfc" id="L758" title="All 2 branches covered.">        if (quoted) {</span>
+<span class="fc" id="L759">            throw new MojoException(&quot;Unbalanced quote in \&quot;&quot; + text + &quot;\&quot;&quot;);</span>
         }
-<span class="pc bpc" id="L725" title="1 of 2 branches missed.">        if (any) {</span>
-<span class="fc" id="L726">            words.add(word.toString());</span>
+<span class="pc bpc" id="L761" title="1 of 2 branches missed.">        if (any) {</span>
+<span class="fc" id="L762">            words.add(word.toString());</span>
         }
-<span class="fc" id="L728">        return words.toArray(String[]::new);</span>
+<span class="fc" id="L764">        return words.toArray(String[]::new);</span>
     }
 
     /**
@@ -733,34 +769,34 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * ({@code g:a[:extension[:classifier]]:v}); anything else is a file path.
      */
     private Path resolveSpec(String spec) {
-<span class="nc bnc" id="L736" title="All 2 branches missed.">        if (isCoordinate(spec)) {</span>
+<span class="nc bnc" id="L772" title="All 2 branches missed.">        if (isCoordinate(spec)) {</span>
             try {
-<span class="nc" id="L738">                org.apache.maven.api.DownloadedArtifact artifact =</span>
-<span class="nc" id="L739">                        session.resolveArtifact(session.createArtifactCoordinates(spec));</span>
-<span class="nc" id="L740">                resolvedVersions.put(spec, artifact.getVersion().toString());</span>
-<span class="nc" id="L741">                return artifact.getPath();</span>
-<span class="nc" id="L742">            } catch (Exception e) {</span>
-<span class="nc" id="L743">                throw new MojoException(&quot;Cannot resolve knowledge input &quot; + spec, e);</span>
+<span class="nc" id="L774">                org.apache.maven.api.DownloadedArtifact artifact =</span>
+<span class="nc" id="L775">                        session.resolveArtifact(session.createArtifactCoordinates(spec));</span>
+<span class="nc" id="L776">                resolvedVersions.put(spec, artifact.getVersion().toString());</span>
+<span class="nc" id="L777">                return artifact.getPath();</span>
+<span class="nc" id="L778">            } catch (Exception e) {</span>
+<span class="nc" id="L779">                throw new MojoException(&quot;Cannot resolve knowledge input &quot; + spec, e);</span>
             }
         }
-<span class="nc" id="L746">        Path file = Path.of(spec);</span>
-<span class="nc bnc" id="L747" title="All 2 branches missed.">        if (!Files.isRegularFile(file)) {</span>
-<span class="nc" id="L748">            throw new MojoException(&quot;Knowledge input file does not exist: &quot; + file</span>
+<span class="nc" id="L782">        Path file = Path.of(spec);</span>
+<span class="nc bnc" id="L783" title="All 2 branches missed.">        if (!Files.isRegularFile(file)) {</span>
+<span class="nc" id="L784">            throw new MojoException(&quot;Knowledge input file does not exist: &quot; + file</span>
                     + &quot; — captured change sets must be present before assembly&quot;);
         }
-<span class="nc" id="L751">        return file;</span>
+<span class="nc" id="L787">        return file;</span>
     }
 
     private List&lt;Path&gt; seamClasspath() {
         // Resolution goes through the plugin's serialized entry point — Maven 4 rc-5's
         // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
-<span class="nc" id="L757">        List&lt;Path&gt; classpath = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L758">        Path classesDir = Path.of(classesDirectory);</span>
-<span class="nc bnc" id="L759" title="All 2 branches missed.">        if (Files.isDirectory(classesDir)) {</span>
-<span class="nc" id="L760">            classpath.add(classesDir);</span>
+<span class="nc" id="L793">        List&lt;Path&gt; classpath = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L794">        Path classesDir = Path.of(classesDirectory);</span>
+<span class="nc bnc" id="L795" title="All 2 branches missed.">        if (Files.isDirectory(classesDir)) {</span>
+<span class="nc" id="L796">            classpath.add(classesDir);</span>
         }
-<span class="nc" id="L762">        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));</span>
-<span class="nc" id="L763">        return classpath;</span>
+<span class="nc" id="L798">        classpath.addAll(RuntimeClasspathResolver.mainRuntimePaths(session, project));</span>
+<span class="nc" id="L799">        return classpath;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
