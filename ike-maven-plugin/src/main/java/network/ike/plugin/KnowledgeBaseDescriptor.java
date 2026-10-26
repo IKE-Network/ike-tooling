@@ -34,7 +34,8 @@ import java.util.Properties;
  *
  * <pre>
  * META-INF/ike/knowledge-base.properties   descriptorLevel, coordinate, displayName, layout, …, icon,
- *                                          and the memory the assembly measured, when it did
+ *                                          the collection, when it is in one, and the memory the
+ *                                          assembly measured, when it did
  * META-INF/ike/icon.png, icon@2x.png       the knowledge base's icon
  * </pre>
  *
@@ -103,12 +104,34 @@ final class KnowledgeBaseDescriptor {
      * @param assembledAt  when the store was assembled
      * @param access       who may download it
      * @param memory       what the assembly measured, by descriptor entry, in bytes ({@link #MEMORY})
+     * @param collection   the collection the knowledge base belongs to, such as {@code SOLOR}: the
+     *                     knowledge bases one pipeline builds and publishes together, which a program
+     *                     managing stores keeps at hand without being told to (decision 17 of the
+     *                     IKE Dashboard design)
      */
     record Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
-                  Instant assembledAt, Access access, Map<String, Long> memory) {
+                  Instant assembledAt, Access access, Map<String, Long> memory, Optional<String> collection) {
 
         /**
-         * Copies the memory facts.
+         * Copies the memory facts, and takes a blank collection for none.
+         *
+         * @param groupId      the coordinate's groupId
+         * @param artifactId   the coordinate's artifactId
+         * @param version      the coordinate's version
+         * @param displayName  the name a person reads
+         * @param entityFormat the entity format the store was written in
+         * @param assembledAt  when the store was assembled
+         * @param access       who may download it
+         * @param memory       what the assembly measured, by descriptor entry
+         * @param collection   the collection the knowledge base belongs to
+         */
+        Fields {
+            memory = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(memory));
+            collection = collection.map(String::strip).filter(name -> !name.isEmpty());
+        }
+
+        /**
+         * Fields of a knowledge base in no collection.
          *
          * @param groupId      the coordinate's groupId
          * @param artifactId   the coordinate's artifactId
@@ -119,8 +142,9 @@ final class KnowledgeBaseDescriptor {
          * @param access       who may download it
          * @param memory       what the assembly measured, by descriptor entry
          */
-        Fields {
-            memory = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(memory));
+        Fields(String groupId, String artifactId, String version, String displayName, int entityFormat,
+               Instant assembledAt, Access access, Map<String, Long> memory) {
+            this(groupId, artifactId, version, displayName, entityFormat, assembledAt, access, memory, Optional.empty());
         }
 
         /**
@@ -259,6 +283,7 @@ final class KnowledgeBaseDescriptor {
         entries.put("assembledAt", fields.assembledAt().toString());
         entries.put("access", fields.access().value());
         entries.put("icon", ICON);
+        fields.collection().ifPresent(collection -> entries.put("collection", collection));
         fields.memory().forEach((entry, bytes) -> entries.put(entry, Long.toString(bytes)));
         Path file = store.resolve(FILE);
         Files.writeString(file, text(entries), StandardCharsets.ISO_8859_1);

@@ -307,6 +307,16 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
     String access;
 
     /**
+     * The collection the knowledge base belongs to, for its descriptor, such as {@code SOLOR}: the
+     * knowledge bases one pipeline builds and publishes together, which the IKE Dashboard keeps at
+     * hand whether or not they are downloaded. Set once per project as the
+     * {@code ike.kbAssemble.collection} property, so every store it assembles says the same. When
+     * unset, the descriptor names none.
+     */
+    @Parameter(property = "ike.kbAssemble.collection")
+    String collection;
+
+    /**
      * Skip knowledge-base assembly.
      */
     @Parameter(property = "ike.kbAssemble.skip", defaultValue = "false")
@@ -442,7 +452,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 .filter(name -> !name.isEmpty()).orElse(descriptorArtifactId);
         KnowledgeBaseDescriptor.Fields fields = new KnowledgeBaseDescriptor.Fields(descriptorGroupId,
                 descriptorArtifactId, version, displayName, entityFormat(attributes), assembledAt, access(owner),
-                KnowledgeBaseDescriptor.memory(attributes));
+                KnowledgeBaseDescriptor.memory(attributes), Optional.ofNullable(collection));
         Path icon = knowledgeBaseIcon(owner, displayName);
 
         List<Path> stores = new ArrayList<>(List.of(Path.of(storeRoot)));
@@ -462,7 +472,8 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         }
         getLog().info("Described the store as " + descriptorGroupId + ":" + descriptorArtifactId + ":" + version
                 + " (" + attributes.size() + " manifest attributes; knowledge-base descriptor level "
-                + KnowledgeBaseDescriptor.LEVEL + ", " + fields.access().value() + ")");
+                + KnowledgeBaseDescriptor.LEVEL + ", " + fields.access().value()
+                + fields.collection().map(name -> ", collection " + name).orElse("") + ")");
         attachOnce(owner, KnowledgeBaseDescriptor.CLASSIFIER, "properties", written);
         attachOnce(owner, KnowledgeBaseDescriptor.ICON_CLASSIFIER, "png", icon);
     }

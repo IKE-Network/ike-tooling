@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,6 +79,20 @@ class KnowledgeBaseDescriptorTest {
         assertThat(descriptor.getProperty("statedAxiomBytes")).isEqualTo("168032664");
         assertThat(descriptor.getProperty("loadedHeapBytes")).isEqualTo("1469861888");
         assertThat(descriptor.getProperty("reasonerHeapBytes")).as("left out, not a size").isNull();
+    }
+
+    @Test
+    void aKnowledgeBaseInACollectionNamesIt() throws IOException {
+        Path store = Files.createDirectories(temp.resolve("kb/rocks")).getParent();
+        KnowledgeBaseDescriptor.Fields inSolor = new KnowledgeBaseDescriptor.Fields(PIZZA.groupId(), PIZZA.artifactId(),
+                PIZZA.version(), PIZZA.displayName(), PIZZA.entityFormat(), PIZZA.assembledAt(), PIZZA.access(), Map.of(),
+                Optional.of(" SOLOR "));
+
+        assertThat(read(KnowledgeBaseDescriptor.write(store, inSolor, monogram())).getProperty("collection"))
+                .isEqualTo("SOLOR");
+        assertThat(new KnowledgeBaseDescriptor.Fields(PIZZA.groupId(), PIZZA.artifactId(), PIZZA.version(),
+                PIZZA.displayName(), PIZZA.entityFormat(), PIZZA.assembledAt(), PIZZA.access(), Map.of(), Optional.of("  "))
+                .collection()).as("a blank property is no collection").isEmpty();
     }
 
     @Test
