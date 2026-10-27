@@ -423,6 +423,31 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
      * {@link #descriptorArtifactId} names; when that project is not in this build ({@code -pl}
      * alone), this project's version stands in and no POM is copied.
      */
+    /**
+     * The heap the assembly measured of itself, for the build log: the seam passes on only the
+     * provider's warnings, so the measurement is reported here, from the manifest attributes it left.
+     *
+     * @param memory the memory facts, by descriptor entry ({@link KnowledgeBaseDescriptor#memory})
+     * @return the report, or empty when the assembly measured no heap
+     */
+    static Optional<String> heapReport(Map<String, Long> memory) {
+        Long loaded = memory.get("loadedHeapBytes");
+        if (loaded == null) {
+            return Optional.empty();
+        }
+        StringBuilder report = new StringBuilder("Heap measured: ").append(loaded >> 20)
+                .append(" MB live with the store loaded");
+        Optional.ofNullable(memory.get("reasonerHeapBytes")).ifPresentOrElse(
+                reasoner -> report.append(", ").append(reasoner >> 20)
+                        .append(" MB more while the reasoner holds its model"),
+                () -> report.append(", the reasoner not measured"));
+        Optional.ofNullable(memory.get("reasonerHeapUpperBytes")).ifPresent(upper -> report
+                .append(" (at most ").append(upper >> 20).append(" MB after any collection while it ran)"));
+        Optional.ofNullable(memory.get("statedAxiomBytes")).ifPresent(stated -> report
+                .append("; stated axioms ").append(stated >> 20).append(" MB"));
+        return Optional.of(report.toString());
+    }
+
     private void describe(AssembleResult result, List<ArtifactInput> assembledFrom) {
         Project described = project.getGroupId().equals(descriptorGroupId)
                 && project.getArtifactId().equals(descriptorArtifactId)
@@ -454,6 +479,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 descriptorArtifactId, version, displayName, entityFormat(attributes), assembledAt, access(owner),
                 KnowledgeBaseDescriptor.memory(attributes), Optional.ofNullable(collection),
                 descriptorInputs(assembledFrom, descriptorGroupId, descriptorArtifactId, version));
+        heapReport(fields.memory()).ifPresent(getLog()::info);
         Path icon = knowledgeBaseIcon(owner, displayName);
 
         List<Path> stores = new ArrayList<>(List.of(Path.of(storeRoot)));

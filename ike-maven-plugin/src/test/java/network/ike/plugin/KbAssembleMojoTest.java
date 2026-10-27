@@ -13,8 +13,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * How a {@code SOURCE} input entry splits into its importer, release, and options, and how the
- * inputs are recorded in the knowledge-base descriptor.
+ * How a {@code SOURCE} input entry splits into its importer, release, and options, how the
+ * inputs are recorded in the knowledge-base descriptor, and how the measured heap is logged.
  */
 class KbAssembleMojoTest {
 
@@ -57,5 +57,17 @@ class KbAssembleMojoTest {
                         Optional.empty(), Optional.empty()),
                 new KnowledgeBaseDescriptor.Input("CHANGESET", "file:2026-10-25T10-00.pb.zip", Optional.empty(),
                         Optional.empty()));
+    }
+
+    @Test
+    void theBuildLogReportsTheHeapTheAssemblyMeasured() {
+        long mb = 1L << 20;
+        assertThat(KbAssembleMojo.heapReport(Map.of("loadedHeapBytes", 14_000 * mb, "reasonerHeapBytes", 46_000 * mb,
+                "reasonerHeapUpperBytes", 63_000 * mb, "statedAxiomBytes", 850 * mb)))
+                .contains("Heap measured: 14000 MB live with the store loaded, 46000 MB more while the reasoner"
+                        + " holds its model (at most 63000 MB after any collection while it ran); stated axioms 850 MB");
+        assertThat(KbAssembleMojo.heapReport(Map.of("loadedHeapBytes", 2_000 * mb)))
+                .contains("Heap measured: 2000 MB live with the store loaded, the reasoner not measured");
+        assertThat(KbAssembleMojo.heapReport(Map.of("statedAxiomBytes", 850 * mb))).as("no heap measured").isEmpty();
     }
 }

@@ -80,6 +80,7 @@ final class KnowledgeBaseDescriptor {
         entries.put("Ike-Stated-Axiom-Bytes", "statedAxiomBytes");
         entries.put("Ike-Loaded-Heap-Bytes", "loadedHeapBytes");
         entries.put("Ike-Reasoner-Heap-Bytes", "reasonerHeapBytes");
+        entries.put("Ike-Reasoner-Heap-Upper-Bytes", "reasonerHeapUpperBytes");
         return java.util.Collections.unmodifiableMap(entries);
     }
 

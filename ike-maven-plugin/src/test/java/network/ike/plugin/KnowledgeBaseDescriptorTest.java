@@ -68,9 +68,10 @@ class KnowledgeBaseDescriptorTest {
                 "Ike-Stated-Axiom-Bytes", "168032664",
                 "Ike-Loaded-Heap-Bytes", "1469861888",
                 "Ike-Reasoner-Heap-Bytes", "not a size",
+                "Ike-Reasoner-Heap-Upper-Bytes", "6442450944",
                 "Ike-Open-Controller", "Open Rocks KB"));
         assertThat(memory).containsExactly(Map.entry("statedAxiomBytes", 168032664L),
-                Map.entry("loadedHeapBytes", 1469861888L));
+                Map.entry("loadedHeapBytes", 1469861888L), Map.entry("reasonerHeapUpperBytes", 6442450944L));
 
         KnowledgeBaseDescriptor.Fields measured = new KnowledgeBaseDescriptor.Fields(PIZZA.groupId(), PIZZA.artifactId(),
                 PIZZA.version(), PIZZA.displayName(), PIZZA.entityFormat(), PIZZA.assembledAt(), PIZZA.access(), memory);
@@ -79,6 +80,7 @@ class KnowledgeBaseDescriptorTest {
         assertThat(descriptor.getProperty("statedAxiomBytes")).isEqualTo("168032664");
         assertThat(descriptor.getProperty("loadedHeapBytes")).isEqualTo("1469861888");
         assertThat(descriptor.getProperty("reasonerHeapBytes")).as("left out, not a size").isNull();
+        assertThat(descriptor.getProperty("reasonerHeapUpperBytes")).isEqualTo("6442450944");
     }
 
     @Test
