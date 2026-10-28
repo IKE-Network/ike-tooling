@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>StoreDescriptor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">StoreDescriptor.java</span></div><h1>StoreDescriptor.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
+import java.util.jar.Attributes;
+import java.util.jar.Manifest;
+
+/**
+ * What an assembled store says about itself, in the files any Maven or JDK tool already
+ * reads, so that a program with no Tinkar code can tell which build a folder under
+ * {@code ~/Solor} is (the IKE Dashboard design, {@code dev-ike-dashboard} in
+ * ike-lab-documents):
+ *
+ * &lt;pre&gt;
+ * META-INF/maven/&amp;lt;groupId&amp;gt;/&amp;lt;artifactId&amp;gt;/pom.properties   groupId, artifactId, version
+ * META-INF/maven/&amp;lt;groupId&amp;gt;/&amp;lt;artifactId&amp;gt;/pom.xml          the project's POM
+ * META-INF/MANIFEST.MF                                  Created-By and the Ike-* attributes
+ * &lt;/pre&gt;
+ *
+ * &lt;p&gt;The descriptor is the one maven-archiver writes into every jar, at the same path; the
+ * coordinate it holds is the one the store's zips publish under, without a classifier. The
+ * manifest is merged: attributes already there are kept unless written again.
+ */
+final class StoreDescriptor {
+
+    /** The manifest attribute naming the version of the Komet launch interface the store follows. */
+    static final String LAUNCH_INTERFACE_VERSION = &quot;Ike-Launch-Interface-Version&quot;;
+
+    /** The version of the Komet launch interface stores are written to. */
+    static final String LAUNCH_INTERFACE = &quot;1&quot;;
+
+    /** The manifest attribute holding when the store was assembled. */
+    static final String ASSEMBLED_AT = &quot;Ike-Assembled-At&quot;;
+
+    /** The manifest attribute naming the reasoner that classified the store. */
+    static final String REASONER = &quot;Ike-Reasoner&quot;;
+
+    private StoreDescriptor() {
+    }
+
+    /**
+     * Writes the Maven descriptor and merges the manifest attributes into a store directory.
+     *
+     * @param store      the store directory
+     * @param groupId    the coordinate's groupId
+     * @param artifactId the coordinate's artifactId
+     * @param version    the coordinate's version
+     * @param pom        the POM to copy beside {@code pom.properties}, when there is one
+     * @param createdBy  the tool that wrote the store, for the manifest's {@code Created-By}
+     * @param attributes the {@code Ike-*} attributes, by name
+     * @throws IOException if a file cannot be written
+     */
+    static void write(Path store, String groupId, String artifactId, String version, Optional&lt;Path&gt; pom,
+                      String createdBy, Map&lt;String, String&gt; attributes) throws IOException {
+<span class="fc" id="L78">        Path maven = store.resolve(&quot;META-INF&quot;).resolve(&quot;maven&quot;).resolve(groupId).resolve(artifactId);</span>
+<span class="fc" id="L79">        Files.createDirectories(maven);</span>
+        // Written as maven-archiver writes it: no timestamp, so a rebuild of the same project
+        // writes the same bytes.
+<span class="fc" id="L82">        Files.writeString(maven.resolve(&quot;pom.properties&quot;), &quot;#Created by &quot; + createdBy + &quot;\n&quot;</span>
+                + &quot;artifactId=&quot; + artifactId + &quot;\n&quot;
+                + &quot;groupId=&quot; + groupId + &quot;\n&quot;
+                + &quot;version=&quot; + version + &quot;\n&quot;, StandardCharsets.ISO_8859_1);
+<span class="fc bfc" id="L86" title="All 2 branches covered.">        if (pom.isPresent()) {</span>
+<span class="fc" id="L87">            Files.copy(pom.get(), maven.resolve(&quot;pom.xml&quot;), StandardCopyOption.REPLACE_EXISTING);</span>
+        }
+
+<span class="fc" id="L90">        Path file = store.resolve(&quot;META-INF&quot;).resolve(&quot;MANIFEST.MF&quot;);</span>
+<span class="fc" id="L91">        Manifest manifest = new Manifest();</span>
+<span class="fc bfc" id="L92" title="All 2 branches covered.">        if (Files.isRegularFile(file)) {</span>
+<span class="fc" id="L93">            try (InputStream in = Files.newInputStream(file)) {</span>
+<span class="fc" id="L94">                manifest.read(in);</span>
+            }
+        }
+<span class="fc" id="L97">        Attributes main = manifest.getMainAttributes();</span>
+<span class="fc" id="L98">        main.put(Attributes.Name.MANIFEST_VERSION, &quot;1.0&quot;);</span>
+<span class="fc" id="L99">        main.putValue(&quot;Created-By&quot;, createdBy);</span>
+<span class="fc" id="L100">        new TreeMap&lt;&gt;(attributes).forEach(main::putValue);</span>
+<span class="fc" id="L101">        try (OutputStream out = Files.newOutputStream(file)) {</span>
+<span class="fc" id="L102">            manifest.write(out);</span>
+        }
+<span class="fc" id="L104">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
