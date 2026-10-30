@@ -1,0 +1,345 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MeasureCollector.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">MeasureCollector.java</span></div><h1>MeasureCollector.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.PathMatcher;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Properties;
+import java.util.TreeSet;
+import java.util.stream.Stream;
+
+/**
+ * Collects what one session was like, in numbers (ike-issues#1207):
+ * warnings by kind, tests, coverage, time, the sizes the ledger names,
+ * and the measurements its tests left behind.
+ *
+ * &lt;p&gt;Every source is something the session already produced — the
+ * console the extension listens to, the activity it timed, the XML the
+ * test plugins wrote, the execution data the JaCoCo agent dumped, the
+ * properties a test saved — read once at session end. Nothing here
+ * runs a tool or changes a file.&lt;/p&gt;
+ */
+public final class MeasureCollector {
+
+    /**
+     * Where a test leaves measurements, under its module's build
+     * directory: every numeric property of every {@code .properties}
+     * file there becomes a measure under the key the test wrote.
+     */
+    public static final String MEASUREMENTS_DIRECTORY = &quot;measurements&quot;;
+
+    private static final String MEASUREMENTS_SUFFIX = &quot;.properties&quot;;
+    private static final String STDERR_PREFIX = &quot;[stderr]&quot;;
+    private static final String JAVADOC_GOAL_PREFIX = &quot;maven-javadoc-plugin:&quot;;
+    private static final String COMPILER_KIND_PREFIX = &quot;compiler: &quot;;
+    private static final String DEPENDENCY_KIND_PREFIX = &quot;dependency analysis: &quot;;
+    private static final String TESTS_SKIPPED_KIND = &quot;tests: skipped&quot;;
+    private static final String LINT_DEPRECATION = &quot;deprecation&quot;;
+    private static final String LINT_REMOVAL = &quot;removal&quot;;
+    private static final String GLOB_METACHARACTERS = &quot;*?[{\\&quot;;
+
+    /** The warning kinds, in the order the receipt lists them. */
+<span class="fc" id="L52">    private static final List&lt;MeasureKey&gt; WARNING_KINDS = List.of(</span>
+            MeasureKey.WARNINGS_COMPILER_DEPRECATION,
+            MeasureKey.WARNINGS_COMPILER_REMOVAL,
+            MeasureKey.WARNINGS_COMPILER_OTHER,
+            MeasureKey.WARNINGS_JAVADOC,
+            MeasureKey.WARNINGS_DEPENDENCY,
+            MeasureKey.WARNINGS_STDERR,
+            MeasureKey.WARNINGS_TESTS,
+            MeasureKey.WARNINGS_OTHER);
+
+    private MeasureCollector() {
+    }
+
+    /**
+     * Collects the session's measures.
+     *
+     * @param root     the execution root, which size globs are relative to
+     * @param modules  the reactor's modules
+     * @param overview what the session built and how long it took; null
+     *                 when unknown
+     * @param console  the console's counted warnings and errors
+     * @param ledger   the ledger, for the sizes it names
+     * @return the measures, with a note for everything that could not be
+     *         measured
+     */
+    public static Measures collect(
+            Path root,
+            List&lt;ModuleLocation&gt; modules,
+            BuildActivity.Overview overview,
+            ReceiptRenderer.Console console,
+            Ledger ledger) {
+<span class="fc" id="L83">        Objects.requireNonNull(root, &quot;root&quot;);</span>
+<span class="fc" id="L84">        Objects.requireNonNull(modules, &quot;modules&quot;);</span>
+<span class="fc" id="L85">        Objects.requireNonNull(console, &quot;console&quot;);</span>
+<span class="fc" id="L86">        Objects.requireNonNull(ledger, &quot;ledger&quot;);</span>
+<span class="fc" id="L87">        Map&lt;String, Double&gt; values = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L88">        Map&lt;String, Map&lt;String, Double&gt;&gt; perModule = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L89">        List&lt;Measures.SlowSuite&gt; slowest = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L90">        List&lt;String&gt; notes = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L91">        build(overview, values);</span>
+<span class="fc" id="L92">        warnings(console, values, notes);</span>
+<span class="fc" id="L93">        TestReports.collect(modules, values, perModule, slowest, notes);</span>
+<span class="fc" id="L94">        CoverageMerge.collect(modules, values, perModule, notes);</span>
+<span class="fc" id="L95">        sizes(root, ledger.sizes(), values, notes);</span>
+<span class="fc" id="L96">        measurements(modules, values, notes);</span>
+<span class="fc" id="L97">        return new Measures(values, perModule, slowest, notes);</span>
+    }
+
+    /**
+     * Returns the warning kinds in the order the receipt lists them.
+     *
+     * @return the kinds, every one a {@code warnings.*} key
+     */
+    public static List&lt;MeasureKey&gt; warningKinds() {
+<span class="fc" id="L106">        return WARNING_KINDS;</span>
+    }
+
+    /**
+     * Files one consolidated console warning under its kind.
+     *
+     * @param item the warning as the console collector folded it
+     * @return the kind's measure key
+     */
+    static MeasureKey warningKind(ConsoleMessages.Item item) {
+<span class="fc" id="L116">        String kind = item.kind();</span>
+<span class="fc bfc" id="L117" title="All 2 branches covered.">        if (kind.startsWith(COMPILER_KIND_PREFIX)) {</span>
+<span class="fc" id="L118">            String lint = kind.substring(COMPILER_KIND_PREFIX.length());</span>
+<span class="fc bfc" id="L119" title="All 3 branches covered.">            return switch (lint) {</span>
+<span class="fc" id="L120">                case LINT_DEPRECATION -&gt; MeasureKey.WARNINGS_COMPILER_DEPRECATION;</span>
+<span class="fc" id="L121">                case LINT_REMOVAL -&gt; MeasureKey.WARNINGS_COMPILER_REMOVAL;</span>
+<span class="fc" id="L122">                default -&gt; MeasureKey.WARNINGS_COMPILER_OTHER;</span>
+            };
+        }
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        if (kind.startsWith(DEPENDENCY_KIND_PREFIX)) {</span>
+<span class="fc" id="L126">            return MeasureKey.WARNINGS_DEPENDENCY;</span>
+        }
+<span class="fc bfc" id="L128" title="All 2 branches covered.">        if (kind.equals(TESTS_SKIPPED_KIND)) {</span>
+<span class="fc" id="L129">            return MeasureKey.WARNINGS_TESTS;</span>
+        }
+<span class="fc bfc" id="L131" title="All 2 branches covered.">        if (item.message().startsWith(STDERR_PREFIX)) {</span>
+<span class="fc" id="L132">            return MeasureKey.WARNINGS_STDERR;</span>
+        }
+<span class="fc bfc" id="L134" title="All 2 branches covered.">        for (String goal : item.goals()) {</span>
+<span class="fc bfc" id="L135" title="All 2 branches covered.">            if (goal.startsWith(JAVADOC_GOAL_PREFIX)) {</span>
+<span class="fc" id="L136">                return MeasureKey.WARNINGS_JAVADOC;</span>
+            }
+<span class="fc" id="L138">        }</span>
+<span class="fc" id="L139">        return MeasureKey.WARNINGS_OTHER;</span>
+    }
+
+    private static void build(BuildActivity.Overview overview, Map&lt;String, Double&gt; values) {
+<span class="fc bfc" id="L143" title="All 2 branches covered.">        if (overview == null) {</span>
+<span class="fc" id="L144">            return;</span>
+        }
+<span class="fc" id="L146">        values.put(MeasureKey.BUILD_SECONDS.key(), Math.round(overview.wallTime().toMillis() / 100.0) / 10.0);</span>
+<span class="fc" id="L147">        values.put(MeasureKey.BUILD_MODULES_BUILT.key(),</span>
+<span class="fc" id="L148">                (double) overview.count(BuildActivity.ModuleResult.BUILT));</span>
+<span class="fc" id="L149">        values.put(MeasureKey.BUILD_MODULES_FAILED.key(),</span>
+<span class="fc" id="L150">                (double) overview.count(BuildActivity.ModuleResult.FAILED));</span>
+<span class="fc" id="L151">        values.put(MeasureKey.BUILD_THREADS.key(), (double) overview.threads());</span>
+<span class="fc" id="L152">    }</span>
+
+    private static void warnings(ReceiptRenderer.Console console, Map&lt;String, Double&gt; values, List&lt;String&gt; notes) {
+<span class="fc bfc" id="L155" title="All 2 branches covered.">        if (!console.captured()) {</span>
+<span class="fc" id="L156">            notes.add(&quot;warnings: the console was not captured&quot;);</span>
+<span class="fc" id="L157">            return;</span>
+        }
+<span class="fc" id="L159">        Map&lt;MeasureKey, Long&gt; byKind = new EnumMap&lt;&gt;(MeasureKey.class);</span>
+<span class="fc bfc" id="L160" title="All 2 branches covered.">        for (MeasureKey kind : WARNING_KINDS) {</span>
+<span class="fc" id="L161">            byKind.put(kind, 0L);</span>
+<span class="fc" id="L162">        }</span>
+<span class="fc" id="L163">        long total = 0;</span>
+<span class="fc" id="L164">        long errors = 0;</span>
+<span class="fc bfc" id="L165" title="All 2 branches covered.">        for (ConsoleMessages.Item item : console.items()) {</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">            if (item.level() == ConsoleMessages.Level.ERROR) {</span>
+<span class="fc" id="L167">                errors += item.count();</span>
+<span class="fc" id="L168">                continue;</span>
+            }
+<span class="fc" id="L170">            total += item.count();</span>
+<span class="fc" id="L171">            byKind.merge(warningKind(item), (long) item.count(), Long::sum);</span>
+<span class="fc" id="L172">        }</span>
+<span class="fc" id="L173">        values.put(MeasureKey.WARNINGS_TOTAL.key(), (double) total);</span>
+<span class="fc bfc" id="L174" title="All 2 branches covered.">        for (MeasureKey kind : WARNING_KINDS) {</span>
+<span class="fc" id="L175">            values.put(kind.key(), (double) byKind.get(kind));</span>
+<span class="fc" id="L176">        }</span>
+<span class="fc" id="L177">        values.put(MeasureKey.ERRORS_CONSOLE.key(), (double) errors);</span>
+<span class="fc" id="L178">    }</span>
+
+    /**
+     * Sizes the files and trees the ledger names.
+     *
+     * @param root    the execution root the globs are relative to
+     * @param entries the ledger's size entries
+     * @param values  the session's measures, added to
+     * @param notes   what matched nothing, added to
+     */
+    static void sizes(Path root, List&lt;SizeEntry&gt; entries, Map&lt;String, Double&gt; values, List&lt;String&gt; notes) {
+<span class="fc bfc" id="L189" title="All 2 branches covered.">        for (SizeEntry entry : entries) {</span>
+            try {
+<span class="fc" id="L191">                long size = sizeOf(root, entry.path());</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">                if (size &lt; 0) {</span>
+<span class="fc" id="L193">                    notes.add(&quot;size: &quot; + entry.key() + &quot; — nothing matches &quot; + entry.path());</span>
+<span class="fc" id="L194">                    continue;</span>
+                }
+<span class="fc" id="L196">                values.put(entry.key(), (double) size);</span>
+<span class="nc" id="L197">            } catch (IOException | RuntimeException e) {</span>
+<span class="nc" id="L198">                notes.add(&quot;size: &quot; + entry.key() + &quot; — could not measure &quot; + entry.path() + &quot;: &quot; + e);</span>
+<span class="fc" id="L199">            }</span>
+<span class="fc" id="L200">        }</span>
+<span class="fc" id="L201">    }</span>
+
+    /**
+     * Sums the size of everything a glob matches under the root.
+     *
+     * &lt;p&gt;The walk starts at the glob's longest fixed prefix, so a
+     * pattern that begins with a directory name costs that directory,
+     * not the whole tree. A matching directory counts as its whole tree
+     * and is not descended further.&lt;/p&gt;
+     *
+     * @param root the execution root
+     * @param glob the pattern, relative to the root
+     * @return the total size in bytes, or {@code -1} when nothing matched
+     * @throws IOException when the tree cannot be walked
+     */
+    static long sizeOf(Path root, String glob) throws IOException {
+<span class="fc" id="L217">        PathMatcher matcher = root.getFileSystem().getPathMatcher(&quot;glob:&quot; + glob);</span>
+<span class="fc" id="L218">        Path start = fixedStart(root, glob);</span>
+<span class="fc bfc" id="L219" title="All 2 branches covered.">        if (!Files.exists(start)) {</span>
+<span class="fc" id="L220">            return -1;</span>
+        }
+<span class="fc bfc" id="L222" title="All 2 branches covered.">        if (matcher.matches(root.relativize(start))) {</span>
+<span class="fc" id="L223">            return treeSize(start);</span>
+        }
+<span class="pc bpc" id="L225" title="1 of 2 branches missed.">        if (!Files.isDirectory(start)) {</span>
+<span class="nc" id="L226">            return -1;</span>
+        }
+<span class="fc" id="L228">        long[] total = {0L};</span>
+<span class="fc" id="L229">        boolean[] matched = {false};</span>
+<span class="fc" id="L230">        Files.walkFileTree(start, new SimpleFileVisitor&lt;&gt;() {</span>
+            @Override
+            public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)
+                    throws IOException {
+<span class="pc bpc" id="L234" title="1 of 4 branches missed.">                if (!directory.equals(start) &amp;&amp; matcher.matches(root.relativize(directory))) {</span>
+<span class="nc" id="L235">                    total[0] += treeSize(directory);</span>
+<span class="nc" id="L236">                    matched[0] = true;</span>
+<span class="nc" id="L237">                    return FileVisitResult.SKIP_SUBTREE;</span>
+                }
+<span class="fc" id="L239">                return FileVisitResult.CONTINUE;</span>
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+<span class="fc bfc" id="L244" title="All 2 branches covered.">                if (matcher.matches(root.relativize(file))) {</span>
+<span class="fc" id="L245">                    total[0] += attributes.size();</span>
+<span class="fc" id="L246">                    matched[0] = true;</span>
+                }
+<span class="fc" id="L248">                return FileVisitResult.CONTINUE;</span>
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException e) {
+<span class="nc" id="L253">                return FileVisitResult.CONTINUE;</span>
+            }
+        });
+<span class="pc bpc" id="L256" title="1 of 2 branches missed.">        return matched[0] ? total[0] : -1;</span>
+    }
+
+    /** The glob's leading segments without metacharacters, resolved against the root. */
+    private static Path fixedStart(Path root, String glob) {
+<span class="fc" id="L261">        Path start = root;</span>
+<span class="fc bfc" id="L262" title="All 2 branches covered.">        for (String segment : glob.split(&quot;/&quot;)) {</span>
+<span class="pc bpc" id="L263" title="1 of 2 branches missed.">            if (segment.isEmpty()) {</span>
+<span class="nc" id="L264">                continue;</span>
+            }
+<span class="fc" id="L266">            boolean fixed = true;</span>
+<span class="fc bfc" id="L267" title="All 4 branches covered.">            for (int index = 0; index &lt; segment.length() &amp;&amp; fixed; index++) {</span>
+<span class="fc bfc" id="L268" title="All 2 branches covered.">                fixed = GLOB_METACHARACTERS.indexOf(segment.charAt(index)) &lt; 0;</span>
+            }
+<span class="fc bfc" id="L270" title="All 2 branches covered.">            if (!fixed) {</span>
+<span class="fc" id="L271">                break;</span>
+            }
+<span class="fc" id="L273">            start = start.resolve(segment);</span>
+        }
+<span class="fc" id="L275">        return start;</span>
+    }
+
+    private static long treeSize(Path path) throws IOException {
+<span class="pc bpc" id="L279" title="1 of 2 branches missed.">        if (Files.isRegularFile(path)) {</span>
+<span class="nc" id="L280">            return Files.size(path);</span>
+        }
+<span class="fc" id="L282">        try (Stream&lt;Path&gt; files = Files.walk(path)) {</span>
+<span class="fc" id="L283">            return files.filter(Files::isRegularFile).mapToLong(file -&gt; {</span>
+                try {
+<span class="fc" id="L285">                    return Files.size(file);</span>
+<span class="nc" id="L286">                } catch (IOException e) {</span>
+<span class="nc" id="L287">                    return 0L;</span>
+                }
+<span class="fc" id="L289">            }).sum();</span>
+        }
+    }
+
+    /**
+     * Reads the measurements every module's tests left.
+     *
+     * @param modules the reactor's modules
+     * @param values  the session's measures, added to
+     * @param notes   what was not used, added to
+     */
+    static void measurements(List&lt;ModuleLocation&gt; modules, Map&lt;String, Double&gt; values, List&lt;String&gt; notes) {
+<span class="fc bfc" id="L301" title="All 2 branches covered.">        for (ModuleLocation module : modules) {</span>
+<span class="fc" id="L302">            Path directory = module.buildDirectory().resolve(MEASUREMENTS_DIRECTORY);</span>
+<span class="fc bfc" id="L303" title="All 2 branches covered.">            if (!Files.isDirectory(directory)) {</span>
+<span class="fc" id="L304">                continue;</span>
+            }
+            List&lt;Path&gt; files;
+<span class="fc" id="L307">            try (Stream&lt;Path&gt; entries = Files.list(directory)) {</span>
+<span class="fc" id="L308">                files = entries</span>
+<span class="fc" id="L309">                        .filter(path -&gt; path.getFileName().toString().endsWith(MEASUREMENTS_SUFFIX))</span>
+<span class="fc" id="L310">                        .sorted()</span>
+<span class="fc" id="L311">                        .toList();</span>
+<span class="nc" id="L312">            } catch (IOException e) {</span>
+<span class="nc" id="L313">                notes.add(&quot;measurements: could not list &quot; + directory + &quot;: &quot; + e);</span>
+<span class="nc" id="L314">                continue;</span>
+<span class="fc" id="L315">            }</span>
+<span class="fc bfc" id="L316" title="All 2 branches covered.">            for (Path file : files) {</span>
+<span class="fc" id="L317">                Properties properties = new Properties();</span>
+<span class="fc" id="L318">                try (InputStream in = Files.newInputStream(file)) {</span>
+<span class="fc" id="L319">                    properties.load(in);</span>
+<span class="nc" id="L320">                } catch (IOException | IllegalArgumentException e) {</span>
+<span class="nc" id="L321">                    notes.add(&quot;measurements: could not read &quot; + file + &quot;: &quot; + e);</span>
+<span class="nc" id="L322">                    continue;</span>
+<span class="fc" id="L323">                }</span>
+<span class="fc bfc" id="L324" title="All 2 branches covered.">                for (String key : new TreeSet&lt;&gt;(properties.stringPropertyNames())) {</span>
+                    double value;
+                    try {
+<span class="fc" id="L327">                        value = Double.parseDouble(properties.getProperty(key).strip());</span>
+<span class="fc" id="L328">                    } catch (NumberFormatException e) {</span>
+<span class="fc" id="L329">                        continue;</span>
+<span class="fc" id="L330">                    }</span>
+<span class="pc bpc" id="L331" title="2 of 4 branches missed.">                    if (Double.isNaN(value) || Double.isInfinite(value)) {</span>
+<span class="nc" id="L332">                        continue;</span>
+                    }
+<span class="fc bfc" id="L334" title="All 2 branches covered.">                    if (values.containsKey(key)) {</span>
+<span class="fc" id="L335">                        notes.add(&quot;measurements: &quot; + key + &quot; in &quot; + module.name() + &quot;/&quot; + file.getFileName()</span>
+                                + &quot; repeats an earlier value and was not used&quot;);
+<span class="fc" id="L337">                        continue;</span>
+                    }
+<span class="fc" id="L339">                    values.put(key, value);</span>
+<span class="fc" id="L340">                }</span>
+<span class="fc" id="L341">            }</span>
+<span class="fc" id="L342">        }</span>
+<span class="fc" id="L343">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
