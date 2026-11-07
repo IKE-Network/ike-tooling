@@ -52,4 +52,30 @@ class ReactorLayoutTest {
         assertThat(ReactorLayout.memberBasedir(root, "network.ike.lab", "absent")).isEmpty();
         assertThat(ReactorLayout.memberBasedir(root.resolve("nowhere"), "network.ike.lab", "topics")).isEmpty();
     }
+
+    /**
+     * In a parallel build another module's clean deletes its target while the search runs.
+     * A directory the walk cannot enter stands in for one that vanished: the search never
+     * enters a target, and skips any other directory it cannot read.
+     */
+    @Test
+    void aTargetIsNeverEnteredAndAnUnreadableDirectoryIsPassedOver() throws Exception {
+        AdocFixtures.write(root.resolve("pom.xml"), "<project><groupId>network.ike.lab</groupId><artifactId>root</artifactId></project>");
+        AdocFixtures.write(root.resolve("assembly/target/bom/pom.xml"), "<project><artifactId>stale</artifactId></project>");
+        AdocFixtures.write(root.resolve("locked/inner/pom.xml"), "<project><artifactId>hidden</artifactId></project>");
+        AdocFixtures.write(root.resolve("library/pom.xml"), "<project><groupId>network.ike.lab</groupId><artifactId>library</artifactId></project>");
+        Path target = root.resolve("assembly/target");
+        Path locked = root.resolve("locked");
+        assertThat(target.toFile().setReadable(false) && target.toFile().setExecutable(false)).isTrue();
+        assertThat(locked.toFile().setReadable(false) && locked.toFile().setExecutable(false)).isTrue();
+        try {
+            assertThat(ReactorLayout.memberBasedir(root, "network.ike.lab", "library")).contains(root.resolve("library"));
+            assertThat(ReactorLayout.memberBasedir(root, "network.ike.lab", "absent")).isEmpty();
+        } finally {
+            target.toFile().setReadable(true);
+            target.toFile().setExecutable(true);
+            locked.toFile().setReadable(true);
+            locked.toFile().setExecutable(true);
+        }
+    }
 }

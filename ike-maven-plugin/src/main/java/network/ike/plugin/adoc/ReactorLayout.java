@@ -25,11 +25,15 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 
 /**
  * Finds a module of the reactor by its pom, under the reactor root. A {@code -pl} build's
@@ -60,25 +64,43 @@ public final class ReactorLayout {
         if (root == null || !Files.isDirectory(root)) {
             return Optional.empty();
         }
-        try (Stream<Path> walk = Files.walk(root, MAX_DEPTH)) {
-            return walk.filter(p -> p.getFileName().toString().equals("pom.xml") && Files.isRegularFile(p))
-                    .filter(p -> !skipped(root.relativize(p)))
-                    .filter(pom -> declares(pom, groupId, artifactId))
-                    .findFirst()
-                    .map(Path::getParent);
+        // A skipped directory is never entered, not just filtered out afterwards: in a
+        // parallel build another module's clean deletes its target while this walk runs,
+        // and a walk inside it fails on the vanished entries (IKE-Network/ike-issues#1348).
+        Path[] found = new Path[1];
+        try {
+            Files.walkFileTree(root, EnumSet.noneOf(FileVisitOption.class), MAX_DEPTH, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    return !dir.equals(root) && skipped(dir.getFileName().toString())
+                            ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (attrs.isRegularFile() && file.getFileName().toString().equals("pom.xml")
+                            && declares(file, groupId, artifactId)) {
+                        found[0] = file.getParent();
+                        return FileVisitResult.TERMINATE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException e) {
+                    // An entry another build deleted, or one that cannot be read, holds no
+                    // module this search could use.
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+        return Optional.ofNullable(found[0]);
     }
 
-    private static boolean skipped(Path relative) {
-        for (Path part : relative) {
-            String name = part.toString();
-            if (SKIPPED.contains(name) || name.startsWith(".")) {
-                return true;
-            }
-        }
-        return false;
+    private static boolean skipped(String name) {
+        return SKIPPED.contains(name) || name.startsWith(".");
     }
 
     /** Whether a pom's own or inherited group and its artifact are the ones asked for. */
