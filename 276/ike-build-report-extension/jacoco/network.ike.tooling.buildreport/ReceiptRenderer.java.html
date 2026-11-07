@@ -1,0 +1,1091 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReceiptRenderer.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">ReceiptRenderer.java</span></div><h1>ReceiptRenderer.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.time.Duration;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+/**
+ * Renders a {@link LedgerEvaluation} as the {@code ike꞉build-report.md}
+ * receipt, in the house {@code ws꞉*.md} receipt style: a title line, a
+ * tool/version/timestamp line, then only the sections that have content.
+ *
+ * &lt;p&gt;The receipt reads top-down as &quot;what happened, then what needs
+ * you&quot;: the work the session did and how long it took, the findings
+ * the ledger evaluates, and last the console's warnings folded to one
+ * line per distinct message.&lt;/p&gt;
+ */
+public final class ReceiptRenderer {
+
+<span class="fc" id="L26">    private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd HH:mm:ss&quot;);</span>
+
+    /** How many occurrences of one key the receipt lists before summarizing. */
+    private static final int MAX_OCCURRENCES = 5;
+
+    /*
+     * Status markers. Markdown has no colour of its own, and inline
+     * HTML styling is stripped by most renderers, so the receipt carries
+     * colour as emoji: they survive the IDE preview, GitHub, and a plain
+     * terminal alike. The palette is the one test harnesses and Maven's
+     * console have taught: green passed, red failed, yellow warns, blue
+     * informs.
+     */
+    private static final String GREEN = &quot;🟢&quot;;
+    private static final String RED = &quot;🔴&quot;;
+    private static final String YELLOW = &quot;🟡&quot;;
+    private static final String BLUE = &quot;🔵&quot;;
+    private static final String NEUTRAL = &quot;⚪&quot;;
+
+    /**
+     * Marks a module still building in a live receipt. Deliberately not
+     * a coloured circle: beside rows of them, one more circle with a
+     * time reads as one more finished module.
+     */
+    private static final String IN_PROGRESS = &quot;⏳&quot;;
+
+<span class="fc" id="L52">    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern(&quot;HH:mm:ss&quot;);</span>
+
+    /** How many plugin goals the timing table lists. */
+    private static final int MAX_GOAL_TIMES = 10;
+
+    /** How many distinct console messages the receipt lists before summarizing. */
+    private static final int MAX_CONSOLE_ITEMS = 25;
+
+    /** How many module names one console message lists before counting the rest. */
+    private static final int MAX_CONSOLE_MODULES = 3;
+
+    /**
+     * How one ignore rule fared in a session.
+     *
+     * @param rule     the rule from the ledger
+     * @param lines    how many console lines it ignored
+     */
+<span class="fc" id="L69">    public record Ignored(ConsoleIgnore rule, int lines) {</span>
+    }
+
+    /**
+     * The console's warnings and errors, consolidated.
+     *
+     * @param captured       whether console output could be listened to at all
+     * @param items          one item per distinct message that counts, most
+     *                       significant first
+     * @param overflow       lines counted but not kept once the collector was full
+     * @param moduleWarnings counted warning lines keyed by module artifact id
+     * @param ignored        every ignore rule with what it ignored, in ledger order
+     */
+<span class="fc" id="L82">    public record Console(</span>
+            boolean captured,
+            List&lt;ConsoleMessages.Item&gt; items,
+            int overflow,
+            Map&lt;String, Integer&gt; moduleWarnings,
+            List&lt;Ignored&gt; ignored) {
+
+        /** A console that was listened to and stayed quiet. */
+<span class="fc" id="L90">        public static final Console QUIET = new Console(true, List.of(), 0, Map.of(), List.of());</span>
+
+        /**
+         * Sorts collected messages into those that count and those the
+         * ledger's ignore rules set aside.
+         *
+         * @param captured whether console output could be listened to at all
+         * @param all      every distinct message the session printed
+         * @param overflow lines counted but not kept once the collector was full
+         * @param rules    the ledger's console ignore rules
+         * @return the console as the receipt presents it
+         */
+        public static Console of(
+                boolean captured, List&lt;ConsoleMessages.Item&gt; all, int overflow, List&lt;ConsoleIgnore&gt; rules) {
+<span class="fc" id="L104">            int[] ignoredLines = new int[rules.size()];</span>
+<span class="fc" id="L105">            List&lt;ConsoleMessages.Item&gt; counted = new java.util.ArrayList&lt;&gt;();</span>
+<span class="fc" id="L106">            Map&lt;String, Integer&gt; moduleWarnings = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">            for (ConsoleMessages.Item item : all) {</span>
+<span class="fc" id="L108">                int rule = 0;</span>
+<span class="fc bfc" id="L109" title="All 4 branches covered.">                while (rule &lt; rules.size() &amp;&amp; !rules.get(rule).ignores(item)) {</span>
+<span class="fc" id="L110">                    rule++;</span>
+                }
+<span class="fc bfc" id="L112" title="All 2 branches covered.">                if (rule &lt; rules.size()) {</span>
+<span class="fc" id="L113">                    ignoredLines[rule] += item.count();</span>
+<span class="fc" id="L114">                    continue;</span>
+                }
+<span class="fc" id="L116">                counted.add(item);</span>
+<span class="fc bfc" id="L117" title="All 2 branches covered.">                if (item.level() == ConsoleMessages.Level.WARNING) {</span>
+<span class="fc" id="L118">                    item.modules().forEach((module, lines) -&gt; moduleWarnings.merge(module, lines, Integer::sum));</span>
+                }
+<span class="fc" id="L120">            }</span>
+<span class="fc" id="L121">            List&lt;Ignored&gt; ignored = new java.util.ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L122" title="All 2 branches covered.">            for (int rule = 0; rule &lt; rules.size(); rule++) {</span>
+<span class="fc" id="L123">                ignored.add(new Ignored(rules.get(rule), ignoredLines[rule]));</span>
+            }
+<span class="fc" id="L125">            return new Console(captured, List.copyOf(counted), overflow, moduleWarnings, List.copyOf(ignored));</span>
+        }
+
+        private int lines(ConsoleMessages.Level level) {
+<span class="fc" id="L129">            return items.stream()</span>
+<span class="fc bfc" id="L130" title="All 2 branches covered.">                    .filter(item -&gt; item.level() == level)</span>
+<span class="fc" id="L131">                    .mapToInt(ConsoleMessages.Item::count)</span>
+<span class="fc" id="L132">                    .sum();</span>
+        }
+
+        private int ignoredLines() {
+<span class="fc" id="L136">            return ignored.stream().mapToInt(Ignored::lines).sum();</span>
+        }
+    }
+
+    private ReceiptRenderer() {
+    }
+
+    /**
+     * Renders a receipt that carries findings only, with no build
+     * overview and a quiet console.
+     *
+     * @param toolVersion the extension version stamped under the title
+     * @param timestamp   the session-end time stamped under the title
+     * @param mode        the ledger's declared enforcement posture
+     * @param ledgerNote  a one-line ledger status; empty when the ledger
+     *                    loaded cleanly
+     * @param evaluation  the section content
+     * @return the receipt as Markdown
+     */
+    public static String render(
+            String toolVersion,
+            ZonedDateTime timestamp,
+            LedgerMode mode,
+            String ledgerNote,
+            LedgerEvaluation evaluation) {
+<span class="fc" id="L161">        return render(toolVersion, timestamp, mode, ledgerNote, evaluation, null, Console.QUIET);</span>
+    }
+
+    /**
+     * Renders the receipt.
+     *
+     * @param toolVersion the extension version stamped under the title
+     * @param timestamp   the session-end time stamped under the title
+     * @param mode        the ledger's declared enforcement posture
+     * @param ledgerNote  a one-line ledger status (for example a parse
+     *                    failure); empty when the ledger loaded cleanly
+     * @param evaluation  the section content
+     * @param overview    what the session built and how long it took;
+     *                    null omits the BUILD section
+     * @param console     the console's consolidated warnings and errors
+     * @return the receipt as Markdown
+     */
+    public static String render(
+            String toolVersion,
+            ZonedDateTime timestamp,
+            LedgerMode mode,
+            String ledgerNote,
+            LedgerEvaluation evaluation,
+            BuildActivity.Overview overview,
+            Console console) {
+<span class="fc" id="L186">        return render(toolVersion, timestamp, mode, ledgerNote, evaluation, overview, console, null);</span>
+    }
+
+    /**
+     * Renders the receipt, measures included.
+     *
+     * @param toolVersion   the extension version stamped under the title
+     * @param timestamp     the session-end time stamped under the title
+     * @param mode          the ledger's declared enforcement posture
+     * @param ledgerNote    a one-line ledger status (for example a parse
+     *                      failure); empty when the ledger loaded cleanly
+     * @param evaluation    the section content
+     * @param overview      what the session built and how long it took;
+     *                      null omits the BUILD section
+     * @param console       the console's consolidated warnings and errors
+     * @param measureReport the session's measures with the ledger's
+     *                      verdict on each bound; null omits the MEASURES
+     *                      section
+     * @return the receipt as Markdown
+     */
+    public static String render(
+            String toolVersion,
+            ZonedDateTime timestamp,
+            LedgerMode mode,
+            String ledgerNote,
+            LedgerEvaluation evaluation,
+            BuildActivity.Overview overview,
+            Console console,
+            MeasureReport measureReport) {
+<span class="fc" id="L215">        Objects.requireNonNull(evaluation, &quot;evaluation&quot;);</span>
+<span class="fc" id="L216">        Objects.requireNonNull(console, &quot;console&quot;);</span>
+<span class="fc" id="L217">        StringBuilder out = new StringBuilder(1024);</span>
+<span class="fc" id="L218">        out.append(&quot;# ike:build-report\n&quot;);</span>
+<span class="fc" id="L219">        out.append('_').append(STAMP.format(timestamp))</span>
+<span class="fc" id="L220">                .append(&quot; · ike-build-report-extension &quot;).append(toolVersion)</span>
+<span class="fc" id="L221">                .append(&quot; · mode: &quot;).append(mode.name().toLowerCase(java.util.Locale.ROOT))</span>
+<span class="fc" id="L222">                .append(&quot;_\n\n&quot;);</span>
+<span class="fc bfc" id="L223" title="All 2 branches covered.">        if (!ledgerNote.isBlank()) {</span>
+<span class="fc bfc" id="L224" title="All 2 branches covered.">            for (String line : ledgerNote.strip().split(&quot;\n&quot;)) {</span>
+<span class="fc" id="L225">                out.append(&quot;&gt; &quot;).append(noteMarker(line.strip())).append(' ')</span>
+<span class="fc" id="L226">                        .append(line.strip()).append('\n');</span>
+            }
+<span class="fc" id="L228">            out.append('\n');</span>
+        }
+
+<span class="fc bfc" id="L231" title="All 2 branches covered.">        renderBuild(out, overview, !evaluation.failures().isEmpty(), console.moduleWarnings(), null);</span>
+<span class="fc" id="L232">        renderMeasures(out, measureReport);</span>
+<span class="fc" id="L233">        renderFailures(out, evaluation.failures());</span>
+<span class="fc" id="L234">        renderAttention(out, evaluation.attention());</span>
+<span class="fc" id="L235">        renderAccepted(out, evaluation.accepted());</span>
+<span class="fc" id="L236">        renderRatchet(out, evaluation.ratchet());</span>
+<span class="fc" id="L237">        renderConsole(out, console);</span>
+<span class="fc" id="L238">        renderSummary(out, evaluation, console);</span>
+<span class="fc" id="L239">        renderRemediation(out, evaluation);</span>
+<span class="fc" id="L240">        return out.toString();</span>
+    }
+
+    /**
+     * Renders the receipt of a build still in progress: the work so far
+     * and the console so far.
+     *
+     * &lt;p&gt;Findings and the gate verdict are left to the final receipt —
+     * comparing a partial build against the ledger's expected counts
+     * would report shortfalls that are only a matter of time.&lt;/p&gt;
+     *
+     * @param toolVersion the extension version stamped under the title
+     * @param timestamp   the time of this update, by which a reader can
+     *                    tell a live receipt from one a killed build left
+     * @param overview    what the session has built so far
+     * @param console     the console's warnings and errors so far
+     * @return the receipt as Markdown
+     */
+    public static String renderLive(
+            String toolVersion, ZonedDateTime timestamp, BuildActivity.Overview overview, Console console) {
+<span class="fc" id="L260">        StringBuilder out = new StringBuilder(1024);</span>
+<span class="fc" id="L261">        out.append(&quot;# ike:build-report\n&quot;);</span>
+<span class="fc" id="L262">        out.append('_').append(STAMP.format(timestamp))</span>
+<span class="fc" id="L263">                .append(&quot; · ike-build-report-extension &quot;).append(toolVersion)</span>
+<span class="fc" id="L264">                .append(&quot; · live_\n\n&quot;);</span>
+<span class="fc" id="L265">        renderBuild(out, overview, false, console.moduleWarnings(), CLOCK.format(timestamp));</span>
+<span class="fc" id="L266">        renderConsole(out, console);</span>
+<span class="fc" id="L267">        out.append(&quot;_Updated as the build runs; findings and the gate verdict are added when it\n&quot;);</span>
+<span class="fc" id="L268">        out.append(&quot;ends. A receipt still RUNNING long after the time above was left by a build\n&quot;);</span>
+<span class="fc" id="L269">        out.append(&quot;that was killed._\n&quot;);</span>
+<span class="fc" id="L270">        return out.toString();</span>
+    }
+
+    /**
+     * Renders what the session did: the invocation, the outcome, the
+     * wall time, each module with its own time, and the goals the time
+     * went to.
+     */
+    private static void renderBuild(
+            StringBuilder out,
+            BuildActivity.Overview overview,
+            boolean failed,
+            Map&lt;String, Integer&gt; moduleWarnings,
+            String liveAsOf) {
+<span class="fc bfc" id="L284" title="All 2 branches covered.">        boolean live = liveAsOf != null;</span>
+<span class="fc bfc" id="L285" title="All 2 branches covered.">        if (overview == null) {</span>
+<span class="fc" id="L286">            return;</span>
+        }
+<span class="fc" id="L288">        long built = overview.count(BuildActivity.ModuleResult.BUILT);</span>
+<span class="pc bpc" id="L289" title="1 of 4 branches missed.">        boolean unsuccessful = failed || overview.count(BuildActivity.ModuleResult.FAILED) &gt; 0;</span>
+<span class="fc" id="L290">        out.append(&quot;## BUILD\n\n&quot;);</span>
+<span class="fc bfc" id="L291" title="All 2 branches covered.">        if (live) {</span>
+<span class="fc" id="L292">            out.append(IN_PROGRESS).append(&quot; **RUNNING** as of &quot;).append(liveAsOf).append(&quot;, &quot;);</span>
+        } else {
+<span class="fc bfc" id="L294" title="All 2 branches covered.">            out.append(unsuccessful ? RED : GREEN)</span>
+<span class="fc bfc" id="L295" title="All 2 branches covered.">                    .append(&quot; **&quot;).append(unsuccessful ? &quot;FAILED&quot; : &quot;SUCCESS&quot;).append(&quot;** in &quot;);</span>
+        }
+<span class="fc" id="L297">        out.append(formatDuration(overview.wallTime())).append(&quot; — &quot;);</span>
+<span class="pc bpc" id="L298" title="1 of 2 branches missed.">        if (overview.modules().isEmpty()) {</span>
+<span class="nc" id="L299">            out.append(&quot;no modules were reached&quot;);</span>
+        } else {
+<span class="fc" id="L301">            out.append(built).append(&quot; of &quot;).append(overview.modules().size()).append(&quot; module(s) built&quot;);</span>
+<span class="fc bfc" id="L302" title="All 2 branches covered.">            appendCount(out, overview, BuildActivity.ModuleResult.BUILDING, live ? &quot;building&quot; : &quot;interrupted&quot;);</span>
+<span class="fc" id="L303">            appendCount(out, overview, BuildActivity.ModuleResult.FAILED, &quot;failed&quot;);</span>
+<span class="fc" id="L304">            appendCount(out, overview, BuildActivity.ModuleResult.SKIPPED, &quot;skipped&quot;);</span>
+<span class="fc bfc" id="L305" title="All 2 branches covered.">            appendCount(out, overview, BuildActivity.ModuleResult.NOT_BUILT, live ? &quot;pending&quot; : &quot;not reached&quot;);</span>
+        }
+<span class="fc" id="L307">        out.append(&quot;\n\n&quot;);</span>
+<span class="fc bfc" id="L308" title="All 2 branches covered.">        if (live) {</span>
+            // The modules in flight, pulled out of the list: in a large
+            // reactor they are otherwise a few rows among a hundred.
+<span class="fc bfc" id="L311" title="All 2 branches covered.">            for (BuildActivity.Module module : overview.modules()) {</span>
+<span class="fc bfc" id="L312" title="All 2 branches covered.">                if (module.result() == BuildActivity.ModuleResult.BUILDING) {</span>
+<span class="fc" id="L313">                    out.append(&quot;- &quot;).append(IN_PROGRESS).append(&quot; now building: **&quot;)</span>
+<span class="fc" id="L314">                            .append(module.name()).append(&quot;**&quot;);</span>
+<span class="pc bpc" id="L315" title="1 of 2 branches missed.">                    if (!module.goal().isEmpty()) {</span>
+<span class="fc" id="L316">                        out.append(&quot; — &quot;).append(module.goal());</span>
+                    }
+<span class="fc" id="L318">                    out.append(&quot;, &quot;).append(formatDuration(module.time())).append(&quot; so far\n&quot;);</span>
+                }
+<span class="fc" id="L320">            }</span>
+        }
+<span class="fc" id="L322">        out.append(&quot;- invocation: `mvn&quot;);</span>
+<span class="fc bfc" id="L323" title="All 2 branches covered.">        for (String goal : overview.goals()) {</span>
+<span class="fc" id="L324">            out.append(' ').append(goal);</span>
+<span class="fc" id="L325">        }</span>
+<span class="fc" id="L326">        out.append(&quot;`\n&quot;);</span>
+<span class="fc bfc" id="L327" title="All 2 branches covered.">        if (!overview.profiles().isEmpty()) {</span>
+<span class="fc" id="L328">            out.append(&quot;- profiles: &quot;).append(String.join(&quot;, &quot;, overview.profiles())).append('\n');</span>
+        }
+<span class="fc" id="L330">        out.append(&quot;- environment: &quot;);</span>
+<span class="fc bfc" id="L331" title="All 2 branches covered.">        if (!overview.mavenVersion().isBlank()) {</span>
+<span class="fc" id="L332">            out.append(&quot;Maven &quot;).append(overview.mavenVersion()).append(&quot; · &quot;);</span>
+        }
+<span class="fc" id="L334">        out.append(&quot;JDK &quot;).append(overview.javaVersion()).append(&quot; · &quot;)</span>
+<span class="fc bfc" id="L335" title="All 2 branches covered.">                .append(overview.threads()).append(overview.threads() == 1 ? &quot; thread&quot; : &quot; threads&quot;)</span>
+<span class="fc" id="L336">                .append(&quot;\n\n&quot;);</span>
+
+        // Fenced text rather than Markdown tables: a table's grid is drawn
+        // by each viewer's stylesheet, while fenced text looks the same in
+        // the IDE preview, on GitHub, and in a terminal. The fixed-width
+        // columns come first and the name last, so no name, however long,
+        // can push a column out of line.
+<span class="pc bpc" id="L343" title="1 of 2 branches missed.">        if (!overview.modules().isEmpty()) {</span>
+<span class="fc" id="L344">            out.append(&quot;```\n&quot;);</span>
+<span class="fc bfc" id="L345" title="All 2 branches covered.">            for (BuildActivity.Module module : overview.modules()) {</span>
+<span class="fc" id="L346">                int warnings = moduleWarnings.getOrDefault(module.name(), 0);</span>
+<span class="fc bfc" id="L347" title="All 2 branches covered.">                boolean ran = module.result() == BuildActivity.ModuleResult.BUILT</span>
+<span class="fc bfc" id="L348" title="All 2 branches covered.">                        || module.result() == BuildActivity.ModuleResult.BUILDING</span>
+<span class="fc bfc" id="L349" title="All 2 branches covered.">                        || module.result() == BuildActivity.ModuleResult.FAILED;</span>
+<span class="fc" id="L350">                out.append(marker(module.result(), warnings, live))</span>
+<span class="fc" id="L351">                        .append(String.format(java.util.Locale.ROOT, &quot; %8s%s &quot;,</span>
+<span class="fc bfc" id="L352" title="All 2 branches covered.">                                ran ? formatDuration(module.time()) : &quot;—&quot;,</span>
+<span class="fc bfc" id="L353" title="All 4 branches covered.">                                live &amp;&amp; module.result() == BuildActivity.ModuleResult.BUILDING ? &quot;…&quot; : &quot; &quot;))</span>
+<span class="fc" id="L354">                        .append(module.name())</span>
+<span class="fc" id="L355">                        .append(remark(module, warnings, live))</span>
+<span class="fc" id="L356">                        .append('\n');</span>
+<span class="fc" id="L357">            }</span>
+<span class="fc" id="L358">            out.append(&quot;```\n\n&quot;);</span>
+<span class="pc bpc" id="L359" title="1 of 4 branches missed.">            if (overview.threads() &gt; 1 &amp;&amp; overview.modules().size() &gt; 1) {</span>
+<span class="fc" id="L360">                out.append(&quot;Modules built in parallel, so their times overlap and sum to more than\n&quot;);</span>
+<span class="fc" id="L361">                out.append(&quot;the wall time.\n\n&quot;);</span>
+            }
+        }
+
+<span class="fc bfc" id="L365" title="All 2 branches covered.">        if (!overview.goalTimes().isEmpty()) {</span>
+<span class="fc" id="L366">            int shown = Math.min(overview.goalTimes().size(), MAX_GOAL_TIMES);</span>
+<span class="fc" id="L367">            out.append(&quot;Where the time went, by plugin goal across all modules:\n\n&quot;);</span>
+<span class="fc" id="L368">            out.append(&quot;```\n&quot;);</span>
+<span class="fc bfc" id="L369" title="All 2 branches covered.">            for (BuildActivity.GoalTime goal : overview.goalTimes().subList(0, shown)) {</span>
+<span class="fc" id="L370">                out.append(String.format(java.util.Locale.ROOT, &quot;%8s %5d×  &quot;,</span>
+<span class="fc" id="L371">                                formatDuration(goal.time()), goal.executions()))</span>
+<span class="fc" id="L372">                        .append(goal.goal()).append('\n');</span>
+<span class="fc" id="L373">            }</span>
+<span class="pc bpc" id="L374" title="1 of 2 branches missed.">            if (overview.goalTimes().size() &gt; shown) {</span>
+<span class="nc" id="L375">                Duration rest = Duration.ZERO;</span>
+                for (BuildActivity.GoalTime goal
+<span class="nc bnc" id="L377" title="All 2 branches missed.">                        : overview.goalTimes().subList(shown, overview.goalTimes().size())) {</span>
+<span class="nc" id="L378">                    rest = rest.plus(goal.time());</span>
+<span class="nc" id="L379">                }</span>
+<span class="nc" id="L380">                out.append(String.format(java.util.Locale.ROOT, &quot;%8s %6s  &quot;, formatDuration(rest), &quot;&quot;))</span>
+<span class="nc" id="L381">                        .append(&quot;… &quot;).append(overview.goalTimes().size() - shown)</span>
+<span class="nc" id="L382">                        .append(&quot; further goal(s)\n&quot;);</span>
+            }
+<span class="fc" id="L384">            out.append(&quot;```\n\n&quot;);</span>
+        }
+<span class="fc" id="L386">    }</span>
+
+    private static void appendCount(
+            StringBuilder out, BuildActivity.Overview overview, BuildActivity.ModuleResult result, String label) {
+<span class="fc" id="L390">        long count = overview.count(result);</span>
+<span class="fc bfc" id="L391" title="All 2 branches covered.">        if (count &gt; 0) {</span>
+<span class="fc" id="L392">            out.append(&quot;, &quot;).append(count).append(' ').append(label);</span>
+        }
+<span class="fc" id="L394">    }</span>
+
+    /**
+     * Picks a module's marker. Yellow is kept for one meaning — built,
+     * but with warnings on the console — so a skipped module is neutral.
+     */
+    private static String marker(BuildActivity.ModuleResult result, int warnings, boolean live) {
+<span class="fc bfc" id="L401" title="All 4 branches covered.">        return switch (result) {</span>
+<span class="fc bfc" id="L402" title="All 2 branches covered.">            case BUILT -&gt; warnings &gt; 0 ? YELLOW : GREEN;</span>
+<span class="pc bpc" id="L403" title="1 of 2 branches missed.">            case BUILDING -&gt; live ? IN_PROGRESS : NEUTRAL;</span>
+<span class="fc" id="L404">            case FAILED -&gt; RED;</span>
+<span class="fc" id="L405">            case SKIPPED, NOT_BUILT -&gt; NEUTRAL;</span>
+        };
+    }
+
+    /**
+     * Words a module's line only when it is not a plain success: the
+     * marker already says &quot;built&quot;, but a reader who cannot tell the
+     * colours apart, or who is searching the raw text, needs the
+     * exceptions spelled out.
+     */
+    private static String remark(BuildActivity.Module module, int warnings, boolean live) {
+<span class="pc bpc" id="L416" title="1 of 5 branches missed.">        return switch (module.result()) {</span>
+<span class="fc bfc" id="L417" title="All 2 branches covered.">            case BUILT -&gt; warnings &gt; 0 ? &quot;  &quot; + warnings + &quot; warning(s)&quot; : &quot;&quot;;</span>
+<span class="pc bpc" id="L418" title="1 of 2 branches missed.">            case BUILDING -&gt; !live ? &quot;  interrupted&quot;</span>
+<span class="pc bpc" id="L419" title="1 of 2 branches missed.">                    : module.goal().isEmpty() ? &quot;  STILL BUILDING&quot; : &quot;  STILL BUILDING — &quot; + module.goal();</span>
+<span class="fc" id="L420">            case FAILED -&gt; &quot;  FAILED&quot;;</span>
+<span class="nc" id="L421">            case SKIPPED -&gt; &quot;  skipped&quot;;</span>
+<span class="fc bfc" id="L422" title="All 2 branches covered.">            case NOT_BUILT -&gt; live ? &quot;  pending&quot; : &quot;  not reached&quot;;</span>
+        };
+    }
+
+    /**
+     * Picks the marker for one line of the note under the title: the
+     * gate's verdict, or a ledger that could not be used.
+     */
+    private static String noteMarker(String line) {
+<span class="fc bfc" id="L431" title="All 2 branches covered.">        if (line.startsWith(&quot;gate: clean&quot;)) {</span>
+<span class="fc" id="L432">            return GREEN;</span>
+        }
+<span class="pc bpc" id="L434" title="2 of 4 branches missed.">        if (line.startsWith(&quot;gate: FAILING&quot;) || line.startsWith(&quot;gate: build already failed&quot;)) {</span>
+<span class="nc" id="L435">            return RED;</span>
+        }
+<span class="fc" id="L437">        return YELLOW;</span>
+    }
+
+    /**
+     * Formats a duration the way a reader says it: {@code 0.4s},
+     * {@code 12.3s}, {@code 4m 12s}, {@code 1h 02m}.
+     */
+    static String formatDuration(Duration duration) {
+<span class="fc" id="L445">        long millis = Math.max(0L, duration.toMillis());</span>
+<span class="fc bfc" id="L446" title="All 2 branches covered.">        if (millis &lt; 60_000L) {</span>
+<span class="fc" id="L447">            return String.format(java.util.Locale.ROOT, &quot;%.1fs&quot;, millis / 1000.0);</span>
+        }
+<span class="fc" id="L449">        long seconds = Math.round(millis / 1000.0);</span>
+<span class="pc bpc" id="L450" title="1 of 2 branches missed.">        if (seconds &lt; 3600L) {</span>
+<span class="fc" id="L451">            return String.format(java.util.Locale.ROOT, &quot;%dm %02ds&quot;, seconds / 60, seconds % 60);</span>
+        }
+<span class="nc" id="L453">        return String.format(java.util.Locale.ROOT, &quot;%dh %02dm&quot;, seconds / 3600, (seconds % 3600) / 60);</span>
+    }
+
+    /**
+     * Renders the console's warnings and errors, one line per distinct
+     * message with its count and where it came from.
+     */
+    private static void renderConsole(StringBuilder out, Console console) {
+<span class="fc bfc" id="L461" title="All 2 branches covered.">        if (!console.captured()) {</span>
+<span class="fc" id="L462">            out.append(&quot;## &quot;).append(YELLOW).append(&quot; CONSOLE\n\n&quot;);</span>
+<span class="fc" id="L463">            out.append(&quot;Console warnings were not captured — this Maven does not expose the log\n&quot;);</span>
+<span class="fc" id="L464">            out.append(&quot;sink the extension listens on.\n\n&quot;);</span>
+<span class="fc" id="L465">            return;</span>
+        }
+<span class="pc bpc" id="L467" title="1 of 4 branches missed.">        if (console.items().isEmpty() &amp;&amp; console.ignored().isEmpty()) {</span>
+<span class="fc" id="L468">            return;</span>
+        }
+<span class="pc bpc" id="L470" title="1 of 2 branches missed.">        out.append(&quot;## &quot;).append(console.items().isEmpty() ? BLUE : YELLOW).append(&quot; CONSOLE\n\n&quot;);</span>
+<span class="pc bpc" id="L471" title="1 of 2 branches missed.">        if (!console.items().isEmpty()) {</span>
+<span class="fc" id="L472">            renderConsoleItems(out, console);</span>
+        }
+<span class="fc bfc" id="L474" title="All 2 branches covered.">        if (!console.ignored().isEmpty()) {</span>
+<span class="fc" id="L475">            out.append(&quot;Ignored by `&quot;).append(ReportSession.LEDGER_RELATIVE_PATH)</span>
+<span class="fc" id="L476">                    .append(&quot;` — shown here, counted nowhere:\n\n&quot;);</span>
+<span class="fc bfc" id="L477" title="All 2 branches covered.">            for (Ignored ignored : console.ignored()) {</span>
+<span class="fc" id="L478">                out.append(&quot;- &quot;).append(BLUE).append(&quot; **&quot;).append(ignored.lines()).append(&quot;×** `&quot;)</span>
+<span class="fc" id="L479">                        .append(ignored.rule().match().replace('`', '\'')).append('`');</span>
+<span class="fc bfc" id="L480" title="All 2 branches covered.">                if (ignored.lines() == 0) {</span>
+<span class="fc" id="L481">                    out.append(&quot; — not seen this session; the rule may no longer be needed&quot;);</span>
+<span class="pc bpc" id="L482" title="1 of 2 branches missed.">                } else if (!ignored.rule().reason().isBlank()) {</span>
+<span class="fc" id="L483">                    out.append(&quot; — &quot;).append(ignored.rule().reason());</span>
+                }
+<span class="fc" id="L485">                out.append('\n');</span>
+<span class="fc" id="L486">            }</span>
+<span class="fc" id="L487">            out.append('\n');</span>
+        }
+<span class="fc bfc" id="L489" title="All 2 branches covered.">        if (console.lines(ConsoleMessages.Level.WARNING) &gt; 0) {</span>
+<span class="fc" id="L490">            out.append(&quot;To stop counting a warning, add text it contains to `&quot;)</span>
+<span class="fc" id="L491">                    .append(ReportSession.LEDGER_RELATIVE_PATH).append(&quot;`:\n\n&quot;);</span>
+<span class="fc" id="L492">            out.append(&quot;```yaml\nconsole:\n  ignore:\n    - match: \&quot;text from the warning\&quot;\n&quot;);</span>
+<span class="fc" id="L493">            out.append(&quot;      reason: why it does not matter\n```\n\n&quot;);</span>
+        }
+<span class="fc" id="L495">    }</span>
+
+    private static void renderConsoleItems(StringBuilder out, Console console) {
+<span class="fc" id="L498">        int lines = console.items().stream().mapToInt(ConsoleMessages.Item::count).sum();</span>
+<span class="fc" id="L499">        out.append(lines).append(&quot; warning and error line(s) folded into &quot;)</span>
+<span class="fc" id="L500">                .append(console.items().size())</span>
+<span class="fc" id="L501">                .append(&quot; distinct message(s). Reported for the reader; never gated.\n\n&quot;);</span>
+<span class="fc" id="L502">        List&lt;ConsoleMessages.Item&gt; standalone = new java.util.ArrayList&lt;&gt;();</span>
+<span class="fc" id="L503">        Map&lt;String, List&lt;ConsoleMessages.Item&gt;&gt; kinds = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L504" title="All 2 branches covered.">        for (ConsoleMessages.Item item : console.items()) {</span>
+<span class="fc bfc" id="L505" title="All 2 branches covered.">            if (item.kind().isEmpty()) {</span>
+<span class="fc" id="L506">                standalone.add(item);</span>
+            } else {
+<span class="fc" id="L508">                kinds.computeIfAbsent(item.kind(), key -&gt; new java.util.ArrayList&lt;&gt;()).add(item);</span>
+            }
+<span class="fc" id="L510">        }</span>
+<span class="fc" id="L511">        int shown = Math.min(standalone.size(), MAX_CONSOLE_ITEMS);</span>
+<span class="fc bfc" id="L512" title="All 2 branches covered.">        for (ConsoleMessages.Item item : standalone.subList(0, shown)) {</span>
+<span class="fc bfc" id="L513" title="All 2 branches covered.">            boolean error = item.level() == ConsoleMessages.Level.ERROR;</span>
+<span class="fc bfc" id="L514" title="All 2 branches covered.">            out.append(&quot;- &quot;).append(error ? RED : YELLOW)</span>
+<span class="fc" id="L515">                    .append(&quot; **&quot;).append(item.count()).append(&quot;×** &quot;);</span>
+<span class="fc bfc" id="L516" title="All 2 branches covered.">            if (error) {</span>
+<span class="fc" id="L517">                out.append(&quot;ERROR &quot;);</span>
+            }
+<span class="fc" id="L519">            out.append('`').append(item.message().replace('`', '\'')).append('`');</span>
+<span class="fc" id="L520">            String origin = describeOrigin(item);</span>
+<span class="pc bpc" id="L521" title="1 of 2 branches missed.">            if (!origin.isEmpty()) {</span>
+<span class="fc" id="L522">                out.append(&quot; — &quot;).append(origin);</span>
+            }
+<span class="fc" id="L524">            out.append('\n');</span>
+<span class="fc" id="L525">        }</span>
+<span class="pc bpc" id="L526" title="1 of 2 branches missed.">        if (standalone.size() &gt; shown) {</span>
+<span class="nc" id="L527">            renderConsoleRemainder(out, standalone.subList(shown, standalone.size()));</span>
+        }
+<span class="pc bpc" id="L529" title="1 of 2 branches missed.">        if (console.overflow() &gt; 0) {</span>
+<span class="nc" id="L530">            out.append(&quot;- … and &quot;).append(console.overflow())</span>
+<span class="nc" id="L531">                    .append(&quot; further line(s) not kept — too many distinct messages\n&quot;);</span>
+        }
+<span class="pc bpc" id="L533" title="1 of 4 branches missed.">        if (!standalone.isEmpty() || console.overflow() &gt; 0) {</span>
+<span class="fc" id="L534">            out.append('\n');</span>
+        }
+<span class="fc" id="L536">        renderConsoleKinds(out, kinds);</span>
+<span class="fc" id="L537">    }</span>
+
+    /**
+     * Renders the messages that were folded by kind — compiler warnings
+     * by lint category, dependency-analysis lines by the analyzer's
+     * heading — as one entry per kind with every distinct message beneath
+     * it, heaviest first, so the receipt alone says what was warned about.
+     */
+    private static void renderConsoleKinds(StringBuilder out, Map&lt;String, List&lt;ConsoleMessages.Item&gt;&gt; kinds) {
+<span class="fc bfc" id="L546" title="All 2 branches covered.">        if (kinds.isEmpty()) {</span>
+<span class="fc" id="L547">            return;</span>
+        }
+<span class="fc" id="L549">        List&lt;Map.Entry&lt;String, List&lt;ConsoleMessages.Item&gt;&gt;&gt; ordered = new java.util.ArrayList&lt;&gt;(kinds.entrySet());</span>
+<span class="fc" id="L550">        ordered.sort(java.util.Comparator.comparingInt(</span>
+<span class="pc" id="L551">                (Map.Entry&lt;String, List&lt;ConsoleMessages.Item&gt;&gt; entry) -&gt; lineCount(entry.getValue())).reversed());</span>
+<span class="fc" id="L552">        out.append(&quot;Folded by kind — every message is in `&quot;)</span>
+<span class="fc" id="L553">                .append(ReportSession.CONSOLE_RELATIVE_PATH).append(&quot;`:\n\n&quot;);</span>
+<span class="fc bfc" id="L554" title="All 2 branches covered.">        for (Map.Entry&lt;String, List&lt;ConsoleMessages.Item&gt;&gt; entry : ordered) {</span>
+<span class="fc" id="L555">            List&lt;ConsoleMessages.Item&gt; items = entry.getValue();</span>
+<span class="fc" id="L556">            Map&lt;String, Integer&gt; modules = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L557" title="All 2 branches covered.">            for (ConsoleMessages.Item item : items) {</span>
+<span class="fc" id="L558">                item.modules().forEach((module, count) -&gt; modules.merge(module, count, Integer::sum));</span>
+<span class="fc" id="L559">            }</span>
+<span class="fc" id="L560">            out.append(&quot;- &quot;).append(YELLOW).append(&quot; **&quot;).append(lineCount(items)).append(&quot;×** &quot;)</span>
+<span class="fc" id="L561">                    .append(entry.getKey()).append(&quot; — &quot;).append(items.size()).append(&quot; distinct&quot;);</span>
+<span class="pc bpc" id="L562" title="1 of 2 branches missed.">            if (!modules.isEmpty()) {</span>
+<span class="fc" id="L563">                out.append(&quot; · &quot;).append(describeModuleCounts(modules));</span>
+            }
+<span class="fc" id="L565">            out.append('\n');</span>
+<span class="fc bfc" id="L566" title="All 2 branches covered.">            for (ConsoleMessages.Item item : items) {</span>
+<span class="fc" id="L567">                out.append(&quot;  - **&quot;).append(item.count()).append(&quot;×** `&quot;)</span>
+<span class="fc" id="L568">                        .append(item.message().replace('`', '\'')).append('`');</span>
+<span class="pc bpc" id="L569" title="1 of 2 branches missed.">                if (item.files() &gt; 1) {</span>
+<span class="fc" id="L570">                    out.append(&quot; — &quot;).append(item.files()).append(&quot; files&quot;);</span>
+<span class="nc bnc" id="L571" title="All 4 branches missed.">                } else if (item.files() == 0 &amp;&amp; !item.modules().isEmpty()) {</span>
+<span class="nc" id="L572">                    out.append(&quot; — &quot;).append(String.join(&quot;, &quot;, item.modules().keySet()));</span>
+                }
+<span class="fc" id="L574">                out.append('\n');</span>
+<span class="fc" id="L575">            }</span>
+<span class="fc" id="L576">        }</span>
+<span class="fc" id="L577">        out.append('\n');</span>
+<span class="fc" id="L578">    }</span>
+
+    private static int lineCount(List&lt;ConsoleMessages.Item&gt; items) {
+<span class="fc" id="L581">        return items.stream().mapToInt(ConsoleMessages.Item::count).sum();</span>
+    }
+
+    /** Names the modules behind a kind, heaviest first, with their line counts. */
+    private static String describeModuleCounts(Map&lt;String, Integer&gt; modules) {
+<span class="fc" id="L586">        List&lt;Map.Entry&lt;String, Integer&gt;&gt; ordered = new java.util.ArrayList&lt;&gt;(modules.entrySet());</span>
+<span class="fc" id="L587">        ordered.sort(Map.Entry.&lt;String, Integer&gt;comparingByValue().reversed());</span>
+<span class="fc" id="L588">        StringBuilder text = new StringBuilder();</span>
+<span class="fc" id="L589">        int named = Math.min(ordered.size(), MAX_CONSOLE_MODULES);</span>
+<span class="fc bfc" id="L590" title="All 2 branches covered.">        for (int index = 0; index &lt; named; index++) {</span>
+<span class="pc bpc" id="L591" title="1 of 2 branches missed.">            text.append(index == 0 ? &quot;&quot; : &quot;, &quot;)</span>
+<span class="fc" id="L592">                    .append(ordered.get(index).getKey()).append(' ').append(ordered.get(index).getValue());</span>
+        }
+<span class="pc bpc" id="L594" title="1 of 2 branches missed.">        if (ordered.size() &gt; named) {</span>
+<span class="nc" id="L595">            text.append(&quot;, … +&quot;).append(ordered.size() - named).append(&quot; module(s)&quot;);</span>
+        }
+<span class="fc" id="L597">        return text.toString();</span>
+    }
+
+    private static String describeOrigin(ConsoleMessages.Item item) {
+<span class="fc" id="L601">        StringBuilder origin = new StringBuilder();</span>
+<span class="fc bfc" id="L602" title="All 2 branches covered.">        if (!item.goals().isEmpty()) {</span>
+<span class="fc" id="L603">            origin.append(String.join(&quot;, &quot;, item.goals()));</span>
+        }
+<span class="fc" id="L605">        List&lt;String&gt; modules = List.copyOf(item.modules().keySet());</span>
+<span class="pc bpc" id="L606" title="1 of 2 branches missed.">        if (!modules.isEmpty()) {</span>
+<span class="fc bfc" id="L607" title="All 2 branches covered.">            if (origin.length() &gt; 0) {</span>
+<span class="fc" id="L608">                origin.append(&quot; · &quot;);</span>
+            }
+<span class="fc" id="L610">            int named = Math.min(modules.size(), MAX_CONSOLE_MODULES);</span>
+<span class="fc bfc" id="L611" title="All 2 branches covered.">            if (modules.size() &gt; 1) {</span>
+<span class="fc" id="L612">                origin.append(modules.size()).append(&quot; modules: &quot;);</span>
+            }
+<span class="fc" id="L614">            origin.append(String.join(&quot;, &quot;, modules.subList(0, named)));</span>
+<span class="fc bfc" id="L615" title="All 2 branches covered.">            if (modules.size() &gt; named) {</span>
+<span class="fc" id="L616">                origin.append(&quot;, … +&quot;).append(modules.size() - named);</span>
+            }
+        }
+<span class="fc" id="L619">        return origin.toString();</span>
+    }
+
+    /**
+     * Renders every counted console message, with no listing limit —
+     * the companion file a reader opens when the receipt's top entries
+     * are not enough, or when choosing what to ignore.
+     *
+     * @param console the console's consolidated warnings and errors
+     * @return the full listing as Markdown
+     */
+    public static String renderConsoleListing(Console console) {
+<span class="nc" id="L631">        StringBuilder out = new StringBuilder(4096);</span>
+<span class="nc" id="L632">        out.append(&quot;# ike:build-report — console, in full\n\n&quot;);</span>
+<span class="nc" id="L633">        out.append(&quot;Every distinct warning and error the build printed that is not ignored by `&quot;)</span>
+<span class="nc" id="L634">                .append(ReportSession.LEDGER_RELATIVE_PATH).append(&quot;`.\n\n&quot;);</span>
+<span class="nc bnc" id="L635" title="All 2 branches missed.">        for (ConsoleMessages.Item item : console.items()) {</span>
+<span class="nc" id="L636">            out.append(&quot;- **&quot;).append(item.count()).append(&quot;×** &quot;)</span>
+<span class="nc bnc" id="L637" title="All 2 branches missed.">                    .append(item.level() == ConsoleMessages.Level.ERROR ? &quot;ERROR &quot; : &quot;&quot;)</span>
+<span class="nc bnc" id="L638" title="All 2 branches missed.">                    .append(item.kind().isEmpty() ? &quot;&quot; : &quot;[&quot; + item.kind() + &quot;] &quot;)</span>
+<span class="nc" id="L639">                    .append('`').append(item.message().replace('`', '\'')).append('`');</span>
+<span class="nc bnc" id="L640" title="All 2 branches missed.">            if (item.files() &gt; 0) {</span>
+<span class="nc" id="L641">                out.append(&quot; — &quot;).append(item.files()).append(&quot; file(s)&quot;);</span>
+            }
+<span class="nc" id="L643">            String origin = describeOrigin(item);</span>
+<span class="nc bnc" id="L644" title="All 2 branches missed.">            if (!origin.isEmpty()) {</span>
+<span class="nc" id="L645">                out.append(&quot; — &quot;).append(origin);</span>
+            }
+<span class="nc" id="L647">            out.append('\n');</span>
+<span class="nc" id="L648">        }</span>
+<span class="nc" id="L649">        return out.toString();</span>
+    }
+
+    /**
+     * Summarizes the messages past the listing limit by the goal that
+     * printed them, which is usually what tells a reader whether the
+     * tail is worth opening the log for.
+     */
+    private static void renderConsoleRemainder(StringBuilder out, List&lt;ConsoleMessages.Item&gt; rest) {
+<span class="nc" id="L658">        Map&lt;String, Integer&gt; byGoal = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L659">        int lines = 0;</span>
+<span class="nc bnc" id="L660" title="All 2 branches missed.">        for (ConsoleMessages.Item item : rest) {</span>
+<span class="nc" id="L661">            lines += item.count();</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">            String goal = item.goals().isEmpty() ? &quot;outside any goal&quot; : item.goals().get(0);</span>
+<span class="nc" id="L663">            byGoal.merge(goal, item.count(), Integer::sum);</span>
+<span class="nc" id="L664">        }</span>
+<span class="nc" id="L665">        out.append(&quot;- … and &quot;).append(rest.size()).append(&quot; further distinct message(s), &quot;)</span>
+<span class="nc" id="L666">                .append(lines).append(&quot; line(s):&quot;);</span>
+<span class="nc" id="L667">        String separator = &quot; &quot;;</span>
+<span class="nc bnc" id="L668" title="All 2 branches missed.">        for (Map.Entry&lt;String, Integer&gt; entry : byGoal.entrySet()) {</span>
+<span class="nc" id="L669">            out.append(separator).append(entry.getKey()).append(' ').append(entry.getValue());</span>
+<span class="nc" id="L670">            separator = &quot;, &quot;;</span>
+<span class="nc" id="L671">        }</span>
+<span class="nc" id="L672">        out.append(&quot; — full list in `&quot;).append(ReportSession.CONSOLE_RELATIVE_PATH).append(&quot;`\n&quot;);</span>
+<span class="nc" id="L673">    }</span>
+
+    /** How many lines of sizes and measurements MEASURES lists before counting the rest. */
+    private static final int MAX_MEASUREMENT_LINES = 40;
+
+    /** How many of the slowest test classes MEASURES names. */
+    private static final int MAX_SLOW_SUITES = 5;
+
+    /** The prefix of a measure key the receipt renders as a byte count. */
+    private static final String SIZE_PREFIX = &quot;size.&quot;;
+
+    /**
+     * Renders what the session was like in numbers, then how each
+     * ledger bound fared (ike-issues#1207).
+     *
+     * &lt;p&gt;The derived measures come first, one line each with the figure
+     * in a fixed column; the sizes the ledger named and the measurements
+     * the tests left follow, key by key. A bound's line carries the
+     * colour of its verdict, and a violated bound points at ATTENTION,
+     * where its finding is.&lt;/p&gt;
+     */
+    private static void renderMeasures(StringBuilder out, MeasureReport report) {
+<span class="fc bfc" id="L695" title="All 4 branches covered.">        if (report == null || !report.hasContent()) {</span>
+<span class="fc" id="L696">            return;</span>
+        }
+<span class="fc" id="L698">        Measures measures = report.measures();</span>
+<span class="fc" id="L699">        boolean violated = report.statuses().stream().anyMatch(MeasureStatus::violated);</span>
+<span class="pc bpc" id="L700" title="1 of 2 branches missed.">        out.append(&quot;## &quot;).append(violated ? YELLOW : BLUE).append(&quot; MEASURES\n\n&quot;);</span>
+<span class="fc" id="L701">        List&lt;String&gt; rows = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L702">        warningsRow(measures, rows);</span>
+<span class="fc" id="L703">        testsRow(measures, rows);</span>
+<span class="fc" id="L704">        coverageRow(measures, rows);</span>
+<span class="fc" id="L705">        buildRow(measures, rows);</span>
+<span class="fc" id="L706">        int extra = 0;</span>
+<span class="fc" id="L707">        int listed = 0;</span>
+<span class="fc bfc" id="L708" title="All 2 branches covered.">        for (Map.Entry&lt;String, Double&gt; entry : measures.values().entrySet()) {</span>
+<span class="fc bfc" id="L709" title="All 2 branches covered.">            if (MeasureKey.of(entry.getKey()) != null) {</span>
+<span class="fc" id="L710">                continue;</span>
+            }
+<span class="pc bpc" id="L712" title="1 of 2 branches missed.">            if (listed &gt;= MAX_MEASUREMENT_LINES) {</span>
+<span class="nc" id="L713">                extra++;</span>
+<span class="nc" id="L714">                continue;</span>
+            }
+<span class="fc" id="L716">            listed++;</span>
+<span class="fc bfc" id="L717" title="All 2 branches covered.">            String value = entry.getKey().startsWith(SIZE_PREFIX)</span>
+<span class="fc" id="L718">                    ? Numbers.bytes(entry.getValue())</span>
+<span class="fc" id="L719">                    : Numbers.plain(entry.getValue());</span>
+<span class="fc" id="L720">            rows.add(row(value, entry.getKey()));</span>
+<span class="fc" id="L721">        }</span>
+<span class="pc bpc" id="L722" title="1 of 2 branches missed.">        if (!rows.isEmpty()) {</span>
+<span class="fc" id="L723">            out.append(&quot;```\n&quot;);</span>
+<span class="fc bfc" id="L724" title="All 2 branches covered.">            for (String line : rows) {</span>
+<span class="fc" id="L725">                out.append(line).append('\n');</span>
+<span class="fc" id="L726">            }</span>
+<span class="pc bpc" id="L727" title="1 of 2 branches missed.">            if (extra &gt; 0) {</span>
+<span class="nc" id="L728">                out.append(row(&quot;…&quot;, extra + &quot; more in &quot; + ReportSession.OBSERVATIONS_RELATIVE_PATH)).append('\n');</span>
+            }
+<span class="fc" id="L730">            out.append(&quot;```\n\n&quot;);</span>
+        }
+<span class="pc bpc" id="L732" title="1 of 2 branches missed.">        if (!measures.slowest().isEmpty()) {</span>
+<span class="fc" id="L733">            out.append(&quot;Slowest test classes:\n\n```\n&quot;);</span>
+<span class="fc" id="L734">            int shown = Math.min(measures.slowest().size(), MAX_SLOW_SUITES);</span>
+<span class="fc bfc" id="L735" title="All 2 branches covered.">            for (Measures.SlowSuite suite : measures.slowest().subList(0, shown)) {</span>
+<span class="fc" id="L736">                out.append(row(TestReports.formatSeconds(suite.seconds()), suite.module() + &quot; · &quot; + suite.suite()))</span>
+<span class="fc" id="L737">                        .append('\n');</span>
+<span class="fc" id="L738">            }</span>
+<span class="fc" id="L739">            out.append(&quot;```\n\n&quot;);</span>
+        }
+<span class="pc bpc" id="L741" title="1 of 2 branches missed.">        if (!report.statuses().isEmpty()) {</span>
+<span class="fc" id="L742">            out.append(&quot;Ledger bounds:\n\n&quot;);</span>
+<span class="fc bfc" id="L743" title="All 2 branches covered.">            for (MeasureStatus status : report.statuses()) {</span>
+<span class="fc" id="L744">                renderBound(out, status);</span>
+<span class="fc" id="L745">            }</span>
+<span class="fc" id="L746">            out.append('\n');</span>
+        }
+<span class="pc bpc" id="L748" title="1 of 2 branches missed.">        if (report.published() &gt; 0) {</span>
+<span class="fc" id="L749">            out.append(&quot;Published to TeamCity as &quot;).append(report.published()).append(&quot; build statistic(s).\n\n&quot;);</span>
+        }
+<span class="pc bpc" id="L751" title="1 of 2 branches missed.">        if (!measures.notes().isEmpty()) {</span>
+<span class="fc" id="L752">            out.append(&quot;Not measured:\n\n&quot;);</span>
+<span class="fc bfc" id="L753" title="All 2 branches covered.">            for (String note : measures.notes()) {</span>
+<span class="fc" id="L754">                out.append(&quot;- &quot;).append(note).append('\n');</span>
+<span class="fc" id="L755">            }</span>
+<span class="fc" id="L756">            out.append('\n');</span>
+        }
+<span class="fc" id="L758">    }</span>
+
+    private static void renderBound(StringBuilder out, MeasureStatus status) {
+<span class="fc" id="L761">        MeasureEntry entry = status.entry();</span>
+<span class="fc" id="L762">        out.append(&quot;- &quot;);</span>
+<span class="fc bfc" id="L763" title="All 2 branches covered.">        if (!status.measured()) {</span>
+<span class="fc" id="L764">            out.append(NEUTRAL).append(&quot; `&quot;).append(entry.key()).append(&quot;` not measured this session (&quot;)</span>
+<span class="fc" id="L765">                    .append(entry.describe()).append(')');</span>
+<span class="fc bfc" id="L766" title="All 2 branches covered.">        } else if (status.violated()) {</span>
+<span class="fc" id="L767">            out.append(RED).append(&quot; `&quot;).append(entry.key()).append(&quot;` &quot;).append(Numbers.plain(status.observed()))</span>
+<span class="fc" id="L768">                    .append(&quot; — outside &quot;).append(entry.describe()).append(&quot;, see ATTENTION&quot;);</span>
+<span class="pc bpc" id="L769" title="1 of 2 branches missed.">        } else if (status.canTighten()) {</span>
+<span class="fc" id="L770">            out.append(BLUE).append(&quot; `&quot;).append(entry.key()).append(&quot;` &quot;).append(Numbers.plain(status.observed()))</span>
+<span class="fc" id="L771">                    .append(&quot; within &quot;).append(entry.describe()).append(&quot; — can tighten to &quot;)</span>
+<span class="fc" id="L772">                    .append(Numbers.plain(status.tightened()));</span>
+        } else {
+<span class="nc" id="L774">            out.append(GREEN).append(&quot; `&quot;).append(entry.key()).append(&quot;` &quot;).append(Numbers.plain(status.observed()))</span>
+<span class="nc" id="L775">                    .append(&quot; within &quot;).append(entry.describe());</span>
+        }
+<span class="pc bpc" id="L777" title="1 of 2 branches missed.">        if (!entry.reason().isBlank()) {</span>
+<span class="nc" id="L778">            out.append(&quot; — &quot;).append(entry.reason());</span>
+        }
+<span class="fc" id="L780">        out.append('\n');</span>
+<span class="fc" id="L781">    }</span>
+
+    private static String row(String value, String text) {
+<span class="fc" id="L784">        return String.format(java.util.Locale.ROOT, &quot;%9s  %s&quot;, value, text);</span>
+    }
+
+    private static void warningsRow(Measures measures, List&lt;String&gt; rows) {
+<span class="fc" id="L788">        Double total = measures.value(MeasureKey.WARNINGS_TOTAL);</span>
+<span class="pc bpc" id="L789" title="1 of 2 branches missed.">        if (total == null) {</span>
+<span class="nc" id="L790">            return;</span>
+        }
+<span class="fc" id="L792">        StringBuilder text = new StringBuilder(&quot;warnings&quot;);</span>
+<span class="fc" id="L793">        String separator = &quot; — &quot;;</span>
+<span class="fc bfc" id="L794" title="All 2 branches covered.">        for (MeasureKey kind : MeasureCollector.warningKinds()) {</span>
+<span class="fc" id="L795">            Double count = measures.value(kind);</span>
+<span class="pc bpc" id="L796" title="1 of 4 branches missed.">            if (count == null || count == 0) {</span>
+<span class="nc" id="L797">                continue;</span>
+            }
+<span class="fc" id="L799">            text.append(separator).append(Numbers.plain(count)).append(' ').append(kindLabel(kind));</span>
+<span class="fc" id="L800">            separator = &quot; · &quot;;</span>
+<span class="fc" id="L801">        }</span>
+<span class="fc" id="L802">        Double errors = measures.value(MeasureKey.ERRORS_CONSOLE);</span>
+<span class="pc bpc" id="L803" title="3 of 4 branches missed.">        if (errors != null &amp;&amp; errors &gt; 0) {</span>
+<span class="nc" id="L804">            text.append(&quot; · &quot;).append(Numbers.plain(errors)).append(&quot; error line(s)&quot;);</span>
+        }
+<span class="fc" id="L806">        rows.add(row(Numbers.plain(total), text.toString()));</span>
+<span class="fc" id="L807">    }</span>
+
+    private static String kindLabel(MeasureKey kind) {
+<span class="pc bpc" id="L810" title="6 of 8 branches missed.">        return switch (kind) {</span>
+<span class="fc" id="L811">            case WARNINGS_COMPILER_DEPRECATION -&gt; &quot;deprecation&quot;;</span>
+<span class="nc" id="L812">            case WARNINGS_COMPILER_REMOVAL -&gt; &quot;removal&quot;;</span>
+<span class="nc" id="L813">            case WARNINGS_COMPILER_OTHER -&gt; &quot;other lint&quot;;</span>
+<span class="nc" id="L814">            case WARNINGS_JAVADOC -&gt; &quot;javadoc&quot;;</span>
+<span class="nc" id="L815">            case WARNINGS_DEPENDENCY -&gt; &quot;dependency analysis&quot;;</span>
+<span class="fc" id="L816">            case WARNINGS_STDERR -&gt; &quot;stderr&quot;;</span>
+<span class="nc" id="L817">            case WARNINGS_TESTS -&gt; &quot;skipped-test classes&quot;;</span>
+<span class="nc" id="L818">            default -&gt; &quot;other&quot;;</span>
+        };
+    }
+
+    private static void testsRow(Measures measures, List&lt;String&gt; rows) {
+<span class="fc" id="L823">        Double run = measures.value(MeasureKey.TESTS_RUN);</span>
+<span class="pc bpc" id="L824" title="1 of 2 branches missed.">        if (run == null) {</span>
+<span class="fc" id="L825">            return;</span>
+        }
+<span class="nc" id="L827">        Double failed = measures.value(MeasureKey.TESTS_FAILED);</span>
+<span class="nc" id="L828">        Double skipped = measures.value(MeasureKey.TESTS_SKIPPED);</span>
+<span class="nc" id="L829">        Double seconds = measures.value(MeasureKey.TESTS_SECONDS);</span>
+<span class="nc" id="L830">        StringBuilder text = new StringBuilder(&quot;tests run&quot;);</span>
+<span class="nc bnc" id="L831" title="All 2 branches missed.">        if (failed != null) {</span>
+<span class="nc" id="L832">            text.append(&quot; · &quot;).append(Numbers.plain(failed)).append(&quot; failed&quot;);</span>
+        }
+<span class="nc bnc" id="L834" title="All 2 branches missed.">        if (skipped != null) {</span>
+<span class="nc" id="L835">            text.append(&quot; · &quot;).append(Numbers.plain(skipped)).append(&quot; skipped&quot;);</span>
+        }
+<span class="nc bnc" id="L837" title="All 2 branches missed.">        if (seconds != null) {</span>
+<span class="nc" id="L838">            text.append(&quot; · &quot;).append(TestReports.formatSeconds(seconds)).append(&quot; in tests&quot;);</span>
+        }
+<span class="nc" id="L840">        rows.add(row(Numbers.plain(run), text.toString()));</span>
+<span class="nc" id="L841">    }</span>
+
+    private static void coverageRow(Measures measures, List&lt;String&gt; rows) {
+<span class="fc" id="L844">        Double percent = measures.value(MeasureKey.COVERAGE_LINE_PERCENT);</span>
+<span class="pc bpc" id="L845" title="1 of 2 branches missed.">        if (percent == null) {</span>
+<span class="nc" id="L846">            return;</span>
+        }
+<span class="fc" id="L848">        StringBuilder text = new StringBuilder(&quot;lines covered&quot;);</span>
+<span class="fc" id="L849">        Double covered = measures.value(MeasureKey.COVERAGE_LINE_COVERED);</span>
+<span class="fc" id="L850">        Double total = measures.value(MeasureKey.COVERAGE_LINE_TOTAL);</span>
+<span class="pc bpc" id="L851" title="2 of 4 branches missed.">        if (covered != null &amp;&amp; total != null) {</span>
+<span class="fc" id="L852">            text.append(&quot; — &quot;).append(Numbers.plain(covered)).append(&quot; of &quot;).append(Numbers.plain(total));</span>
+        }
+<span class="fc" id="L854">        Double branches = measures.value(MeasureKey.COVERAGE_BRANCH_PERCENT);</span>
+<span class="pc bpc" id="L855" title="1 of 2 branches missed.">        if (branches != null) {</span>
+<span class="nc" id="L856">            text.append(&quot; · &quot;).append(TestReports.percent(branches)).append(&quot; branches&quot;);</span>
+        }
+<span class="fc" id="L858">        Double modules = measures.value(MeasureKey.COVERAGE_MODULES);</span>
+<span class="pc bpc" id="L859" title="1 of 2 branches missed.">        if (modules != null) {</span>
+<span class="nc" id="L860">            text.append(&quot; · &quot;).append(Numbers.plain(modules)).append(&quot; module(s) with execution data&quot;);</span>
+        }
+<span class="fc" id="L862">        rows.add(row(TestReports.percent(percent), text.toString()));</span>
+<span class="fc" id="L863">    }</span>
+
+    private static void buildRow(Measures measures, List&lt;String&gt; rows) {
+<span class="fc" id="L866">        Double seconds = measures.value(MeasureKey.BUILD_SECONDS);</span>
+<span class="pc bpc" id="L867" title="1 of 2 branches missed.">        if (seconds == null) {</span>
+<span class="fc" id="L868">            return;</span>
+        }
+<span class="nc" id="L870">        StringBuilder text = new StringBuilder(&quot;build&quot;);</span>
+<span class="nc" id="L871">        Double built = measures.value(MeasureKey.BUILD_MODULES_BUILT);</span>
+<span class="nc bnc" id="L872" title="All 2 branches missed.">        if (built != null) {</span>
+<span class="nc" id="L873">            text.append(&quot; · &quot;).append(Numbers.plain(built)).append(&quot; module(s) built&quot;);</span>
+        }
+<span class="nc" id="L875">        Double failed = measures.value(MeasureKey.BUILD_MODULES_FAILED);</span>
+<span class="nc bnc" id="L876" title="All 4 branches missed.">        if (failed != null &amp;&amp; failed &gt; 0) {</span>
+<span class="nc" id="L877">            text.append(&quot;, &quot;).append(Numbers.plain(failed)).append(&quot; failed&quot;);</span>
+        }
+<span class="nc" id="L879">        Double threads = measures.value(MeasureKey.BUILD_THREADS);</span>
+<span class="nc bnc" id="L880" title="All 2 branches missed.">        if (threads != null) {</span>
+<span class="nc bnc" id="L881" title="All 2 branches missed.">            text.append(&quot; · &quot;).append(Numbers.plain(threads)).append(threads == 1 ? &quot; thread&quot; : &quot; threads&quot;);</span>
+        }
+<span class="nc" id="L883">        rows.add(row(TestReports.formatSeconds(seconds), text.toString()));</span>
+<span class="nc" id="L884">    }</span>
+
+    private static void renderFailures(StringBuilder out, List&lt;Finding&gt; failures) {
+<span class="fc bfc" id="L887" title="All 2 branches covered.">        if (failures.isEmpty()) {</span>
+<span class="fc" id="L888">            return;</span>
+        }
+<span class="fc" id="L890">        out.append(&quot;## &quot;).append(RED).append(&quot; FAILURES\n\n&quot;);</span>
+<span class="fc bfc" id="L891" title="All 2 branches covered.">        for (Finding finding : failures) {</span>
+<span class="fc" id="L892">            out.append(&quot;- `&quot;).append(finding.key()).append(&quot;` — &quot;).append(finding.detail()).append('\n');</span>
+<span class="fc" id="L893">        }</span>
+<span class="fc" id="L894">        out.append('\n');</span>
+<span class="fc" id="L895">    }</span>
+
+    private static void renderAttention(StringBuilder out, List&lt;LedgerEvaluation.AttentionItem&gt; attention) {
+<span class="fc bfc" id="L898" title="All 2 branches covered.">        if (attention.isEmpty()) {</span>
+<span class="fc" id="L899">            return;</span>
+        }
+<span class="fc" id="L901">        out.append(&quot;## &quot;).append(YELLOW).append(&quot; ATTENTION\n\n&quot;);</span>
+<span class="fc bfc" id="L902" title="All 2 branches covered.">        for (LedgerEvaluation.AttentionItem item : attention) {</span>
+<span class="fc bfc" id="L903" title="All 2 branches covered.">            if (item.category() == FindingCategory.MEASURE) {</span>
+                // A measure is one value against one bound, not a count of
+                // occurrences: its finding's detail says it all.
+<span class="fc" id="L906">                out.append(&quot;- `&quot;).append(item.key()).append(&quot;` — &quot;).append(item.sample()).append('\n');</span>
+<span class="fc" id="L907">                continue;</span>
+            }
+<span class="fc" id="L909">            out.append(&quot;- `&quot;).append(item.key()).append(&quot;` — observed &quot;).append(item.observed());</span>
+<span class="pc bpc" id="L910" title="1 of 2 branches missed.">            if (item.expected() == null) {</span>
+<span class="fc" id="L911">                out.append(&quot;, not accepted&quot;);</span>
+            } else {
+<span class="nc" id="L913">                out.append(&quot;, accepted &quot;).append(item.expected());</span>
+            }
+<span class="fc" id="L915">            out.append('\n');</span>
+<span class="fc" id="L916">            renderEvidence(out, item);</span>
+<span class="fc" id="L917">            renderOccurrences(out, item.findings());</span>
+<span class="fc" id="L918">        }</span>
+<span class="fc" id="L919">        out.append('\n');</span>
+<span class="fc" id="L920">    }</span>
+
+    /**
+     * Renders the structured context shared by an item's findings —
+     * what the thing is, and whose it is.
+     *
+     * &lt;p&gt;Only identifying context is promoted here; the per-occurrence
+     * subject and error stay with their occurrence lines, where the
+     * count makes them meaningful.&lt;/p&gt;
+     */
+    private static void renderEvidence(StringBuilder out, LedgerEvaluation.AttentionItem item) {
+<span class="pc bpc" id="L931" title="1 of 2 branches missed.">        if (item.findings().isEmpty()) {</span>
+<span class="nc" id="L932">            return;</span>
+        }
+<span class="fc" id="L934">        Map&lt;String, String&gt; context = item.findings().get(0).context();</span>
+<span class="fc" id="L935">        String repositoryId = context.get(Finding.CONTEXT_REPOSITORY_ID);</span>
+<span class="fc" id="L936">        String url = context.get(Finding.CONTEXT_REPOSITORY_URL);</span>
+<span class="fc bfc" id="L937" title="All 2 branches covered.">        if (repositoryId != null) {</span>
+<span class="fc" id="L938">            out.append(&quot;  - repository `&quot;).append(repositoryId).append('`');</span>
+<span class="pc bpc" id="L939" title="2 of 4 branches missed.">            if (url != null &amp;&amp; !url.isBlank()) {</span>
+<span class="fc" id="L940">                out.append(&quot; at `&quot;).append(url).append('`');</span>
+            }
+<span class="fc" id="L942">            out.append('\n');</span>
+        }
+<span class="fc" id="L944">        String declaredBy = context.get(Finding.CONTEXT_DECLARED_BY);</span>
+<span class="pc bpc" id="L945" title="1 of 4 branches missed.">        if (declaredBy != null &amp;&amp; !declaredBy.isBlank()) {</span>
+<span class="fc" id="L946">            out.append(&quot;  - &quot;).append(declaredBy).append('\n');</span>
+        }
+<span class="fc" id="L948">    }</span>
+
+    private static void renderOccurrences(StringBuilder out, List&lt;Finding&gt; findings) {
+<span class="fc" id="L951">        int shown = Math.min(findings.size(), MAX_OCCURRENCES);</span>
+<span class="fc bfc" id="L952" title="All 2 branches covered.">        for (int index = 0; index &lt; shown; index++) {</span>
+<span class="fc" id="L953">            String detail = findings.get(index).detail();</span>
+<span class="pc bpc" id="L954" title="1 of 2 branches missed.">            if (detail.isBlank()) {</span>
+<span class="nc" id="L955">                continue;</span>
+            }
+<span class="fc" id="L957">            out.append(&quot;  - occurrence &quot;).append(index + 1).append('/').append(findings.size())</span>
+<span class="fc" id="L958">                    .append(&quot; — &quot;).append(detail).append('\n');</span>
+        }
+<span class="pc bpc" id="L960" title="1 of 2 branches missed.">        if (findings.size() &gt; shown) {</span>
+<span class="nc" id="L961">            out.append(&quot;  - … and &quot;).append(findings.size() - shown)</span>
+<span class="nc" id="L962">                    .append(&quot; further occurrence(s)\n&quot;);</span>
+        }
+<span class="fc" id="L964">    }</span>
+
+    /**
+     * Renders the options a reader has for each family of finding
+     * present, so the receipt closes the loop it opens.
+     *
+     * &lt;p&gt;A finding that gates a build is only actionable if the reader
+     * knows the responses available; naming them here is what turns the
+     * receipt from a verdict into an instruction (ike-issues#989).&lt;/p&gt;
+     */
+    private static void renderRemediation(StringBuilder out, LedgerEvaluation evaluation) {
+<span class="fc" id="L975">        Set&lt;FindingCategory&gt; categories = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L976" title="All 2 branches covered.">        for (LedgerEvaluation.AttentionItem item : evaluation.attention()) {</span>
+<span class="pc bpc" id="L977" title="1 of 2 branches missed.">            if (item.category() != null) {</span>
+<span class="fc" id="L978">                categories.add(item.category());</span>
+            }
+<span class="fc" id="L980">        }</span>
+<span class="fc bfc" id="L981" title="All 2 branches covered.">        for (Finding failure : evaluation.failures()) {</span>
+<span class="fc" id="L982">            categories.add(failure.category());</span>
+<span class="fc" id="L983">        }</span>
+<span class="fc bfc" id="L984" title="All 2 branches covered.">        if (categories.isEmpty()) {</span>
+<span class="fc" id="L985">            return;</span>
+        }
+<span class="fc" id="L987">        out.append(&quot;\n## WHAT TO DO\n\n&quot;);</span>
+<span class="fc bfc" id="L988" title="All 2 branches covered.">        if (categories.contains(FindingCategory.REPOSITORY)) {</span>
+<span class="fc" id="L989">            out.append(&quot;Repository findings are transfer-level failures, not missing artifacts —\n&quot;);</span>
+<span class="fc" id="L990">            out.append(&quot;a repository the build could not talk to at all. Options, in the order\n&quot;);</span>
+<span class="fc" id="L991">            out.append(&quot;worth considering:\n\n&quot;);</span>
+<span class="fc" id="L992">            out.append(&quot;1. **Not yours** — when the repository was declared by a dependency's\n&quot;);</span>
+<span class="fc" id="L993">            out.append(&quot;   POM (the `declared by the POM of …` line above), no change in this\n&quot;);</span>
+<span class="fc" id="L994">            out.append(&quot;   workspace will remove it. Block it once, for every build, in\n&quot;);</span>
+<span class="fc" id="L995">            out.append(&quot;   `~/.m2/settings.xml`:\n\n&quot;);</span>
+<span class="fc" id="L996">            out.append(&quot;   ```xml\n&quot;);</span>
+<span class="fc" id="L997">            out.append(&quot;   &lt;mirror&gt;\n&quot;);</span>
+<span class="fc" id="L998">            out.append(&quot;     &lt;id&gt;block-EXAMPLE&lt;/id&gt;\n&quot;);</span>
+<span class="fc" id="L999">            out.append(&quot;     &lt;mirrorOf&gt;EXAMPLE&lt;/mirrorOf&gt;\n&quot;);</span>
+<span class="fc" id="L1000">            out.append(&quot;     &lt;name&gt;unreachable; declared by a third-party POM&lt;/name&gt;\n&quot;);</span>
+<span class="fc" id="L1001">            out.append(&quot;     &lt;url&gt;http://0.0.0.0/&lt;/url&gt;\n&quot;);</span>
+<span class="fc" id="L1002">            out.append(&quot;     &lt;blocked&gt;true&lt;/blocked&gt;\n&quot;);</span>
+<span class="fc" id="L1003">            out.append(&quot;   &lt;/mirror&gt;\n&quot;);</span>
+<span class="fc" id="L1004">            out.append(&quot;   ```\n\n&quot;);</span>
+<span class="fc" id="L1005">            out.append(&quot;2. **Yours** — fix the URL, the credentials, or the network path.\n&quot;);</span>
+<span class="fc" id="L1006">            out.append(&quot;3. **Known and tolerated** — accept the key in `&quot;)</span>
+<span class="fc" id="L1007">                    .append(ReportSession.LEDGER_RELATIVE_PATH)</span>
+<span class="fc" id="L1008">                    .append(&quot;` with a\n   `count` and a `reason` that says why it is tolerable.\n\n&quot;);</span>
+        }
+<span class="pc bpc" id="L1010" title="1 of 2 branches missed.">        if (categories.contains(FindingCategory.MODEL)) {</span>
+<span class="nc" id="L1011">            out.append(&quot;Model findings are recomputed from the POMs themselves, not scraped\n&quot;);</span>
+<span class="nc" id="L1012">            out.append(&quot;from Maven's log. Either change the declaration the finding names, or\n&quot;);</span>
+<span class="nc" id="L1013">            out.append(&quot;accept the key in `&quot;).append(ReportSession.LEDGER_RELATIVE_PATH)</span>
+<span class="nc" id="L1014">                    .append(&quot;` with a reason.\n\n&quot;);</span>
+        }
+<span class="fc bfc" id="L1016" title="All 2 branches covered.">        if (categories.contains(FindingCategory.MEASURE)) {</span>
+<span class="fc" id="L1017">            out.append(&quot;Measure findings are a session value outside a bound the ledger places\n&quot;);</span>
+<span class="fc" id="L1018">            out.append(&quot;on it. Either bring the measure back — fewer warnings, fewer skips, more\n&quot;);</span>
+<span class="fc" id="L1019">            out.append(&quot;coverage — or move the bound in `&quot;).append(ReportSession.LEDGER_RELATIVE_PATH)</span>
+<span class="fc" id="L1020">                    .append(&quot;` with a reason.\nBounds only tighten mechanically, so loosening one is always a hand edit.\n\n&quot;);</span>
+        }
+<span class="fc bfc" id="L1022" title="All 2 branches covered.">        if (categories.contains(FindingCategory.EXECUTION)) {</span>
+<span class="fc" id="L1023">            out.append(&quot;Execution findings are build-breaking and are never absorbed by the\n&quot;);</span>
+<span class="fc" id="L1024">            out.append(&quot;ledger — fix the failing goal.\n\n&quot;);</span>
+        }
+<span class="fc" id="L1026">        out.append(&quot;To let one invocation through without changing anything, add\n&quot;);</span>
+<span class="fc" id="L1027">        out.append(&quot;`-D&quot;).append(ReportSession.GATE_SKIP_PROPERTY).append(&quot;=true`;\n&quot;);</span>
+<span class="fc" id="L1028">        out.append(&quot;the skip is recorded in this receipt.\n\n&quot;);</span>
+<span class="fc" id="L1029">    }</span>
+
+    private static void renderAccepted(StringBuilder out, List&lt;LedgerEvaluation.AcceptedStatus&gt; accepted) {
+<span class="fc bfc" id="L1032" title="All 2 branches covered.">        if (accepted.isEmpty()) {</span>
+<span class="fc" id="L1033">            return;</span>
+        }
+<span class="fc" id="L1035">        out.append(&quot;## &quot;).append(BLUE).append(&quot; ACCEPTED\n\n&quot;);</span>
+<span class="fc bfc" id="L1036" title="All 2 branches covered.">        for (LedgerEvaluation.AcceptedStatus status : accepted) {</span>
+<span class="fc" id="L1037">            out.append(&quot;- `&quot;).append(status.entry().key()).append(&quot;` — expected &quot;)</span>
+<span class="fc" id="L1038">                    .append(status.entry().count()).append(&quot;, observed &quot;).append(status.observed());</span>
+<span class="pc bpc" id="L1039" title="1 of 2 branches missed.">            if (!status.entry().reason().isBlank()) {</span>
+<span class="fc" id="L1040">                out.append(&quot; — &quot;).append(status.entry().reason());</span>
+            }
+<span class="fc" id="L1042">            out.append('\n');</span>
+<span class="fc" id="L1043">        }</span>
+<span class="fc" id="L1044">        out.append('\n');</span>
+<span class="fc" id="L1045">    }</span>
+
+    private static void renderRatchet(StringBuilder out, List&lt;LedgerEvaluation.AcceptedStatus&gt; ratchet) {
+<span class="fc bfc" id="L1048" title="All 2 branches covered.">        if (ratchet.isEmpty()) {</span>
+<span class="fc" id="L1049">            return;</span>
+        }
+<span class="fc" id="L1051">        out.append(&quot;## &quot;).append(BLUE).append(&quot; RATCHET\n\n&quot;);</span>
+<span class="fc bfc" id="L1052" title="All 2 branches covered.">        for (LedgerEvaluation.AcceptedStatus status : ratchet) {</span>
+<span class="fc" id="L1053">            out.append(&quot;- `&quot;).append(status.entry().key()).append(&quot;` — expected &quot;)</span>
+<span class="fc" id="L1054">                    .append(status.entry().count()).append(&quot;, observed &quot;).append(status.observed())</span>
+<span class="fc" id="L1055">                    .append(&quot; — ledger can tighten\n&quot;);</span>
+<span class="fc" id="L1056">        }</span>
+<span class="fc" id="L1057">        out.append('\n');</span>
+<span class="fc" id="L1058">    }</span>
+
+    private static String marked(String marker, int count) {
+<span class="fc bfc" id="L1061" title="All 2 branches covered.">        return count &gt; 0 ? marker + &quot; &quot; : &quot;&quot;;</span>
+    }
+
+    private static void renderSummary(StringBuilder out, LedgerEvaluation evaluation, Console console) {
+<span class="fc" id="L1065">        out.append(&quot;## SUMMARY\n\n&quot;);</span>
+        // A marker only where the count is non-zero, so a clean line
+        // stays quiet and colour always means &quot;look here&quot;.
+<span class="fc" id="L1068">        int errors = console.lines(ConsoleMessages.Level.ERROR);</span>
+<span class="fc" id="L1069">        int warnings = console.lines(ConsoleMessages.Level.WARNING);</span>
+<span class="fc" id="L1070">        out.append(marked(RED, evaluation.failures().size())).append(&quot;failures: &quot;)</span>
+<span class="fc" id="L1071">                .append(evaluation.failures().size())</span>
+<span class="fc" id="L1072">                .append(&quot; · &quot;).append(marked(YELLOW, evaluation.attention().size())).append(&quot;attention: &quot;)</span>
+<span class="fc" id="L1073">                .append(evaluation.attention().size())</span>
+<span class="fc" id="L1074">                .append(&quot; · &quot;).append(marked(BLUE, evaluation.accepted().size())).append(&quot;accepted: &quot;)</span>
+<span class="fc" id="L1075">                .append(evaluation.accepted().size())</span>
+<span class="fc" id="L1076">                .append(&quot; · &quot;).append(marked(BLUE, evaluation.ratchet().size())).append(&quot;ratchet: &quot;)</span>
+<span class="fc" id="L1077">                .append(evaluation.ratchet().size())</span>
+<span class="fc" id="L1078">                .append(&quot; · console: &quot;);</span>
+<span class="fc bfc" id="L1079" title="All 2 branches covered.">        if (console.captured()) {</span>
+<span class="fc" id="L1080">            out.append(marked(RED, errors)).append(errors).append(&quot; error(s), &quot;)</span>
+<span class="fc" id="L1081">                    .append(marked(YELLOW, warnings)).append(warnings).append(&quot; warning(s)&quot;);</span>
+<span class="fc bfc" id="L1082" title="All 2 branches covered.">            if (console.ignoredLines() &gt; 0) {</span>
+<span class="fc" id="L1083">                out.append(&quot;, &quot;).append(console.ignoredLines()).append(&quot; ignored&quot;);</span>
+            }
+        } else {
+<span class="fc" id="L1086">            out.append(&quot;not captured&quot;);</span>
+        }
+<span class="fc" id="L1088">        out.append('\n');</span>
+<span class="fc" id="L1089">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

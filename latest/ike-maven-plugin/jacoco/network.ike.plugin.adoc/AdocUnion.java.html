@@ -1,0 +1,548 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AdocUnion.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.adoc</a> &gt; <span class="el_source">AdocUnion.java</span></div><h1>AdocUnion.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin.adoc;
+
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+/**
+ * One union of AsciiDoc packages per repository, written and verified from any module of
+ * it. The union mirrors every declared library's root: a package such as
+ * {@code network.ike.lab/dev} is copied from an external library's zip, or linked to a
+ * reactor member's {@code src/docs/asciidoc/network.ike.lab/dev} so an edit reached through
+ * an include changes the real source. Each library's manifest and a stamp are under
+ * {@code META-INF/ike/&lt;group&gt;/&lt;artifact&gt;/}, which is how a later run knows what is there.
+ *
+ * &lt;p&gt;The rules, in the order they are applied:
+ * &lt;ul&gt;
+ *   &lt;li&gt;A zip without a manifest is a legacy library. With legacy mode on it is unpacked
+ *       into the legacy per-module directory as the stock unpack did; otherwise the build
+ *       refuses, naming the artifact.&lt;/li&gt;
+ *   &lt;li&gt;Two libraries that ship one package are refused, naming both. A library already in
+ *       the union that no module declares anymore counts too, since the union is one per
+ *       repository.&lt;/li&gt;
+ *   &lt;li&gt;An unchanged library is not rewritten: a copy is keyed by the zip's SHA-256, a link
+ *       by its target.&lt;/li&gt;
+ *   &lt;li&gt;A stale entry whose library is not among those declared is left alone; a run writes
+ *       only the libraries it was given.&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;Whether IntelliJ resolves includes, previews and navigates through a symbolic link in
+ * {@code target/generated-sources} is to be confirmed by KEC on one machine; until then the
+ * link stays the default and {@code link=false} copies a member's tree instead.
+ */
+public final class AdocUnion {
+
+    /**
+     * What one run did, by library.
+     *
+     * @param copied    external libraries copied from their zip
+     * @param linked    reactor members linked, or copied from their tree when linking is off
+     * @param unchanged libraries already in the union as they are
+     * @param legacy    legacy libraries unpacked into the legacy directory
+     */
+<span class="fc" id="L83">    public record Result(List&lt;AdocCoordinates&gt; copied, List&lt;AdocCoordinates&gt; linked,</span>
+                         List&lt;AdocCoordinates&gt; unchanged, List&lt;AdocCoordinates&gt; legacy) {
+
+        /**
+         * One line for the build log.
+         *
+         * @return the counts, in plain words
+         */
+        public String summary() {
+<span class="nc" id="L92">            return copied.size() + &quot; copied, &quot; + linked.size() + &quot; linked, &quot; + unchanged.size()</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">                    + &quot; unchanged&quot; + (legacy.isEmpty() ? &quot;&quot; : &quot;, &quot; + legacy.size() + &quot; legacy&quot;);</span>
+        }
+    }
+
+    private final Path unionDirectory;
+    private final Path legacyDirectory;
+    private final boolean link;
+    private final boolean legacy;
+    private final Log log;
+    private boolean legacyUnpacked;
+
+    /**
+     * A union at a directory.
+     *
+     * @param unionDirectory  the union, {@code &lt;reactor root&gt;/target/generated-sources/adoc}
+     * @param legacyDirectory where a legacy library is unpacked when legacy mode is on
+     * @param link            link a reactor member's packages rather than copying them
+     * @param legacy          unpack a zip without a manifest rather than refusing it
+     * @param log             the build log
+     */
+<span class="fc" id="L113">    public AdocUnion(Path unionDirectory, Path legacyDirectory, boolean link, boolean legacy, Log log) {</span>
+<span class="fc" id="L114">        this.unionDirectory = unionDirectory.toAbsolutePath().normalize();</span>
+<span class="fc" id="L115">        this.legacyDirectory = legacyDirectory.toAbsolutePath().normalize();</span>
+<span class="fc" id="L116">        this.link = link;</span>
+<span class="fc" id="L117">        this.legacy = legacy;</span>
+<span class="fc" id="L118">        this.log = log;</span>
+<span class="fc" id="L119">    }</span>
+
+    /**
+     * The union directory.
+     *
+     * @return the absolute, normalized union directory
+     */
+    public Path unionDirectory() {
+<span class="nc" id="L127">        return unionDirectory;</span>
+    }
+
+    /**
+     * Whether {@link #update} unpacked a legacy library into the legacy directory.
+     *
+     * @return true after a legacy unpack in this run
+     */
+    public boolean legacyUnpacked() {
+<span class="fc" id="L136">        return legacyUnpacked;</span>
+    }
+
+    /**
+     * Puts the given libraries in the union, each according to the rules above.
+     *
+     * @param libraries the libraries one module declares, plus the module itself when it is
+     *                  a library
+     * @return what was done
+     * @throws MojoException on a legacy zip outside legacy mode, two libraries shipping one
+     *                       package, a manifest that names other coordinates than the
+     *                       dependency, or a file that cannot be written
+     */
+    public Result update(List&lt;AdocLibrary&gt; libraries) {
+        try {
+<span class="fc" id="L151">            Files.createDirectories(unionDirectory);</span>
+<span class="fc" id="L152">            Map&lt;AdocLibrary, AdocManifest&gt; manifests = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L153">            List&lt;AdocLibrary&gt; legacyLibraries = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L154" title="All 2 branches covered.">            for (AdocLibrary library : libraries) {</span>
+<span class="fc bfc" id="L155" title="All 2 branches covered.">                if (library.isReactor()) {</span>
+<span class="fc" id="L156">                    manifests.put(library, AdocManifest.fromSourceTree(library.coordinates(), library.sourceRoot()));</span>
+<span class="fc" id="L157">                    continue;</span>
+                }
+<span class="fc" id="L159">                Optional&lt;AdocManifest&gt; manifest = AdocManifest.readFromZip(library.zip(), library.coordinates());</span>
+<span class="fc bfc" id="L160" title="All 2 branches covered.">                if (manifest.isPresent()) {</span>
+<span class="pc bpc" id="L161" title="1 of 2 branches missed.">                    if (!manifest.get().ga().equals(library.coordinates().ga())) {</span>
+<span class="nc" id="L162">                        throw new MojoException(&quot;The manifest in &quot; + library.zip() + &quot; names &quot;</span>
+<span class="nc" id="L163">                                + manifest.get().ga() + &quot; but the dependency is &quot; + library.coordinates().ga());</span>
+                    }
+<span class="fc" id="L165">                    manifests.put(library, manifest.get());</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">                } else if (legacy) {</span>
+<span class="fc" id="L167">                    legacyLibraries.add(library);</span>
+                } else {
+<span class="fc" id="L169">                    throw new MojoException(library.coordinates().gav() + &quot; ships no &quot;</span>
+<span class="fc" id="L170">                            + library.coordinates().manifestPath() + &quot;: it is a legacy library with the&quot;</span>
+                            + &quot; topics/ layout. Rebuild it with the package layout, or unpack it as before&quot;
+                            + &quot; into &quot; + legacyDirectory + &quot; with -Dike.adoc.legacy=true.&quot;);
+                }
+<span class="fc" id="L174">            }</span>
+<span class="fc" id="L175">            refuseSplitPackages(manifests);</span>
+
+<span class="fc" id="L177">            List&lt;AdocCoordinates&gt; copied = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L178">            List&lt;AdocCoordinates&gt; linked = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L179">            List&lt;AdocCoordinates&gt; unchanged = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L180">            List&lt;AdocCoordinates&gt; legacyDone = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L181" title="All 2 branches covered.">            for (Map.Entry&lt;AdocLibrary, AdocManifest&gt; entry : manifests.entrySet()) {</span>
+<span class="fc" id="L182">                AdocLibrary library = entry.getKey();</span>
+<span class="fc bfc" id="L183" title="All 2 branches covered.">                boolean changed = library.isReactor()</span>
+<span class="fc bfc" id="L184" title="All 2 branches covered.">                        ? (link ? linkMember(library, entry.getValue()) : copyTree(library, entry.getValue()))</span>
+<span class="fc" id="L185">                        : copyZip(library, entry.getValue());</span>
+<span class="fc bfc" id="L186" title="All 4 branches covered.">                (changed ? (library.isReactor() ? linked : copied) : unchanged).add(library.coordinates());</span>
+<span class="fc" id="L187">            }</span>
+<span class="fc bfc" id="L188" title="All 2 branches covered.">            for (AdocLibrary library : legacyLibraries) {</span>
+<span class="fc" id="L189">                unpackLegacy(library);</span>
+<span class="fc" id="L190">                legacyDone.add(library.coordinates());</span>
+<span class="fc" id="L191">            }</span>
+<span class="fc" id="L192">            return new Result(copied, linked, unchanged, legacyDone);</span>
+<span class="nc" id="L193">        } catch (IOException | UncheckedIOException e) {</span>
+<span class="nc" id="L194">            throw new MojoException(&quot;Cannot write the AsciiDoc union at &quot; + unionDirectory + &quot;: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    /**
+     * Checks that every {@code {adoc}} and {@code {topics}} include under a module's own
+     * AsciiDoc source root resolves in the union. An include into the legacy directory
+     * through {@code {topics}} also resolves while a legacy library was unpacked there. An
+     * unresolved include fails the build with the library that ships the package and the
+     * exact dependency block to add, found in the union's manifests, then in the local
+     * repository; nothing is fetched.
+     *
+     * @param sourceDirectory the module's {@code src/docs/asciidoc}
+     * @param localRepository the local repository root, searched for the suggestion
+     * @return the number of includes that resolved
+     * @throws MojoException when an include does not resolve
+     */
+    public int verifyIncludes(Path sourceDirectory, Path localRepository) {
+<span class="fc" id="L212">        List&lt;IncludeReference&gt; references = IncludeScanner.scan(sourceDirectory);</span>
+<span class="fc" id="L213">        List&lt;String&gt; problems = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L214">        int checked = 0;</span>
+<span class="fc bfc" id="L215" title="All 2 branches covered.">        for (IncludeReference reference : references) {</span>
+<span class="fc bfc" id="L216" title="All 2 branches covered.">            if (reference.path().indexOf('{') &gt;= 0) {</span>
+                // An attribute inside the path is the renderer's to expand.
+<span class="fc" id="L218">                continue;</span>
+            }
+<span class="fc" id="L220">            checked++;</span>
+<span class="fc bfc" id="L221" title="All 2 branches covered.">            if (!resolves(reference)) {</span>
+<span class="fc" id="L222">                problems.add(describe(reference, sourceDirectory, localRepository));</span>
+            }
+<span class="fc" id="L224">        }</span>
+<span class="fc bfc" id="L225" title="All 2 branches covered.">        if (!problems.isEmpty()) {</span>
+<span class="fc" id="L226">            StringBuilder message = new StringBuilder();</span>
+<span class="pc bpc" id="L227" title="1 of 2 branches missed.">            message.append(problems.size()).append(problems.size() == 1 ? &quot; include&quot; : &quot; includes&quot;)</span>
+<span class="pc bpc" id="L228" title="1 of 2 branches missed.">                    .append(&quot; in &quot;).append(sourceDirectory).append(problems.size() == 1 ? &quot; does&quot; : &quot; do&quot;)</span>
+<span class="fc" id="L229">                    .append(&quot; not resolve in the AsciiDoc union &quot;).append(unionDirectory).append(&quot;:\n&quot;);</span>
+<span class="fc" id="L230">            problems.forEach(message::append);</span>
+<span class="fc" id="L231">            throw new MojoException(message.toString());</span>
+        }
+<span class="fc" id="L233">        return checked;</span>
+    }
+
+    private boolean resolves(IncludeReference reference) {
+<span class="fc" id="L237">        Path inUnion = unionDirectory.resolve(reference.path()).normalize();</span>
+<span class="pc bpc" id="L238" title="1 of 4 branches missed.">        if (inUnion.startsWith(unionDirectory) &amp;&amp; Files.exists(inUnion)) {</span>
+<span class="fc" id="L239">            return true;</span>
+        }
+<span class="pc bpc" id="L241" title="1 of 4 branches missed.">        if (&quot;topics&quot;.equals(reference.attribute()) &amp;&amp; Files.isDirectory(legacyDirectory)) {</span>
+<span class="fc" id="L242">            Path inLegacy = legacyDirectory.resolve(reference.path()).normalize();</span>
+<span class="pc bpc" id="L243" title="2 of 4 branches missed.">            return inLegacy.startsWith(legacyDirectory) &amp;&amp; Files.exists(inLegacy);</span>
+        }
+<span class="fc" id="L245">        return false;</span>
+    }
+
+    private String describe(IncludeReference reference, Path sourceDirectory, Path localRepository) {
+<span class="fc" id="L249">        Path shown = sourceDirectory.toAbsolutePath().normalize().relativize(</span>
+<span class="fc" id="L250">                reference.file().toAbsolutePath().normalize());</span>
+<span class="fc" id="L251">        StringBuilder out = new StringBuilder();</span>
+<span class="fc" id="L252">        out.append(&quot;  &quot;).append(shown).append(':').append(reference.line()).append(&quot;  &quot;)</span>
+<span class="fc" id="L253">                .append(reference.asWritten()).append('\n');</span>
+<span class="fc" id="L254">        Optional&lt;AdocCatalog.Hit&gt; inUnion = AdocCatalog.inUnion(unionDirectory, reference.path());</span>
+<span class="fc bfc" id="L255" title="All 2 branches covered.">        if (inUnion.isPresent()) {</span>
+<span class="fc" id="L256">            AdocCatalog.Hit hit = inUnion.get();</span>
+<span class="fc" id="L257">            out.append(&quot;    &quot;).append(hit.coordinates().ga()).append(&quot; (version &quot;)</span>
+<span class="fc" id="L258">                    .append(hit.coordinates().version()).append(&quot;) is in the union and ships the package &quot;)</span>
+<span class="fc" id="L259">                    .append(hit.pkg().name()).append(&quot;, but not this file. Check the path.\n&quot;);</span>
+<span class="fc" id="L260">            return out.toString();</span>
+        }
+<span class="pc bpc" id="L262" title="1 of 2 branches missed.">        Optional&lt;AdocCatalog.Hit&gt; local = localRepository == null ? Optional.empty()</span>
+<span class="fc" id="L263">                : AdocCatalog.inLocalRepository(localRepository, reference.path());</span>
+<span class="fc bfc" id="L264" title="All 2 branches covered.">        if (local.isPresent()) {</span>
+<span class="fc" id="L265">            AdocCatalog.Hit hit = local.get();</span>
+<span class="fc" id="L266">            out.append(&quot;    &quot;).append(hit.coordinates().ga()).append(&quot; ships the package &quot;)</span>
+<span class="fc" id="L267">                    .append(hit.pkg().name()).append(&quot; (version &quot;).append(hit.coordinates().version())</span>
+<span class="fc" id="L268">                    .append(&quot; in the local repository). Add it to this module's pom.xml:\n&quot;)</span>
+<span class="fc" id="L269">                    .append(hit.coordinates().dependencyBlock());</span>
+<span class="fc" id="L270">            return out.toString();</span>
+        }
+<span class="fc" id="L272">        out.append(&quot;    No library in the union or in the local repository ships a package holding &quot;)</span>
+<span class="fc" id="L273">                .append(reference.path()).append(&quot;. Declare the library that ships it; the build never&quot;)</span>
+<span class="fc" id="L274">                .append(&quot; fetches an undeclared library.\n&quot;);</span>
+<span class="fc" id="L275">        return out.toString();</span>
+    }
+
+    // ── exclusivity ──────────────────────────────────────────────────────
+
+    private void refuseSplitPackages(Map&lt;AdocLibrary, AdocManifest&gt; manifests) {
+<span class="fc" id="L281">        Map&lt;String, AdocCoordinates&gt; owners = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L282">        Set&lt;String&gt; declared = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L283" title="All 2 branches covered.">        for (Map.Entry&lt;AdocLibrary, AdocManifest&gt; entry : manifests.entrySet()) {</span>
+<span class="fc" id="L284">            AdocCoordinates coordinates = entry.getKey().coordinates();</span>
+<span class="fc" id="L285">            declared.add(coordinates.ga());</span>
+<span class="fc bfc" id="L286" title="All 2 branches covered.">            for (AdocPackage pkg : entry.getValue().packages()) {</span>
+<span class="fc" id="L287">                AdocCoordinates other = owners.putIfAbsent(pkg.name(), coordinates);</span>
+<span class="pc bpc" id="L288" title="1 of 4 branches missed.">                if (other != null &amp;&amp; !other.ga().equals(coordinates.ga())) {</span>
+<span class="fc" id="L289">                    throw new MojoException(&quot;Two libraries ship the package &quot; + pkg.name() + &quot;: &quot;</span>
+<span class="fc" id="L290">                            + other.gav() + &quot; and &quot; + coordinates.gav()</span>
+                            + &quot;. A package has one owner; rename or move it in one of them.&quot;);
+                }
+<span class="fc" id="L293">            }</span>
+<span class="fc" id="L294">        }</span>
+<span class="fc bfc" id="L295" title="All 2 branches covered.">        for (Path manifestFile : AdocCatalog.unionManifests(unionDirectory)) {</span>
+<span class="fc" id="L296">            AdocManifest existing = AdocManifest.read(manifestFile);</span>
+<span class="fc bfc" id="L297" title="All 2 branches covered.">            if (declared.contains(existing.ga())) {</span>
+<span class="fc" id="L298">                continue;</span>
+            }
+<span class="fc bfc" id="L300" title="All 2 branches covered.">            for (AdocPackage pkg : existing.packages()) {</span>
+<span class="fc" id="L301">                AdocCoordinates incoming = owners.get(pkg.name());</span>
+<span class="fc bfc" id="L302" title="All 2 branches covered.">                if (incoming != null) {</span>
+<span class="fc" id="L303">                    throw new MojoException(&quot;Two libraries ship the package &quot; + pkg.name() + &quot;: &quot;</span>
+<span class="fc" id="L304">                            + existing.ga() + &quot;, already in the union at &quot; + unionDirectory</span>
+<span class="fc" id="L305">                            + &quot; and declared by no module of this build, and &quot; + incoming.gav()</span>
+<span class="fc" id="L306">                            + &quot;. If &quot; + existing.ga() + &quot; is no longer used, delete &quot;</span>
+<span class="fc" id="L307">                            + manifestFile.getParent() + &quot; and the package, or clean the root.&quot;);</span>
+                }
+<span class="fc" id="L309">            }</span>
+<span class="fc" id="L310">        }</span>
+<span class="fc" id="L311">    }</span>
+
+    // ── one library ──────────────────────────────────────────────────────
+
+    private boolean copyZip(AdocLibrary library, AdocManifest manifest) throws IOException {
+<span class="fc" id="L316">        AdocCoordinates coordinates = library.coordinates();</span>
+<span class="fc" id="L317">        Path meta = unionDirectory.resolve(coordinates.metaInfPath());</span>
+<span class="fc" id="L318">        Path stampFile = meta.resolve(UnionStamp.FILE_NAME);</span>
+<span class="fc" id="L319">        String sha256 = sha256(library.zip());</span>
+<span class="fc" id="L320">        Optional&lt;UnionStamp&gt; stamp = UnionStamp.read(stampFile);</span>
+<span class="pc bpc" id="L321" title="1 of 4 branches missed.">        if (stamp.isPresent() &amp;&amp; UnionStamp.MODE_COPY.equals(stamp.get().mode())</span>
+<span class="fc bfc" id="L322" title="All 2 branches covered.">                &amp;&amp; sha256.equals(stamp.get().sha256())</span>
+<span class="pc bpc" id="L323" title="1 of 2 branches missed.">                &amp;&amp; Files.isRegularFile(meta.resolve(AdocManifest.FILE_NAME))) {</span>
+<span class="fc" id="L324">            log.debug(&quot;adoc-union: &quot; + coordinates.gav() + &quot; unchanged&quot;);</span>
+<span class="fc" id="L325">            return false;</span>
+        }
+<span class="fc" id="L327">        removeEntry(meta);</span>
+<span class="fc" id="L328">        extract(library.zip(), unionDirectory);</span>
+<span class="fc bfc" id="L329" title="All 2 branches covered.">        for (AdocPackage pkg : manifest.packages()) {</span>
+<span class="pc bpc" id="L330" title="1 of 2 branches missed.">            if (!Files.isDirectory(unionDirectory.resolve(pkg.name()))) {</span>
+<span class="nc" id="L331">                log.warn(&quot;adoc-union: &quot; + coordinates.gav() + &quot; lists the package &quot; + pkg.name()</span>
+                        + &quot; in its manifest but ships no such directory&quot;);
+            }
+<span class="fc" id="L334">        }</span>
+<span class="fc" id="L335">        new UnionStamp(coordinates.version(), UnionStamp.MODE_COPY, library.zip().toString(), sha256)</span>
+<span class="fc" id="L336">                .write(stampFile);</span>
+<span class="fc" id="L337">        log.info(&quot;adoc-union: copied &quot; + coordinates.gav() + &quot; (&quot; + manifest.packages().size()</span>
+                + &quot; packages) into &quot; + unionDirectory);
+<span class="fc" id="L339">        return true;</span>
+    }
+
+    private boolean linkMember(AdocLibrary library, AdocManifest manifest) throws IOException {
+<span class="fc" id="L343">        AdocCoordinates coordinates = library.coordinates();</span>
+<span class="fc" id="L344">        Path meta = unionDirectory.resolve(coordinates.metaInfPath());</span>
+<span class="fc" id="L345">        boolean changed = dropPackagesNoLongerShipped(meta, manifest);</span>
+<span class="fc bfc" id="L346" title="All 2 branches covered.">        for (AdocPackage pkg : manifest.packages()) {</span>
+<span class="fc" id="L347">            Path target = library.sourceRoot().resolve(pkg.name()).toAbsolutePath().normalize();</span>
+<span class="fc" id="L348">            Path at = unionDirectory.resolve(pkg.name());</span>
+<span class="pc bpc" id="L349" title="1 of 4 branches missed.">            if (Files.isSymbolicLink(at) &amp;&amp; Files.readSymbolicLink(at).equals(target)) {</span>
+<span class="fc" id="L350">                continue;</span>
+            }
+<span class="fc" id="L352">            deleteTree(at);</span>
+<span class="fc" id="L353">            Files.createDirectories(at.getParent());</span>
+<span class="fc" id="L354">            Files.createSymbolicLink(at, target);</span>
+<span class="fc" id="L355">            changed = true;</span>
+<span class="fc" id="L356">        }</span>
+<span class="fc" id="L357">        changed |= writeIfDifferent(meta.resolve(AdocManifest.FILE_NAME), manifest.toYaml());</span>
+<span class="fc" id="L358">        changed |= writeStampIfDifferent(meta.resolve(UnionStamp.FILE_NAME), new UnionStamp(</span>
+<span class="fc" id="L359">                coordinates.version(), UnionStamp.MODE_LINK, library.sourceRoot().toString(), null));</span>
+<span class="fc bfc" id="L360" title="All 2 branches covered.">        if (changed) {</span>
+<span class="fc" id="L361">            log.info(&quot;adoc-union: linked &quot; + coordinates.gav() + &quot; (&quot; + manifest.packages().size()</span>
+<span class="fc" id="L362">                    + &quot; packages) from &quot; + library.sourceRoot());</span>
+        } else {
+<span class="fc" id="L364">            log.debug(&quot;adoc-union: &quot; + coordinates.gav() + &quot; unchanged&quot;);</span>
+        }
+<span class="fc" id="L366">        return changed;</span>
+    }
+
+    private boolean copyTree(AdocLibrary library, AdocManifest manifest) throws IOException {
+<span class="fc" id="L370">        AdocCoordinates coordinates = library.coordinates();</span>
+<span class="fc" id="L371">        Path meta = unionDirectory.resolve(coordinates.metaInfPath());</span>
+<span class="fc" id="L372">        boolean changed = dropPackagesNoLongerShipped(meta, manifest);</span>
+<span class="fc bfc" id="L373" title="All 2 branches covered.">        for (AdocPackage pkg : manifest.packages()) {</span>
+<span class="fc" id="L374">            Path source = library.sourceRoot().resolve(pkg.name());</span>
+<span class="fc" id="L375">            Path at = unionDirectory.resolve(pkg.name());</span>
+<span class="fc bfc" id="L376" title="All 2 branches covered.">            if (Files.isSymbolicLink(at)) {</span>
+<span class="fc" id="L377">                Files.delete(at);</span>
+<span class="fc" id="L378">                changed = true;</span>
+            }
+<span class="fc" id="L380">            changed |= syncDirectory(source, at);</span>
+<span class="fc" id="L381">        }</span>
+<span class="fc" id="L382">        changed |= writeIfDifferent(meta.resolve(AdocManifest.FILE_NAME), manifest.toYaml());</span>
+<span class="fc" id="L383">        changed |= writeStampIfDifferent(meta.resolve(UnionStamp.FILE_NAME), new UnionStamp(</span>
+<span class="fc" id="L384">                coordinates.version(), UnionStamp.MODE_TREE, library.sourceRoot().toString(), null));</span>
+<span class="fc bfc" id="L385" title="All 2 branches covered.">        if (changed) {</span>
+<span class="fc" id="L386">            log.info(&quot;adoc-union: copied &quot; + coordinates.gav() + &quot; (&quot; + manifest.packages().size()</span>
+<span class="fc" id="L387">                    + &quot; packages) from &quot; + library.sourceRoot());</span>
+        } else {
+<span class="fc" id="L389">            log.debug(&quot;adoc-union: &quot; + coordinates.gav() + &quot; unchanged&quot;);</span>
+        }
+<span class="fc" id="L391">        return changed;</span>
+    }
+
+    private void unpackLegacy(AdocLibrary library) throws IOException {
+<span class="fc" id="L395">        Files.createDirectories(legacyDirectory);</span>
+<span class="fc" id="L396">        extract(library.zip(), legacyDirectory);</span>
+<span class="fc" id="L397">        legacyUnpacked = true;</span>
+<span class="fc" id="L398">        log.warn(&quot;adoc-union: &quot; + library.coordinates().gav() + &quot; is a legacy library; unpacked into &quot;</span>
+                + legacyDirectory + &quot; (ike.adoc.legacy=true)&quot;);
+<span class="fc" id="L400">    }</span>
+
+    /** Removes the packages an earlier manifest listed that the new one no longer ships. */
+    private boolean dropPackagesNoLongerShipped(Path meta, AdocManifest manifest) throws IOException {
+<span class="fc" id="L404">        Path manifestFile = meta.resolve(AdocManifest.FILE_NAME);</span>
+<span class="fc bfc" id="L405" title="All 2 branches covered.">        if (!Files.isRegularFile(manifestFile)) {</span>
+<span class="fc" id="L406">            return false;</span>
+        }
+<span class="fc" id="L408">        Set&lt;String&gt; kept = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L409">        manifest.packages().forEach(p -&gt; kept.add(p.name()));</span>
+<span class="fc" id="L410">        boolean changed = false;</span>
+<span class="fc bfc" id="L411" title="All 2 branches covered.">        for (AdocPackage old : AdocManifest.read(manifestFile).packages()) {</span>
+<span class="pc bpc" id="L412" title="1 of 2 branches missed.">            if (!kept.contains(old.name())) {</span>
+<span class="nc" id="L413">                changed |= deleteTree(unionDirectory.resolve(old.name()));</span>
+            }
+<span class="fc" id="L415">        }</span>
+<span class="fc" id="L416">        return changed;</span>
+    }
+
+    /** Removes a library's packages, as its manifest in the union lists them, and its META-INF area. */
+    private void removeEntry(Path meta) throws IOException {
+<span class="fc" id="L421">        Path manifestFile = meta.resolve(AdocManifest.FILE_NAME);</span>
+<span class="fc bfc" id="L422" title="All 2 branches covered.">        if (Files.isRegularFile(manifestFile)) {</span>
+<span class="fc bfc" id="L423" title="All 2 branches covered.">            for (AdocPackage old : AdocManifest.read(manifestFile).packages()) {</span>
+<span class="fc" id="L424">                deleteTree(unionDirectory.resolve(old.name()));</span>
+<span class="fc" id="L425">            }</span>
+        }
+<span class="fc" id="L427">        deleteTree(meta);</span>
+<span class="fc" id="L428">    }</span>
+
+    // ── files ────────────────────────────────────────────────────────────
+
+    private static void extract(Path zip, Path into) throws IOException {
+<span class="fc" id="L433">        Path root = into.toAbsolutePath().normalize();</span>
+<span class="fc" id="L434">        try (ZipInputStream in = new ZipInputStream(Files.newInputStream(zip))) {</span>
+            ZipEntry entry;
+<span class="fc bfc" id="L436" title="All 2 branches covered.">            while ((entry = in.getNextEntry()) != null) {</span>
+<span class="fc" id="L437">                Path target = root.resolve(entry.getName()).normalize();</span>
+<span class="pc bpc" id="L438" title="1 of 2 branches missed.">                if (!target.startsWith(root)) {</span>
+<span class="nc" id="L439">                    throw new IOException(&quot;Zip entry outside the target directory: &quot; + entry.getName() + &quot; in &quot; + zip);</span>
+                }
+<span class="pc bpc" id="L441" title="1 of 2 branches missed.">                if (entry.isDirectory()) {</span>
+<span class="nc" id="L442">                    Files.createDirectories(target);</span>
+                } else {
+<span class="fc" id="L444">                    Files.createDirectories(target.getParent());</span>
+<span class="pc bpc" id="L445" title="1 of 2 branches missed.">                    if (Files.isSymbolicLink(target)) {</span>
+<span class="nc" id="L446">                        Files.delete(target);</span>
+                    }
+<span class="fc" id="L448">                    Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);</span>
+                }
+<span class="fc" id="L450">                in.closeEntry();</span>
+<span class="fc" id="L451">            }</span>
+        }
+<span class="fc" id="L453">    }</span>
+
+    /** Makes {@code into} hold exactly the files of {@code from}; returns whether anything changed. */
+    private static boolean syncDirectory(Path from, Path into) throws IOException {
+<span class="fc" id="L457">        boolean changed = false;</span>
+<span class="fc" id="L458">        Set&lt;Path&gt; wanted = new HashSet&lt;&gt;();</span>
+<span class="pc bpc" id="L459" title="1 of 2 branches missed.">        if (Files.isDirectory(from)) {</span>
+<span class="fc" id="L460">            try (Stream&lt;Path&gt; walk = Files.walk(from)) {</span>
+<span class="fc bfc" id="L461" title="All 2 branches covered.">                for (Path source : walk.filter(Files::isRegularFile).toList()) {</span>
+<span class="fc" id="L462">                    Path relative = from.relativize(source);</span>
+<span class="fc" id="L463">                    Path target = into.resolve(relative.toString());</span>
+<span class="fc" id="L464">                    wanted.add(target);</span>
+<span class="fc bfc" id="L465" title="All 2 branches covered.">                    if (!Files.isRegularFile(target)</span>
+<span class="pc bpc" id="L466" title="1 of 2 branches missed.">                            || Files.size(target) != Files.size(source)</span>
+<span class="pc bpc" id="L467" title="1 of 2 branches missed.">                            || !Files.getLastModifiedTime(target).equals(Files.getLastModifiedTime(source))) {</span>
+<span class="fc" id="L468">                        Files.createDirectories(target.getParent());</span>
+<span class="fc" id="L469">                        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING,</span>
+                                StandardCopyOption.COPY_ATTRIBUTES);
+<span class="fc" id="L471">                        changed = true;</span>
+                    }
+<span class="fc" id="L473">                }</span>
+            }
+        }
+<span class="pc bpc" id="L476" title="1 of 2 branches missed.">        if (Files.isDirectory(into)) {</span>
+<span class="fc" id="L477">            try (Stream&lt;Path&gt; walk = Files.walk(into)) {</span>
+<span class="fc bfc" id="L478" title="All 2 branches covered.">                for (Path present : walk.filter(Files::isRegularFile).toList()) {</span>
+<span class="pc bpc" id="L479" title="1 of 2 branches missed.">                    if (!wanted.contains(present)) {</span>
+<span class="nc" id="L480">                        Files.delete(present);</span>
+<span class="nc" id="L481">                        changed = true;</span>
+                    }
+<span class="fc" id="L483">                }</span>
+            }
+        }
+<span class="fc" id="L486">        return changed;</span>
+    }
+
+    /** Deletes a file, a symbolic link without following it, or a whole directory. */
+    private static boolean deleteTree(Path path) throws IOException {
+<span class="pc bpc" id="L491" title="2 of 4 branches missed.">        if (Files.isSymbolicLink(path) || Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {</span>
+<span class="nc" id="L492">            Files.delete(path);</span>
+<span class="nc" id="L493">            return true;</span>
+        }
+<span class="fc bfc" id="L495" title="All 2 branches covered.">        if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {</span>
+<span class="fc" id="L496">            return false;</span>
+        }
+<span class="fc" id="L498">        Files.walkFileTree(path, new SimpleFileVisitor&lt;&gt;() {</span>
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+<span class="fc" id="L501">                Files.delete(file);</span>
+<span class="fc" id="L502">                return FileVisitResult.CONTINUE;</span>
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+<span class="pc bpc" id="L507" title="1 of 2 branches missed.">                if (exc != null) {</span>
+<span class="nc" id="L508">                    throw exc;</span>
+                }
+<span class="fc" id="L510">                Files.delete(dir);</span>
+<span class="fc" id="L511">                return FileVisitResult.CONTINUE;</span>
+            }
+        });
+<span class="fc" id="L514">        return true;</span>
+    }
+
+    private static boolean writeIfDifferent(Path file, String content) throws IOException {
+<span class="pc bpc" id="L518" title="1 of 4 branches missed.">        if (Files.isRegularFile(file) &amp;&amp; Files.readString(file, StandardCharsets.UTF_8).equals(content)) {</span>
+<span class="fc" id="L519">            return false;</span>
+        }
+<span class="fc" id="L521">        Files.createDirectories(file.getParent());</span>
+<span class="fc" id="L522">        Files.writeString(file, content, StandardCharsets.UTF_8);</span>
+<span class="fc" id="L523">        return true;</span>
+    }
+
+    private static boolean writeStampIfDifferent(Path file, UnionStamp stamp) throws IOException {
+<span class="fc bfc" id="L527" title="All 2 branches covered.">        if (UnionStamp.read(file).filter(stamp::equals).isPresent()) {</span>
+<span class="fc" id="L528">            return false;</span>
+        }
+<span class="fc" id="L530">        stamp.write(file);</span>
+<span class="fc" id="L531">        return true;</span>
+    }
+
+    private static String sha256(Path file) throws IOException {
+<span class="fc" id="L535">        try (InputStream in = Files.newInputStream(file)) {</span>
+<span class="fc" id="L536">            MessageDigest digest = MessageDigest.getInstance(&quot;SHA-256&quot;);</span>
+<span class="fc" id="L537">            byte[] buffer = new byte[1 &lt;&lt; 16];</span>
+            int read;
+<span class="fc bfc" id="L539" title="All 2 branches covered.">            while ((read = in.read(buffer)) &gt;= 0) {</span>
+<span class="fc" id="L540">                digest.update(buffer, 0, read);</span>
+            }
+<span class="fc" id="L542">            return HexFormat.of().formatHex(digest.digest());</span>
+<span class="nc" id="L543">        } catch (NoSuchAlgorithmException e) {</span>
+<span class="nc" id="L544">            throw new IllegalStateException(e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

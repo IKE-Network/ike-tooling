@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReactorLayout.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.adoc</a> &gt; <span class="el_source">ReactorLayout.java</span></div><h1>ReactorLayout.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin.adoc;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
+
+/**
+ * Finds a module of the reactor by its pom, under the reactor root. A {@code -pl} build's
+ * session lists only the selected projects, so a library that is a sibling module but not in
+ * the build is found here instead, by the {@code groupId} and {@code artifactId} its pom
+ * declares or inherits from its parent. Nothing is resolved: the answer is a directory.
+ */
+public final class ReactorLayout {
+
+    /** Directories never walked: build output, hidden trees, sources and dependencies. */
+<span class="fc" id="L43">    private static final Set&lt;String&gt; SKIPPED = Set.of(&quot;target&quot;, &quot;src&quot;, &quot;node_modules&quot;);</span>
+
+    /** How deep under the root a module's pom may be. */
+    private static final int MAX_DEPTH = 6;
+
+    private ReactorLayout() {
+    }
+
+    /**
+     * The base directory of the module whose pom declares the given coordinates, or empty.
+     *
+     * @param root       the reactor root
+     * @param groupId    the group
+     * @param artifactId the artifact
+     * @return the module's directory, when its pom is under the root
+     */
+    public static Optional&lt;Path&gt; memberBasedir(Path root, String groupId, String artifactId) {
+<span class="pc bpc" id="L60" title="1 of 4 branches missed.">        if (root == null || !Files.isDirectory(root)) {</span>
+<span class="fc" id="L61">            return Optional.empty();</span>
+        }
+<span class="fc" id="L63">        try (Stream&lt;Path&gt; walk = Files.walk(root, MAX_DEPTH)) {</span>
+<span class="pc bpc" id="L64" title="1 of 4 branches missed.">            return walk.filter(p -&gt; p.getFileName().toString().equals(&quot;pom.xml&quot;) &amp;&amp; Files.isRegularFile(p))</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">                    .filter(p -&gt; !skipped(root.relativize(p)))</span>
+<span class="fc" id="L66">                    .filter(pom -&gt; declares(pom, groupId, artifactId))</span>
+<span class="fc" id="L67">                    .findFirst()</span>
+<span class="fc" id="L68">                    .map(Path::getParent);</span>
+<span class="nc" id="L69">        } catch (IOException e) {</span>
+<span class="nc" id="L70">            throw new UncheckedIOException(e);</span>
+        }
+    }
+
+    private static boolean skipped(Path relative) {
+<span class="fc bfc" id="L75" title="All 2 branches covered.">        for (Path part : relative) {</span>
+<span class="fc" id="L76">            String name = part.toString();</span>
+<span class="pc bpc" id="L77" title="1 of 4 branches missed.">            if (SKIPPED.contains(name) || name.startsWith(&quot;.&quot;)) {</span>
+<span class="fc" id="L78">                return true;</span>
+            }
+<span class="fc" id="L80">        }</span>
+<span class="fc" id="L81">        return false;</span>
+    }
+
+    /** Whether a pom's own or inherited group and its artifact are the ones asked for. */
+    static boolean declares(Path pom, String groupId, String artifactId) {
+        try {
+<span class="fc" id="L87">            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();</span>
+<span class="fc" id="L88">            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);</span>
+<span class="fc" id="L89">            factory.setFeature(&quot;http://apache.org/xml/features/disallow-doctype-decl&quot;, true);</span>
+<span class="fc" id="L90">            factory.setExpandEntityReferences(false);</span>
+<span class="fc" id="L91">            DocumentBuilder builder = factory.newDocumentBuilder();</span>
+<span class="fc" id="L92">            Document document = builder.parse(pom.toFile());</span>
+<span class="fc" id="L93">            Element project = document.getDocumentElement();</span>
+<span class="pc bpc" id="L94" title="3 of 6 branches missed.">            if (project == null || !&quot;project&quot;.equals(project.getLocalName() == null</span>
+<span class="pc" id="L95">                    ? project.getTagName() : project.getLocalName())) {</span>
+<span class="nc" id="L96">                return false;</span>
+            }
+<span class="fc" id="L98">            String artifact = childText(project, &quot;artifactId&quot;);</span>
+<span class="fc bfc" id="L99" title="All 2 branches covered.">            if (!artifactId.equals(artifact)) {</span>
+<span class="fc" id="L100">                return false;</span>
+            }
+<span class="fc" id="L102">            String group = childText(project, &quot;groupId&quot;);</span>
+<span class="fc bfc" id="L103" title="All 2 branches covered.">            if (group == null) {</span>
+<span class="fc" id="L104">                Element parent = child(project, &quot;parent&quot;);</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">                group = parent == null ? null : childText(parent, &quot;groupId&quot;);</span>
+            }
+<span class="fc" id="L107">            return groupId.equals(group);</span>
+<span class="fc" id="L108">        } catch (Exception e) {</span>
+            // A pom that does not parse is not the module looked for.
+<span class="fc" id="L110">            return false;</span>
+        }
+    }
+
+    private static Element child(Element parent, String name) {
+<span class="fc" id="L115">        NodeList children = parent.getChildNodes();</span>
+<span class="fc bfc" id="L116" title="All 2 branches covered.">        for (int i = 0; i &lt; children.getLength(); i++) {</span>
+<span class="fc" id="L117">            Node node = children.item(i);</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">            if (node instanceof Element element) {</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">                String local = element.getLocalName() == null ? element.getTagName() : element.getLocalName();</span>
+<span class="fc bfc" id="L120" title="All 2 branches covered.">                if (name.equals(local)) {</span>
+<span class="fc" id="L121">                    return element;</span>
+                }
+            }
+        }
+<span class="fc" id="L125">        return null;</span>
+    }
+
+    private static String childText(Element parent, String name) {
+<span class="fc" id="L129">        Element element = child(parent, name);</span>
+<span class="fc bfc" id="L130" title="All 2 branches covered.">        return element == null ? null : element.getTextContent().trim();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

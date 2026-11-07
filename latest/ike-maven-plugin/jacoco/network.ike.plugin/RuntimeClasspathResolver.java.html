@@ -23,6 +23,7 @@ import org.apache.maven.api.services.DependencyResolver;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 /**
  * The one entry point through which this plugin's goals resolve a project's
@@ -44,7 +45,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 final class RuntimeClasspathResolver {
 
-<span class="nc" id="L47">    private static final ReentrantLock RESOLVER_LOCK = new ReentrantLock();</span>
+<span class="nc" id="L48">    private static final ReentrantLock RESOLVER_LOCK = new ReentrantLock();</span>
 
     /** The first Maven whose dependency resolver is safe to call concurrently. */
     static final String FIRST_THREAD_SAFE_MAVEN = &quot;4.0.0-rc-7&quot;;
@@ -62,14 +63,28 @@ final class RuntimeClasspathResolver {
      * @return the resolved dependency paths, in resolver order
      */
     static List&lt;Path&gt; mainRuntimePaths(Session session, Project project) {
-<span class="nc bnc" id="L65" title="All 2 branches missed.">        if (resolverIsThreadSafe(session)) {</span>
-<span class="nc" id="L66">            return resolve(session, project);</span>
+<span class="nc" id="L66">        return serialized(session, () -&gt; resolve(session, project));</span>
+    }
+
+    /**
+     * Runs one call into Maven's dependency resolver, such as a collection or a flatten,
+     * serialized JVM-wide on a Maven before {@value #FIRST_THREAD_SAFE_MAVEN} and directly
+     * on a later one.
+     *
+     * @param session the Maven session
+     * @param call    the resolver call
+     * @param &lt;T&gt;     what the call returns
+     * @return what the call returned
+     */
+    static &lt;T&gt; T serialized(Session session, Supplier&lt;T&gt; call) {
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        if (resolverIsThreadSafe(session)) {</span>
+<span class="nc" id="L81">            return call.get();</span>
         }
-<span class="nc" id="L68">        RESOLVER_LOCK.lock();</span>
+<span class="nc" id="L83">        RESOLVER_LOCK.lock();</span>
         try {
-<span class="nc" id="L70">            return resolve(session, project);</span>
+<span class="nc" id="L85">            return call.get();</span>
         } finally {
-<span class="nc" id="L72">            RESOLVER_LOCK.unlock();</span>
+<span class="nc" id="L87">            RESOLVER_LOCK.unlock();</span>
         }
     }
 
@@ -79,13 +94,13 @@ final class RuntimeClasspathResolver {
      * ordering (so {@code 4.0.0} and later releases count, {@code 4.0.0-rc-5} does not).
      */
     private static boolean resolverIsThreadSafe(Session session) {
-<span class="nc bnc" id="L82" title="All 2 branches missed.">        return session.getMavenVersion().compareTo(session.parseVersion(FIRST_THREAD_SAFE_MAVEN)) &gt;= 0;</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        return session.getMavenVersion().compareTo(session.parseVersion(FIRST_THREAD_SAFE_MAVEN)) &gt;= 0;</span>
     }
 
     private static List&lt;Path&gt; resolve(Session session, Project project) {
-<span class="nc" id="L86">        return session.getService(DependencyResolver.class)</span>
-<span class="nc" id="L87">                .resolve(session, project, PathScope.MAIN_RUNTIME)</span>
-<span class="nc" id="L88">                .getPaths();</span>
+<span class="nc" id="L101">        return session.getService(DependencyResolver.class)</span>
+<span class="nc" id="L102">                .resolve(session, project, PathScope.MAIN_RUNTIME)</span>
+<span class="nc" id="L103">                .getPaths();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

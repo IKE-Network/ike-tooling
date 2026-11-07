@@ -1,6 +1,6 @@
 ---
-date_published: 2026-10-29
-date_modified: 2026-10-29
+date_published: 2026-11-06
+date_modified: 2026-11-06
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/index.html
 ---
 
@@ -85,6 +85,7 @@ mvn ike:scaffold-publish
 | [ike:generate-bom](#generate-bom) | bom | Auto-generate a BOM POM from another module’s dependency management |
 | [scaffold-{draft,publish,revert}](#scaffold) | scaffold | Apply the workspace scaffold manifest (gitignore, hooks, IDE settings) |
 | [ike:inject-breadcrumb](#inject-breadcrumb) | site | Inject nav breadcrumbs into JaCoCo HTML reports |
+| [ike:adoc-union](#adoc-union) | docs | Unpack every declared topic library into one AsciiDoc union per repository, reactor members linked |
 | [ike:unpack-zip](#unpack-zip) | utility | Download + unpack a zip from a URL |
 | [ike:rename](#rename) | utility | Rename a file (replaces `exec-maven-plugin` calls to `mv`) |
 | [ike:codesign-natives](#codesign-natives) | native | Sign native libraries inside a jlink runtime image (macOS notarization) |
@@ -238,6 +239,24 @@ Compute ~19 Maven project properties (build timestamp, platform, JPackage versio
 ### [#ike-notarize](#ike-notarize)ike:notarize
 
 Sign and notarize macOS installer packages (`.pkg`, `.dmg`). Automates the Apple notarization workflow.
+
+## [#documentation-goals](#documentation-goals)Documentation goals
+
+### [#ike-adoc-union](#ike-adoc-union)ike:adoc-union
+
+Unpack every topic library the module declares, classifier `adoc` and type `zip`, into one AsciiDoc union per repository at `<reactor root>/target/generated-sources/adoc`, in the `generate-sources` phase. A library lays its root out as packages, `<group>/<domain>/<topic>.adoc`, and ships a manifest at `META-INF/ike/<group>/<artifact>/manifest.yaml` listing them. An external library is copied from its zip; a library that is a module of the same reactor is linked to its `src/docs/asciidoc`, so an edit reached through an include changes the real source. Two libraries that ship one package are refused, naming both. A zip without a manifest is a legacy library: refused unless `-Dike.adoc.legacy=true`, which unpacks it into the per-module directory as before. The goal is idempotent from every module, so a `-pl` build works, and it leaves an entry alone whose library no module declares anymore.
+
+After unpacking it checks that every `include::{adoc}/…​` and `include::{topics}/…​` in the module’s `src/docs/asciidoc` resolves in the union. One that does not fails the build with the exact `<dependency>` block to add, found in the union’s manifests and then in the local repository; nothing is fetched. The project properties `adoc` and `topics` are set to the union so the asciidoctor plugin’s attributes can reference them. Design topic `dev-adoc-packages` in ike-lab-documents; IKE-Network/ike-issues#1342.
+
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `ike.adoc.union` | `<root>/target/generated-sources/adoc` | The union directory |
+| `ike.adoc.link` | `true` | Link reactor members' package directories rather than copying them |
+| `ike.adoc.legacy` | `false` | Unpack a zip without a manifest into the legacy directory rather than refusing it |
+| `ike.adoc.legacyDirectory` | `${project.build.directory}/generated-sources/asciidoc/topics-asciidoc` | Where a legacy library is unpacked |
+| `ike.adoc.sourceDirectory` | `${project.basedir}/src/docs/asciidoc` | The source root whose includes are verified |
+| `ike.adoc.verifyIncludes` | `true` | Fail the build for an include that does not resolve |
+| `ike.adoc.skip` | `false` | Skip the goal |
 
 ## [#utility-goals](#utility-goals)Utility goals
 

@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AdocCatalog.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.adoc</a> &gt; <span class="el_source">AdocCatalog.java</span></div><h1>AdocCatalog.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin.adoc;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Finds which library ships a package, for the message a build prints when an include names
+ * a path nothing declared ships. Two catalogs, in order: the manifests already in the union,
+ * then the local repository, searched by the group prefix of the path. The goal never
+ * fetches an undeclared library, because it would have to guess the version and the build
+ * would stop being reproducible.
+ */
+final class AdocCatalog {
+
+    private AdocCatalog() {
+    }
+
+    /**
+     * A library found to ship the package that holds a path.
+     *
+     * @param coordinates the library, at the version it was found at
+     * @param pkg         the package that holds the path
+     */
+<span class="fc" id="L46">    record Hit(AdocCoordinates coordinates, AdocPackage pkg) {</span>
+    }
+
+    /**
+     * Searches the manifests in the union.
+     *
+     * @param union the union directory
+     * @param path  a path relative to the union, with forward slashes
+     * @return the library in the union whose manifest ships the path's package
+     */
+    static Optional&lt;Hit&gt; inUnion(Path union, String path) {
+<span class="fc bfc" id="L57" title="All 2 branches covered.">        for (Path manifestFile : unionManifests(union)) {</span>
+<span class="fc" id="L58">            AdocManifest manifest = AdocManifest.read(manifestFile);</span>
+<span class="fc" id="L59">            Optional&lt;AdocPackage&gt; owner = manifest.packageOwning(path);</span>
+<span class="fc bfc" id="L60" title="All 2 branches covered.">            if (owner.isPresent()) {</span>
+<span class="fc" id="L61">                String version = stampVersion(manifestFile.resolveSibling(UnionStamp.FILE_NAME));</span>
+<span class="fc" id="L62">                return Optional.of(new Hit(new AdocCoordinates(manifest.groupId(),</span>
+<span class="fc" id="L63">                        manifest.artifactId(), version), owner.get()));</span>
+            }
+<span class="fc" id="L65">        }</span>
+<span class="fc" id="L66">        return Optional.empty();</span>
+    }
+
+    /**
+     * Every manifest in the union, {@code META-INF/ike/&lt;group&gt;/&lt;artifact&gt;/manifest.yaml}, in
+     * path order.
+     *
+     * @param union the union directory
+     * @return the manifest files
+     */
+    static List&lt;Path&gt; unionManifests(Path union) {
+<span class="fc" id="L77">        List&lt;Path&gt; found = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L78">        Path area = union.resolve(AdocCoordinates.META_INF_IKE);</span>
+<span class="fc bfc" id="L79" title="All 2 branches covered.">        if (!Files.isDirectory(area)) {</span>
+<span class="fc" id="L80">            return found;</span>
+        }
+<span class="fc bfc" id="L82" title="All 2 branches covered.">        for (Path group : children(area)) {</span>
+<span class="pc bpc" id="L83" title="1 of 2 branches missed.">            if (!Files.isDirectory(group)) {</span>
+<span class="nc" id="L84">                continue;</span>
+            }
+<span class="fc bfc" id="L86" title="All 2 branches covered.">            for (Path artifact : children(group)) {</span>
+<span class="fc" id="L87">                Path manifest = artifact.resolve(AdocManifest.FILE_NAME);</span>
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">                if (Files.isRegularFile(manifest)) {</span>
+<span class="fc" id="L89">                    found.add(manifest);</span>
+                }
+<span class="fc" id="L91">            }</span>
+<span class="fc" id="L92">        }</span>
+<span class="fc" id="L93">        return found;</span>
+    }
+
+    /**
+     * Searches the local repository for an {@code adoc} zip whose manifest ships the path's
+     * package. The group of the path, its first segment, names where to look:
+     * {@code network.ike.lab/dev/x.adoc} is searched under {@code network/ike/lab}, then under
+     * {@code network/ike} and {@code network}, because a library's packages begin with its own
+     * group or with a declared prefix of it. The newest version found wins.
+     *
+     * @param localRepository the local repository root, {@code ~/.m2/repository}
+     * @param path            a path relative to the union, with forward slashes
+     * @return the library whose zip ships the path's package, at its newest local version
+     */
+    static Optional&lt;Hit&gt; inLocalRepository(Path localRepository, String path) {
+<span class="fc" id="L108">        int slash = path.indexOf('/');</span>
+<span class="pc bpc" id="L109" title="1 of 2 branches missed.">        String group = slash &lt; 0 ? path : path.substring(0, slash);</span>
+<span class="fc" id="L110">        List&lt;Hit&gt; hits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L111">        String[] labels = group.split(&quot;\\.&quot;);</span>
+<span class="fc bfc" id="L112" title="All 2 branches covered.">        for (int depth = labels.length; depth &gt;= 1; depth--) {</span>
+<span class="fc" id="L113">            String candidateGroup = String.join(&quot;.&quot;, List.of(labels).subList(0, depth));</span>
+<span class="fc" id="L114">            Path groupDir = localRepository.resolve(candidateGroup.replace('.', '/'));</span>
+<span class="fc bfc" id="L115" title="All 2 branches covered.">            if (!Files.isDirectory(groupDir)) {</span>
+<span class="fc" id="L116">                continue;</span>
+            }
+<span class="fc bfc" id="L118" title="All 2 branches covered.">            for (Path artifactDir : children(groupDir)) {</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">                if (!Files.isDirectory(artifactDir)) {</span>
+<span class="nc" id="L120">                    continue;</span>
+                }
+<span class="fc" id="L122">                String artifactId = artifactDir.getFileName().toString();</span>
+<span class="fc bfc" id="L123" title="All 2 branches covered.">                for (Path versionDir : children(artifactDir)) {</span>
+<span class="pc bpc" id="L124" title="1 of 2 branches missed.">                    if (!Files.isDirectory(versionDir)) {</span>
+<span class="nc" id="L125">                        continue;</span>
+                    }
+<span class="fc" id="L127">                    String version = versionDir.getFileName().toString();</span>
+<span class="fc" id="L128">                    AdocCoordinates coordinates = new AdocCoordinates(candidateGroup, artifactId, version);</span>
+<span class="fc bfc" id="L129" title="All 2 branches covered.">                    for (Path zip : children(versionDir)) {</span>
+<span class="fc" id="L130">                        String name = zip.getFileName().toString();</span>
+<span class="fc bfc" id="L131" title="All 2 branches covered.">                        if (!name.startsWith(artifactId + &quot;-&quot;)</span>
+<span class="pc bpc" id="L132" title="1 of 2 branches missed.">                                || !name.endsWith(&quot;-&quot; + AdocCoordinates.CLASSIFIER + &quot;.&quot; + AdocCoordinates.TYPE)) {</span>
+<span class="nc" id="L133">                            continue;</span>
+                        }
+<span class="fc" id="L135">                        Optional&lt;AdocManifest&gt; manifest = readQuietly(zip, coordinates);</span>
+<span class="fc" id="L136">                        manifest.flatMap(m -&gt; m.packageOwning(path))</span>
+<span class="fc" id="L137">                                .ifPresent(pkg -&gt; hits.add(new Hit(coordinates, pkg)));</span>
+<span class="fc" id="L138">                        break;</span>
+                    }
+<span class="fc" id="L140">                }</span>
+<span class="fc" id="L141">            }</span>
+        }
+<span class="fc" id="L143">        return hits.stream().max(Comparator.comparing(h -&gt; h.coordinates().version(), VersionOrder.INSTANCE));</span>
+    }
+
+    private static Optional&lt;AdocManifest&gt; readQuietly(Path zip, AdocCoordinates coordinates) {
+        try {
+<span class="fc" id="L148">            return AdocManifest.readFromZip(zip, coordinates);</span>
+<span class="nc" id="L149">        } catch (RuntimeException e) {</span>
+            // A zip that cannot be read or whose manifest is malformed is not a candidate.
+<span class="nc" id="L151">            return Optional.empty();</span>
+        }
+    }
+
+    private static String stampVersion(Path stamp) {
+        try {
+<span class="pc bpc" id="L157" title="1 of 2 branches missed.">            return UnionStamp.read(stamp).map(UnionStamp::version).filter(v -&gt; !v.isBlank()).orElse(&quot;unknown&quot;);</span>
+<span class="nc" id="L158">        } catch (IOException e) {</span>
+<span class="nc" id="L159">            return &quot;unknown&quot;;</span>
+        }
+    }
+
+    private static List&lt;Path&gt; children(Path dir) {
+<span class="fc" id="L164">        List&lt;Path&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L165">        try (DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(dir)) {</span>
+<span class="fc" id="L166">            stream.forEach(result::add);</span>
+<span class="nc" id="L167">        } catch (IOException e) {</span>
+<span class="nc" id="L168">            throw new UncheckedIOException(e);</span>
+<span class="fc" id="L169">        }</span>
+<span class="fc" id="L170">        result.sort(Comparator.comparing(p -&gt; p.getFileName().toString()));</span>
+<span class="fc" id="L171">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

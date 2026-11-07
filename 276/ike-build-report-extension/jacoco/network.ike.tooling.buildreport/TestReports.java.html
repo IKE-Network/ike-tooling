@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TestReports.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">TestReports.java</span></div><h1>TestReports.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+
+/**
+ * Reads the test counts and times from the surefire and failsafe XML
+ * reports every module leaves in its build directory.
+ *
+ * &lt;p&gt;Only the {@code &lt;testsuite&gt;} root element is read — its
+ * {@code tests}, {@code failures}, {@code errors}, {@code skipped} and
+ * {@code time} attributes — so a report of any size costs one element.
+ * The reports are the record the plugins themselves write; nothing is
+ * taken from the console.&lt;/p&gt;
+ */
+final class TestReports {
+
+    /** Where surefire writes its reports, under the build directory. */
+    static final String SUREFIRE_DIRECTORY = &quot;surefire-reports&quot;;
+
+    /** Where failsafe writes its reports, under the build directory. */
+    static final String FAILSAFE_DIRECTORY = &quot;failsafe-reports&quot;;
+
+    /** How many of the slowest test classes the measures keep. */
+    static final int SLOWEST_KEPT = 10;
+
+    private static final String REPORT_PREFIX = &quot;TEST-&quot;;
+    private static final String REPORT_SUFFIX = &quot;.xml&quot;;
+    private static final String SUITE_ELEMENT = &quot;testsuite&quot;;
+
+    /**
+     * One test class's report.
+     *
+     * @param name     the test class as the report names it
+     * @param tests    tests run
+     * @param failures assertion failures
+     * @param errors   tests that threw
+     * @param skipped  tests skipped
+     * @param seconds  elapsed time in seconds
+     */
+<span class="fc" id="L55">    record Suite(String name, int tests, int failures, int errors, int skipped, double seconds) {</span>
+    }
+
+    private TestReports() {
+    }
+
+    /**
+     * Sums the reports of every module into the measures.
+     *
+     * @param modules   the reactor's modules
+     * @param values    the session's measures, added to
+     * @param perModule the per-module measures, added to
+     * @param slowest   the slowest test classes, added to
+     * @param notes     what could not be read, added to
+     */
+    static void collect(
+            List&lt;ModuleLocation&gt; modules,
+            Map&lt;String, Double&gt; values,
+            Map&lt;String, Map&lt;String, Double&gt;&gt; perModule,
+            List&lt;Measures.SlowSuite&gt; slowest,
+            List&lt;String&gt; notes) {
+<span class="fc" id="L76">        long run = 0;</span>
+<span class="fc" id="L77">        long failed = 0;</span>
+<span class="fc" id="L78">        long skipped = 0;</span>
+<span class="fc" id="L79">        double seconds = 0;</span>
+<span class="fc" id="L80">        boolean any = false;</span>
+<span class="fc" id="L81">        List&lt;Measures.SlowSuite&gt; suites = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">        for (ModuleLocation module : modules) {</span>
+<span class="fc" id="L83">            long moduleRun = 0;</span>
+<span class="fc" id="L84">            long moduleFailed = 0;</span>
+<span class="fc" id="L85">            long moduleSkipped = 0;</span>
+<span class="fc" id="L86">            double moduleSeconds = 0;</span>
+<span class="fc" id="L87">            boolean moduleAny = false;</span>
+<span class="fc bfc" id="L88" title="All 2 branches covered.">            for (String directory : List.of(SUREFIRE_DIRECTORY, FAILSAFE_DIRECTORY)) {</span>
+<span class="fc" id="L89">                Path reports = module.buildDirectory().resolve(directory);</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">                if (!Files.isDirectory(reports)) {</span>
+<span class="fc" id="L91">                    continue;</span>
+                }
+                List&lt;Path&gt; files;
+                try {
+<span class="fc" id="L95">                    files = listReports(reports);</span>
+<span class="nc" id="L96">                } catch (IOException e) {</span>
+<span class="nc" id="L97">                    notes.add(&quot;tests: could not list &quot; + reports + &quot;: &quot; + e);</span>
+<span class="nc" id="L98">                    continue;</span>
+<span class="fc" id="L99">                }</span>
+<span class="fc bfc" id="L100" title="All 2 branches covered.">                for (Path file : files) {</span>
+                    Suite suite;
+                    try {
+<span class="fc" id="L103">                        suite = read(file);</span>
+<span class="nc" id="L104">                    } catch (IOException | XMLStreamException | RuntimeException e) {</span>
+<span class="nc" id="L105">                        notes.add(&quot;tests: could not read &quot; + file + &quot;: &quot; + e);</span>
+<span class="nc" id="L106">                        continue;</span>
+<span class="fc" id="L107">                    }</span>
+<span class="pc bpc" id="L108" title="1 of 2 branches missed.">                    if (suite == null) {</span>
+<span class="nc" id="L109">                        continue;</span>
+                    }
+<span class="fc" id="L111">                    moduleAny = true;</span>
+<span class="fc" id="L112">                    moduleRun += suite.tests();</span>
+<span class="fc" id="L113">                    moduleFailed += suite.failures() + suite.errors();</span>
+<span class="fc" id="L114">                    moduleSkipped += suite.skipped();</span>
+<span class="fc" id="L115">                    moduleSeconds += suite.seconds();</span>
+<span class="fc" id="L116">                    suites.add(new Measures.SlowSuite(module.name(), suite.name(), suite.seconds()));</span>
+<span class="fc" id="L117">                }</span>
+<span class="fc" id="L118">            }</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">            if (moduleAny) {</span>
+<span class="fc" id="L120">                any = true;</span>
+<span class="fc" id="L121">                Map&lt;String, Double&gt; mine = perModule.computeIfAbsent(module.name(), key -&gt; new LinkedHashMap&lt;&gt;());</span>
+<span class="fc" id="L122">                mine.put(MeasureKey.TESTS_RUN.key(), (double) moduleRun);</span>
+<span class="fc" id="L123">                mine.put(MeasureKey.TESTS_FAILED.key(), (double) moduleFailed);</span>
+<span class="fc" id="L124">                mine.put(MeasureKey.TESTS_SKIPPED.key(), (double) moduleSkipped);</span>
+<span class="fc" id="L125">                mine.put(MeasureKey.TESTS_SECONDS.key(), round(moduleSeconds));</span>
+<span class="fc" id="L126">                run += moduleRun;</span>
+<span class="fc" id="L127">                failed += moduleFailed;</span>
+<span class="fc" id="L128">                skipped += moduleSkipped;</span>
+<span class="fc" id="L129">                seconds += moduleSeconds;</span>
+            }
+<span class="fc" id="L131">        }</span>
+<span class="fc bfc" id="L132" title="All 2 branches covered.">        if (!any) {</span>
+<span class="fc" id="L133">            notes.add(&quot;tests: no surefire or failsafe reports in this session&quot;);</span>
+<span class="fc" id="L134">            return;</span>
+        }
+<span class="fc" id="L136">        values.put(MeasureKey.TESTS_RUN.key(), (double) run);</span>
+<span class="fc" id="L137">        values.put(MeasureKey.TESTS_FAILED.key(), (double) failed);</span>
+<span class="fc" id="L138">        values.put(MeasureKey.TESTS_SKIPPED.key(), (double) skipped);</span>
+<span class="fc" id="L139">        values.put(MeasureKey.TESTS_SECONDS.key(), round(seconds));</span>
+<span class="fc" id="L140">        suites.sort(Comparator.comparingDouble(Measures.SlowSuite::seconds).reversed());</span>
+<span class="fc" id="L141">        slowest.addAll(suites.subList(0, Math.min(SLOWEST_KEPT, suites.size())));</span>
+<span class="fc" id="L142">    }</span>
+
+    /**
+     * Lists a report directory's {@code TEST-*.xml} files, sorted by name.
+     *
+     * @param directory the report directory
+     * @return the report files
+     * @throws IOException when the directory cannot be listed
+     */
+    static List&lt;Path&gt; listReports(Path directory) throws IOException {
+<span class="fc" id="L152">        try (Stream&lt;Path&gt; entries = Files.list(directory)) {</span>
+<span class="fc" id="L153">            return entries</span>
+<span class="fc" id="L154">                    .filter(path -&gt; {</span>
+<span class="fc" id="L155">                        String name = path.getFileName().toString();</span>
+<span class="pc bpc" id="L156" title="1 of 4 branches missed.">                        return name.startsWith(REPORT_PREFIX) &amp;&amp; name.endsWith(REPORT_SUFFIX);</span>
+                    })
+<span class="fc" id="L158">                    .sorted()</span>
+<span class="fc" id="L159">                    .toList();</span>
+        }
+    }
+
+    /**
+     * Reads one report's root element.
+     *
+     * @param file the report file
+     * @return the suite, or {@code null} when the root element is not a
+     *         test suite
+     * @throws IOException        when the file cannot be read
+     * @throws XMLStreamException when the file is not well-formed XML
+     */
+    static Suite read(Path file) throws IOException, XMLStreamException {
+<span class="fc" id="L173">        XMLInputFactory factory = XMLInputFactory.newInstance();</span>
+<span class="fc" id="L174">        factory.setProperty(XMLInputFactory.SUPPORT_DTD, Boolean.FALSE);</span>
+<span class="fc" id="L175">        factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, Boolean.FALSE);</span>
+<span class="fc" id="L176">        try (InputStream in = Files.newInputStream(file)) {</span>
+<span class="fc" id="L177">            XMLStreamReader reader = factory.createXMLStreamReader(in);</span>
+            try {
+<span class="pc bpc" id="L179" title="1 of 2 branches missed.">                while (reader.hasNext()) {</span>
+<span class="pc bpc" id="L180" title="1 of 2 branches missed.">                    if (reader.next() != XMLStreamConstants.START_ELEMENT) {</span>
+<span class="nc" id="L181">                        continue;</span>
+                    }
+<span class="pc bpc" id="L183" title="1 of 2 branches missed.">                    if (!SUITE_ELEMENT.equals(reader.getLocalName())) {</span>
+<span class="nc" id="L184">                        return null;</span>
+                    }
+<span class="fc" id="L186">                    return new Suite(</span>
+<span class="fc" id="L187">                            attribute(reader, &quot;name&quot;, file.getFileName().toString()),</span>
+<span class="fc" id="L188">                            intAttribute(reader, &quot;tests&quot;),</span>
+<span class="fc" id="L189">                            intAttribute(reader, &quot;failures&quot;),</span>
+<span class="fc" id="L190">                            intAttribute(reader, &quot;errors&quot;),</span>
+<span class="fc" id="L191">                            intAttribute(reader, &quot;skipped&quot;),</span>
+<span class="fc" id="L192">                            doubleAttribute(reader, &quot;time&quot;));</span>
+                }
+            } finally {
+<span class="fc" id="L195">                reader.close();</span>
+            }
+<span class="pc bpc" id="L197" title="3 of 4 branches missed.">        }</span>
+<span class="nc" id="L198">        return null;</span>
+    }
+
+    private static String attribute(XMLStreamReader reader, String name, String fallback) {
+<span class="fc" id="L202">        String value = reader.getAttributeValue(null, name);</span>
+<span class="pc bpc" id="L203" title="2 of 4 branches missed.">        return value == null || value.isBlank() ? fallback : value.strip();</span>
+    }
+
+    private static int intAttribute(XMLStreamReader reader, String name) {
+<span class="fc" id="L207">        String value = reader.getAttributeValue(null, name);</span>
+<span class="pc bpc" id="L208" title="2 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="nc" id="L209">            return 0;</span>
+        }
+        try {
+<span class="fc" id="L212">            return Integer.parseInt(value.strip());</span>
+<span class="nc" id="L213">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L214">            return 0;</span>
+        }
+    }
+
+    private static double doubleAttribute(XMLStreamReader reader, String name) {
+<span class="fc" id="L219">        String value = reader.getAttributeValue(null, name);</span>
+<span class="pc bpc" id="L220" title="2 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="nc" id="L221">            return 0;</span>
+        }
+        try {
+            // Surefire writes the time with a dot whatever the locale,
+            // but a report from another tool may not.
+<span class="fc" id="L226">            return Double.parseDouble(value.strip().replace(',', '.'));</span>
+<span class="nc" id="L227">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L228">            return 0;</span>
+        }
+    }
+
+    /** Rounds seconds to the millisecond, so sums do not carry float noise. */
+    private static double round(double seconds) {
+<span class="fc" id="L234">        return Math.round(seconds * 1000.0) / 1000.0;</span>
+    }
+
+    /**
+     * Formats seconds for the receipt.
+     *
+     * @param seconds the time
+     * @return the same rendering the BUILD section uses
+     */
+    static String formatSeconds(double seconds) {
+<span class="fc" id="L244">        return ReceiptRenderer.formatDuration(java.time.Duration.ofMillis(Math.round(seconds * 1000.0)));</span>
+    }
+
+    /** Keeps the locale-dependent formatting out of the class's callers. */
+    static String percent(double value) {
+<span class="fc" id="L249">        return String.format(Locale.ROOT, &quot;%.1f%%&quot;, value);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
