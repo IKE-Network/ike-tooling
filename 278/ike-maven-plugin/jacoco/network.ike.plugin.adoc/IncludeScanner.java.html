@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IncludeScanner.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin.adoc</a> &gt; <span class="el_source">IncludeScanner.java</span></div><h1>IncludeScanner.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin.adoc;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+
+/**
+ * Finds every include line under one AsciiDoc source root that goes through the
+ * {@code {adoc}} attribute or its {@code {topics}} alias. A line inside a comment block,
+ * a commented line and an escaped {@code \include::} are not includes.
+ */
+final class IncludeScanner {
+
+<span class="fc" id="L37">    private static final Pattern INCLUDE = Pattern.compile(</span>
+            &quot;^\\s*include::\\{(adoc|topics)}/([^\\[\\s]+)\\[&quot;);
+
+    private IncludeScanner() {
+    }
+
+    /**
+     * Scans every {@code .adoc} file under a root, in path order.
+     *
+     * @param root the source root; a missing root yields nothing
+     * @return the include references found, in file and line order
+     */
+    static List&lt;IncludeReference&gt; scan(Path root) {
+<span class="fc" id="L50">        List&lt;IncludeReference&gt; found = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L51" title="All 2 branches covered.">        if (!Files.isDirectory(root)) {</span>
+<span class="fc" id="L52">            return found;</span>
+        }
+        List&lt;Path&gt; files;
+<span class="fc" id="L55">        try (Stream&lt;Path&gt; walk = Files.walk(root)) {</span>
+<span class="fc bfc" id="L56" title="All 4 branches covered.">            files = walk.filter(f -&gt; Files.isRegularFile(f) &amp;&amp; f.toString().endsWith(&quot;.adoc&quot;))</span>
+<span class="fc" id="L57">                    .sorted(Comparator.comparing(Path::toString)).toList();</span>
+<span class="nc" id="L58">        } catch (IOException e) {</span>
+<span class="nc" id="L59">            throw new UncheckedIOException(e);</span>
+<span class="fc" id="L60">        }</span>
+<span class="fc bfc" id="L61" title="All 2 branches covered.">        for (Path file : files) {</span>
+            List&lt;String&gt; lines;
+            try {
+<span class="fc" id="L64">                lines = Files.readAllLines(file, StandardCharsets.UTF_8);</span>
+<span class="nc" id="L65">            } catch (IOException e) {</span>
+                // A file that is not UTF-8 text holds no include worth checking.
+<span class="nc" id="L67">                continue;</span>
+<span class="fc" id="L68">            }</span>
+<span class="fc" id="L69">            boolean inCommentBlock = false;</span>
+<span class="fc bfc" id="L70" title="All 2 branches covered.">            for (int i = 0; i &lt; lines.size(); i++) {</span>
+<span class="fc" id="L71">                String line = lines.get(i);</span>
+<span class="fc bfc" id="L72" title="All 2 branches covered.">                if (line.startsWith(&quot;////&quot;)) {</span>
+<span class="fc bfc" id="L73" title="All 2 branches covered.">                    inCommentBlock = !inCommentBlock;</span>
+<span class="fc" id="L74">                    continue;</span>
+                }
+<span class="fc bfc" id="L76" title="All 2 branches covered.">                if (inCommentBlock) {</span>
+<span class="fc" id="L77">                    continue;</span>
+                }
+<span class="fc" id="L79">                Matcher m = INCLUDE.matcher(line);</span>
+<span class="fc bfc" id="L80" title="All 2 branches covered.">                if (m.find()) {</span>
+<span class="fc" id="L81">                    found.add(new IncludeReference(file, i + 1, m.group(1), m.group(2)));</span>
+                }
+            }
+<span class="fc" id="L84">        }</span>
+<span class="fc" id="L85">        return found;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
