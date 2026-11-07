@@ -20,6 +20,7 @@ import network.ike.plugin.adoc.AdocLibrary;
 import network.ike.plugin.adoc.AdocManifest;
 import network.ike.plugin.adoc.AdocUnion;
 import network.ike.plugin.adoc.ReactorLayout;
+import network.ike.plugin.adoc.RootConfig;
 import org.apache.maven.api.Dependency;
 import org.apache.maven.api.Node;
 import org.apache.maven.api.PathScope;
@@ -203,6 +204,7 @@ public class AdocUnionMojo implements org.apache.maven.api.plugin.Mojo {
                 verified = adocUnion.verifyIncludes(source, session.getLocalRepository().getPath());
             }
             legacyUsed = adocUnion.legacyUnpacked();
+            installRootConfig();
         } finally {
             UNION_LOCK.unlock();
         }
@@ -214,6 +216,32 @@ public class AdocUnionMojo implements org.apache.maven.api.plugin.Mojo {
         log.info("ike:adoc-union: " + libraries.size() + " libraries in " + union + " (" + result.summary()
                 + "); " + verified + " includes verified; " + PROPERTY_ADOC + "=" + union
                 + (legacyUsed ? "; " + PROPERTY_TOPICS + "=" + legacyDir : ""));
+    }
+
+    /**
+     * The repository's one {@code .asciidoctorconfig}, from the classifier zip the doc pipeline
+     * declares. Here, under the union's lock, because every module with AsciiDoc sources would
+     * write the one file, and a stock unpack in two modules at once fails a {@code -T} build.
+     * A module that does not declare the zip leaves the file as it is.
+     */
+    private void installRootConfig() {
+        List<Node> nodes = RuntimeClasspathResolver.serialized(session, () -> session.flattenDependencies(
+                session.collectDependencies(project, PathScope.MAIN_COMPILE), PathScope.MAIN_COMPILE));
+        for (Node node : nodes) {
+            Dependency dependency = node.getDependency();
+            if (dependency == null || !RootConfig.CLASSIFIER.equals(dependency.getClassifier())) {
+                continue;
+            }
+            try {
+                Path zip = RuntimeClasspathResolver.serialized(session, () -> session.resolveArtifact(dependency).getPath());
+                if (RootConfig.install(zip, reactorRoot())) {
+                    log.info("ike:adoc-union: wrote " + reactorRoot().resolve(RootConfig.FILE_NAME));
+                }
+            } catch (java.io.IOException | RuntimeException e) {
+                throw new MojoException("Cannot install " + RootConfig.FILE_NAME + ": " + e.getMessage(), e);
+            }
+            return;
+        }
     }
 
     private Path resolveUnionDirectory() {
