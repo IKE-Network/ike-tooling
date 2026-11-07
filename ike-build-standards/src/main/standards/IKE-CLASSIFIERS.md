@@ -16,7 +16,7 @@ classifier name and `<includeBaseDirectory>false</includeBaseDirectory>`.
 | `claude` | `ike-build-standards` | `src/assembly/claude-standards.xml` | `validate` | `.claude/standards/` |
 | `tools` | `ike-build-tools` | `src/assembly/build-tools.xml` | `initialize` | `target/build-tools/` |
 | `docs` | `ike-build-standards` | `src/assembly/docs.xml` | (consumer choice) | (consumer choice) |
-| `asciidoctorconfig` | `ike-build-standards` | `src/assembly/asciidoctorconfig.xml` | `validate` | `${project.basedir}` (writes `.asciidoctorconfig`) |
+| `asciidoctorconfig` | `ike-build-standards` | `src/assembly/asciidoctorconfig.xml` | `validate` | `${project.rootDirectory}`, once per repository (writes the root `.asciidoctorconfig`) |
 | `config` | `ike-build-standards` | `src/assembly/config.xml` | `initialize` | `target/build-tools/` |
 | `scaffold` | `ike-build-standards` | `src/assembly/scaffold.xml` | (on-demand by `ws:scaffold-publish`) | (per scaffold-manifest) |
 | `site-theme` | `ike-build-standards` | `src/assembly/site-theme.xml` | `pre-site` | `target/generated-site/resources/` (#318) |
