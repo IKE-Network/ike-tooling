@@ -20,6 +20,7 @@ import network.ike.plugin.adoc.AdocLibrary;
 import network.ike.plugin.adoc.AdocManifest;
 import network.ike.plugin.adoc.AdocUnion;
 import network.ike.plugin.adoc.ReactorLayout;
+import network.ike.plugin.adoc.RootConfig;
 import org.apache.maven.api.Dependency;
 import org.apache.maven.api.Node;
 import org.apache.maven.api.PathScope;
@@ -106,10 +107,10 @@ public class AdocUnionMojo implements org.apache.maven.api.plugin.Mojo {
     /** The AsciiDoc source root under a module. */
     static final String SOURCE_ROOT = &quot;src/docs/asciidoc&quot;;
 
-<span class="fc" id="L109">    private static final ReentrantLock UNION_LOCK = new ReentrantLock();</span>
+<span class="fc" id="L110">    private static final ReentrantLock UNION_LOCK = new ReentrantLock();</span>
 
     /** Creates this goal instance. */
-<span class="fc" id="L112">    public AdocUnionMojo() {}</span>
+<span class="fc" id="L113">    public AdocUnionMojo() {}</span>
 
     @Inject
     private Log log;
@@ -181,46 +182,73 @@ public class AdocUnionMojo implements org.apache.maven.api.plugin.Mojo {
      */
     @Override
     public void execute() {
-<span class="nc bnc" id="L184" title="All 2 branches missed.">        if (skip) {</span>
-<span class="nc" id="L185">            log.info(&quot;ike:adoc-union skipped (ike.adoc.skip=true)&quot;);</span>
-<span class="nc" id="L186">            return;</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L186">            log.info(&quot;ike:adoc-union skipped (ike.adoc.skip=true)&quot;);</span>
+<span class="nc" id="L187">            return;</span>
         }
-<span class="nc" id="L188">        Path union = resolveUnionDirectory();</span>
-<span class="nc" id="L189">        Path legacyDir = Path.of(legacyDirectory).toAbsolutePath().normalize();</span>
-<span class="nc" id="L190">        Path source = Path.of(sourceDirectory).toAbsolutePath().normalize();</span>
+<span class="nc" id="L189">        Path union = resolveUnionDirectory();</span>
+<span class="nc" id="L190">        Path legacyDir = Path.of(legacyDirectory).toAbsolutePath().normalize();</span>
+<span class="nc" id="L191">        Path source = Path.of(sourceDirectory).toAbsolutePath().normalize();</span>
 
-<span class="nc" id="L192">        List&lt;AdocLibrary&gt; libraries = declaredLibraries();</span>
-<span class="nc" id="L193">        selfLibrary(source).ifPresent(libraries::add);</span>
+<span class="nc" id="L193">        List&lt;AdocLibrary&gt; libraries = declaredLibraries();</span>
+<span class="nc" id="L194">        selfLibrary(source).ifPresent(libraries::add);</span>
 
         AdocUnion.Result result;
-<span class="nc" id="L196">        int verified = 0;</span>
+<span class="nc" id="L197">        int verified = 0;</span>
         boolean legacyUsed;
-<span class="nc" id="L198">        UNION_LOCK.lock();</span>
+<span class="nc" id="L199">        UNION_LOCK.lock();</span>
         try {
-<span class="nc" id="L200">            AdocUnion adocUnion = new AdocUnion(union, legacyDir, link, legacy, log);</span>
-<span class="nc" id="L201">            result = adocUnion.update(libraries);</span>
-<span class="nc bnc" id="L202" title="All 2 branches missed.">            if (verifyIncludes) {</span>
-<span class="nc" id="L203">                verified = adocUnion.verifyIncludes(source, session.getLocalRepository().getPath());</span>
+<span class="nc" id="L201">            AdocUnion adocUnion = new AdocUnion(union, legacyDir, link, legacy, log);</span>
+<span class="nc" id="L202">            result = adocUnion.update(libraries);</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            if (verifyIncludes) {</span>
+<span class="nc" id="L204">                verified = adocUnion.verifyIncludes(source, session.getLocalRepository().getPath());</span>
             }
-<span class="nc" id="L205">            legacyUsed = adocUnion.legacyUnpacked();</span>
+<span class="nc" id="L206">            legacyUsed = adocUnion.legacyUnpacked();</span>
+<span class="nc" id="L207">            installRootConfig();</span>
         } finally {
-<span class="nc" id="L207">            UNION_LOCK.unlock();</span>
+<span class="nc" id="L209">            UNION_LOCK.unlock();</span>
         }
 
-<span class="nc" id="L210">        ProjectManager projectManager = session.getService(ProjectManager.class);</span>
-<span class="nc" id="L211">        projectManager.setProperty(project, PROPERTY_ADOC, union.toString());</span>
-<span class="nc bnc" id="L212" title="All 2 branches missed.">        projectManager.setProperty(project, PROPERTY_TOPICS, (legacyUsed ? legacyDir : union).toString());</span>
+<span class="nc" id="L212">        ProjectManager projectManager = session.getService(ProjectManager.class);</span>
+<span class="nc" id="L213">        projectManager.setProperty(project, PROPERTY_ADOC, union.toString());</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        projectManager.setProperty(project, PROPERTY_TOPICS, (legacyUsed ? legacyDir : union).toString());</span>
 
-<span class="nc" id="L214">        log.info(&quot;ike:adoc-union: &quot; + libraries.size() + &quot; libraries in &quot; + union + &quot; (&quot; + result.summary()</span>
+<span class="nc" id="L216">        log.info(&quot;ike:adoc-union: &quot; + libraries.size() + &quot; libraries in &quot; + union + &quot; (&quot; + result.summary()</span>
                 + &quot;); &quot; + verified + &quot; includes verified; &quot; + PROPERTY_ADOC + &quot;=&quot; + union
-<span class="nc bnc" id="L216" title="All 2 branches missed.">                + (legacyUsed ? &quot;; &quot; + PROPERTY_TOPICS + &quot;=&quot; + legacyDir : &quot;&quot;));</span>
-<span class="nc" id="L217">    }</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">                + (legacyUsed ? &quot;; &quot; + PROPERTY_TOPICS + &quot;=&quot; + legacyDir : &quot;&quot;));</span>
+<span class="nc" id="L219">    }</span>
+
+    /**
+     * The repository's one {@code .asciidoctorconfig}, from the classifier zip the doc pipeline
+     * declares. Here, under the union's lock, because every module with AsciiDoc sources would
+     * write the one file, and a stock unpack in two modules at once fails a {@code -T} build.
+     * A module that does not declare the zip leaves the file as it is.
+     */
+    private void installRootConfig() {
+<span class="nc" id="L228">        List&lt;Node&gt; nodes = RuntimeClasspathResolver.serialized(session, () -&gt; session.flattenDependencies(</span>
+<span class="nc" id="L229">                session.collectDependencies(project, PathScope.MAIN_COMPILE), PathScope.MAIN_COMPILE));</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">        for (Node node : nodes) {</span>
+<span class="nc" id="L231">            Dependency dependency = node.getDependency();</span>
+<span class="nc bnc" id="L232" title="All 4 branches missed.">            if (dependency == null || !RootConfig.CLASSIFIER.equals(dependency.getClassifier())) {</span>
+<span class="nc" id="L233">                continue;</span>
+            }
+            try {
+<span class="nc" id="L236">                Path zip = RuntimeClasspathResolver.serialized(session, () -&gt; session.resolveArtifact(dependency).getPath());</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">                if (RootConfig.install(zip, reactorRoot())) {</span>
+<span class="nc" id="L238">                    log.info(&quot;ike:adoc-union: wrote &quot; + reactorRoot().resolve(RootConfig.FILE_NAME));</span>
+                }
+<span class="nc" id="L240">            } catch (java.io.IOException | RuntimeException e) {</span>
+<span class="nc" id="L241">                throw new MojoException(&quot;Cannot install &quot; + RootConfig.FILE_NAME + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L242">            }</span>
+<span class="nc" id="L243">            return;</span>
+        }
+<span class="nc" id="L245">    }</span>
 
     private Path resolveUnionDirectory() {
-<span class="nc bnc" id="L220" title="All 4 branches missed.">        if (unionDirectory != null &amp;&amp; !unionDirectory.isBlank()) {</span>
-<span class="nc" id="L221">            return Path.of(unionDirectory).toAbsolutePath().normalize();</span>
+<span class="nc bnc" id="L248" title="All 4 branches missed.">        if (unionDirectory != null &amp;&amp; !unionDirectory.isBlank()) {</span>
+<span class="nc" id="L249">            return Path.of(unionDirectory).toAbsolutePath().normalize();</span>
         }
-<span class="nc" id="L223">        return reactorRoot().resolve(&quot;target&quot;).resolve(&quot;generated-sources&quot;).resolve(&quot;adoc&quot;).toAbsolutePath().normalize();</span>
+<span class="nc" id="L251">        return reactorRoot().resolve(&quot;target&quot;).resolve(&quot;generated-sources&quot;).resolve(&quot;adoc&quot;).toAbsolutePath().normalize();</span>
     }
 
     /**
@@ -230,41 +258,41 @@ public class AdocUnionMojo implements org.apache.maven.api.plugin.Mojo {
      * left it out, by its pom under the reactor root. Every other is resolved to its zip.
      */
     private List&lt;AdocLibrary&gt; declaredLibraries() {
-<span class="nc" id="L233">        Path root = reactorRoot();</span>
+<span class="nc" id="L261">        Path root = reactorRoot();</span>
         // Collection goes through the plugin's serialized entry point — Maven 4 rc-5's
         // resolver cache is not thread-safe under -T (IKE-Network/ike-issues#901).
-<span class="nc" id="L236">        List&lt;Node&gt; nodes = RuntimeClasspathResolver.serialized(session, () -&gt; session.flattenDependencies(</span>
-<span class="nc" id="L237">                session.collectDependencies(project, PathScope.MAIN_COMPILE), PathScope.MAIN_COMPILE));</span>
-<span class="nc" id="L238">        List&lt;AdocLibrary&gt; libraries = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L239" title="All 2 branches missed.">        for (Node node : nodes) {</span>
-<span class="nc" id="L240">            Dependency dependency = node.getDependency();</span>
-<span class="nc bnc" id="L241" title="All 2 branches missed.">            if (dependency == null</span>
-<span class="nc bnc" id="L242" title="All 2 branches missed.">                    || !AdocCoordinates.CLASSIFIER.equals(dependency.getClassifier())</span>
-<span class="nc bnc" id="L243" title="All 2 branches missed.">                    || !AdocCoordinates.TYPE.equals(dependency.getExtension())) {</span>
-<span class="nc" id="L244">                continue;</span>
+<span class="nc" id="L264">        List&lt;Node&gt; nodes = RuntimeClasspathResolver.serialized(session, () -&gt; session.flattenDependencies(</span>
+<span class="nc" id="L265">                session.collectDependencies(project, PathScope.MAIN_COMPILE), PathScope.MAIN_COMPILE));</span>
+<span class="nc" id="L266">        List&lt;AdocLibrary&gt; libraries = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L267" title="All 2 branches missed.">        for (Node node : nodes) {</span>
+<span class="nc" id="L268">            Dependency dependency = node.getDependency();</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">            if (dependency == null</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">                    || !AdocCoordinates.CLASSIFIER.equals(dependency.getClassifier())</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">                    || !AdocCoordinates.TYPE.equals(dependency.getExtension())) {</span>
+<span class="nc" id="L272">                continue;</span>
             }
-<span class="nc" id="L246">            AdocCoordinates coordinates = new AdocCoordinates(dependency.getGroupId(),</span>
-<span class="nc" id="L247">                    dependency.getArtifactId(), dependency.getVersion().toString());</span>
-<span class="nc" id="L248">            Optional&lt;Path&gt; memberDir = memberBasedir(root, coordinates);</span>
-<span class="nc bnc" id="L249" title="All 2 branches missed.">            if (memberDir.isPresent()) {</span>
-<span class="nc" id="L250">                Path sourceRoot = memberDir.get().resolve(SOURCE_ROOT);</span>
-<span class="nc bnc" id="L251" title="All 2 branches missed.">                if (Files.isDirectory(sourceRoot)) {</span>
-<span class="nc" id="L252">                    libraries.add(AdocLibrary.reactor(coordinates, sourceRoot));</span>
-<span class="nc" id="L253">                    continue;</span>
+<span class="nc" id="L274">            AdocCoordinates coordinates = new AdocCoordinates(dependency.getGroupId(),</span>
+<span class="nc" id="L275">                    dependency.getArtifactId(), dependency.getVersion().toString());</span>
+<span class="nc" id="L276">            Optional&lt;Path&gt; memberDir = memberBasedir(root, coordinates);</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">            if (memberDir.isPresent()) {</span>
+<span class="nc" id="L278">                Path sourceRoot = memberDir.get().resolve(SOURCE_ROOT);</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                if (Files.isDirectory(sourceRoot)) {</span>
+<span class="nc" id="L280">                    libraries.add(AdocLibrary.reactor(coordinates, sourceRoot));</span>
+<span class="nc" id="L281">                    continue;</span>
                 }
-<span class="nc" id="L255">                log.warn(&quot;ike:adoc-union: reactor member &quot; + coordinates.gav() + &quot; has no &quot; + sourceRoot</span>
+<span class="nc" id="L283">                log.warn(&quot;ike:adoc-union: reactor member &quot; + coordinates.gav() + &quot; has no &quot; + sourceRoot</span>
                         + &quot;; resolving it from the repository&quot;);
             }
             Path zip;
             try {
-<span class="nc" id="L260">                zip = session.resolveArtifact(dependency).getPath();</span>
-<span class="nc" id="L261">            } catch (RuntimeException e) {</span>
-<span class="nc" id="L262">                throw new MojoException(&quot;Cannot resolve the topic library &quot; + coordinates.gav() + &quot;: &quot;</span>
-<span class="nc" id="L263">                        + e.getMessage(), e);</span>
-<span class="nc" id="L264">            }</span>
-<span class="nc" id="L265">            libraries.add(AdocLibrary.external(coordinates, zip));</span>
-<span class="nc" id="L266">        }</span>
-<span class="nc" id="L267">        return libraries;</span>
+<span class="nc" id="L288">                zip = session.resolveArtifact(dependency).getPath();</span>
+<span class="nc" id="L289">            } catch (RuntimeException e) {</span>
+<span class="nc" id="L290">                throw new MojoException(&quot;Cannot resolve the topic library &quot; + coordinates.gav() + &quot;: &quot;</span>
+<span class="nc" id="L291">                        + e.getMessage(), e);</span>
+<span class="nc" id="L292">            }</span>
+<span class="nc" id="L293">            libraries.add(AdocLibrary.external(coordinates, zip));</span>
+<span class="nc" id="L294">        }</span>
+<span class="nc" id="L295">        return libraries;</span>
     }
 
     /**
@@ -274,37 +302,37 @@ public class AdocUnionMojo implements org.apache.maven.api.plugin.Mojo {
      * from a stale zip.
      */
     private Optional&lt;Path&gt; memberBasedir(Path root, AdocCoordinates coordinates) {
-<span class="nc" id="L277">        Optional&lt;Project&gt; inSession = session.getProjects().stream()</span>
-<span class="nc bnc" id="L278" title="All 2 branches missed.">                .filter(p -&gt; p.getGroupId().equals(coordinates.groupId())</span>
-<span class="nc bnc" id="L279" title="All 2 branches missed.">                        &amp;&amp; p.getArtifactId().equals(coordinates.artifactId()))</span>
-<span class="nc" id="L280">                .findFirst();</span>
-<span class="nc bnc" id="L281" title="All 2 branches missed.">        if (inSession.isPresent()) {</span>
-<span class="nc" id="L282">            Project member = inSession.get();</span>
-<span class="nc bnc" id="L283" title="All 2 branches missed.">            if (member.getVersion().equals(coordinates.version())) {</span>
-<span class="nc" id="L284">                return Optional.of(member.getBasedir());</span>
+<span class="nc" id="L305">        Optional&lt;Project&gt; inSession = session.getProjects().stream()</span>
+<span class="nc bnc" id="L306" title="All 2 branches missed.">                .filter(p -&gt; p.getGroupId().equals(coordinates.groupId())</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">                        &amp;&amp; p.getArtifactId().equals(coordinates.artifactId()))</span>
+<span class="nc" id="L308">                .findFirst();</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">        if (inSession.isPresent()) {</span>
+<span class="nc" id="L310">            Project member = inSession.get();</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">            if (member.getVersion().equals(coordinates.version())) {</span>
+<span class="nc" id="L312">                return Optional.of(member.getBasedir());</span>
             }
-<span class="nc" id="L286">            log.warn(&quot;ike:adoc-union: &quot; + coordinates.gav() + &quot; is declared at a version other than&quot;</span>
-<span class="nc" id="L287">                    + &quot; the reactor's &quot; + member.getVersion() + &quot;; resolving it from the repository&quot;);</span>
-<span class="nc" id="L288">            return Optional.empty();</span>
+<span class="nc" id="L314">            log.warn(&quot;ike:adoc-union: &quot; + coordinates.gav() + &quot; is declared at a version other than&quot;</span>
+<span class="nc" id="L315">                    + &quot; the reactor's &quot; + member.getVersion() + &quot;; resolving it from the repository&quot;);</span>
+<span class="nc" id="L316">            return Optional.empty();</span>
         }
-<span class="nc" id="L290">        return ReactorLayout.memberBasedir(root, coordinates.groupId(), coordinates.artifactId());</span>
+<span class="nc" id="L318">        return ReactorLayout.memberBasedir(root, coordinates.groupId(), coordinates.artifactId());</span>
     }
 
     private Path reactorRoot() {
         try {
-<span class="nc" id="L295">            return project.getRootDirectory();</span>
-<span class="nc" id="L296">        } catch (IllegalStateException e) {</span>
-<span class="nc" id="L297">            return session.getTopDirectory();</span>
+<span class="nc" id="L323">            return project.getRootDirectory();</span>
+<span class="nc" id="L324">        } catch (IllegalStateException e) {</span>
+<span class="nc" id="L325">            return session.getTopDirectory();</span>
         }
     }
 
     /** This module as a library of the union, when its own source root has the package layout. */
     private Optional&lt;AdocLibrary&gt; selfLibrary(Path source) {
-<span class="nc" id="L303">        AdocCoordinates self = new AdocCoordinates(project.getGroupId(), project.getArtifactId(), project.getVersion());</span>
-<span class="nc bnc" id="L304" title="All 4 branches missed.">        if (Files.isDirectory(source) &amp;&amp; !AdocManifest.fromSourceTree(self, source).packages().isEmpty()) {</span>
-<span class="nc" id="L305">            return Optional.of(AdocLibrary.reactor(self, source));</span>
+<span class="nc" id="L331">        AdocCoordinates self = new AdocCoordinates(project.getGroupId(), project.getArtifactId(), project.getVersion());</span>
+<span class="nc bnc" id="L332" title="All 4 branches missed.">        if (Files.isDirectory(source) &amp;&amp; !AdocManifest.fromSourceTree(self, source).packages().isEmpty()) {</span>
+<span class="nc" id="L333">            return Optional.of(AdocLibrary.reactor(self, source));</span>
         }
-<span class="nc" id="L307">        return Optional.empty();</span>
+<span class="nc" id="L335">        return Optional.empty();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

@@ -12,6 +12,6 @@ canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/dependency-info.
 <plugin>
   <groupId>network.ike.tooling</groupId>
   <artifactId>ike-maven-plugin</artifactId>
-  <version>276</version>
+  <version>277</version>
 </plugin>
 ```
