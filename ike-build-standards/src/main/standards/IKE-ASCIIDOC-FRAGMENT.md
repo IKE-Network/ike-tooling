@@ -10,6 +10,13 @@ hierarchy.
 
 ## File Structure
 
+A topic file is at `src/docs/asciidoc/{group}/{domain}/{topic}.adoc`: the library's group as
+one dotted segment, then the topic's domain, which equals the prefix of its id. The topic
+`arch-coord-versioning` of the library `network.ike.lab:topics` is
+`network.ike.lab/arch/coord-versioning.adoc`, and an assembly includes it as
+`include::{adoc}/network.ike.lab/arch/coord-versioning.adoc[leveloffset=+1]`. See
+`IKE-INGEST.md` § "Packages" for the layout and `IKE-DOC.md` for the include attribute.
+
 Every topic `.adoc` file must follow this structure:
 
 ```asciidoc
@@ -331,16 +338,22 @@ Use AsciiDoc table syntax. Always include a title:
 
 ### Images
 
-Reference images using the `imagesdir` attribute (set by the assembly or build):
+An image is beside the topics that use it, in an `images` directory inside the package, and
+is referenced through `{adoc}` with its package path:
 
 ```asciidoc
 .Architecture layer diagram
-image::{imagesdir}/architecture/layer-diagram.png[Architecture layers, width=600]
+image::{adoc}/network.ike.lab/arch/images/layer-diagram.svg[Architecture layers, width=600]
 ```
 
 - Always include alt text (the text in square brackets).
 - Always include a block title (the line starting with `.`).
-- Place image files in `src/docs/asciidoc/images/{domain}/`.
+- Place image files in `src/docs/asciidoc/{group}/{domain}/images/`. There is no shared
+  `images` directory at the library root.
+- The `{adoc}` form resolves the same way in the library's own preview and in every assembly
+  that includes the topic. A relative path, `images/layer-diagram.svg`, resolves against the
+  including document's `imagesdir`, not against the topic's directory, so use it only in a
+  document that sets `imagesdir` to the package.
 
 ### Generated Diagrams
 

@@ -21,8 +21,10 @@ mechanism handles three coherent module shapes:
 | Hybrid (Java + reference docs)     | `jar` | jar  | yes | yes (when renderers active) |
 | Pure code (no `src/docs/asciidoc/`) | `jar` | jar  | no  | no |
 
-The `adoc` classifier is the canonical *source* payload — a zip of
-`src/docs/asciidoc/` attached via `maven-assembly-plugin`. The
+The `adoc` classifier is the canonical *source* payload: a zip that
+mirrors `src/docs/asciidoc/`, laid out as packages, with the generated
+`META-INF/ike/<group>/<artifact>/` area beside them, attached via
+`maven-assembly-plugin`. See "AsciiDoc packages" below. The
 renderer classifiers (`prince`, `fop`, `xep`, `pdf-default`,
 `html-single`, etc.) are the canonical *rendered* payloads. Consumers
 depend on whichever shape they need.
@@ -312,11 +314,64 @@ artifact ID `topics`. The group ID carries project uniqueness. See
 - **ArtifactId**: always `topics`
 - **Packaging**: `pom` (no primary artifact; the `adoc` classifier
   is the deliverable)
-- **Source**: `src/docs/asciidoc/topics/` with topic files, plus
-  `index.adoc` for a browsable all-topics preview
-- **Artifact**: publishes the `adoc` classifier ZIP of all sources
-  (auto-attached by the inherited `doc-pipeline` profile)
+- **Source**: `src/docs/asciidoc/<group>/<domain>/<topic>.adoc`. The
+  first directory under the root is the owning group written as one
+  dotted segment, `network.ike.lab`, and the next is the topic's
+  domain, `dev`. The all-topics preview `index.adoc` and any shared
+  images are in a package the library owns for itself, of kind
+  `library`, such as `network.ike.lab/lab/index.adoc`.
+- **Artifact**: publishes the `adoc` classifier ZIP, which mirrors the
+  source root and adds the generated `META-INF/ike/<group>/<artifact>/`
+  area (auto-attached by the inherited `doc-pipeline` profile)
 - Does NOT render PDF — that is the assembly module's job
+
+### AsciiDoc packages
+
+An include line names a piece of knowledge, never the artifact that
+ships it. A library therefore lays its root out as packages, the way a
+jar ships Java packages, and its Maven coordinates name the artifact
+and nothing in a content path.
+
+- **The package is the domain.** A package is `<group>/<domain>`:
+  `network.ike.lab/dev/gitflow-overview.adoc` is two levels under the
+  root, and the group is one dotted segment, not one directory per
+  label. A topic's id already begins with its domain,
+  `dev-gitflow-overview`, so the topic's directory equals the prefix of
+  its id. A library whose group ends in its only domain uses the group
+  directory itself as the package: the ANF kompendium's topics are
+  `network.ike.kompendium.anf/determine-topic.adoc`.
+- **Images are beside the topics that use them**, in an `images`
+  directory inside the package, and referenced as
+  `{adoc}/network.ike.lab/dev/images/flow.svg`. There is no shared
+  `images` directory at the root.
+- **The `library` package.** The preview index and any shared images
+  are rendered content, not metadata, so they are in a package the
+  library owns for itself, of kind `library`, and never under
+  `META-INF`.
+- **The manifest.** The build generates
+  `META-INF/ike/<group>/<artifact>/manifest.yaml` from the pom and the
+  tree; nobody writes it by hand. It lists the coordinates, every
+  package shipped with its kind, `topics` or `library`, and the path of
+  the registry. The registry and the term index are beside it. Keyed
+  by coordinates, the area cannot collide in the union, a tool lists the
+  libraries present by listing it, and an editor never reads it. No
+  group begins with `META-INF`, so the reserved name cannot be a
+  package.
+- **Ownership.** A validate-phase lint requires every package a library
+  ships to begin with the library's own group, unless the pom declares
+  another prefix on purpose; a topic's directory to equal its id's
+  domain prefix; and the root to hold nothing but group directories and
+  `META-INF`.
+- **Exclusivity.** `ike:adoc-union` reads every library's manifest and
+  refuses to continue when two libraries ship one package, naming both
+  artifacts. A package has one owner.
+
+The legacy layout, `src/docs/asciidoc/topics/<domain>/<topic>.adoc`,
+keeps building until the last consumer has migrated: a library is
+built with the package layout when its pom sets
+`ike.adoc.layout=packages`, and a consumer unpacks a legacy ZIP as
+before only with `-Dike.adoc.legacy=true`. Design topic
+`dev-adoc-packages` in `ike-lab-documents`; IKE-Network/ike-issues#1340.
 
 **POM template** (topic library):
 
@@ -359,9 +414,13 @@ into a single document:
 - **Packaging**: `pom`
 - **Source**: `src/docs/asciidoc/` with the assembly `.adoc` file
 - **Dependencies**: one or more topic library `adoc`-classified ZIPs
-- **Unpack**: `ike-parent` automatically unpacks `adoc`-classified ZIPs to
-  `target/generated-sources/asciidoc/{artifactId}-adoc/`
-- **Includes**: use AsciiDoc attributes to reference unpacked topics
+- **Unpack**: `ike-parent` runs `ike:adoc-union` at `generate-sources`,
+  which unpacks every `adoc`-classified ZIP the module declares into one
+  union per repository, `<reactor root>/target/generated-sources/adoc/`.
+  A library that is a module of the same reactor is linked into the
+  union from its source tree, not copied, so an edit reached through an
+  include changes the real source.
+- **Includes**: `include::{adoc}/<group>/<domain>/<topic>.adoc[]`
 
 **POM template** (assembly module):
 
@@ -407,37 +466,61 @@ is unchanged.
 
 ### Include Path Resolution
 
-In assembly `.adoc` files, use the `{generated}` attribute (provided by
-`ike-parent`'s asciidoctor-maven-plugin config) to reference unpacked
-topic libraries:
+In assembly `.adoc` files, use the `{adoc}` attribute, which `ike-parent`
+sets to the union, followed by the topic's package path:
 
 ```asciidoc
-:topics: {generated}/topics-adoc
-
 == Developer Guide
-include::{topics}/topics/dev/overview.adoc[leveloffset=+2]
+include::{adoc}/network.ike.lab/dev/overview.adoc[leveloffset=+2]
 ```
+
+The include is a plain Asciidoctor path under one attribute, and the
+path after the attribute is the same in the source tree, in the ZIP and
+in the union. The line therefore resolves to the same file in IntelliJ,
+in Visual Studio Code, in the Maven build and in Komet, with nothing
+added, and it stays the same when a domain moves to another library.
 
 The `leveloffset` value depends on the containing heading level — see
 `IKE-ASCIIDOC-FRAGMENT.md` for the full table. Since all IKE assemblies
 use `:doctype: book` with `==` chapter headings, topic includes under a
 chapter need `leveloffset=+2` (not `+1`).
 
-The attribute name matches the topic library's artifact ID. Since every
-doc project uses `topics` as the standard artifact ID, this attribute
-is always `:topics:`.
+`{topics}` is a deprecated alias of `{adoc}`, set to the same directory
+while the last consumers migrate, and the lint reports it. An include of
+the old form, `include::{topics}/topics/<domain>/<topic>.adoc[]`,
+resolves only while the library still ships the legacy layout and the
+module builds with `-Dike.adoc.legacy=true`. `{generated}` names the
+parent of the union and is retired once nothing uses it.
+
+A library an include needs is declared by the module, as a
+`<dependency>` with classifier `adoc` and type `zip`. When an include
+names a path no declared library ships, `ike:adoc-union` fails the
+build and prints the exact `<dependency>` block to add, found from the
+manifests already in the union and then from the local repository by
+the group prefix of the path. Nothing is fetched: the path names a
+package and never a version, and the build does not guess one.
 
 ### IDE Preview with `.asciidoctorconfig`
 
-Create `.asciidoctorconfig` in each assembly module root so IntelliJ
-and VS Code resolve includes without a Maven build:
+One `.asciidoctorconfig` at the repository root points the attribute at
+the union, so IntelliJ and VS Code resolve includes in every module of
+the repository without a Maven build after the first:
 
 ```
-:generated: {asciidoctorconfigdir}/target/generated-sources/asciidoc
+:adoc: {asciidoctorconfigdir}/target/generated-sources/adoc
+:topics: {asciidoctorconfigdir}/target/generated-sources/adoc
 ```
+
+The union is three levels under the root on purpose. IntelliJ registers
+every immediate subfolder of `target/generated-sources` as a generated
+source root, which is what indexes the unpacked copy for anchor
+resolution and navigation into an included file. A union at
+`target/adoc` would build and preview and would silently lose both.
 
 After one `mvn generate-sources`, the IDE resolves all includes, shows
-previews, and provides file completion.
+previews, and provides file completion. The per-module
+`.asciidoctorconfig` setting `:generated:` is the legacy form and goes
+when the module migrates.
 
 ### Aggregator POM
 
@@ -478,26 +561,26 @@ mvn clean verify -Dike.pdf.prawn
 mvn clean verify -pl my-compendium -am -Dike.pdf.prawn
 ```
 
-On a fresh clone the first build has to run to `package` or beyond, as
-`clean verify` does: the assembly modules depend on the topic library's
-`adoc` ZIP, which the reactor produces only at `package`, so
-`mvn validate` on its own cannot resolve it. After one full build
-`validate` resolves the ZIP from the previous build's output.
+On a fresh clone `mvn generate-sources` is enough for the IDE: a topic
+library that is a module of the same reactor is linked into the union
+from its source tree, so the assembly modules do not wait for its ZIP.
+A library from another repository is resolved from the repository as
+any dependency is.
 
 ### Cross-Project Composition
 
-A future assembly can pull from multiple topic libraries across repos:
+An assembly pulls from any number of topic libraries across
+repositories with the one attribute, because no two libraries ship one
+package:
 
 ```asciidoc
-:arch-topics: {generated}/arch-topics-adoc
-:clinical-topics: {generated}/clinical-topics-adoc
-
-include::{arch-topics}/topics/arch/design-lineage.adoc[leveloffset=+1]
-include::{clinical-topics}/topics/clinical/workflow.adoc[leveloffset=+1]
+include::{adoc}/network.ike.lab/arch/design-lineage.adoc[leveloffset=+1]
+include::{adoc}/network.ike.clinical/clinical/workflow.adoc[leveloffset=+1]
 ```
 
-Each `.asciidoctorconfig` defines the attributes for its own dependencies.
-Attribute names are stable; values are project-local.
+Each library is one `<dependency>` with classifier `adoc` and type
+`zip`. Nothing in an include line names the library, so a domain can
+move from one library to another and every include line stays the same.
 
 ## Doc-Diff Review Packets (`idoc:diff`)
 

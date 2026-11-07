@@ -29,6 +29,14 @@ import java.util.Optional;
  */
 public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
+    /** {@code ike:adoc-union} — unpack every declared topic library into one union per repository (#1342). */
+    ADOC_UNION(IkeGoal.NAME_ADOC_UNION, AdocUnionMojo.class,
+            "Unpack every topic library the module declares (classifier adoc, "
+                    + "type zip) into one AsciiDoc union per repository at "
+                    + "<root>/target/generated-sources/adoc, linking reactor members, "
+                    + "refusing two libraries that ship one package, and failing "
+                    + "the build for an {adoc} include nothing declared ships, with "
+                    + "the dependency block to add (ike-issues#1342)."),
     /** {@code ike:build-report-ratchet-draft} — preview downward ledger tightening. */
     BUILD_REPORT_RATCHET_DRAFT(IkeGoal.NAME_BUILD_REPORT_RATCHET_DRAFT,
             BuildReportRatchetDraftMojo.class,
@@ -282,6 +290,8 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
     // ConstantBackedEnum.verify() — run from the static initializer
     // below — fails class-load if any constant and its mirror drift.
 
+    /** Mirror for {@link #ADOC_UNION}. */
+    public static final String NAME_ADOC_UNION = "adoc-union";
     /** Mirror for {@link #BUILD_REPORT_RATCHET_DRAFT}. */
     public static final String NAME_BUILD_REPORT_RATCHET_DRAFT = "build-report-ratchet-draft";
     /** Mirror for {@link #BUILD_REPORT_RATCHET_PUBLISH}. */

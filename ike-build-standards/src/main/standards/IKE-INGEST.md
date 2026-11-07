@@ -29,12 +29,14 @@ Every documentation multi-module project follows this layout:
 ├── topics/                         # STANDARD name — always "topics"
 │   ├── pom.xml                     #   artifactId: topics
 │   └── src/docs/asciidoc/
-│       ├── index.adoc              #   all-topics HTML preview
-│       └── topics/                 #   topic fragments by domain
+│       └── {group}/                #   the owning group, one dotted segment
+│           ├── {domain}/           #   one package per domain
+│           │   ├── {topic}.adoc
+│           │   └── images/         #   images beside the topics that use them
 │           ├── {domain}/
 │           │   └── {topic}.adoc
-│           └── {domain}/
-│               └── {topic}.adoc
+│           └── {library}/          #   the library's own package: index.adoc preview
+│               └── index.adoc
 ├── {assembly-name}/                # descriptive name (e.g., arch-guide)
 │   ├── pom.xml
 │   └── src/docs/asciidoc/
@@ -47,16 +49,80 @@ Every documentation multi-module project follows this layout:
 
 - **Directory**: always `topics/`
 - **ArtifactId**: always `topics`
-- **GroupId**: carries project uniqueness (e.g., `network.ike`)
-- **Unpack location**: `target/generated-sources/asciidoc/topics-asciidoc/`
-- **AsciiDoc attribute**: `:topics: {generated}/topics-asciidoc`
-- **Include pattern**: `include::{topics}/topics/{domain}/{topic}.adoc[leveloffset=+1]`
+- **GroupId**: carries project uniqueness (e.g., `network.ike.lab`)
+- **Packages**: `src/docs/asciidoc/{group}/{domain}/`, the group as one
+  dotted segment and the domain under it; see "Packages" below
+- **Unpack location**: `<reactor root>/target/generated-sources/adoc/`,
+  one union per repository, written by `ike:adoc-union`
+- **AsciiDoc attribute**: `{adoc}`, set by `ike-parent`; `{topics}` is a
+  deprecated alias
+- **Include pattern**: `include::{adoc}/{group}/{domain}/{topic}.adoc[leveloffset=+1]`
 
 This convention means:
-- Every doc project has topics in the same predictable location
-- Assembly modules always depend on `${project.groupId}:topics:asciidoc:zip`
-- Cross-project topic consumption follows a uniform pattern where
-  groupId identifies the source
+- Every topic has one path, the same in the source tree, in the ZIP, in
+  the union and in every tool that resolves an include
+- Assembly modules depend on `${project.groupId}:topics:zip:adoc`, and
+  on any other library whose topics they include, each as one
+  `<dependency>`
+- Nothing in an include line names the library, so a domain can move
+  from one library to another and every include line stays the same
+
+### Packages
+
+A package is a directory the library owns: `{group}/{domain}`, such as
+`network.ike.lab/dev`. The group is written as one dotted segment, not
+one directory per label, so a topic is two levels under the root. A
+topic's id begins with its domain, `dev-gitflow-overview`, and its
+directory equals that prefix. A library whose group ends in its only
+domain uses the group directory itself as the package:
+`network.ike.kompendium.anf/determine-topic.adoc`.
+
+Images are beside the topics that use them, in an `images` directory
+inside the package. The all-topics preview `index.adoc` and any shared
+images are in a package the library owns for itself, of kind
+`library`, such as `network.ike.lab/lab/`.
+
+Two rules make the layout a guarantee:
+
+- **Ownership.** A validate-phase lint requires every package a library
+  ships to begin with the library's own group, unless the pom declares
+  another prefix on purpose; a topic's directory to equal its id's
+  domain prefix; and the root to hold nothing but group directories and
+  `META-INF`.
+- **Exclusivity.** `ike:adoc-union` reads every library's manifest and
+  refuses to continue when two libraries ship one package, naming both
+  artifacts. Two libraries in one group that both want a domain named
+  `ext` rename one of them.
+
+### The manifest and the `META-INF` area
+
+The build generates the library's metadata into a reserved area keyed
+by its coordinates, which the ZIP ships beside the packages:
+
+```
+META-INF/ike/network.ike.lab/topics/manifest.yaml
+META-INF/ike/network.ike.lab/topics/topic-registry.yaml
+META-INF/ike/network.ike.lab/topics/term-index.yaml
+```
+
+The manifest is generated from the pom and the tree, never kept by
+hand. It lists the coordinates, every package shipped with its kind,
+`topics` or `library`, and the registry's path:
+
+```yaml
+coordinates: network.ike.lab:topics
+packages:
+  - name: network.ike.lab/dev
+    kind: topics
+  - name: network.ike.lab/lab
+    kind: library
+registry: META-INF/ike/network.ike.lab/topics/topic-registry.yaml
+```
+
+Keyed by coordinates, the area cannot collide in the union, and a tool
+lists the libraries present by listing it. An editor never reads it:
+the one rule that keeps every editor working is that an include is a
+plain Asciidoctor path under one attribute.
 
 ### Assembly modules
 
@@ -172,25 +238,29 @@ registry is generated from these headers; never write registry YAML.
 
 - Assign domain prefix, `:topic-id:`, `:topic-type:`,
   `:topic-keywords:`, and `:topic-summary:`.
-- Run `mvn idoc:topic-registry -pl topics` and read
-  `topics/target/topic-registry.yaml` to check for redundancy
-  against existing topics.
+- Run `mvn idoc:topic-registry -pl topics` and read the generated
+  registry under `topics/target/`, at
+  `META-INF/ike/{group}/{artifact}/topic-registry.yaml`, to check for
+  redundancy against existing topics.
 - Resolve any overlaps before proceeding.
 
 ### Step 5: Place
 
 Put topic files into the target project's `topics/` module:
 
-1. Create domain directories under `topics/src/docs/asciidoc/topics/`
-   if they don't exist.
-2. Place each `.adoc` fragment in the appropriate domain directory.
-3. Update `topics/src/docs/asciidoc/index.adoc` to include the new
-   topics for the HTML preview.
+1. Create the domain package under the library's group directory,
+   `topics/src/docs/asciidoc/{group}/{domain}/`, if it does not exist.
+   The domain directory equals the prefix of the topic ids it holds.
+2. Place each `.adoc` fragment in its domain package, and any image it
+   uses in `images/` inside that package.
+3. Update the preview index in the library's own package,
+   `topics/src/docs/asciidoc/{group}/{library}/index.adoc`, to include
+   the new topics for the HTML preview.
 4. Add the placed files to the topic registry:
 
    ```bash
    mvn -B idoc:topic-registry -pl topics \
-     -Dike.topic-registry.add=src/docs/asciidoc/topics/{domain}/{topic}.adoc   # comma-separated for several
+     -Dike.topic-registry.add=src/docs/asciidoc/{group}/{domain}/{topic}.adoc   # comma-separated for several
    ```
 
 ### Step 6: Assemble
@@ -200,7 +270,8 @@ Create or update an assembly in the target project:
 1. If this is a new document, create an assembly module with a
    descriptive name and a POM that depends on `topics`.
 2. Author the assembly `.adoc` file per `IKE-ASSEMBLY.md` with
-   `include::` directives referencing the placed topics.
+   `include::{adoc}/{group}/{domain}/{topic}.adoc[leveloffset=+1]`
+   lines for the placed topics.
 3. Add the new module to the reactor POM's `<subprojects>`.
 
 ### Step 7: Validate
@@ -211,15 +282,18 @@ Build and verify:
 mvn clean verify
 ```
 
-- All `include::` paths resolve.
+- All `include::` paths resolve. `ike:adoc-union` checks every `{adoc}`
+  include before the render and names the `<dependency>` to add for one
+  that no declared library ships.
 - All `xref:` targets resolve.
 - Heading levels render correctly with `leveloffset`.
 - No content from the source document was lost.
 - A full `mvn -B idoc:topic-registry -pl topics` run reports
-  `0 findings`, and every new topic appears in
-  `topics/target/topic-registry.yaml` at the path where it was placed.
+  `0 findings`, and every new topic appears in the generated registry
+  at the path where it was placed.
 - Every new topic appears in the compendium assembly.
-- Every new topic is included in `topics/src/docs/asciidoc/index.adoc`
+- Every new topic is included in the library's preview index,
+  `topics/src/docs/asciidoc/{group}/{library}/index.adoc`
   (the all-topics preview). This ensures cross-topic `xref:` links
   resolve in the topics module build and do not produce "possible
   invalid reference" warnings.
@@ -242,7 +316,7 @@ single topic. See `IKE-TOPIC-DECOMPOSITION.md` § "Dialog Topics."
 3. **Add index terms**: Insert 5–15 index terms at points of first
    substantive discussion per `IKE-INDEX.md`.
 4. **Place**: Put the single `.adoc` file in
-   `topics/src/docs/asciidoc/topics/dialog/`.
+   `topics/src/docs/asciidoc/{group}/dialog/`.
 5. **Register**: Use the `dialog` domain prefix for the topic id and
    set `:topic-notes:` in the header documenting that this is a dialog
    topic exempt from size bounds. Add the file to the topic registry
@@ -389,11 +463,11 @@ topics:
 
 #### Step 6: Place
 
-Place external topic files under the appropriate subdirectory of
-`topics/src/docs/asciidoc/topics/ext/`:
+Place external topic files under the appropriate subdirectory of the
+`ext` package, `topics/src/docs/asciidoc/{group}/ext/`:
 
 ```
-topics/ext/
+{group}/ext/
 ├── internal/       # unpublished memoranda, partner correspondence
 ├── regulatory/     # FDA guidance, EU MDR/AI Act, NSHE policy
 ├── literature/     # journal articles, conference papers
@@ -420,12 +494,13 @@ changed, to the topic registry:
 
 ```bash
 mvn -B idoc:topic-registry -pl topics \
-  -Dike.topic-registry.add=src/docs/asciidoc/topics/ext/{type}/{topic}.adoc
+  -Dike.topic-registry.add=src/docs/asciidoc/{group}/ext/{type}/{topic}.adoc
 ```
 
 #### Step 8: Update index.adoc and validate
 
-Add the new topic to `topics/src/docs/asciidoc/index.adoc` so it
+Add the new topic to the library's preview index,
+`topics/src/docs/asciidoc/{group}/{library}/index.adoc`, so it
 renders in the topic library HTML preview and `xref:` links resolve.
 
 Build and verify:
@@ -467,9 +542,10 @@ endif::[]
 
 When the target project already has topics, follow the integration
 workflow from `IKE-TOPIC-DECOMPOSITION.md` § "Topic Integration."
-The additional constraint: search the generated topic registry
-(`topics/target/topic-registry.yaml`) and term index
-for overlap before placing any new topics. Resolve redundancy before
+The additional constraint: search the generated topic registry and
+term index under `topics/target/`, at
+`META-INF/ike/{group}/{artifact}/`, for overlap before placing any new
+topics. Resolve redundancy before
 committing.
 
 ## Instructing Claude for Ingestion
@@ -488,10 +564,10 @@ Claude should:
 1. Run the 510(k) check. If the source is a decision summary,
    switch to `IKE-DEX-INGEST.md` and say so.
 2. Run `mvn -B idoc:topic-registry -pl topics` in the target project
-   and read `topics/target/topic-registry.yaml`.
+   and read the generated registry under `topics/target/`.
 3. Decompose the source document into topics.
 4. Check for redundancy against existing topics.
-5. Place topic files in `topics/src/docs/asciidoc/topics/{domain}/`.
+5. Place topic files in `topics/src/docs/asciidoc/{group}/{domain}/`.
 6. Add the placed files to the topic registry with
    `-Dike.topic-registry.add`.
 7. Create or update the assembly module.

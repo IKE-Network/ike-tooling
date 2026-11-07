@@ -21,10 +21,31 @@ derived view of all headers at once. It serves three functions:
 ## File Location
 
 ```
-{module}/target/topic-registry.yaml
+{module}/target/.../META-INF/ike/{group}/{artifact}/topic-registry.yaml
 ```
 
-The registry is written under `target/`. It is never committed and is rebuilt on every run.
+The registry is written under `target/`, in the library's reserved `META-INF` area, keyed by
+its coordinates and beside the manifest and the term index. `IKE-INGEST.md` § "The manifest
+and the `META-INF` area" describes the area. The `adoc` ZIP ships the area at that same relative path,
+so a consumer of the library reads the registry from the union without scanning a file, and
+the union's catalog is the shipped registries concatenated. The registry is never committed
+and is brought up to date on every run.
+
+## Keyed by content, not by date
+
+A checkout, a rebase, a sync between machines or a restored file all change dates without
+changing content, so dates are the wrong key for staleness. Git already addresses content:
+one call, `git ls-files -s`, lists every path with the blob id of its content without opening
+a file. Each registry entry records the blob it was parsed from, and the rule is exact:
+
+- same path and same blob: the entry is kept;
+- same blob at a new path, a rename: the entry is re-keyed without parsing;
+- a new or changed blob: that file is parsed;
+- a path gone: the entry is dropped.
+
+Files that are not topics get an entry too, with `topic: false` and their blob, so they are
+not opened again either. An unstaged edit shows in the status and is hashed on the spot,
+which costs the same as the parse it causes. A tree with no git falls back to the full scan.
 
 **Legacy hand-kept registries.** Projects created before this standard may still have
 `src/docs/asciidoc/topic-registry.yaml` (and a `topic-registry/` directory of per-domain
@@ -70,7 +91,8 @@ domains:                             # grouped by the id prefix before the first
   - id: arch
     topics:
       - id: arch-dl-classifier
-        file: topics/architecture/dl-classifier.adoc
+        file: network.ike.lab/arch/dl-classifier.adoc
+        blob: 9f2c1e0a...                         # the git blob id the entry was parsed from
         title: "Classifier Architecture"          # from the level-1 heading
         type: concept
         keywords: [classifier, reasoning, EL++, inference]
@@ -90,11 +112,15 @@ assemblies:                          # files with include:: directives and no :t
     title: "IKE Compendium"
     includes: 247
 
-other-files: []                      # files with neither a :topic-id: nor includes
+other-files:                         # every other file under the root, with its blob
+  - file: network.ike.lab/lab/index.adoc
+    blob: 4b7d...
+    topic: false
 findings: []                         # one line per problem, prefixed with the file path
 ```
 
-A topic entry also carries `supersedes`, `notes`, `provenance`, `scope-note`, `citation`, and
+A topic's `file` is its package path, `{group}/{domain}/{topic}.adoc`, the same path an
+include names after `{adoc}`. A topic entry also carries `supersedes`, `notes`, `provenance`, `scope-note`, `citation`, and
 `license` when the header sets them. Any other `:topic-*:` attribute appears under `extra`,
 and non-topic document attributes under `attributes`.
 
@@ -268,6 +294,12 @@ The goal checks, and reports as findings:
 4. No `topic-id` appears in two files.
 5. Symbolic links are skipped and reported.
 
+With the package layout, which the pom turns on with `ike.adoc.layout=packages`, the
+validate-phase lint also checks
+that every package begins with the library's own group unless the pom declares another prefix,
+that a topic's directory equals its id's domain prefix, and that the root holds nothing but
+group directories and `META-INF`.
+
 `topic-count` and `char-count` are measured, so they cannot drift.
 
 Not yet checked by the goal — check them during review, and Claude checks them before
@@ -295,27 +327,29 @@ different keywords but discuss the same underlying concepts.
 ### Location
 
 ```
-{topic-library-module}/target/generated/term-index.yaml
+{module}/target/.../META-INF/ike/{group}/{artifact}/term-index.yaml
 ```
 
-The term index is generated during the build and placed in the `target/` directory. It is not
-committed to source control. It is included in the packaged topic library zip so that
-dependent modules and Claude have access to it after unpacking.
+The term index is generated during the build beside the registry and the manifest, in the
+library's `META-INF` area. It is not committed to source control. The `adoc` ZIP ships it at
+that same relative path, so dependent modules and Claude read it from the union after
+unpacking.
 
 ### Build Integration
 
-A build-time script (Groovy, Python, or similar) walks all `.adoc` files under `topics/`,
-extracts `indexterm` macros and `((...))` inline index terms, and produces the YAML file.
-This script should run during the `process-resources` phase, after topic files are in place
-but before packaging.
+The doc plugin walks every `.adoc` file under the library's packages, extracts `indexterm`
+macros and `((...))` inline index terms, and writes the YAML file with the registry, before
+packaging.
 
 ## Working with Claude
 
 ### Providing Context
 
-At the start of a session involving topic work, run the goal and give Claude
-`target/topic-registry.yaml` (Claude Code reads it directly), plus the `term-index.yaml` file
-if available and if the session involves integration or redundancy checking.
+At the start of a session involving topic work, run the goal and give Claude the generated
+`topic-registry.yaml` under `target/` (Claude Code reads it directly), plus the
+`term-index.yaml` file beside it if the session involves integration or redundancy checking.
+For a library a project depends on, both are in the union under
+`target/generated-sources/adoc/META-INF/ike/{group}/{artifact}/`.
 
 For a 600-page compendium decomposed into ~300 topics, the registry will be roughly 20–30 KB
 of YAML and the term index roughly 10–15 KB — both well within context window limits.

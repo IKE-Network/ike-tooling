@@ -23,6 +23,7 @@ import org.apache.maven.api.services.DependencyResolver;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 /**
  * The one entry point through which this plugin's goals resolve a project's
@@ -62,12 +63,26 @@ final class RuntimeClasspathResolver {
      * @return the resolved dependency paths, in resolver order
      */
     static List<Path> mainRuntimePaths(Session session, Project project) {
+        return serialized(session, () -> resolve(session, project));
+    }
+
+    /**
+     * Runs one call into Maven's dependency resolver, such as a collection or a flatten,
+     * serialized JVM-wide on a Maven before {@value #FIRST_THREAD_SAFE_MAVEN} and directly
+     * on a later one.
+     *
+     * @param session the Maven session
+     * @param call    the resolver call
+     * @param <T>     what the call returns
+     * @return what the call returned
+     */
+    static <T> T serialized(Session session, Supplier<T> call) {
         if (resolverIsThreadSafe(session)) {
-            return resolve(session, project);
+            return call.get();
         }
         RESOLVER_LOCK.lock();
         try {
-            return resolve(session, project);
+            return call.get();
         } finally {
             RESOLVER_LOCK.unlock();
         }
