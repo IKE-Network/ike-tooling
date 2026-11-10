@@ -379,9 +379,8 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 () -> getLog().info("Classification skipped by request"));
         result.effectiveViewReport().ifPresent(report ->
                 getLog().info("Effective view reported: " + report));
-        if (descriptor) {
-            describe(result, resolvedInputs);
-        }
+        List<KnowledgeBaseDescriptor.Input> assembledFrom = descriptor ? describe(result, resolvedInputs)
+                : descriptorInputs(resolvedInputs, descriptorGroupId, descriptorArtifactId, project.getVersion());
         if (installDirectory != null && !installDirectory.isBlank()) {
             getLog().info("Knowledge base installed: " + installDirectory);
         }
@@ -405,6 +404,14 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 throw new MojoException("Reasoned-protobuf export produced no file at " + produced);
             }
             getLog().info("Reasoned knowledge set exported: " + produced.getFileName());
+            try {
+                // A store loaded from the export names these as its own inputs (descriptorInputs).
+                Path record = KnowledgeBaseDescriptor.writeInputs(produced, assembledFrom);
+                getLog().info("Recorded what it was assembled from: " + record.getFileName()
+                        + " (" + assembledFrom.size() + " input(s))");
+            } catch (IOException e) {
+                throw new MojoException("Cannot record the inputs of " + produced, e);
+            }
             if (attachReasonedPb) {
                 ProducedArtifact artifact = session.createProducedArtifact(
                         project.getGroupId(), project.getArtifactId(), project.getVersion(),
@@ -416,13 +423,6 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         }
     }
 
-    /**
-     * Writes the Maven descriptor, the manifest, and the knowledge-base descriptor with its icon
-     * into the store root and the install directory, and attaches the descriptor and the icon so
-     * they deploy beside the store zips. The coordinate is the reactor project
-     * {@link #descriptorArtifactId} names; when that project is not in this build ({@code -pl}
-     * alone), this project's version stands in and no POM is copied.
-     */
     /**
      * The heap the assembly measured of itself, for the build log: the seam passes on only the
      * provider's warnings, so the measurement is reported here, from the manifest attributes it left.
@@ -448,7 +448,18 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
         return Optional.of(report.toString());
     }
 
-    private void describe(AssembleResult result, List<ArtifactInput> assembledFrom) {
+    /**
+     * Writes the Maven descriptor, the manifest, and the knowledge-base descriptor with its icon
+     * into the store root and the install directory, and attaches the descriptor and the icon so
+     * they deploy beside the store zips. The coordinate is the reactor project
+     * {@link #descriptorArtifactId} names; when that project is not in this build ({@code -pl}
+     * alone), this project's version stands in and no POM is copied.
+     *
+     * @param result        what the assembly reported
+     * @param assembledFrom the inputs the assembly took, in order
+     * @return the inputs as the descriptor records them
+     */
+    private List<KnowledgeBaseDescriptor.Input> describe(AssembleResult result, List<ArtifactInput> assembledFrom) {
         Project described = project.getGroupId().equals(descriptorGroupId)
                 && project.getArtifactId().equals(descriptorArtifactId)
                 ? project
@@ -504,6 +515,7 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 + fields.inputs().size() + " input(s))");
         attachOnce(owner, KnowledgeBaseDescriptor.CLASSIFIER, "properties", written);
         attachOnce(owner, KnowledgeBaseDescriptor.ICON_CLASSIFIER, "png", icon);
+        return fields.inputs();
     }
 
     /**
@@ -615,9 +627,12 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
 
     /**
      * The inputs as the knowledge-base descriptor records them: each coordinate as written, with
-     * the version it resolved to when that differs, and each file by name. A file that is an
-     * artifact of the described knowledge base itself, such as the reasoned protobuf a store is
-     * loaded from, is recorded as that artifact's coordinate.
+     * the version it resolved to when that differs, and each file by name. A file an earlier
+     * assembly exported, such as the reasoned protobuf a store is loaded from, is recorded as
+     * what that assembly took ({@link KnowledgeBaseDescriptor#recordedInputs}), so every store of
+     * a knowledge base names the same knowledge bases and sources. Without that record, a file
+     * that is an artifact of the described knowledge base itself is recorded as that artifact's
+     * coordinate.
      *
      * @param inputs     the inputs, in the order the assembly took them
      * @param groupId    the described knowledge base's groupId
@@ -636,6 +651,16 @@ public class KbAssembleMojo implements org.apache.maven.api.plugin.Mojo {
                 reference = input.coordinate().get();
                 resolved = input.resolvedVersion().filter(resolvedVersion -> !reference.endsWith(":" + resolvedVersion));
             } else {
+                List<KnowledgeBaseDescriptor.Input> exportedFrom;
+                try {
+                    exportedFrom = KnowledgeBaseDescriptor.recordedInputs(input.path());
+                } catch (IOException e) {
+                    throw new MojoException("Cannot read the inputs recorded beside " + input.path(), e);
+                }
+                if (!exportedFrom.isEmpty()) {
+                    recorded.addAll(exportedFrom);
+                    continue;
+                }
                 String name = input.path().getFileName().toString();
                 reference = name.startsWith(ownPrefix) && name.endsWith(".zip")
                         ? groupId + ":" + artifactId + ":zip:"

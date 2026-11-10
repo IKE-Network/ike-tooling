@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +67,9 @@ final class KnowledgeBaseDescriptor {
 
     /** The classifier the icon deploys under, extension {@code png}. */
     static final String ICON_CLASSIFIER = "icon";
+
+    /** What follows an export's name in the name of the record of its inputs. */
+    static final String INPUTS_SUFFIX = ".inputs.properties";
 
     /**
      * The memory facts the assembly reports in the store's manifest, by manifest attribute, and the
@@ -329,24 +333,87 @@ final class KnowledgeBaseDescriptor {
         entries.put("icon", ICON);
         fields.collection().ifPresent(collection -> entries.put("collection", collection));
         fields.memory().forEach((entry, bytes) -> entries.put(entry, Long.toString(bytes)));
-        for (int i = 0; i < fields.inputs().size(); i++) {
-            Input input = fields.inputs().get(i);
+        entries.putAll(inputEntries(fields.inputs()));
+        Path file = store.resolve(FILE);
+        Files.writeString(file, text(entries, "Knowledge-base descriptor, level " + LEVEL), StandardCharsets.ISO_8859_1);
+        return file;
+    }
+
+    /** The inputs as {@code input.<n>} entries, in order. */
+    private static Map<String, String> inputEntries(List<Input> inputs) {
+        Map<String, String> entries = new LinkedHashMap<>();
+        for (int i = 0; i < inputs.size(); i++) {
+            Input input = inputs.get(i);
             String key = "input." + (i + 1);
             entries.put(key, input.role() + " " + input.reference());
             input.resolvedVersion().ifPresent(version -> entries.put(key + ".resolvedVersion", version));
             input.importer().ifPresent(importer -> entries.put(key + ".importer", importer));
         }
-        Path file = store.resolve(FILE);
-        Files.writeString(file, text(entries), StandardCharsets.ISO_8859_1);
-        return file;
+        return entries;
+    }
+
+    /**
+     * The file beside an export that records what the export was assembled from:
+     * {@code <export's name>}{@value #INPUTS_SUFFIX}.
+     *
+     * @param export the export, such as a reasoned protobuf
+     * @return the record's path, whether or not it exists
+     */
+    static Path inputsRecord(Path export) {
+        return export.resolveSibling(export.getFileName() + INPUTS_SUFFIX);
+    }
+
+    /**
+     * Records beside an export what it was assembled from, as the descriptor's {@code input.<n>}
+     * entries. A later assembly that loads the export reads the record, so the store it writes
+     * names the knowledge bases and sources it includes, not the export between them.
+     *
+     * @param export the export
+     * @param inputs what it was assembled from, in order
+     * @return the record written
+     * @throws IOException if the record cannot be written
+     */
+    static Path writeInputs(Path export, List<Input> inputs) throws IOException {
+        Path record = inputsRecord(export);
+        Files.writeString(record, text(inputEntries(inputs), "What " + export.getFileName() + " was assembled from"),
+                StandardCharsets.ISO_8859_1);
+        return record;
+    }
+
+    /**
+     * What a file was assembled from, when an assembly recorded it beside the file.
+     *
+     * @param export the file
+     * @return the inputs in order, or empty when no record is beside it
+     * @throws IOException if the record exists but cannot be read
+     */
+    static List<Input> recordedInputs(Path export) throws IOException {
+        Path record = inputsRecord(export);
+        if (!Files.isRegularFile(record)) {
+            return List.of();
+        }
+        Properties properties = new Properties();
+        try (InputStream in = Files.newInputStream(record)) {
+            properties.load(in);
+        }
+        List<Input> inputs = new ArrayList<>();
+        for (int n = 1; properties.getProperty("input." + n) != null; n++) {
+            String[] entry = properties.getProperty("input." + n).strip().split("\\s+", 2);
+            if (entry.length == 2) {
+                inputs.add(new Input(entry[0], entry[1],
+                        Optional.ofNullable(properties.getProperty("input." + n + ".resolvedVersion")).map(String::strip),
+                        Optional.ofNullable(properties.getProperty("input." + n + ".importer")).map(String::strip)));
+            }
+        }
+        return inputs;
     }
 
     /**
      * The entries in order, escaped as {@link Properties#store(java.io.OutputStream, String)}
      * escapes them, without its timestamp, so a rebuild writes the same bytes.
      */
-    private static String text(Map<String, String> entries) throws IOException {
-        StringBuilder text = new StringBuilder("#Knowledge-base descriptor, level " + LEVEL + "\n");
+    private static String text(Map<String, String> entries, String comment) throws IOException {
+        StringBuilder text = new StringBuilder("#" + comment + "\n");
         for (Map.Entry<String, String> entry : entries.entrySet()) {
             Properties one = new Properties();
             one.setProperty(entry.getKey(), entry.getValue());

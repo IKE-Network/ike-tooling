@@ -3,7 +3,10 @@ package network.ike.plugin;
 import network.ike.knowledge.spi.ArtifactInput;
 import org.apache.maven.api.plugin.MojoException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +60,34 @@ class KbAssembleMojoTest {
                         Optional.empty(), Optional.empty()),
                 new KnowledgeBaseDescriptor.Input("CHANGESET", "file:2026-10-25T10-00.pb.zip", Optional.empty(),
                         Optional.empty()));
+    }
+
+    @Test
+    void aStoreLoadedFromAnExportNamesWhatTheExportWasAssembledFrom(@TempDir Path target) throws IOException {
+        List<KnowledgeBaseDescriptor.Input> assembled = List.of(
+                new KnowledgeBaseDescriptor.Input("PB", "network.ike.foundation:ike-starter-set:zip:unreasoned-pb:1-SNAPSHOT",
+                        Optional.of("1-20261030.225520-1"), Optional.empty()),
+                new KnowledgeBaseDescriptor.Input("PB", "network.ike.data:gudid-kb:zip:unreasoned-pb:20261001.2-SNAPSHOT",
+                        Optional.empty(), Optional.empty()),
+                new KnowledgeBaseDescriptor.Input("SOURCE", "org.snomed:rf2:zip:20260601", Optional.empty(),
+                        Optional.of("snomed-rf2")),
+                new KnowledgeBaseDescriptor.Input("CHANGESET", "file:solor-kb-extension-1-SNAPSHOT-changeset.zip",
+                        Optional.empty(), Optional.empty()));
+        // The assembly module's name differs from the knowledge base's, as solor-kb-assembly's does.
+        Path export = Files.createFile(target.resolve("solor-kb-assembly-1-SNAPSHOT-reasoned-pb.zip"));
+        Path record = KnowledgeBaseDescriptor.writeInputs(export, assembled);
+
+        assertThat(record).hasFileName("solor-kb-assembly-1-SNAPSHOT-reasoned-pb.zip.inputs.properties");
+        assertThat(KbAssembleMojo.descriptorInputs(List.of(new ArtifactInput(ArtifactInput.Role.PB, export)),
+                "network.ike.data", "solor-kb", "1-SNAPSHOT"))
+                .as("the Rocks store, loaded from the export alone").containsExactlyElementsOf(assembled);
+
+        Path unrecorded = Files.createFile(target.resolve("solor-kb-1-SNAPSHOT-reasoned-pb.zip"));
+        assertThat(KbAssembleMojo.descriptorInputs(List.of(new ArtifactInput(ArtifactInput.Role.PB, unrecorded)),
+                "network.ike.data", "solor-kb", "1-SNAPSHOT"))
+                .as("an export with no record beside it is the knowledge base's own artifact")
+                .containsExactly(new KnowledgeBaseDescriptor.Input("PB",
+                        "network.ike.data:solor-kb:zip:reasoned-pb:1-SNAPSHOT", Optional.empty(), Optional.empty()));
     }
 
     @Test
