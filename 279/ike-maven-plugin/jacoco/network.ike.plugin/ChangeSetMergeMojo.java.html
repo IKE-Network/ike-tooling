@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ChangeSetMergeMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ChangeSetMergeMojo.java</span></div><h1>ChangeSetMergeMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import network.ike.knowledge.spi.ChangeSetMerger;
+import network.ike.knowledge.spi.ChangeSetReport;
+import network.ike.knowledge.spi.ChangeSetRequest;
+import network.ike.knowledge.spi.IkeServiceBootstrap;
+import org.apache.maven.api.ProducedArtifact;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.ProjectManager;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Properties;
+
+/**
+ * {@code ike:changeset-merge} — merge a directory of change sets into one: each verified
+ * against its format, all loaded together so an entity in several keeps every version, and
+ * written as a single change set in the current format, attached under the {@code changeset}
+ * classifier. A knowledge base's extension, authored over many browser sessions with one
+ * change set each, becomes one artifact a knowledge-base build replays and a consumer depends
+ * on. The work is done by the {@link ChangeSetMerger} on the project's runtime classpath, in
+ * a forked JVM by default.
+ */
+@Mojo(name = IkeGoal.NAME_CHANGESET_MERGE, defaultPhase = &quot;package&quot;)
+public class ChangeSetMergeMojo implements org.apache.maven.api.plugin.Mojo {
+
+    /** Instantiated by Maven. */
+<span class="fc" id="L49">    public ChangeSetMergeMojo() {</span>
+<span class="fc" id="L50">    }</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    @Inject
+    private Session session;
+
+    @Inject
+    private Project project;
+
+    /** The directory of change sets to merge (every {@code .zip} in it), or one change set. */
+    @Parameter(property = &quot;ike.changeset.directory&quot;, required = true)
+    String directory;
+
+    /** The merged change set to write. */
+    @Parameter(property = &quot;ike.changeset.target&quot;,
+            defaultValue = &quot;${project.build.directory}/${project.artifactId}-${project.version}-changeset.zip&quot;)
+    String target;
+
+    /**
+     * The modules, by UUID, whose versions the merge keeps; empty keeps every version. A
+     * knowledge base's extension names its own module, so a session that also carries what a
+     * browser wrote on its own merges into the extension's content alone.
+     */
+<span class="fc" id="L75">    @Parameter</span>
+<span class="fc" id="L76">    List&lt;String&gt; changeSetModules = List.of();</span>
+
+    /** Attach the merged change set to the project under the {@code changeset} classifier. */
+    @Parameter(property = &quot;ike.changeset.attach&quot;, defaultValue = &quot;true&quot;)
+    boolean attach;
+
+    /** The implementation's simple class name, when several are on the classpath. */
+    @Parameter(property = &quot;ike.changeset.implementation&quot;)
+    String implementation;
+
+    @Parameter(property = &quot;ike.changeset.fork&quot;, defaultValue = &quot;true&quot;)
+    boolean fork;
+
+<span class="fc" id="L89">    @Parameter</span>
+<span class="fc" id="L90">    List&lt;String&gt; forkJvmArguments = List.of();</span>
+
+    @Parameter(property = &quot;ike.changeset.classesDirectory&quot;, defaultValue = &quot;${project.build.outputDirectory}&quot;)
+    String classesDirectory;
+
+    @Parameter(property = &quot;ike.changeset.buildDirectory&quot;, defaultValue = &quot;${project.build.directory}&quot;)
+    String buildDirectory;
+
+    @Parameter(property = &quot;ike.changeset.skip&quot;, defaultValue = &quot;false&quot;)
+    boolean skip;
+
+    @Override
+    public void execute() {
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L104">            log.info(&quot;ike:changeset-merge skipped (ike.changeset.skip=true)&quot;);</span>
+<span class="nc" id="L105">            return;</span>
+        }
+<span class="nc" id="L107">        Path source = Path.of(directory);</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (!Files.exists(source)) {</span>
+<span class="nc" id="L109">            throw new MojoException(&quot;No change sets to merge at &quot; + source);</span>
+        }
+<span class="nc" id="L111">        Path merged = Path.of(target);</span>
+<span class="nc" id="L112">        Properties wire = new ChangeSetRequest(source, java.util.Optional.of(merged),</span>
+<span class="nc" id="L113">                changeSetModules.stream().map(String::strip).collect(java.util.stream.Collectors.toSet())).toProperties();</span>
+<span class="nc bnc" id="L114" title="All 4 branches missed.">        if (implementation != null &amp;&amp; !implementation.isBlank()) {</span>
+<span class="nc" id="L115">            wire.setProperty(IkeServiceBootstrap.IMPLEMENTATION_KEY, implementation);</span>
+        }
+<span class="nc" id="L117">        Properties resultWire = new KnowledgeServiceRunner(log).run(ChangeSetMerger.class.getName(), wire,</span>
+<span class="nc" id="L118">                ChangeSetToolSupport.seamClasspath(session, project, classesDirectory),</span>
+<span class="nc" id="L119">                Path.of(buildDirectory, &quot;ike-knowledge&quot;), fork, forkJvmArguments);</span>
+<span class="nc" id="L120">        ChangeSetReport report = ChangeSetReport.fromProperties(resultWire);</span>
+<span class="nc" id="L121">        report.lines().forEach(line -&gt; {</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">            if (line.strip().startsWith(&quot;error&quot;)) {</span>
+<span class="nc" id="L123">                log.error(line);</span>
+            } else {
+<span class="nc" id="L125">                log.info(line);</span>
+            }
+<span class="nc" id="L127">        });</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        if (!report.ok()) {</span>
+<span class="nc" id="L129">            throw new MojoException(report.summary());</span>
+        }
+<span class="nc" id="L131">        log.info(report.summary());</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        if (attach) {</span>
+<span class="nc" id="L133">            ProducedArtifact artifact = session.createProducedArtifact(project.getGroupId(), project.getArtifactId(),</span>
+<span class="nc" id="L134">                    project.getVersion(), &quot;changeset&quot;, &quot;zip&quot;, &quot;zip&quot;);</span>
+<span class="nc" id="L135">            session.getService(ProjectManager.class).attachArtifact(project, artifact, merged);</span>
+<span class="nc" id="L136">            log.info(&quot;Attached merged change set &quot; + merged.getFileName() + &quot; (classifier: changeset)&quot;);</span>
+        }
+<span class="nc" id="L138">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

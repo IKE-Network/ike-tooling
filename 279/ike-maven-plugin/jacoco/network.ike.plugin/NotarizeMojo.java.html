@@ -1,0 +1,616 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>NotarizeMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">NotarizeMojo.java</span></div><h1>NotarizeMojo.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+/**
+ * Sign and notarize macOS installer packages ({@code .pkg}, {@code .dmg}) and application
+ * bundles ({@code .app}).
+ *
+ * &lt;p&gt;An {@code .app} is what a program that installs and updates itself ships (the IKE
+ * Dashboard): notarytool takes it zipped, so the goal zips it with {@code ditto}, submits the
+ * zip, staples the ticket to the {@code .app} itself, and assesses it for execution. The zip is
+ * removed; whoever distributes the stapled {@code .app} zips it again.
+ *
+ * &lt;p&gt;This goal automates the Apple notarization workflow for installer
+ * artifacts produced by JReleaser's jpackage assembler:
+ * &lt;ol&gt;
+ *   &lt;li&gt;Locate {@code .pkg} / {@code .dmg} files in the jpackage output directory&lt;/li&gt;
+ *   &lt;li&gt;Submit each artifact to Apple's notary service via {@code xcrun notarytool}&lt;/li&gt;
+ *   &lt;li&gt;Staple the notarization ticket to the artifact via {@code xcrun stapler}&lt;/li&gt;
+ *   &lt;li&gt;Verify the result with {@code spctl --assess}&lt;/li&gt;
+ * &lt;/ol&gt;
+ *
+ * &lt;p&gt;On non-macOS platforms, the goal skips silently — no profile
+ * activation or conditional configuration required.
+ *
+ * &lt;p&gt;&lt;b&gt;Prerequisites:&lt;/b&gt;
+ * &lt;ul&gt;
+ *   &lt;li&gt;A &quot;Developer ID Installer&quot; certificate in the login keychain&lt;/li&gt;
+ *   &lt;li&gt;A notarytool keychain profile configured via:
+ *       &lt;pre&gt;xcrun notarytool store-credentials &quot;notarytool&quot; \
+ *     --apple-id &quot;your@email.com&quot; \
+ *     --team-id &quot;YOURTEAMID&quot; \
+ *     --password &quot;app-specific-password&quot;&lt;/pre&gt;&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;&lt;b&gt;Usage:&lt;/b&gt;
+ * &lt;pre&gt;
+ * mvn ike:notarize
+ * &lt;/pre&gt;
+ *
+ * &lt;p&gt;Or bound to the {@code verify} phase in a POM:
+ * &lt;pre&gt;{@code
+ * &lt;plugin&gt;
+ *     &lt;groupId&gt;network.ike.tooling&lt;/groupId&gt;
+ *     &lt;artifactId&gt;ike-maven-plugin&lt;/artifactId&gt;
+ *     &lt;executions&gt;
+ *         &lt;execution&gt;
+ *             &lt;id&gt;notarize-installer&lt;/id&gt;
+ *             &lt;goals&gt;&lt;goal&gt;notarize&lt;/goal&gt;&lt;/goals&gt;
+ *         &lt;/execution&gt;
+ *     &lt;/executions&gt;
+ * &lt;/plugin&gt;
+ * }&lt;/pre&gt;
+ *
+ * @see &lt;a href=&quot;https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution&quot;&gt;
+ *      Apple: Notarizing macOS Software Before Distribution&lt;/a&gt;
+ */
+@Mojo(name = IkeGoal.NAME_NOTARIZE,
+      defaultPhase = &quot;verify&quot;,
+      projectRequired = true)
+public class NotarizeMojo implements org.apache.maven.api.plugin.Mojo {
+
+    @org.apache.maven.api.di.Inject
+    private org.apache.maven.api.plugin.Log log;
+    /**
+     * Access the Maven logger.
+     *
+     * @return the logger
+     */
+<span class="nc" id="L85">    protected org.apache.maven.api.plugin.Log getLog() { return log; }</span>
+
+    /** Creates this goal instance. */
+<span class="fc" id="L88">    public NotarizeMojo() {}</span>
+
+    /**
+     * Directory containing jpackage output artifacts.
+     * Defaults to the JReleaser jpackage output location.
+     */
+    @Parameter(property = &quot;notarize.artifactDir&quot;,
+               defaultValue = &quot;${project.build.directory}/jreleaser/assemble/komet/jpackage&quot;)
+    private File artifactDir;
+
+    /**
+     * Keychain profile name for {@code xcrun notarytool}.
+     * Created via {@code xcrun notarytool store-credentials}.
+     */
+    @Parameter(property = &quot;notarize.keychainProfile&quot;,
+               defaultValue = &quot;notarytool&quot;)
+    private String keychainProfile;
+
+    /**
+     * Skip notarization entirely.
+     */
+    @Parameter(property = &quot;notarize.skip&quot;, defaultValue = &quot;false&quot;)
+    private boolean skip;
+
+    /**
+     * Timeout in minutes for notarization submission.
+     * Apple typically processes in 5–15 minutes but can take longer.
+     */
+    @Parameter(property = &quot;notarize.timeoutMinutes&quot;, defaultValue = &quot;30&quot;)
+    private int timeoutMinutes;
+
+    /**
+     * Maximum number of submit attempts before failing on transient
+     * network errors. A value of 1 disables retry entirely; the previous
+     * behavior. Genuine notarization rejections (Apple returns
+     * {@code status: Invalid}) never trigger a retry — they fail immediately.
+     */
+    @Parameter(property = &quot;notarize.maxAttempts&quot;, defaultValue = &quot;3&quot;)
+    private int maxAttempts;
+
+    /**
+     * Comma-separated list of seconds to wait before each retry attempt.
+     * The first value is the wait before attempt 2, the second before
+     * attempt 3, and so on. If shorter than {@code maxAttempts - 1} the
+     * last entry is reused.
+     */
+    @Parameter(property = &quot;notarize.retryBackoffSeconds&quot;, defaultValue = &quot;30,120&quot;)
+    private String retryBackoffSeconds;
+
+    @Override
+    public void execute() throws MojoException {
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (skip) {</span>
+<span class="nc" id="L140">            getLog().info(&quot;Notarization skipped (notarize.skip=true)&quot;);</span>
+<span class="nc" id="L141">            return;</span>
+        }
+
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (!isMacOS()) {</span>
+<span class="nc" id="L145">            getLog().info(&quot;Notarization skipped — not running on macOS&quot;);</span>
+<span class="nc" id="L146">            return;</span>
+        }
+
+<span class="nc" id="L149">        List&lt;Path&gt; artifacts = findInstallerArtifacts();</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (artifacts.isEmpty()) {</span>
+<span class="nc" id="L151">            getLog().warn(&quot;No .pkg, .dmg or .app found in &quot; + artifactDir);</span>
+<span class="nc" id="L152">            return;</span>
+        }
+
+<span class="nc" id="L155">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L156">        getLog().info(&quot;Apple Notarization&quot;);</span>
+<span class="nc" id="L157">        getLog().info(&quot;\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550&quot;);</span>
+<span class="nc" id="L158">        getLog().info(&quot;  Artifact directory:  &quot; + artifactDir);</span>
+<span class="nc" id="L159">        getLog().info(&quot;  Keychain profile:    &quot; + keychainProfile);</span>
+<span class="nc" id="L160">        getLog().info(&quot;  Timeout:             &quot; + timeoutMinutes + &quot; minutes&quot;);</span>
+<span class="nc" id="L161">        getLog().info(&quot;  Artifacts found:     &quot; + artifacts.size());</span>
+
+<span class="nc bnc" id="L163" title="All 2 branches missed.">        for (Path artifact : artifacts) {</span>
+<span class="nc" id="L164">            getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L165">            notarize(artifact);</span>
+<span class="nc" id="L166">        }</span>
+
+<span class="nc" id="L168">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L169">        getLog().info(&quot;Notarization complete — &quot; + artifacts.size() + &quot; artifact(s) processed&quot;);</span>
+<span class="nc" id="L170">        getLog().info(&quot;&quot;);</span>
+<span class="nc" id="L171">    }</span>
+
+    /**
+     * Submit, staple, and verify a single installer artifact.
+     *
+     * @param artifact path to the .pkg or .dmg file, or the .app bundle
+     * @throws MojoException if any step fails
+     */
+    private void notarize(Path artifact) throws MojoException {
+<span class="nc" id="L180">        String fileName = artifact.getFileName().toString();</span>
+<span class="nc" id="L181">        File workDir = artifact.getParent().toFile();</span>
+<span class="nc" id="L182">        boolean bundle = isAppBundle(artifact);</span>
+
+        // notarytool takes an application bundle zipped; ditto keeps its symbolic links and
+        // extended attributes, which a zip made any other way can break the signature of.
+<span class="nc" id="L186">        Path submitted = artifact;</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">        if (bundle) {</span>
+<span class="nc" id="L188">            submitted = artifact.resolveSibling(fileName + &quot;.notarize.zip&quot;);</span>
+<span class="nc" id="L189">            ReleaseSupport.exec(workDir, getLog(),</span>
+<span class="nc" id="L190">                    &quot;ditto&quot;, &quot;-c&quot;, &quot;-k&quot;, &quot;--keepParent&quot;, artifact.toString(), submitted.toString());</span>
+        }
+        SubmitResult submission;
+        try {
+<span class="nc" id="L194">            submission = submitWithRetry(workDir, submitted, fileName);</span>
+        } finally {
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            if (bundle) {</span>
+                try {
+<span class="nc" id="L198">                    Files.deleteIfExists(submitted);</span>
+<span class="nc" id="L199">                } catch (IOException e) {</span>
+<span class="nc" id="L200">                    getLog().warn(&quot;Could not remove &quot; + submitted + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L201">                }</span>
+            }
+        }
+
+<span class="nc bnc" id="L205" title="All 4 branches missed.">        if (submission.status() == null || !submission.status().equalsIgnoreCase(&quot;Accepted&quot;)) {</span>
+<span class="nc" id="L206">            getLog().error(&quot;Notarization REJECTED for &quot; + fileName</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                    + &quot; — status: &quot; + (submission.status() != null ? submission.status() : &quot;unknown&quot;));</span>
+
+<span class="nc bnc" id="L209" title="All 2 branches missed.">            if (submission.submissionId() != null) {</span>
+<span class="nc" id="L210">                getLog().error(&quot;Fetching rejection details (id: &quot; + submission.submissionId() + &quot;)...&quot;);</span>
+                try {
+<span class="nc" id="L212">                    ReleaseSupport.exec(workDir, getLog(),</span>
+                            &quot;xcrun&quot;, &quot;notarytool&quot;, &quot;log&quot;,
+<span class="nc" id="L214">                            submission.submissionId(),</span>
+                            &quot;--keychain-profile&quot;, keychainProfile);
+<span class="nc" id="L216">                } catch (Exception e) {</span>
+<span class="nc" id="L217">                    getLog().warn(&quot;Could not fetch notarization log: &quot; + e.getMessage());</span>
+<span class="nc" id="L218">                }</span>
+            }
+
+<span class="nc" id="L221">            throw new MojoException(</span>
+                    &quot;Notarization failed for &quot; + fileName
+<span class="nc bnc" id="L223" title="All 2 branches missed.">                            + &quot; — status: &quot; + (submission.status() != null ? submission.status() : &quot;unknown&quot;)</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">                            + (submission.submissionId() != null ? &quot; (id: &quot; + submission.submissionId() + &quot;)&quot; : &quot;&quot;));</span>
+        }
+
+<span class="nc" id="L227">        getLog().info(&quot;Notarization accepted — stapling ticket&quot;);</span>
+
+<span class="nc" id="L229">        getLog().info(&quot;Stapling ticket: &quot; + fileName);</span>
+<span class="nc" id="L230">        ReleaseSupport.exec(workDir, getLog(),</span>
+                &quot;xcrun&quot;, &quot;stapler&quot;, &quot;staple&quot;,
+<span class="nc" id="L232">                artifact.toString());</span>
+
+<span class="nc" id="L234">        getLog().info(&quot;Verifying: &quot; + fileName);</span>
+<span class="nc" id="L235">        String assessType = assessType(artifact);</span>
+<span class="nc" id="L236">        ReleaseSupport.exec(workDir, getLog(),</span>
+                &quot;spctl&quot;, &quot;--assess&quot;,
+                &quot;--type&quot;, assessType,
+                &quot;--verbose=4&quot;,
+<span class="nc" id="L240">                artifact.toString());</span>
+
+<span class="nc" id="L242">        getLog().info(&quot;Notarized and verified: &quot; + fileName);</span>
+<span class="nc" id="L243">    }</span>
+
+    /**
+     * Submit the artifact (or resume an in-flight submission) with bounded
+     * retry on transient network errors. Genuine notarization rejections
+     * (exit 0 with non-Accepted status) return on the first attempt and are
+     * dispatched by the caller.
+     *
+     * &lt;p&gt;Three failure modes are distinguished:
+     * &lt;ul&gt;
+     *   &lt;li&gt;Non-zero exit, no submission id captured, output matches
+     *       {@link #TRANSIENT_NETWORK} — fresh {@code submit} retry.&lt;/li&gt;
+     *   &lt;li&gt;Non-zero exit, submission id &lt;em&gt;was&lt;/em&gt; captured before the
+     *       failure — switch to {@code notarytool info &lt;id&gt; --wait} so we
+     *       don't waste an upload slot resubmitting.&lt;/li&gt;
+     *   &lt;li&gt;Non-zero exit, no transient match — fail immediately.&lt;/li&gt;
+     * &lt;/ul&gt;
+     *
+     * @param workDir   working directory for the subprocess
+     * @param artifact  path to the .pkg or .dmg
+     * @param fileName  bare file name (for log messages)
+     * @return the resolved submission result
+     * @throws MojoException if all attempts fail
+     */
+    private SubmitResult submitWithRetry(File workDir, Path artifact, String fileName)
+            throws MojoException {
+<span class="nc" id="L269">        List&lt;Integer&gt; backoff = parseBackoffSchedule(retryBackoffSeconds);</span>
+<span class="nc" id="L270">        int attempts = Math.max(1, maxAttempts);</span>
+<span class="nc" id="L271">        String knownSubmissionId = null;</span>
+<span class="nc" id="L272">        ExecOutcome lastOutcome = null;</span>
+
+<span class="nc bnc" id="L274" title="All 2 branches missed.">        for (int attempt = 1; attempt &lt;= attempts; attempt++) {</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">            if (attempt &gt; 1) {</span>
+<span class="nc" id="L276">                int waitSeconds = backoffWait(backoff, attempt);</span>
+<span class="nc" id="L277">                getLog().warn(&quot;Notarize attempt &quot; + attempt + &quot;/&quot; + attempts</span>
+                        + &quot; in &quot; + waitSeconds + &quot;s &quot;
+<span class="nc" id="L279">                        + &quot;(previous attempt: &quot; + summarizeOutcome(lastOutcome) + &quot;)&quot;);</span>
+<span class="nc" id="L280">                sleepSeconds(waitSeconds);</span>
+            }
+
+            String[] command;
+<span class="nc bnc" id="L284" title="All 2 branches missed.">            if (knownSubmissionId != null) {</span>
+<span class="nc" id="L285">                getLog().info(&quot;Resuming wait on submission &quot; + knownSubmissionId</span>
+                        + &quot; (attempt &quot; + attempt + &quot;/&quot; + attempts + &quot;)&quot;);
+<span class="nc" id="L287">                command = new String[] {</span>
+                        &quot;xcrun&quot;, &quot;notarytool&quot;, &quot;info&quot;,
+                        knownSubmissionId,
+                        &quot;--keychain-profile&quot;, keychainProfile,
+                        &quot;--wait&quot;
+                };
+            } else {
+<span class="nc" id="L294">                getLog().info(&quot;Submitting for notarization: &quot; + fileName</span>
+                        + &quot; (attempt &quot; + attempt + &quot;/&quot; + attempts + &quot;)&quot;);
+<span class="nc" id="L296">                command = new String[] {</span>
+                        &quot;xcrun&quot;, &quot;notarytool&quot;, &quot;submit&quot;,
+<span class="nc" id="L298">                        artifact.toString(),</span>
+                        &quot;--keychain-profile&quot;, keychainProfile,
+                        &quot;--timeout&quot;, timeoutMinutes + &quot;m&quot;,
+                        &quot;--wait&quot;
+                };
+            }
+
+<span class="nc" id="L305">            lastOutcome = runCapturing(workDir, getLog(), command);</span>
+
+<span class="nc" id="L307">            String idFromThisAttempt = extractSubmissionId(lastOutcome.output());</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">            if (idFromThisAttempt != null) {</span>
+<span class="nc" id="L309">                knownSubmissionId = idFromThisAttempt;</span>
+            }
+
+<span class="nc bnc" id="L312" title="All 2 branches missed.">            if (lastOutcome.exitCode() == 0) {</span>
+<span class="nc" id="L313">                return new SubmitResult(extractStatus(lastOutcome.output()),</span>
+                        knownSubmissionId,
+<span class="nc" id="L315">                        lastOutcome.output());</span>
+            }
+
+<span class="nc bnc" id="L318" title="All 2 branches missed.">            if (!isTransientNetworkError(lastOutcome.output())) {</span>
+<span class="nc" id="L319">                throw new MojoException(</span>
+<span class="nc" id="L320">                        &quot;Notarization command failed (exit &quot; + lastOutcome.exitCode()</span>
+<span class="nc" id="L321">                                + &quot;, non-transient): &quot; + String.join(&quot; &quot;, command)</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">                                + (lastOutcome.output().isEmpty()</span>
+<span class="nc" id="L323">                                        ? &quot;&quot;</span>
+<span class="nc" id="L324">                                        : &quot;\nOutput:\n&quot; + lastOutcome.output().trim()));</span>
+            }
+
+<span class="nc" id="L327">            getLog().warn(&quot;Transient network error on attempt &quot; + attempt + &quot;/&quot;</span>
+                    + attempts + &quot; — &quot;
+<span class="nc bnc" id="L329" title="All 2 branches missed.">                    + (knownSubmissionId != null</span>
+<span class="nc" id="L330">                            ? &quot;will resume wait on submission &quot; + knownSubmissionId</span>
+<span class="nc" id="L331">                            : &quot;will resubmit&quot;));</span>
+        }
+
+<span class="nc" id="L334">        throw new MojoException(</span>
+                &quot;Notarization exhausted &quot; + attempts + &quot; attempt(s) for &quot; + fileName
+<span class="nc" id="L336">                        + &quot; — last error: &quot; + summarizeOutcome(lastOutcome)</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">                        + (knownSubmissionId != null</span>
+<span class="nc" id="L338">                                ? &quot; (submission id: &quot; + knownSubmissionId + &quot;)&quot;</span>
+<span class="nc" id="L339">                                : &quot;&quot;));</span>
+    }
+
+    /**
+     * Resolved outcome of a notarization {@code submit} or {@code info} call.
+     *
+     * @param status         terminal status as reported by Apple ({@code Accepted},
+     *                       {@code Invalid}, {@code Rejected}), or {@code null} if
+     *                       not parseable
+     * @param submissionId   Apple-assigned submission id, or {@code null} if no id
+     *                       was ever captured (e.g. transport error before upload)
+     * @param fullOutput     captured stdout+stderr from the final attempt
+     */
+<span class="nc" id="L352">    private record SubmitResult(String status, String submissionId, String fullOutput) {}</span>
+
+    /**
+     * Captured result of a single subprocess invocation.
+     *
+     * @param exitCode process exit code; {@code -1} for runner-side I/O failure
+     * @param output   captured stdout+stderr (combined)
+     */
+<span class="nc" id="L360">    private record ExecOutcome(int exitCode, String output) {}</span>
+
+    /**
+     * Transport-layer error patterns from {@code xcrun notarytool}. Matching
+     * any of these on a non-zero exit triggers a retry; every other non-zero
+     * exit is treated as a hard failure.
+     *
+     * &lt;p&gt;Intentionally narrow — only well-known network conditions, never
+     * keychain or signing errors.
+     */
+<span class="fc" id="L370">    private static final Pattern TRANSIENT_NETWORK = Pattern.compile(</span>
+            &quot;NSURLErrorDomain Code=-1001&quot;
+            + &quot;|kCFErrorDomainCFNetwork&quot;
+            + &quot;|Could not connect to the notary service&quot;
+            + &quot;|connection was lost&quot;
+            + &quot;|The Internet connection appears to be offline&quot;
+            + &quot;|HTTPError\\(statusCode: nil&quot;,
+            Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Test whether captured output contains a recognized transient network
+     * error pattern.
+     *
+     * @param output captured xcrun output
+     * @return {@code true} if the output matches a known transient pattern
+     */
+    static boolean isTransientNetworkError(String output) {
+<span class="fc bfc" id="L387" title="All 4 branches covered.">        return output != null &amp;&amp; TRANSIENT_NETWORK.matcher(output).find();</span>
+    }
+
+    /**
+     * Extract the Apple-assigned submission id from xcrun output.
+     *
+     * &lt;p&gt;Looks for lines beginning with {@code id:} after trimming. Returns
+     * the first match — xcrun prints the same id repeatedly during
+     * {@code --wait}, but they are all the same value. Skips lines starting
+     * with {@code Current } so {@code Current status: ...} progress noise
+     * is ignored.
+     *
+     * @param output captured xcrun output (may be {@code null})
+     * @return the submission id, or {@code null} if none found
+     */
+    static String extractSubmissionId(String output) {
+<span class="fc bfc" id="L403" title="All 2 branches covered.">        if (output == null) return null;</span>
+<span class="fc bfc" id="L404" title="All 2 branches covered.">        for (String line : output.lines().toList()) {</span>
+<span class="fc" id="L405">            String trimmed = line.trim();</span>
+<span class="fc bfc" id="L406" title="All 2 branches covered.">            if (trimmed.startsWith(&quot;id:&quot;)) {</span>
+<span class="fc" id="L407">                String candidate = trimmed.substring(3).trim();</span>
+<span class="pc bpc" id="L408" title="1 of 2 branches missed.">                if (!candidate.isEmpty()) {</span>
+<span class="fc" id="L409">                    return candidate;</span>
+                }
+            }
+<span class="fc" id="L412">        }</span>
+<span class="fc" id="L413">        return null;</span>
+    }
+
+    /**
+     * Extract the terminal notarization status (e.g. {@code Accepted},
+     * {@code Invalid}) from xcrun output. Returns the &lt;em&gt;last&lt;/em&gt;
+     * matching value so {@code Current status: In Progress} progress
+     * lines are ignored in favor of the final {@code status: ...} block.
+     *
+     * @param output captured xcrun output (may be {@code null})
+     * @return the terminal status, or {@code null} if not found
+     */
+    static String extractStatus(String output) {
+<span class="pc bpc" id="L426" title="1 of 2 branches missed.">        if (output == null) return null;</span>
+<span class="fc" id="L427">        String last = null;</span>
+<span class="fc bfc" id="L428" title="All 2 branches covered.">        for (String line : output.lines().toList()) {</span>
+<span class="fc" id="L429">            String trimmed = line.trim();</span>
+<span class="fc bfc" id="L430" title="All 2 branches covered.">            if (trimmed.startsWith(&quot;status:&quot;)) {</span>
+<span class="fc" id="L431">                last = trimmed.substring(&quot;status:&quot;.length()).trim();</span>
+            }
+<span class="fc" id="L433">        }</span>
+<span class="fc" id="L434">        return last;</span>
+    }
+
+    /**
+     * Parse a comma-separated list of positive integers (e.g. {@code &quot;30,120&quot;}).
+     * Whitespace, blanks, non-numeric tokens, and non-positive values are skipped.
+     *
+     * @param csv comma-separated list (may be {@code null} or blank)
+     * @return parsed list of positive seconds, possibly empty
+     */
+    static List&lt;Integer&gt; parseBackoffSchedule(String csv) {
+<span class="fc" id="L445">        List&lt;Integer&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L446" title="All 4 branches covered.">        if (csv == null || csv.isBlank()) {</span>
+<span class="fc" id="L447">            return out;</span>
+        }
+<span class="fc bfc" id="L449" title="All 2 branches covered.">        for (String token : csv.split(&quot;,&quot;)) {</span>
+<span class="fc" id="L450">            String t = token.trim();</span>
+<span class="fc bfc" id="L451" title="All 2 branches covered.">            if (t.isEmpty()) continue;</span>
+            try {
+<span class="fc" id="L453">                int v = Integer.parseInt(t);</span>
+<span class="fc bfc" id="L454" title="All 2 branches covered.">                if (v &gt; 0) out.add(v);</span>
+<span class="fc" id="L455">            } catch (NumberFormatException ignored) {</span>
+                // skip non-numeric entries silently
+<span class="fc" id="L457">            }</span>
+        }
+<span class="fc" id="L459">        return out;</span>
+    }
+
+    /**
+     * Pick the wait-seconds for attempt {@code N} (where {@code N &gt;= 2}).
+     * Falls back to the last list entry if {@code schedule} is shorter than
+     * {@code attempt - 1}. Returns 0 for an empty schedule (no wait).
+     *
+     * @param schedule parsed backoff seconds list
+     * @param attempt  1-based attempt number; values &amp;lt; 2 yield 0
+     * @return seconds to wait before this attempt
+     */
+    static int backoffWait(List&lt;Integer&gt; schedule, int attempt) {
+<span class="fc bfc" id="L472" title="All 4 branches covered.">        if (schedule.isEmpty() || attempt &lt; 2) return 0;</span>
+<span class="fc" id="L473">        int idx = Math.min(attempt - 2, schedule.size() - 1);</span>
+<span class="fc" id="L474">        return schedule.get(idx);</span>
+    }
+
+    /**
+     * Sleep for {@code seconds}, propagating interruption as a
+     * {@link MojoException} so an interrupted Maven build aborts cleanly.
+     *
+     * @param seconds duration; values &amp;le; 0 return immediately
+     * @throws MojoException if interrupted while sleeping
+     */
+    private void sleepSeconds(int seconds) throws MojoException {
+<span class="nc bnc" id="L485" title="All 2 branches missed.">        if (seconds &lt;= 0) return;</span>
+        try {
+<span class="nc" id="L487">            Thread.sleep(seconds * 1000L);</span>
+<span class="nc" id="L488">        } catch (InterruptedException ie) {</span>
+<span class="nc" id="L489">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L490">            throw new MojoException(&quot;Interrupted during retry backoff&quot;, ie);</span>
+<span class="nc" id="L491">        }</span>
+<span class="nc" id="L492">    }</span>
+
+    /**
+     * One-line summary of a captured outcome for log messages.
+     *
+     * @param o outcome to summarize (may be {@code null})
+     * @return short human-readable summary
+     */
+    private static String summarizeOutcome(ExecOutcome o) {
+<span class="nc bnc" id="L501" title="All 2 branches missed.">        if (o == null) return &quot;no attempts made&quot;;</span>
+<span class="nc" id="L502">        String firstNonEmpty = o.output().lines()</span>
+<span class="nc" id="L503">                .map(String::trim)</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">                .filter(s -&gt; !s.isEmpty())</span>
+<span class="nc" id="L505">                .findFirst()</span>
+<span class="nc" id="L506">                .orElse(&quot;&quot;);</span>
+<span class="nc" id="L507">        return &quot;exit=&quot; + o.exitCode()</span>
+<span class="nc bnc" id="L508" title="All 2 branches missed.">                + (firstNonEmpty.isEmpty() ? &quot;&quot; : &quot; — &quot; + firstNonEmpty);</span>
+    }
+
+    /**
+     * Run a command capturing combined stdout+stderr while streaming it
+     * through Maven's logger. Unlike {@link ReleaseSupport#execCaptureAndLog},
+     * does &lt;em&gt;not&lt;/em&gt; throw on non-zero exit — the caller inspects the
+     * returned {@link ExecOutcome} and decides whether to retry or fail.
+     *
+     * @param workDir working directory for the subprocess
+     * @param log     Maven logger for real-time output
+     * @param command the command and arguments to execute
+     * @return captured exit code and output (never {@code null})
+     */
+    private static ExecOutcome runCapturing(File workDir,
+                                            org.apache.maven.api.plugin.Log log,
+                                            String... command) {
+<span class="nc" id="L525">        log.debug(&quot;» &quot; + String.join(&quot; &quot;, command));</span>
+<span class="nc" id="L526">        StringBuilder captured = new StringBuilder();</span>
+        try {
+<span class="nc" id="L528">            Process proc = new ProcessBuilder(command)</span>
+<span class="nc" id="L529">                    .directory(workDir)</span>
+<span class="nc" id="L530">                    .redirectErrorStream(true)</span>
+<span class="nc" id="L531">                    .start();</span>
+<span class="nc" id="L532">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="nc" id="L533">                    new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {</span>
+                String line;
+<span class="nc bnc" id="L535" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
+<span class="nc" id="L536">                    ReleaseSupport.routeSubprocessLine(log, line);</span>
+<span class="nc" id="L537">                    captured.append(line).append('\n');</span>
+                }
+            }
+<span class="nc" id="L540">            int exit = proc.waitFor();</span>
+<span class="nc" id="L541">            return new ExecOutcome(exit, captured.toString());</span>
+<span class="nc" id="L542">        } catch (IOException | InterruptedException e) {</span>
+<span class="nc bnc" id="L543" title="All 2 branches missed.">            if (e instanceof InterruptedException) {</span>
+<span class="nc" id="L544">                Thread.currentThread().interrupt();</span>
+            }
+<span class="nc" id="L546">            return new ExecOutcome(-1,</span>
+<span class="nc" id="L547">                    captured.toString() + &quot;\n[runner-error] &quot; + e.getMessage());</span>
+        }
+    }
+
+    /**
+     * Find all .pkg and .dmg files in the artifact directory.
+     *
+     * @return list of installer artifact paths
+     * @throws MojoException if the directory cannot be read
+     */
+    private List&lt;Path&gt; findInstallerArtifacts() throws MojoException {
+<span class="nc" id="L558">        List&lt;Path&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L559" title="All 2 branches missed.">        if (!artifactDir.isDirectory()) {</span>
+<span class="nc" id="L560">            return result;</span>
+        }
+
+<span class="nc" id="L563">        try (DirectoryStream&lt;Path&gt; stream = Files.newDirectoryStream(</span>
+<span class="nc" id="L564">                artifactDir.toPath(),</span>
+                entry -&gt; {
+<span class="nc" id="L566">                    String name = entry.getFileName().toString().toLowerCase(Locale.ROOT);</span>
+<span class="nc bnc" id="L567" title="All 6 branches missed.">                    return name.endsWith(&quot;.pkg&quot;) || name.endsWith(&quot;.dmg&quot;) || name.endsWith(&quot;.app&quot;);</span>
+                })) {
+<span class="nc bnc" id="L569" title="All 2 branches missed.">            for (Path entry : stream) {</span>
+<span class="nc bnc" id="L570" title="All 4 branches missed.">                if (Files.isRegularFile(entry) || isAppBundle(entry)) {</span>
+<span class="nc" id="L571">                    result.add(entry);</span>
+                }
+<span class="nc" id="L573">            }</span>
+<span class="nc" id="L574">        } catch (IOException e) {</span>
+<span class="nc" id="L575">            throw new MojoException(</span>
+                    &quot;Failed to scan for installer artifacts in &quot; + artifactDir, e);
+<span class="nc" id="L577">        }</span>
+<span class="nc" id="L578">        return result;</span>
+    }
+
+    /**
+     * Whether a path is an application bundle: a directory named {@code *.app}.
+     *
+     * @param path the path
+     * @return {@code true} for an {@code .app} directory
+     */
+    static boolean isAppBundle(Path path) {
+<span class="fc bfc" id="L588" title="All 2 branches covered.">        return Files.isDirectory(path)</span>
+<span class="pc bpc" id="L589" title="1 of 2 branches missed.">                &amp;&amp; path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(&quot;.app&quot;);</span>
+    }
+
+    /**
+     * The {@code spctl --assess --type} an artifact is assessed for: an installer package is
+     * installed, an application bundle executed, a disk image opened.
+     *
+     * @param artifact the notarized artifact
+     * @return {@code install}, {@code execute} or {@code open}
+     */
+    static String assessType(Path artifact) {
+<span class="fc" id="L600">        String name = artifact.getFileName().toString().toLowerCase(Locale.ROOT);</span>
+<span class="fc bfc" id="L601" title="All 2 branches covered.">        if (name.endsWith(&quot;.pkg&quot;)) {</span>
+<span class="fc" id="L602">            return &quot;install&quot;;</span>
+        }
+<span class="fc bfc" id="L604" title="All 2 branches covered.">        return isAppBundle(artifact) ? &quot;execute&quot; : &quot;open&quot;;</span>
+    }
+
+    /**
+     * Check if the current platform is macOS.
+     *
+     * @return true if running on macOS
+     */
+    static boolean isMacOS() {
+<span class="nc" id="L613">        return ReleaseSupport.isMacOS();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

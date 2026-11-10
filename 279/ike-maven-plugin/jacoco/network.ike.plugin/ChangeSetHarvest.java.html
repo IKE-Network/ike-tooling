@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ChangeSetHarvest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">ChangeSetHarvest.java</span></div><h1>ChangeSetHarvest.java</h1><pre class="source lang-java linenums">package network.ike.plugin;
+
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Stream;
+
+/**
+ * The change sets a knowledge browser captured in an installed knowledge base, and the
+ * project directory they are kept in. An install replaces the store wholesale, so what a
+ * person authored there (Komet writes each session's edits as a change set under the store's
+ * {@code changeSets} directory) is harvested into the project first: kept, committed, and
+ * replayed as {@code CHANGESET} inputs by every later assembly, on top of whatever new
+ * releases the sources bring.
+ */
+final class ChangeSetHarvest {
+
+    /** Where a store keeps captured change sets, relative to its root. */
+    static final String CHANGE_SETS = &quot;changeSets&quot;;
+
+    private ChangeSetHarvest() {
+    }
+
+    /**
+     * The change sets captured in an installed store, in name order.
+     *
+     * @param installDirectory the installed store
+     * @return the captured change sets; none when the store or its change-set directory is absent
+     * @throws MojoException when a change set is still being written: the store is open in a browser
+     */
+    static List&lt;Path&gt; captured(Path installDirectory) {
+<span class="fc" id="L39">        Path changeSets = installDirectory.resolve(CHANGE_SETS);</span>
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        if (!Files.isDirectory(changeSets)) {</span>
+<span class="fc" id="L41">            return List.of();</span>
+        }
+<span class="fc" id="L43">        try (Stream&lt;Path&gt; walk = Files.walk(changeSets)) {</span>
+<span class="fc" id="L44">            List&lt;Path&gt; files = walk.filter(Files::isRegularFile).sorted().toList();</span>
+<span class="fc" id="L45">            List&lt;Path&gt; open = files.stream().filter(f -&gt; f.getFileName().toString().endsWith(&quot;.spool&quot;)).toList();</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">            if (!open.isEmpty()) {</span>
+<span class="fc" id="L47">                throw new MojoException(&quot;The knowledge base at &quot; + installDirectory + &quot; is open: change sets are&quot;</span>
+                        + &quot; still being written (&quot; + open + &quot;). Close it in the knowledge browser, then assemble.&quot;);
+            }
+<span class="fc" id="L50">            return files.stream().filter(f -&gt; f.getFileName().toString().endsWith(&quot;.zip&quot;)).toList();</span>
+<span class="nc" id="L51">        } catch (IOException e) {</span>
+<span class="nc" id="L52">            throw new UncheckedIOException(&quot;Reading the change sets of &quot; + installDirectory, e);</span>
+        }
+    }
+
+    /**
+     * Copies captured change sets the project does not yet keep into its change-set directory.
+     * A change set already kept under the same name must be the same file.
+     *
+     * @param captured  the captured change sets
+     * @param directory the project's change-set directory
+     * @return the change sets copied
+     * @throws MojoException when a kept change set and a captured one share a name but differ
+     */
+    static List&lt;Path&gt; harvest(List&lt;Path&gt; captured, Path directory) {
+        try {
+<span class="fc" id="L67">            Files.createDirectories(directory);</span>
+<span class="fc" id="L68">            List&lt;Path&gt; copied = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L69" title="All 2 branches covered.">            for (Path file : captured) {</span>
+<span class="fc" id="L70">                Path kept = directory.resolve(file.getFileName().toString());</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">                if (Files.exists(kept)) {</span>
+<span class="fc bfc" id="L72" title="All 2 branches covered.">                    if (!Arrays.equals(Files.readAllBytes(kept), Files.readAllBytes(file))) {</span>
+<span class="fc" id="L73">                        throw new MojoException(&quot;The captured change set &quot; + file + &quot; differs from the one kept as &quot;</span>
+                                + kept + &quot; under the same name; resolve which is right before assembling.&quot;);
+                    }
+                    continue;
+                }
+<span class="fc" id="L78">                Files.copy(file, kept, StandardCopyOption.COPY_ATTRIBUTES);</span>
+<span class="fc" id="L79">                copied.add(kept);</span>
+<span class="fc" id="L80">            }</span>
+<span class="fc" id="L81">            return copied;</span>
+<span class="nc" id="L82">        } catch (IOException e) {</span>
+<span class="nc" id="L83">            throw new UncheckedIOException(&quot;Harvesting change sets into &quot; + directory, e);</span>
+        }
+    }
+
+    /**
+     * Whether a change set carries content in any of the given modules: its manifest names
+     * every concept its stamps reference, modules among them, by their UUIDs.
+     *
+     * @param changeSet   the change set
+     * @param moduleUuids the modules' UUIDs
+     * @return true when the manifest names one of the modules
+     */
+    static boolean carriesModule(Path changeSet, java.util.Set&lt;String&gt; moduleUuids) {
+<span class="fc" id="L96">        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(changeSet.toFile())) {</span>
+<span class="fc" id="L97">            java.util.zip.ZipEntry entry = zip.getEntry(&quot;META-INF/MANIFEST.MF&quot;);</span>
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">            if (entry == null) {</span>
+<span class="nc" id="L99">                return false;</span>
+            }
+<span class="fc" id="L101">            java.util.jar.Manifest manifest = new java.util.jar.Manifest(zip.getInputStream(entry));</span>
+<span class="fc" id="L102">            return manifest.getEntries().keySet().stream()</span>
+<span class="fc" id="L103">                    .flatMap(name -&gt; Arrays.stream(name.split(&quot;,&quot;)))</span>
+<span class="fc" id="L104">                    .map(String::strip)</span>
+<span class="fc" id="L105">                    .anyMatch(moduleUuids::contains);</span>
+<span class="nc" id="L106">        } catch (IOException e) {</span>
+<span class="nc" id="L107">            throw new UncheckedIOException(&quot;Reading the manifest of &quot; + changeSet, e);</span>
+        }
+    }
+
+    /**
+     * Moves the captured change sets that carry no content in the extension's modules out of
+     * the way, into a parking directory beside the store, so the harvest takes only authored
+     * content and nothing a browser wrote on its own (a plugin's bootstrap, an assistant's
+     * conversation) is lost.
+     *
+     * @param captured    the captured change sets
+     * @param moduleUuids the extension's modules' UUIDs
+     * @param parking     where the others go
+     * @return the captured change sets that carry the extension's modules
+     */
+    static List&lt;Path&gt; sortOut(List&lt;Path&gt; captured, java.util.Set&lt;String&gt; moduleUuids, Path parking) {
+<span class="fc" id="L123">        List&lt;Path&gt; extension = new ArrayList&lt;&gt;();</span>
+        try {
+<span class="fc bfc" id="L125" title="All 2 branches covered.">            for (Path file : captured) {</span>
+<span class="fc bfc" id="L126" title="All 2 branches covered.">                if (carriesModule(file, moduleUuids)) {</span>
+<span class="fc" id="L127">                    extension.add(file);</span>
+                } else {
+<span class="fc" id="L129">                    Files.createDirectories(parking);</span>
+<span class="fc" id="L130">                    Path parked = parking.resolve(file.getFileName().toString());</span>
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">                    if (!Files.exists(parked)) {</span>
+<span class="fc" id="L132">                        Files.copy(file, parked, StandardCopyOption.COPY_ATTRIBUTES);</span>
+                    }
+                }
+<span class="fc" id="L135">            }</span>
+<span class="fc" id="L136">            return extension;</span>
+<span class="nc" id="L137">        } catch (IOException e) {</span>
+<span class="nc" id="L138">            throw new UncheckedIOException(&quot;Parking change sets in &quot; + parking, e);</span>
+        }
+    }
+
+    /**
+     * The change sets a project keeps, in name order: the order they are replayed in.
+     *
+     * @param directory the project's change-set directory
+     * @return the kept change sets; none when the directory is absent
+     */
+    static List&lt;Path&gt; kept(Path directory) {
+<span class="pc bpc" id="L149" title="1 of 2 branches missed.">        if (!Files.isDirectory(directory)) {</span>
+<span class="nc" id="L150">            return List.of();</span>
+        }
+<span class="fc" id="L152">        try (Stream&lt;Path&gt; list = Files.list(directory)) {</span>
+<span class="pc bpc" id="L153" title="2 of 4 branches missed.">            return list.filter(f -&gt; Files.isRegularFile(f) &amp;&amp; f.getFileName().toString().endsWith(&quot;.zip&quot;)).sorted().toList();</span>
+<span class="nc" id="L154">        } catch (IOException e) {</span>
+<span class="nc" id="L155">            throw new UncheckedIOException(&quot;Listing the change sets in &quot; + directory, e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
