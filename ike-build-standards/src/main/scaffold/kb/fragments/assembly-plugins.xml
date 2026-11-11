@@ -1,0 +1,57 @@
+            <plugin>
+                <groupId>network.ike.tooling</groupId>
+                <artifactId>ike-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>fold-changesets</id>
+                        <!-- Ahead of the assembly, which loads what it writes. -->
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>changeset-merge</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Every change set harvested from Komet, folded into one; an empty
+                                 folder folds into an empty change set. -->
+                            <directory>${kb.changesets}</directory>
+                            <target>${kb.edits}</target>@changeSetModules@
+                            <attach>false</attach>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>assemble-knowledge-base</id>
+                        <goals>
+                            <goal>kb-assemble</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Load order is list order: the base first, so every identity
+                                 the later layers resolve to is present; then each layer; then
+                                 the edits folded from changesets/, so their versions win. -->
+                            <inputs>
+@inputs@                            </inputs>
+                            <reasonedPb>true</reasonedPb>
+                            <forkJvmArguments>
+                                <forkJvmArgument>${kb.heap}</forkJvmArgument>
+                            </forkJvmArguments>
+                        </configuration>
+                    </execution>
+@rocksExecution@                    <execution>
+                        <id>verify-reasoned-roundtrip</id>
+                        <goals>
+                            <goal>knowledge-verify</goal>
+                        </goals>
+                        <configuration>
+                            <!-- The reasoned export is standalone: it must load into an
+                                 empty store and resolve every reference on its own. -->
+                            <artifact>${project.build.directory}/${project.artifactId}-${project.version}-reasoned-pb.zip</artifact>
+                            <checks>
+                                <check>PRESENCE</check>
+                                <check>FIT_REFERENCES</check>
+                            </checks>
+                            <forkJvmArguments>
+                                <forkJvmArgument>${kb.heap}</forkJvmArgument>
+                            </forkJvmArguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+@rocksAssemblyPlugin@
