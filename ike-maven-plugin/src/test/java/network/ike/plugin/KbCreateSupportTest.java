@@ -20,12 +20,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -39,10 +41,25 @@ class KbCreateSupportTest {
     @DisplayName("The kb templates are read by their path within kb/")
     void readsTemplates() {
         Map<String, String> templates = KbCreateSupport.templates(KbCreatePlanTest.SCAFFOLD);
-        assertThat(templates).containsKeys("pom.xml", "files/README.adoc", "files/rkb.xml", "files/gitkeep",
+        assertThat(templates).containsKeys(KbCreatePlan.POM_TEMPLATE, "files/README.adoc", "files/rkb.xml", "files/gitkeep",
                 "files/jvm.config", "fragments/property.xml", "fragments/dependency.xml", "fragments/input.xml",
                 "fragments/assembly-plugins.xml", "fragments/source-layer-plugins.xml",
                 "fragments/rocks-execution.xml", "fragments/rocks-assembly-plugin.xml", "fragments/komet-profile.xml");
+    }
+
+    @Test
+    @DisplayName("Every pom.xml a release reads in this repository is a Maven model")
+    void everyPomTheReleaseReadsParses() {
+        // ike:release-publish reads every pom.xml outside target and dot-directories as a Maven
+        // model before it tags. A template named pom.xml with a token where XML allows none
+        // stopped the release of 280 at that step (IKE-Network/ike-issues#1370).
+        List<File> poms = ReleaseSupport.findPomFiles(Path.of("..").toAbsolutePath().normalize().toFile());
+
+        assertThat(poms).as("the repository's own POMs and the scaffold's templates named pom.xml")
+                .extracting(File::getName).isNotEmpty().containsOnly("pom.xml");
+        assertThat(poms).as("the knowledge-base POM template is not one of them: it is no model until rendered")
+                .noneMatch(pom -> pom.toPath().endsWith(Path.of("scaffold", "kb", "pom.xml")));
+        assertThatCode(() -> SnapshotScanner.scanForSnapshotVersions(poms)).doesNotThrowAnyException();
     }
 
     @Test

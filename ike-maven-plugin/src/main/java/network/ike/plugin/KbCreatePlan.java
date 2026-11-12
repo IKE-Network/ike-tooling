@@ -71,6 +71,13 @@ final class KbCreatePlan {
      */
     static final double IMPORT_PER_LOADED_BYTE = 1.0;
 
+    /**
+     * The POM's template, by its path within {@code kb/}. It is not named {@code pom.xml}: a
+     * release reads every {@code pom.xml} in the repository as a Maven model, and the template
+     * is not one until its tokens are filled in.
+     */
+    static final String POM_TEMPLATE = "pom-template.xml";
+
     /** The least heap a generated project is given, in GiB. */
     static final long MINIMUM_HEAP_GIB = 8;
 
@@ -379,7 +386,7 @@ final class KbCreatePlan {
      */
     Map<String, String> render(Map<String, String> templates) {
         Map<String, String> files = new LinkedHashMap<>();
-        files.put("pom.xml", expand(template(templates, "pom.xml"), pomTokens(templates)));
+        files.put("pom.xml", expand(template(templates, POM_TEMPLATE), pomTokens(templates)));
         files.put("README.adoc", expand(template(templates, "files/README.adoc"), readmeTokens()));
         files.put(".mvn/jvm.config", template(templates, "files/jvm.config"));
         if (rocks) {
