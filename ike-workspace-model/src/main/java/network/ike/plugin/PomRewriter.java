@@ -384,6 +384,64 @@ public final class PomRewriter {
     }
 
     /**
+     * Read the project's own {@code <scm>} block: each child element's
+     * name and text, in declaration order.
+     *
+     * @param pomContent the raw POM text
+     * @return child name → value, such as {@code url}, {@code connection}
+     *         and {@code developerConnection}; empty if the POM declares
+     *         no {@code <scm>}
+     */
+    public static Map<String, String> readScm(String pomContent) {
+        Xml.Document doc = parse(pomContent);
+        if (doc == null) return Map.of();
+
+        Map<String, String> result = new LinkedHashMap<>();
+        doc.getRoot().getChild("scm").ifPresent(scm -> {
+            for (Content c : scm.getContent()) {
+                if (c instanceof Xml.Tag child) {
+                    result.put(child.getName(), child.getValue().orElse(""));
+                }
+            }
+        });
+        return result;
+    }
+
+    /**
+     * Update children of the project's own {@code <scm>} block, such as
+     * its {@code url}, {@code connection} and {@code developerConnection}
+     * (IKE-Network/ike-issues#1370: a project created with a
+     * {@code file:} URL is pointed at its remote). Only elements already
+     * present are changed; formatting and comments are kept.
+     *
+     * @param pomContent the raw POM text
+     * @param values     child name → new value
+     * @return updated POM text, or unchanged if the POM declares no
+     *         {@code <scm>} or none of the named children
+     */
+    public static String updateScm(String pomContent, Map<String, String> values) {
+        Xml.Document doc = parse(pomContent);
+        if (doc == null) return pomContent;
+
+        Map<String, XPathMatcher> matchers = new LinkedHashMap<>();
+        values.keySet().forEach(name ->
+                matchers.put(name, new XPathMatcher("/project/scm/" + name)));
+        Xml.Document updated = (Xml.Document) new XmlVisitor<Integer>() {
+            @Override
+            public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
+                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);
+                XPathMatcher matcher = matchers.get(t.getName());
+                if (matcher != null && matcher.matches(getCursor())) {
+                    return t.withValue(values.get(t.getName()));
+                }
+                return t;
+            }
+        }.visitNonNull(doc, 0);
+
+        return print(updated);
+    }
+
+    /**
      * Parse POM content into an OpenRewrite XML document.
      *
      * @param pomContent the POM text

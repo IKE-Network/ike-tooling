@@ -203,6 +203,18 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "standards templates with its layers pinned, the standards "
                     + "scaffold applied, a local git repository with one commit and "
                     + "no remote, validated with ./mvnw validate (ike-issues#1370)."),
+    /** {@code ike:kb-remote-draft} — preview giving a project its remote. */
+    KB_REMOTE_DRAFT(IkeGoal.NAME_KB_REMOTE_DRAFT, KbRemoteDraftMojo.class,
+            "Preview giving a knowledge-base project its remote: whether the remote "
+                    + "answers and is empty, origin, each <scm> URL of pom.xml before "
+                    + "and after, and the push. Asks the remote for its branches; "
+                    + "changes nothing (ike-issues#1370)."),
+    /** {@code ike:kb-remote-publish} — give a project its remote. */
+    KB_REMOTE_PUBLISH(IkeGoal.NAME_KB_REMOTE_PUBLISH, KbRemotePublishMojo.class,
+            "Give a knowledge-base project its remote: set origin, replace the "
+                    + "file: URLs in the <scm> of pom.xml and commit it, replace "
+                    + "repo: in a working set's workspace.yaml, and push the branch "
+                    + "(ike-issues#1370)."),
     /** {@code ike:notarize} — submit a {@code .pkg}/{@code .app} to Apple notary. */
     NOTARIZE(IkeGoal.NAME_NOTARIZE, NotarizeMojo.class,
             "Submit a .pkg or .app to Apple notary service and staple the ticket."),
@@ -372,6 +384,12 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
 
     /** Mirror for {@link #KB_CREATE_PUBLISH}. */
     public static final String NAME_KB_CREATE_PUBLISH = "kb-create-publish";
+
+    /** Mirror for {@link #KB_REMOTE_DRAFT}. */
+    public static final String NAME_KB_REMOTE_DRAFT = "kb-remote-draft";
+
+    /** Mirror for {@link #KB_REMOTE_PUBLISH}. */
+    public static final String NAME_KB_REMOTE_PUBLISH = "kb-remote-publish";
     /** Mirror for {@link #NOTARIZE}. */
     public static final String NAME_NOTARIZE = "notarize";
     /** Mirror for {@link #RELEASE_DRAFT}. */
