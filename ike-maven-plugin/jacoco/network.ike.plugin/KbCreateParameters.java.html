@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbCreateParameters.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbCreateParameters.java</span></div><h1>KbCreateParameters.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.settings.Server;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+
+/**
+ * The shared input surface of the {@code ike:kb-create-*} pair
+ * (IKE-Network/ike-issues#1370). Required: the name and, for a source layer, the importer
+ * and release. Everything else is defaulted from the existing knowledge bases of
+ * {@code solor-kb-ws} or derived, and every layer is pinned against the repository before
+ * anything is shown or written.
+ */
+<span class="fc" id="L42">abstract class KbCreateParameters {</span>
+
+    /** The repository the layers are pinned against unless {@code -DlayerRepository} says. */
+    static final String DEFAULT_LAYER_REPOSITORY = &quot;https://nexus.tinkar.org/repository/ike-restricted/&quot;;
+
+    /** The restricted releases repository, the default deploy target (decision 5). */
+    static final String DEFAULT_RELEASES = &quot;https://nexus.tinkar.org/repository/ike-restricted-releases/&quot;;
+
+    /** The restricted snapshots repository, the default deploy target (decision 5). */
+    static final String DEFAULT_SNAPSHOTS = &quot;https://nexus.tinkar.org/repository/ike-restricted-snapshots/&quot;;
+
+    /** How long one repository request may take. */
+<span class="fc" id="L54">    private static final Duration TIMEOUT = Duration.ofSeconds(60);</span>
+
+    /** The artifactId, which also names the project's folder, such as {@code my-kb}. Required. */
+    @Parameter(property = &quot;name&quot;)
+    String name;
+
+    /** {@code assembly} (the default) or {@code source-layer}. */
+    @Parameter(property = &quot;kind&quot;)
+    String kind;
+
+    /** The project's groupId. */
+<span class="fc" id="L65">    @Parameter(property = &quot;groupId&quot;, defaultValue = &quot;network.ike.data&quot;)</span>
+    String groupId = &quot;network.ike.data&quot;;
+
+    /** The project's version. */
+<span class="fc" id="L69">    @Parameter(property = &quot;version&quot;, defaultValue = &quot;1-SNAPSHOT&quot;)</span>
+    String version = &quot;1-SNAPSHOT&quot;;
+
+    /** The POM {@code &lt;name&gt;}; derived from the name when absent. */
+    @Parameter(property = &quot;displayName&quot;)
+    String displayName;
+
+    /** The POM {@code &lt;description&gt;}; derived from the kind and layers when absent. */
+    @Parameter(property = &quot;description&quot;)
+    String description;
+
+    /**
+     * The protobuf layers in load order, comma-separated, each
+     * {@code groupId:artifactId:zip:classifier:version}. The IKE starter set is put first
+     * unless it is listed or a {@code reasoned-pb} layer is the base.
+     */
+    @Parameter(property = &quot;layers&quot;)
+    String layers;
+
+    /** The starter set's version when it is put first. */
+<span class="fc" id="L89">    @Parameter(property = &quot;starterSetVersion&quot;, defaultValue = &quot;1-SNAPSHOT&quot;)</span>
+    String starterSetVersion = &quot;1-SNAPSHOT&quot;;
+
+    /** A source layer's importer, such as {@code snomed-rf2}: {@code dev.ikm.tinkar:importer-&lt;name&gt;}. */
+    @Parameter(property = &quot;importer&quot;)
+    String importer;
+
+    /** A source layer's release: a Maven coordinate (pinned like a layer) or a path. */
+    @Parameter(property = &quot;release&quot;)
+    String release;
+
+    /** A source layer's importer options, such as {@code release=full}. */
+    @Parameter(property = &quot;importerOptions&quot;)
+    String importerOptions;
+
+    /** The IKE Dashboard collection named in the store's descriptor; none when absent. */
+    @Parameter(property = &quot;collection&quot;)
+    String collection;
+
+    /** The deploy repositories' server id. */
+<span class="fc" id="L109">    @Parameter(property = &quot;distributionId&quot;, defaultValue = &quot;ike-restricted&quot;)</span>
+    String distributionId = &quot;ike-restricted&quot;;
+
+    /** The releases repository a deploy goes to. */
+<span class="fc" id="L113">    @Parameter(property = &quot;releasesUrl&quot;, defaultValue = DEFAULT_RELEASES)</span>
+    String releasesUrl = DEFAULT_RELEASES;
+
+    /** The snapshots repository a deploy goes to. */
+<span class="fc" id="L117">    @Parameter(property = &quot;snapshotsUrl&quot;, defaultValue = DEFAULT_SNAPSHOTS)</span>
+    String snapshotsUrl = DEFAULT_SNAPSHOTS;
+
+    /** The site deploy URL ike-parent's enforcer requires; {@code https://ike.network/&lt;name&gt;/} when absent. */
+    @Parameter(property = &quot;siteUrl&quot;)
+    String siteUrl;
+
+    /** {@code true} or {@code false} to force the Rocks store; decided by the layers' size when absent. */
+    @Parameter(property = &quot;rocks&quot;)
+    String rocks;
+
+    /** The build heap, such as {@code -Xmx24g}; estimated from the layers when absent. */
+    @Parameter(property = &quot;heap&quot;)
+    String heap;
+
+    /** The knowledge base's module UUID, whose versions alone authoring keeps; every version when absent. */
+    @Parameter(property = &quot;editModule&quot;)
+    String editModule;
+
+    /** The {@code ike-parent} version; the scaffold's tested foundation parent when absent. */
+    @Parameter(property = &quot;parentVersion&quot;)
+    String parentVersion;
+
+    /** The {@code ike-knowledge-provider} version, as solor-kb-ws pins it. */
+<span class="fc" id="L141">    @Parameter(property = &quot;providerVersion&quot;, defaultValue = &quot;7-SNAPSHOT&quot;)</span>
+    String providerVersion = &quot;7-SNAPSHOT&quot;;
+
+    /** The {@code tinkar-core} version a source layer's importer comes from, as solor-kb-ws pins it. */
+<span class="fc" id="L145">    @Parameter(property = &quot;tinkarCoreVersion&quot;, defaultValue = &quot;1.127.7-SNAPSHOT&quot;)</span>
+    String tinkarCoreVersion = &quot;1.127.7-SNAPSHOT&quot;;
+
+    /** The {@code rocks-kb} version, as solor-kb-ws pins it. */
+<span class="fc" id="L149">    @Parameter(property = &quot;rocksKbVersion&quot;, defaultValue = &quot;0.1.5-SNAPSHOT&quot;)</span>
+    String rocksKbVersion = &quot;0.1.5-SNAPSHOT&quot;;
+
+    /** The {@code rocksdbjni} version, as solor-kb-ws pins it. */
+<span class="fc" id="L153">    @Parameter(property = &quot;rocksdbjniVersion&quot;, defaultValue = &quot;10.4.2-r2&quot;)</span>
+    String rocksdbjniVersion = &quot;10.4.2-r2&quot;;
+
+    /** The {@code rocksdbjni} platform classifier; the existing knowledge bases build on macOS. */
+<span class="fc" id="L157">    @Parameter(property = &quot;rocksdbjniClassifier&quot;, defaultValue = &quot;osx&quot;)</span>
+    String rocksdbjniClassifier = &quot;osx&quot;;
+
+    /** The repository the layers are pinned against. */
+<span class="fc" id="L161">    @Parameter(property = &quot;layerRepository&quot;, defaultValue = DEFAULT_LAYER_REPOSITORY)</span>
+    String layerRepository = DEFAULT_LAYER_REPOSITORY;
+
+    /** The server id whose login in {@code settings.xml} reads the layer repository. */
+<span class="fc" id="L165">    @Parameter(property = &quot;layerRepositoryId&quot;, defaultValue = &quot;ike-restricted&quot;)</span>
+    String layerRepositoryId = &quot;ike-restricted&quot;;
+
+    /** The project's folder; {@code &lt;name&gt;} under the directory Maven runs in when absent. */
+    @Parameter(property = &quot;targetDirectory&quot;)
+    String targetDirectory;
+
+    /**
+     * The project's folder.
+     *
+     * @return its absolute path
+     * @throws MojoException if no name is given
+     */
+    Path target() {
+<span class="nc bnc" id="L179" title="All 4 branches missed.">        if (targetDirectory != null &amp;&amp; !targetDirectory.isBlank()) {</span>
+<span class="nc" id="L180">            return Path.of(targetDirectory).toAbsolutePath().normalize();</span>
+        }
+<span class="nc bnc" id="L182" title="All 4 branches missed.">        if (name == null || name.isBlank()) {</span>
+<span class="nc" id="L183">            throw new MojoException(&quot;A knowledge base needs -Dname, its artifactId, such as -Dname=my-kb&quot;);</span>
+        }
+<span class="nc" id="L185">        return Path.of(System.getProperty(&quot;user.dir&quot;), name.strip()).toAbsolutePath().normalize();</span>
+    }
+
+    /**
+     * Pins the layers against the repository and builds the plan.
+     *
+     * @param session      the Maven session, for its settings and offline mode
+     * @param log          where progress goes
+     * @param scaffoldRoot the unpacked scaffold, for the default parent version
+     * @return the plan
+     * @throws MojoException if a parameter is malformed, Maven runs offline, or a layer
+     *                       cannot be pinned
+     */
+    KbCreatePlan plan(Session session, Log log, Path scaffoldRoot) {
+<span class="nc bnc" id="L199" title="All 4 branches missed.">        if (name == null || name.isBlank()) {</span>
+<span class="nc" id="L200">            throw new MojoException(&quot;A knowledge base needs -Dname, its artifactId, such as -Dname=my-kb&quot;);</span>
+        }
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (session.getSettings().isOffline()) {</span>
+<span class="nc" id="L203">            throw new MojoException(&quot;Creating a knowledge base pins every layer against &quot;</span>
+                    + layerRepository + &quot;; Maven is offline&quot;);
+        }
+        try {
+<span class="nc" id="L207">            KbKind parsedKind = KbKind.parse(kind);</span>
+<span class="nc" id="L208">            List&lt;KbLayer&gt; requested = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">            if (layers != null) {</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">                for (String spec : layers.split(&quot;,&quot;)) {</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">                    if (!spec.isBlank()) {</span>
+<span class="nc" id="L212">                        requested.add(KbLayer.parse(spec));</span>
+                    }
+                }
+            }
+<span class="nc" id="L216">            List&lt;KbLayer&gt; ordered = KbCreatePlan.withStarterSet(requested, starterSetVersion);</span>
+<span class="nc" id="L217">            KbLayerResolver resolver = resolver(session, log);</span>
+<span class="nc" id="L218">            List&lt;KbLayer&gt; pinned = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">            for (KbLayer layer : ordered) {</span>
+<span class="nc" id="L220">                log.info(&quot;Pinning &quot; + layer.coordinate(layer.version()) + &quot; …&quot;);</span>
+<span class="nc" id="L221">                pinned.add(resolver.pin(layer));</span>
+<span class="nc" id="L222">            }</span>
+<span class="nc" id="L223">            KbLayer pinnedRelease = null;</span>
+<span class="nc" id="L224">            String releasePath = null;</span>
+<span class="nc bnc" id="L225" title="All 4 branches missed.">            if (release != null &amp;&amp; !release.isBlank()) {</span>
+<span class="nc" id="L226">                Optional&lt;KbLayer&gt; coordinate = KbCreatePlan.coordinateOf(release.strip());</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">                if (coordinate.isPresent()) {</span>
+<span class="nc" id="L228">                    log.info(&quot;Pinning &quot; + release.strip() + &quot; …&quot;);</span>
+<span class="nc" id="L229">                    pinnedRelease = resolver.pin(coordinate.get());</span>
+                } else {
+<span class="nc" id="L231">                    releasePath = release.strip();</span>
+                }
+            }
+<span class="nc" id="L234">            Path target = target();</span>
+<span class="nc" id="L235">            return new KbCreatePlan(new KbCreatePlan.Inputs(parsedKind, groupId, name.strip(), version,</span>
+                    displayName, description,
+<span class="nc bnc" id="L237" title="All 4 branches missed.">                    parentVersion != null &amp;&amp; !parentVersion.isBlank() ? parentVersion.strip()</span>
+<span class="nc" id="L238">                            : KbCreateSupport.foundationParentVersion(scaffoldRoot),</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">                    !insideWorkspace(target), target.toUri().toString(), pinned,</span>
+                    importer, pinnedRelease, releasePath, importerOptions, collection,
+                    distributionId, releasesUrl, snapshotsUrl,
+<span class="nc bnc" id="L242" title="All 4 branches missed.">                    siteUrl != null &amp;&amp; !siteUrl.isBlank() ? siteUrl.strip() : &quot;https://ike.network/&quot; + name.strip() + &quot;/&quot;,</span>
+<span class="nc" id="L243">                    parseRocks(rocks), heap, editModule, providerVersion, tinkarCoreVersion,</span>
+                    rocksKbVersion, rocksdbjniVersion, rocksdbjniClassifier));
+<span class="nc" id="L245">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L246">            throw new MojoException(e.getMessage(), e);</span>
+<span class="nc" id="L247">        } catch (IOException e) {</span>
+<span class="nc" id="L248">            throw new MojoException(&quot;Cannot pin the layers: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L249">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L250">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L251">            throw new MojoException(&quot;Interrupted pinning the layers&quot;, e);</span>
+        }
+    }
+
+    /**
+     * Whether a folder is a workspace member: its parent holds a {@code workspace.yaml}, so
+     * the workspace root, not the project, is the Maven root.
+     *
+     * @param target the project's folder
+     * @return {@code true} inside a workspace
+     */
+    static boolean insideWorkspace(Path target) {
+<span class="fc" id="L263">        Path parent = target.getParent();</span>
+<span class="pc bpc" id="L264" title="1 of 4 branches missed.">        return parent != null &amp;&amp; Files.isRegularFile(parent.resolve(&quot;workspace.yaml&quot;));</span>
+    }
+
+    /**
+     * Reads {@code -Drocks}.
+     *
+     * @param value {@code true}, {@code false}, or absent
+     * @return the forced choice, or {@code null} to decide by size
+     * @throws IllegalArgumentException for any other value
+     */
+    static Boolean parseRocks(String value) {
+<span class="pc bpc" id="L275" title="1 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="fc" id="L276">            return null;</span>
+        }
+<span class="fc bfc" id="L278" title="All 3 branches covered.">        return switch (value.strip().toLowerCase(Locale.ROOT)) {</span>
+<span class="fc" id="L279">            case &quot;true&quot; -&gt; Boolean.TRUE;</span>
+<span class="fc" id="L280">            case &quot;false&quot; -&gt; Boolean.FALSE;</span>
+<span class="fc" id="L281">            default -&gt; throw new IllegalArgumentException(&quot;-Drocks takes true or false, or nothing to decide by size; got &quot; + value);</span>
+        };
+    }
+
+    private KbLayerResolver resolver(Session session, Log log) {
+<span class="nc" id="L286">        String username = null;</span>
+<span class="nc" id="L287">        String password = null;</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">        for (Server server : session.getSettings().getServers()) {</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">            if (layerRepositoryId.equals(server.getId())) {</span>
+<span class="nc" id="L290">                String secret = server.getPassword();</span>
+<span class="nc bnc" id="L291" title="All 6 branches missed.">                if (secret != null &amp;&amp; secret.startsWith(&quot;{&quot;) &amp;&amp; secret.endsWith(&quot;}&quot;)) {</span>
+<span class="nc" id="L292">                    log.warn(&quot;The password for &quot; + layerRepositoryId + &quot; is encrypted; reading &quot;</span>
+                            + layerRepository + &quot; without a login&quot;);
+                } else {
+<span class="nc" id="L295">                    username = server.getUsername();</span>
+<span class="nc" id="L296">                    password = secret;</span>
+                }
+            }
+<span class="nc" id="L299">        }</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">        if (username == null) {</span>
+<span class="nc" id="L301">            log.info(&quot;No login for &quot; + layerRepositoryId + &quot; in settings.xml; reading &quot; + layerRepository + &quot; anonymously&quot;);</span>
+        }
+<span class="nc" id="L303">        return new KbLayerResolver(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build(),</span>
+<span class="nc" id="L304">                URI.create(layerRepository), username, password, TIMEOUT);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

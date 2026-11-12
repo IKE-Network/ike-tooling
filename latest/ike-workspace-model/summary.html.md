@@ -1,6 +1,6 @@
 ---
-date_published: 2026-11-09
-date_modified: 2026-11-09
+date_published: 2026-11-11
+date_modified: 2026-11-11
 canonical_url: https://ike.network/ike-tooling/ike-workspace-model/summary.html
 ---
 
@@ -27,6 +27,6 @@ canonical_url: https://ike.network/ike-tooling/ike-workspace-model/summary.html
 | --- | --- |
 | GroupId | network.ike.tooling |
 | ArtifactId | ike-workspace-model |
-| Version | 279 |
+| Version | 280 |
 | Type | jar |
 | Java Version | 25 |

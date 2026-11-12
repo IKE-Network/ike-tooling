@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbCreateDraftMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbCreateDraftMojo.java</span></div><h1>KbCreateDraftMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+
+/**
+ * Previews a new knowledge-base project, the side-effect-free half of the
+ * {@code ike:kb-create-*} pair (IKE-Network/ike-issues#1370): the coordinates, every layer
+ * pinned to the exact deploy it will be built from and its size, whether a Rocks store is
+ * built and why, the heap, where it deploys, and every file publish would write. The
+ * repository is read to pin the layers; nothing is written. Rerun as
+ * {@code kb-create-publish} with the same inputs to create exactly what this draft shows.
+ *
+ * &lt;pre&gt;{@code
+ * mvn ike:kb-create-draft -Dname=my-kb \
+ *     -Dlayers=network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT
+ * }&lt;/pre&gt;
+ *
+ * @since 280
+ */
+@Mojo(name = IkeGoal.NAME_KB_CREATE_DRAFT, projectRequired = false)
+public class KbCreateDraftMojo extends KbCreateParameters implements org.apache.maven.api.plugin.Mojo {
+
+    /** Creates this goal instance. */
+<span class="fc" id="L50">    public KbCreateDraftMojo() {}</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    @Inject
+    private Session session;
+
+    /**
+     * Prints the plan.
+     *
+     * @throws MojoException if a parameter is malformed, a layer cannot be pinned, or the
+     *                       templates cannot be read
+     */
+    @Override
+    public void execute() {
+<span class="nc" id="L66">        Path scaffold = null;</span>
+        try {
+<span class="nc" id="L68">            scaffold = Files.createTempDirectory(&quot;ike-kb-create-&quot;);</span>
+<span class="nc" id="L69">            Path root = KbCreateSupport.unpackScaffold(session, scaffold);</span>
+<span class="nc" id="L70">            KbCreatePlan plan = plan(session, log, root);</span>
+<span class="nc" id="L71">            Path target = target();</span>
+<span class="nc" id="L72">            Map&lt;String, String&gt; files = plan.render(KbCreateSupport.templates(root));</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">            for (String line : plan.report(target.toString())) {</span>
+<span class="nc" id="L74">                log.info(line);</span>
+<span class="nc" id="L75">            }</span>
+<span class="nc" id="L76">            log.info(&quot;  Files:&quot;);</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">            for (String file : files.keySet()) {</span>
+<span class="nc" id="L78">                log.info(&quot;    &quot; + file);</span>
+<span class="nc" id="L79">            }</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">            for (String file : KbCreateSupport.projectScaffoldFiles(root)) {</span>
+<span class="nc" id="L81">                log.info(&quot;    &quot; + file + &quot; (standards scaffold)&quot;);</span>
+<span class="nc" id="L82">            }</span>
+<span class="nc bnc" id="L83" title="All 4 branches missed.">            if (Files.isRegularFile(target.resolve(&quot;pom.xml&quot;)) || Files.exists(target.resolve(&quot;.git&quot;))) {</span>
+<span class="nc" id="L84">                log.warn(&quot;  &quot; + target + &quot; already holds a project; publish will refuse it.&quot;);</span>
+            }
+<span class="nc" id="L86">            log.info(&quot;Draft only — run ike:kb-create-publish with the same inputs to create it.&quot;);</span>
+<span class="nc" id="L87">        } catch (IOException e) {</span>
+<span class="nc" id="L88">            throw new MojoException(&quot;Cannot unpack the standards scaffold&quot;, e);</span>
+        } finally {
+<span class="nc" id="L90">            deleteQuietly(scaffold);</span>
+        }
+<span class="nc" id="L92">    }</span>
+
+    /**
+     * Removes a temporary tree, ignoring what cannot be removed.
+     *
+     * @param root the tree, or {@code null}
+     */
+    static void deleteQuietly(Path root) {
+<span class="nc bnc" id="L100" title="All 4 branches missed.">        if (root == null || !Files.exists(root)) {</span>
+<span class="nc" id="L101">            return;</span>
+        }
+<span class="nc" id="L103">        try (Stream&lt;Path&gt; paths = Files.walk(root)) {</span>
+<span class="nc" id="L104">            List&lt;Path&gt; deepestFirst = paths.sorted(Comparator.reverseOrder()).toList();</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">            for (Path path : deepestFirst) {</span>
+<span class="nc" id="L106">                Files.deleteIfExists(path);</span>
+<span class="nc" id="L107">            }</span>
+<span class="nc" id="L108">        } catch (IOException ignored) {</span>
+            // A temporary folder the system removes in time.
+<span class="nc" id="L110">        }</span>
+<span class="nc" id="L111">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

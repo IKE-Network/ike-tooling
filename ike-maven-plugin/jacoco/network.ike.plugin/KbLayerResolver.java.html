@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbLayerResolver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbLayerResolver.java</span></div><h1>KbLayerResolver.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Base64;
+import java.util.Optional;
+import java.util.OptionalLong;
+
+/**
+ * Pins a knowledge base's layers against a Maven repository without downloading them
+ * (IKE-Network/ike-issues#1370): a snapshot is fixed to the exact deploy its
+ * {@code maven-metadata.xml} names for the layer's extension and classifier, and a
+ * {@code HEAD} of the file proves it is there and says its size, which decides whether a
+ * Rocks store is built (decision 6). A layer of several gigabytes is never transferred.
+ */
+final class KbLayerResolver {
+
+    private final HttpClient client;
+    private final URI repository;
+    private final Optional&lt;String&gt; authorization;
+    private final Duration timeout;
+
+    /**
+     * Creates a resolver against one repository.
+     *
+     * @param client     the HTTP client
+     * @param repository the repository's URL, such as
+     *                   {@code https://nexus.tinkar.org/repository/ike-restricted/}
+     * @param username   the login, or {@code null} to read anonymously
+     * @param password   the password, or {@code null} to read anonymously
+     * @param timeout    the timeout of each request
+     */
+<span class="fc" id="L63">    KbLayerResolver(HttpClient client, URI repository, String username, String password, Duration timeout) {</span>
+<span class="fc" id="L64">        this.client = client;</span>
+<span class="fc" id="L65">        String url = repository.toString();</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        this.repository = URI.create(url.endsWith(&quot;/&quot;) ? url : url + &quot;/&quot;);</span>
+<span class="pc bpc" id="L67" title="1 of 4 branches missed.">        this.authorization = username == null || password == null</span>
+<span class="fc" id="L68">                ? Optional.empty()</span>
+<span class="fc" id="L69">                : Optional.of(&quot;Basic &quot; + Base64.getEncoder().encodeToString(</span>
+<span class="fc" id="L70">                        (username + &quot;:&quot; + password).getBytes(StandardCharsets.UTF_8)));</span>
+<span class="fc" id="L71">        this.timeout = timeout;</span>
+<span class="fc" id="L72">    }</span>
+
+    /**
+     * The repository this resolver reads.
+     *
+     * @return its URL, ending in {@code /}
+     */
+    URI repository() {
+<span class="nc" id="L80">        return repository;</span>
+    }
+
+    /**
+     * Pins a layer and reads its size.
+     *
+     * @param layer the layer as requested
+     * @return the layer at its exact version, with its size ({@code -1} when the
+     *         repository does not say)
+     * @throws IOException          if the repository cannot be read, holds no deploy of a
+     *                              requested snapshot, or does not hold the file
+     * @throws InterruptedException if interrupted
+     */
+    KbLayer pin(KbLayer layer) throws IOException, InterruptedException {
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        String exact = layer.exact() ? layer.version() : snapshotVersion(layer);</span>
+<span class="fc" id="L95">        KbLayer pinned = layer.pinned(exact, -1);</span>
+<span class="fc" id="L96">        HttpResponse&lt;Void&gt; head = send(pinned.filePath(), &quot;HEAD&quot;, HttpResponse.BodyHandlers.discarding());</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">        if (head.statusCode() == 404) {</span>
+<span class="fc" id="L98">            throw new IOException(pinned.coordinate(exact) + &quot; is not on &quot; + repository);</span>
+        }
+<span class="fc bfc" id="L100" title="All 2 branches covered.">        if (head.statusCode() != 200) {</span>
+<span class="fc" id="L101">            throw new IOException(&quot;HEAD &quot; + pinned.filePath() + &quot; on &quot; + repository</span>
+<span class="fc" id="L102">                    + &quot; answered &quot; + head.statusCode() + unauthorizedHint(head.statusCode()));</span>
+        }
+<span class="fc" id="L104">        OptionalLong length = head.headers().firstValueAsLong(&quot;Content-Length&quot;);</span>
+<span class="fc" id="L105">        return layer.pinned(exact, length.orElse(-1));</span>
+    }
+
+    /**
+     * The exact deploy a snapshot names, from its version's {@code maven-metadata.xml}.
+     *
+     * @param layer the snapshot layer
+     * @return the timestamped version
+     * @throws IOException          if the metadata cannot be read or names no deploy of
+     *                              the layer's extension and classifier
+     * @throws InterruptedException if interrupted
+     */
+    private String snapshotVersion(KbLayer layer) throws IOException, InterruptedException {
+<span class="fc" id="L118">        String metadataPath = layer.folderPath() + &quot;maven-metadata.xml&quot;;</span>
+<span class="fc" id="L119">        HttpResponse&lt;byte[]&gt; metadata = send(metadataPath, &quot;GET&quot;, HttpResponse.BodyHandlers.ofByteArray());</span>
+<span class="fc bfc" id="L120" title="All 2 branches covered.">        if (metadata.statusCode() == 404) {</span>
+<span class="fc" id="L121">            throw new IOException(layer.coordinate(layer.version()) + &quot; has never been deployed to &quot; + repository);</span>
+        }
+<span class="pc bpc" id="L123" title="1 of 2 branches missed.">        if (metadata.statusCode() != 200) {</span>
+<span class="nc" id="L124">            throw new IOException(&quot;GET &quot; + metadataPath + &quot; on &quot; + repository + &quot; answered &quot;</span>
+<span class="nc" id="L125">                    + metadata.statusCode() + unauthorizedHint(metadata.statusCode()));</span>
+        }
+<span class="pc" id="L127">        return snapshotVersion(layer, metadata.body()).orElseThrow(() -&gt; new IOException(</span>
+                metadataPath + &quot; on &quot; + repository + &quot; names no deploy of &quot;
+<span class="nc" id="L129">                        + layer.coordinate(layer.version())));</span>
+    }
+
+    /**
+     * Reads the exact deploy a version's metadata names for a layer: the
+     * {@code snapshotVersion} entry of its extension and classifier, else the version's
+     * last {@code snapshot} timestamp and build number.
+     *
+     * @param layer    the snapshot layer
+     * @param metadata the bytes of its version's {@code maven-metadata.xml}
+     * @return the timestamped version, when the metadata names one
+     * @throws IOException if the metadata is not well-formed XML
+     */
+    static Optional&lt;String&gt; snapshotVersion(KbLayer layer, byte[] metadata) throws IOException {
+<span class="fc" id="L143">        Document document = parse(metadata);</span>
+<span class="fc" id="L144">        NodeList entries = document.getElementsByTagName(&quot;snapshotVersion&quot;);</span>
+<span class="fc bfc" id="L145" title="All 2 branches covered.">        for (int index = 0; index &lt; entries.getLength(); index++) {</span>
+<span class="fc" id="L146">            Element entry = (Element) entries.item(index);</span>
+<span class="fc" id="L147">            String extension = text(entry, &quot;extension&quot;);</span>
+<span class="fc" id="L148">            String classifier = text(entry, &quot;classifier&quot;);</span>
+<span class="fc" id="L149">            String value = text(entry, &quot;value&quot;);</span>
+<span class="pc bpc" id="L150" title="1 of 6 branches missed.">            if (layer.extension().equals(extension) &amp;&amp; layer.classifier().equals(classifier) &amp;&amp; !value.isEmpty()) {</span>
+<span class="fc" id="L151">                return Optional.of(value);</span>
+            }
+        }
+<span class="fc" id="L154">        NodeList snapshots = document.getElementsByTagName(&quot;snapshot&quot;);</span>
+<span class="pc bpc" id="L155" title="1 of 2 branches missed.">        if (snapshots.getLength() &gt; 0) {</span>
+<span class="fc" id="L156">            Element snapshot = (Element) snapshots.item(0);</span>
+<span class="fc" id="L157">            String timestamp = text(snapshot, &quot;timestamp&quot;);</span>
+<span class="fc" id="L158">            String buildNumber = text(snapshot, &quot;buildNumber&quot;);</span>
+<span class="pc bpc" id="L159" title="2 of 4 branches missed.">            if (!timestamp.isEmpty() &amp;&amp; !buildNumber.isEmpty()) {</span>
+<span class="fc" id="L160">                String base = KbLayer.baseVersion(layer.version());</span>
+<span class="fc" id="L161">                return Optional.of(base.substring(0, base.length() - &quot;SNAPSHOT&quot;.length())</span>
+                        + timestamp + &quot;-&quot; + buildNumber);
+            }
+        }
+<span class="nc" id="L165">        return Optional.empty();</span>
+    }
+
+    private static Document parse(byte[] xml) throws IOException {
+        try {
+<span class="fc" id="L170">            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();</span>
+<span class="fc" id="L171">            factory.setFeature(&quot;http://apache.org/xml/features/disallow-doctype-decl&quot;, true);</span>
+<span class="fc" id="L172">            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);</span>
+<span class="fc" id="L173">            factory.setExpandEntityReferences(false);</span>
+<span class="fc" id="L174">            DocumentBuilder builder = factory.newDocumentBuilder();</span>
+<span class="fc" id="L175">            return builder.parse(new ByteArrayInputStream(xml));</span>
+<span class="fc" id="L176">        } catch (ParserConfigurationException | SAXException e) {</span>
+<span class="fc" id="L177">            throw new IOException(&quot;Not well-formed maven-metadata.xml: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    private static String text(Element parent, String child) {
+<span class="fc" id="L182">        NodeList nodes = parent.getElementsByTagName(child);</span>
+<span class="fc bfc" id="L183" title="All 2 branches covered.">        return nodes.getLength() == 0 ? &quot;&quot; : nodes.item(0).getTextContent().strip();</span>
+    }
+
+    private &lt;T&gt; HttpResponse&lt;T&gt; send(String path, String method, HttpResponse.BodyHandler&lt;T&gt; body)
+            throws IOException, InterruptedException {
+<span class="fc" id="L188">        HttpRequest.Builder request = HttpRequest.newBuilder(repository.resolve(path))</span>
+<span class="fc" id="L189">                .timeout(timeout)</span>
+<span class="fc" id="L190">                .method(method, HttpRequest.BodyPublishers.noBody());</span>
+<span class="fc" id="L191">        authorization.ifPresent(value -&gt; request.header(&quot;Authorization&quot;, value));</span>
+<span class="fc" id="L192">        return client.send(request.build(), body);</span>
+    }
+
+    private String unauthorizedHint(int status) {
+<span class="pc bpc" id="L196" title="3 of 4 branches missed.">        if (status != 401 &amp;&amp; status != 403) {</span>
+<span class="nc" id="L197">            return &quot;&quot;;</span>
+        }
+<span class="fc bfc" id="L199" title="All 2 branches covered.">        return authorization.isEmpty()</span>
+<span class="fc" id="L200">                ? &quot; (no login: add the repository's server to ~/.m2/settings.xml)&quot;</span>
+<span class="fc" id="L201">                : &quot; (the login in ~/.m2/settings.xml was refused)&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
