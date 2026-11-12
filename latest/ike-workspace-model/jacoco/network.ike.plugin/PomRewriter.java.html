@@ -384,16 +384,74 @@ public final class PomRewriter {
     }
 
     /**
+     * Read the project's own {@code &lt;scm&gt;} block: each child element's
+     * name and text, in declaration order.
+     *
+     * @param pomContent the raw POM text
+     * @return child name → value, such as {@code url}, {@code connection}
+     *         and {@code developerConnection}; empty if the POM declares
+     *         no {@code &lt;scm&gt;}
+     */
+    public static Map&lt;String, String&gt; readScm(String pomContent) {
+<span class="nc" id="L396">        Xml.Document doc = parse(pomContent);</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">        if (doc == null) return Map.of();</span>
+
+<span class="nc" id="L399">        Map&lt;String, String&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L400">        doc.getRoot().getChild(&quot;scm&quot;).ifPresent(scm -&gt; {</span>
+<span class="nc bnc" id="L401" title="All 2 branches missed.">            for (Content c : scm.getContent()) {</span>
+<span class="nc bnc" id="L402" title="All 2 branches missed.">                if (c instanceof Xml.Tag child) {</span>
+<span class="nc" id="L403">                    result.put(child.getName(), child.getValue().orElse(&quot;&quot;));</span>
+                }
+<span class="nc" id="L405">            }</span>
+<span class="nc" id="L406">        });</span>
+<span class="nc" id="L407">        return result;</span>
+    }
+
+    /**
+     * Update children of the project's own {@code &lt;scm&gt;} block, such as
+     * its {@code url}, {@code connection} and {@code developerConnection}
+     * (IKE-Network/ike-issues#1370: a project created with a
+     * {@code file:} URL is pointed at its remote). Only elements already
+     * present are changed; formatting and comments are kept.
+     *
+     * @param pomContent the raw POM text
+     * @param values     child name → new value
+     * @return updated POM text, or unchanged if the POM declares no
+     *         {@code &lt;scm&gt;} or none of the named children
+     */
+    public static String updateScm(String pomContent, Map&lt;String, String&gt; values) {
+<span class="nc" id="L423">        Xml.Document doc = parse(pomContent);</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">        if (doc == null) return pomContent;</span>
+
+<span class="nc" id="L426">        Map&lt;String, XPathMatcher&gt; matchers = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L427">        values.keySet().forEach(name -&gt;</span>
+<span class="nc" id="L428">                matchers.put(name, new XPathMatcher(&quot;/project/scm/&quot; + name)));</span>
+<span class="nc" id="L429">        Xml.Document updated = (Xml.Document) new XmlVisitor&lt;Integer&gt;() {</span>
+            @Override
+            public Xml.Tag visitTag(Xml.Tag tag, Integer ctx) {
+<span class="nc" id="L432">                Xml.Tag t = (Xml.Tag) super.visitTag(tag, ctx);</span>
+<span class="nc" id="L433">                XPathMatcher matcher = matchers.get(t.getName());</span>
+<span class="nc bnc" id="L434" title="All 4 branches missed.">                if (matcher != null &amp;&amp; matcher.matches(getCursor())) {</span>
+<span class="nc" id="L435">                    return t.withValue(values.get(t.getName()));</span>
+                }
+<span class="nc" id="L437">                return t;</span>
+            }
+<span class="nc" id="L439">        }.visitNonNull(doc, 0);</span>
+
+<span class="nc" id="L441">        return print(updated);</span>
+    }
+
+    /**
      * Parse POM content into an OpenRewrite XML document.
      *
      * @param pomContent the POM text
      * @return parsed document, or {@code null} if parsing failed
      */
     private static Xml.Document parse(String pomContent) {
-<span class="fc" id="L393">        return PARSER.parse(pomContent)</span>
-<span class="fc" id="L394">                .findFirst()</span>
-<span class="fc" id="L395">                .map(t -&gt; (Xml.Document) t)</span>
-<span class="fc" id="L396">                .orElse(null);</span>
+<span class="fc" id="L451">        return PARSER.parse(pomContent)</span>
+<span class="fc" id="L452">                .findFirst()</span>
+<span class="fc" id="L453">                .map(t -&gt; (Xml.Document) t)</span>
+<span class="fc" id="L454">                .orElse(null);</span>
     }
 
     /**
@@ -403,7 +461,7 @@ public final class PomRewriter {
      * @return the document's textual form
      */
     private static String print(Xml.Document doc) {
-<span class="fc" id="L406">        return doc.printAll();</span>
+<span class="fc" id="L464">        return doc.printAll();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

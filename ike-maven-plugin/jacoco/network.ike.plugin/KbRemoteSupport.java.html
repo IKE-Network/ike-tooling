@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbRemoteSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbRemoteSupport.java</span></div><h1>KbRemoteSupport.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Shared mechanics of the {@code ike:kb-remote-*} goals (IKE-Network/ike-issues#1370):
+ * reading the project and its git repository into a {@link KbRemotePlan}, and applying
+ * one. git is run by name, as {@code ike:kb-create-publish} runs it, and never asks at a
+ * terminal: a remote that wants a password it cannot get from a credential helper fails
+ * with git's own message.
+ */
+final class KbRemoteSupport {
+
+    /** How long git may take to ask the remote for its branches, in seconds. */
+    static final int PROBE_SECONDS = 30;
+
+    /** How long a push may take, in seconds. */
+    static final int PUSH_SECONDS = 600;
+
+    private KbRemoteSupport() {
+    }
+
+    /**
+     * How a git command ended.
+     *
+     * @param exit   its exit code, or {@code -1} when it ran out of time
+     * @param output what it wrote, standard error included
+     */
+<span class="fc" id="L54">    record Result(int exit, String output) {</span>
+
+        /**
+         * Whether the command succeeded.
+         *
+         * @return whether it exited with zero
+         */
+        boolean ok() {
+<span class="fc bfc" id="L62" title="All 2 branches covered.">            return exit == 0;</span>
+        }
+
+        /**
+         * Why it failed, in git's words: the first line git marks {@code fatal:} or
+         * {@code error:}, without the mark, since what follows it is advice; else the last
+         * line it wrote. It ends with no full stop, so it can end a sentence.
+         *
+         * @return the reason, or blank
+         */
+        String reason() {
+<span class="fc" id="L73">            String line = output.lines().map(String::strip)</span>
+<span class="fc bfc" id="L74" title="All 4 branches covered.">                    .filter(text -&gt; text.startsWith(&quot;fatal: &quot;) || text.startsWith(&quot;error: &quot;)).findFirst()</span>
+<span class="fc" id="L75">                    .map(text -&gt; text.substring(text.indexOf(' ') + 1))</span>
+<span class="pc bpc" id="L76" title="1 of 2 branches missed.">                    .orElseGet(() -&gt; output.lines().filter(text -&gt; !text.isBlank())</span>
+<span class="pc" id="L77">                            .reduce((first, second) -&gt; second).orElse(&quot;&quot;).strip());</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">            return line.endsWith(&quot;.&quot;) ? line.substring(0, line.length() - 1) : line;</span>
+        }
+    }
+
+    /**
+     * Reads a project and its repository, and asks the remote for its branches when the
+     * plan is to push.
+     *
+     * @param root   the project's folder
+     * @param remote the remote's URL
+     * @param push   whether the branch is pushed once the remote is set
+     * @return the plan
+     * @throws MojoException            if the folder is no project with its own git
+     *                                  repository, or no branch is checked out
+     * @throws IllegalArgumentException if the plan breaks a rule; see {@link KbRemotePlan}
+     */
+    static KbRemotePlan plan(Path root, String remote, boolean push) {
+<span class="fc" id="L95">        Path pom = root.resolve(&quot;pom.xml&quot;);</span>
+<span class="pc bpc" id="L96" title="1 of 2 branches missed.">        if (!Files.isRegularFile(pom)) {</span>
+<span class="nc" id="L97">            throw new MojoException(root + &quot; has no pom.xml. Run the goal in the project's folder, or name it&quot;</span>
+                    + &quot; with -DprojectRoot.&quot;);
+        }
+<span class="pc bpc" id="L100" title="1 of 2 branches missed.">        if (!Files.exists(root.resolve(&quot;.git&quot;))) {</span>
+<span class="nc" id="L101">            throw new MojoException(root + &quot; is not the root of a git repository. A project made by&quot;</span>
+                    + &quot; ike:kb-create-publish is one.&quot;);
+        }
+<span class="fc" id="L104">        Result head = git(root, 20, &quot;symbolic-ref&quot;, &quot;--short&quot;, &quot;-q&quot;, &quot;HEAD&quot;);</span>
+<span class="pc bpc" id="L105" title="2 of 4 branches missed.">        if (!head.ok() || head.output().isBlank()) {</span>
+<span class="nc" id="L106">            throw new MojoException(&quot;No branch is checked out in &quot; + root + &quot;. Check one out first.&quot;);</span>
+        }
+<span class="fc" id="L108">        String branch = head.output().strip();</span>
+<span class="fc" id="L109">        Result origin = git(root, 20, &quot;remote&quot;, &quot;get-url&quot;, &quot;origin&quot;);</span>
+<span class="pc bpc" id="L110" title="1 of 2 branches missed.">        boolean pomUncommitted = !git(root, 20, &quot;status&quot;, &quot;--porcelain&quot;, &quot;--&quot;, &quot;pom.xml&quot;).output().isBlank();</span>
+<span class="pc bpc" id="L111" title="1 of 2 branches missed.">        String url = remote == null ? &quot;&quot; : remote.strip();</span>
+<span class="pc bpc" id="L112" title="1 of 4 branches missed.">        KbRemotePlan.Probe probe = push &amp;&amp; !url.isEmpty() ? probe(root, url, branch) : KbRemotePlan.Probe.NOT_ASKED;</span>
+<span class="fc" id="L113">        Optional&lt;Path&gt; manifest = Optional.ofNullable(root.getParent()).map(parent -&gt; parent.resolve(&quot;workspace.yaml&quot;))</span>
+<span class="fc" id="L114">                .filter(Files::isRegularFile);</span>
+        try {
+<span class="fc bfc" id="L116" title="All 2 branches covered.">            Optional&lt;String&gt; yaml = manifest.isPresent()</span>
+<span class="fc" id="L117">                    ? Optional.of(Files.readString(manifest.get(), StandardCharsets.UTF_8)) : Optional.empty();</span>
+<span class="fc" id="L118">            return new KbRemotePlan(new KbRemotePlan.Inputs(root, Files.readString(pom, StandardCharsets.UTF_8), url,</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">                    origin.ok() ? Optional.of(origin.output().strip()) : Optional.empty(), branch, pomUncommitted,</span>
+                    probe, manifest, yaml, push));
+<span class="nc" id="L121">        } catch (IOException e) {</span>
+<span class="nc" id="L122">            throw new MojoException(&quot;Cannot read the project in &quot; + root + &quot;: &quot; + e.getMessage(), e);</span>
+        }
+    }
+
+    /**
+     * Asks a remote for its branches.
+     *
+     * @param root   the project, whose history says whether the remote's branch is its own
+     * @param remote the remote's URL
+     * @param branch the project's branch
+     * @return what the remote answered
+     */
+    static KbRemotePlan.Probe probe(Path root, String remote, String branch) {
+<span class="fc" id="L135">        Result heads = git(root, PROBE_SECONDS, &quot;ls-remote&quot;, &quot;--heads&quot;, remote);</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">        if (!heads.ok()) {</span>
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">            return new KbRemotePlan.Probe(false, heads.exit() &lt; 0 ? &quot;it did not answer in &quot; + PROBE_SECONDS + &quot; seconds&quot;</span>
+<span class="fc" id="L138">                    : heads.reason(), Optional.empty(), false, 0);</span>
+        }
+<span class="fc" id="L140">        List&lt;String&gt; lines = heads.output().lines().filter(line -&gt; line.contains(&quot;refs/heads/&quot;)).toList();</span>
+<span class="fc" id="L141">        Optional&lt;String&gt; branchHead = lines.stream().filter(line -&gt; line.endsWith(&quot;refs/heads/&quot; + branch))</span>
+<span class="fc" id="L142">                .map(line -&gt; line.split(&quot;\\s+&quot;)[0]).findFirst();</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">        boolean contained = branchHead.isPresent()</span>
+<span class="fc bfc" id="L144" title="All 2 branches covered.">                &amp;&amp; git(root, 20, &quot;merge-base&quot;, &quot;--is-ancestor&quot;, branchHead.get(), &quot;HEAD&quot;).ok();</span>
+<span class="fc" id="L145">        return new KbRemotePlan.Probe(true, &quot;&quot;, branchHead, contained, lines.size());</span>
+    }
+
+    /**
+     * Applies a plan: sets {@code origin}, rewrites and commits the POM, rewrites and
+     * commits the working set's manifest, and pushes. A push that would fail is refused
+     * before anything is changed.
+     *
+     * @param log  where progress goes
+     * @param plan the plan
+     * @throws MojoException if the push would fail, a file cannot be written, or git fails;
+     *                       when the push itself fails, the remote is set and the POM
+     *                       committed, and the goal can be run again to push
+     */
+    static void apply(Log log, KbRemotePlan plan) {
+<span class="fc" id="L160">        KbRemotePlan.Inputs in = plan.inputs();</span>
+<span class="fc" id="L161">        Path root = in.root();</span>
+<span class="fc" id="L162">        plan.pushProblem().ifPresent(problem -&gt; {</span>
+<span class="fc" id="L163">            throw new MojoException(problem + &quot; Nothing was changed.&quot;);</span>
+        });
+        try {
+<span class="fc bfc" id="L166" title="All 2 branches covered.">            if (plan.addOrigin()) {</span>
+<span class="fc" id="L167">                must(git(root, 20, &quot;remote&quot;, &quot;add&quot;, &quot;origin&quot;, plan.remote()), &quot;git remote add origin&quot;);</span>
+<span class="fc" id="L168">                log.info(&quot;origin is &quot; + plan.remote());</span>
+            }
+<span class="fc bfc" id="L170" title="All 2 branches covered.">            if (plan.pomChanges()) {</span>
+<span class="fc" id="L171">                Files.writeString(root.resolve(&quot;pom.xml&quot;), plan.newPom(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L172">                must(git(root, 60, &quot;commit&quot;, &quot;-q&quot;, &quot;--only&quot;, &quot;pom.xml&quot;, &quot;-m&quot;, plan.commitMessage()), &quot;git commit pom.xml&quot;);</span>
+<span class="fc" id="L173">                log.info(&quot;pom.xml names the remote, committed&quot;);</span>
+            }
+<span class="pc bpc" id="L175" title="1 of 4 branches missed.">            if (plan.newManifest().isPresent() &amp;&amp; in.manifest().isPresent()) {</span>
+<span class="fc" id="L176">                Path manifest = in.manifest().get();</span>
+<span class="fc" id="L177">                Files.writeString(manifest, plan.newManifest().get(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L178">                Path workingSet = manifest.getParent();</span>
+<span class="pc bpc" id="L179" title="1 of 2 branches missed.">                if (Files.exists(workingSet.resolve(&quot;.git&quot;))) {</span>
+<span class="fc" id="L180">                    must(git(workingSet, 60, &quot;commit&quot;, &quot;-q&quot;, &quot;--only&quot;, &quot;workspace.yaml&quot;, &quot;-m&quot;,</span>
+<span class="fc" id="L181">                            &quot;Point &quot; + root.getFileName() + &quot; at its remote\n\nGenerated by ike:kb-remote-publish:&quot;</span>
+<span class="fc" id="L182">                                    + &quot; repo: of &quot; + root.getFileName() + &quot; names &quot; + plan.remote() + &quot;.&quot;),</span>
+                            &quot;git commit workspace.yaml&quot;);
+<span class="fc" id="L184">                    log.info(&quot;workspace.yaml names the remote, committed in &quot; + workingSet);</span>
+                } else {
+<span class="nc" id="L186">                    log.warn(&quot;workspace.yaml names the remote; &quot; + workingSet + &quot; is no git repository, so it is not committed&quot;);</span>
+                }
+            }
+<span class="nc" id="L189">        } catch (IOException e) {</span>
+<span class="nc" id="L190">            throw new MojoException(&quot;Cannot write the project in &quot; + root + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="fc" id="L191">        }</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">        if (in.push()) {</span>
+<span class="fc" id="L193">            Result push = git(root, PUSH_SECONDS, &quot;push&quot;, &quot;-u&quot;, &quot;origin&quot;, in.branch());</span>
+<span class="pc bpc" id="L194" title="1 of 2 branches missed.">            if (!push.ok()) {</span>
+<span class="nc" id="L195">                throw new MojoException(&quot;The remote is set and pom.xml names it, but the push failed: &quot;</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">                        + (push.exit() &lt; 0 ? &quot;it did not finish in &quot; + PUSH_SECONDS + &quot; seconds&quot; : push.reason())</span>
+                        + &quot;. Run the goal again to push, once the cause is dealt with.&quot;);
+            }
+<span class="fc" id="L199">            log.info(&quot;Pushed &quot; + in.branch() + &quot; to origin&quot;);</span>
+        }
+<span class="fc" id="L201">    }</span>
+
+    private static void must(Result result, String what) {
+<span class="pc bpc" id="L204" title="1 of 2 branches missed.">        if (!result.ok()) {</span>
+<span class="nc" id="L205">            throw new MojoException(what + &quot; failed: &quot; + result.reason());</span>
+        }
+<span class="fc" id="L207">    }</span>
+
+    /**
+     * Runs git in a folder. It never asks at a terminal.
+     *
+     * @param folder  where it runs
+     * @param seconds how long it may take
+     * @param args    git's arguments
+     * @return how it ended
+     * @throws MojoException if git cannot be started
+     */
+    static Result git(Path folder, int seconds, String... args) {
+<span class="fc" id="L219">        List&lt;String&gt; command = new ArrayList&lt;&gt;(List.of(&quot;git&quot;));</span>
+<span class="fc" id="L220">        command.addAll(List.of(args));</span>
+        try {
+<span class="fc" id="L222">            Path output = Files.createTempFile(&quot;ike-kb-remote-&quot;, &quot;.out&quot;);</span>
+            try {
+<span class="fc" id="L224">                ProcessBuilder builder = new ProcessBuilder(command).directory(folder.toFile())</span>
+<span class="fc" id="L225">                        .redirectErrorStream(true).redirectOutput(output.toFile());</span>
+<span class="fc" id="L226">                builder.environment().put(&quot;GIT_TERMINAL_PROMPT&quot;, &quot;0&quot;);</span>
+<span class="fc" id="L227">                Process process = builder.start();</span>
+<span class="pc bpc" id="L228" title="1 of 2 branches missed.">                if (!process.waitFor(seconds, TimeUnit.SECONDS)) {</span>
+<span class="nc" id="L229">                    process.descendants().forEach(ProcessHandle::destroy);</span>
+<span class="nc" id="L230">                    process.destroy();</span>
+<span class="nc" id="L231">                    return new Result(-1, Files.readString(output, StandardCharsets.UTF_8));</span>
+                }
+<span class="fc" id="L233">                return new Result(process.exitValue(), Files.readString(output, StandardCharsets.UTF_8));</span>
+            } finally {
+<span class="fc" id="L235">                Files.deleteIfExists(output);</span>
+            }
+<span class="nc" id="L237">        } catch (IOException e) {</span>
+<span class="nc" id="L238">            throw new MojoException(&quot;Cannot run: &quot; + String.join(&quot; &quot;, command), e);</span>
+<span class="nc" id="L239">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L240">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L241">            throw new MojoException(&quot;Interrupted running: &quot; + String.join(&quot; &quot;, command), e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

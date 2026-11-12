@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbRemotePlan.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbRemotePlan.java</span></div><h1>KbRemotePlan.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import network.ike.workspace.ManifestWriter;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * What giving a project its remote does (IKE-Network/ike-issues#1370, decision 4): a
+ * knowledge-base project is created with no remote and its own folder, as a {@code file:}
+ * URL, in the {@code &lt;scm&gt;} of its POM and in the {@code repo:} of a working set's
+ * {@code workspace.yaml}. Adding a remote sets {@code origin}, replaces those URLs, commits
+ * the change, and pushes. The remote is the project's own: the Maven project that builds
+ * the knowledge base, not the knowledge base it builds.
+ *
+ * &lt;p&gt;The plan is pure: everything it is made from was read beforehand, so it can be
+ * checked and shown before anything is changed. Publish applies exactly this plan.
+ */
+final class KbRemotePlan {
+
+    /** A URL with a scheme git reads. */
+<span class="fc" id="L44">    private static final Pattern URL = Pattern.compile(&quot;^(https?|ssh|git|file)://\\S+$&quot;);</span>
+
+    /** The short form, {@code user@host:path}. */
+<span class="fc" id="L47">    private static final Pattern SCP = Pattern.compile(&quot;^([\\w.-]+)@([\\w.-]+):(\\S+)$&quot;);</span>
+
+    /** {@code ssh://user@host[:port]/path}. */
+<span class="fc" id="L50">    private static final Pattern SSH = Pattern.compile(&quot;^ssh://(?:[\\w.-]+@)?([\\w.-]+)(?::\\d+)?/(\\S+)$&quot;);</span>
+
+    /**
+     * What a POM's {@code &lt;scm&gt;} names.
+     *
+     * @param url                 where a person reads the repository
+     * @param connection          how it is read, as {@code scm:git:…}
+     * @param developerConnection how it is written to, as {@code scm:git:…}
+     */
+<span class="fc" id="L59">    record Scm(String url, String connection, String developerConnection) {</span>
+
+        /**
+         * The values by the name of their element.
+         *
+         * @return element name to value
+         */
+        Map&lt;String, String&gt; values() {
+<span class="fc" id="L67">            Map&lt;String, String&gt; values = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L68">            values.put(&quot;url&quot;, url);</span>
+<span class="fc" id="L69">            values.put(&quot;connection&quot;, connection);</span>
+<span class="fc" id="L70">            values.put(&quot;developerConnection&quot;, developerConnection);</span>
+<span class="fc" id="L71">            return values;</span>
+        }
+    }
+
+    /**
+     * What the remote answered when it was asked for its branches.
+     *
+     * @param reachable  whether it answered
+     * @param error      why it did not, or blank
+     * @param branchHead the commit its branch of the project's name is at, when it has one
+     * @param contained  whether the project's history already contains that commit, so a
+     *                   push only adds to it
+     * @param branches   how many branches it has
+     */
+<span class="fc" id="L85">    record Probe(boolean reachable, String error, Optional&lt;String&gt; branchHead, boolean contained, int branches) {</span>
+
+        /** A remote that was not asked: the push is skipped. */
+<span class="fc" id="L88">        static final Probe NOT_ASKED = new Probe(false, &quot;&quot;, Optional.empty(), false, 0);</span>
+    }
+
+    /**
+     * Everything the plan is made from.
+     *
+     * @param root            the project's folder, the root of its git repository
+     * @param pom             the text of its {@code pom.xml}
+     * @param remote          the remote's URL, as given
+     * @param origin          the URL {@code origin} already names, when there is one
+     * @param branch          the branch checked out
+     * @param pomUncommitted  whether {@code pom.xml} has uncommitted changes
+     * @param probe           what the remote answered
+     * @param manifest        the {@code workspace.yaml} of the working set the project is a
+     *                        member of, when it is one
+     * @param manifestYaml    that file's text
+     * @param push            whether the branch is pushed once the remote is set
+     */
+<span class="fc" id="L106">    record Inputs(Path root, String pom, String remote, Optional&lt;String&gt; origin, String branch, boolean pomUncommitted,</span>
+                  Probe probe, Optional&lt;Path&gt; manifest, Optional&lt;String&gt; manifestYaml, boolean push) {
+    }
+
+    private final Inputs in;
+    private final String remote;
+    private final Scm current;
+    private final Scm wanted;
+    private final String newPom;
+    private final Optional&lt;String&gt; newManifest;
+
+    /**
+     * Builds and checks the plan.
+     *
+     * @param inputs everything it is made from
+     * @throws IllegalArgumentException if the remote is no git URL, the POM has no
+     *                                  {@code &lt;scm&gt;} or already names another remote,
+     *                                  {@code origin} already names another remote, or
+     *                                  {@code pom.xml} has uncommitted changes
+     */
+<span class="fc" id="L126">    KbRemotePlan(Inputs inputs) {</span>
+<span class="fc" id="L127">        this.in = Objects.requireNonNull(inputs, &quot;inputs&quot;);</span>
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">        this.remote = inputs.remote() == null ? &quot;&quot; : inputs.remote().strip();</span>
+<span class="fc bfc" id="L129" title="All 2 branches covered.">        if (remote.isEmpty()) {</span>
+<span class="fc" id="L130">            throw new IllegalArgumentException(&quot;Name the remote with -Dremote=&lt;git URL&gt;, such as&quot;</span>
+                    + &quot; -Dremote=https://github.com/my-org/my-kb.git&quot;);
+        }
+<span class="pc bpc" id="L133" title="1 of 4 branches missed.">        if (!URL.matcher(remote).matches() &amp;&amp; !SCP.matcher(remote).matches()) {</span>
+<span class="fc" id="L134">            throw new IllegalArgumentException(&quot;-Dremote is not a git URL: &quot; + remote + &quot;. Use https://…,&quot;</span>
+                    + &quot; ssh://…, or user@host:path.&quot;);
+        }
+<span class="fc" id="L137">        Map&lt;String, String&gt; scm = PomRewriter.readScm(inputs.pom());</span>
+<span class="fc bfc" id="L138" title="All 2 branches covered.">        if (scm.isEmpty()) {</span>
+<span class="fc" id="L139">            throw new IllegalArgumentException(&quot;pom.xml has no &lt;scm&gt; to point at the remote. A project made&quot;</span>
+                    + &quot; by ike:kb-create-publish has one.&quot;);
+        }
+<span class="fc" id="L142">        this.current = new Scm(scm.getOrDefault(&quot;url&quot;, &quot;&quot;), scm.getOrDefault(&quot;connection&quot;, &quot;&quot;),</span>
+<span class="fc" id="L143">                scm.getOrDefault(&quot;developerConnection&quot;, &quot;&quot;));</span>
+<span class="fc" id="L144">        this.wanted = scmFor(remote);</span>
+<span class="pc bpc" id="L145" title="1 of 4 branches missed.">        boolean local = current.connection().startsWith(&quot;scm:git:file:&quot;) || current.url().startsWith(&quot;file:&quot;);</span>
+<span class="pc bpc" id="L146" title="1 of 4 branches missed.">        if (!local &amp;&amp; !current.equals(wanted)) {</span>
+<span class="fc" id="L147">            throw new IllegalArgumentException(&quot;pom.xml already names a remote, &quot; + current.url()</span>
+                    + &quot;. To move the project to another, change its &lt;scm&gt; and origin by hand.&quot;);
+        }
+<span class="fc bfc" id="L150" title="All 4 branches covered.">        if (inputs.origin().isPresent() &amp;&amp; !inputs.origin().get().equals(remote)) {</span>
+<span class="fc" id="L151">            throw new IllegalArgumentException(&quot;origin is already &quot; + inputs.origin().get()</span>
+                    + &quot;. To move the project to another remote, change origin by hand.&quot;);
+        }
+<span class="fc" id="L154">        this.newPom = PomRewriter.updateScm(inputs.pom(), wanted.values());</span>
+<span class="fc bfc" id="L155" title="All 4 branches covered.">        if (pomChanges() &amp;&amp; inputs.pomUncommitted()) {</span>
+<span class="fc" id="L156">            throw new IllegalArgumentException(&quot;pom.xml has uncommitted changes. Commit them first, so the&quot;</span>
+                    + &quot; commit that names the remote contains nothing else.&quot;);
+        }
+<span class="fc" id="L159">        String member = inputs.root().getFileName().toString();</span>
+<span class="fc" id="L160">        this.newManifest = inputs.manifestYaml()</span>
+<span class="fc" id="L161">                .map(yaml -&gt; ManifestWriter.updateSubprojectField(yaml, member, &quot;repo&quot;, remote))</span>
+<span class="pc bpc" id="L162" title="1 of 2 branches missed.">                .filter(yaml -&gt; !yaml.equals(inputs.manifestYaml().get()));</span>
+<span class="fc" id="L163">    }</span>
+
+    /**
+     * What a POM's {@code &lt;scm&gt;} names for a remote: the URL as given to read from and
+     * write to, and the address a person opens, which for an SSH remote is the same
+     * repository over HTTPS.
+     *
+     * @param remote the remote's URL
+     * @return the three values
+     */
+    static Scm scmFor(String remote) {
+<span class="fc" id="L174">        String browse = remote;</span>
+<span class="fc" id="L175">        Matcher scp = SCP.matcher(remote);</span>
+<span class="fc" id="L176">        Matcher ssh = SSH.matcher(remote);</span>
+<span class="fc bfc" id="L177" title="All 2 branches covered.">        if (scp.matches()) {</span>
+<span class="fc" id="L178">            browse = &quot;https://&quot; + scp.group(2) + &quot;/&quot; + scp.group(3);</span>
+<span class="fc bfc" id="L179" title="All 2 branches covered.">        } else if (ssh.matches()) {</span>
+<span class="fc" id="L180">            browse = &quot;https://&quot; + ssh.group(1) + &quot;/&quot; + ssh.group(2);</span>
+        }
+<span class="pc bpc" id="L182" title="1 of 4 branches missed.">        if (!browse.startsWith(&quot;file:&quot;) &amp;&amp; browse.endsWith(&quot;.git&quot;)) {</span>
+<span class="fc" id="L183">            browse = browse.substring(0, browse.length() - &quot;.git&quot;.length());</span>
+        }
+<span class="fc" id="L185">        return new Scm(browse, &quot;scm:git:&quot; + remote, &quot;scm:git:&quot; + remote);</span>
+    }
+
+    /**
+     * What the plan is made from.
+     *
+     * @return the inputs
+     */
+    Inputs inputs() {
+<span class="fc" id="L194">        return in;</span>
+    }
+
+    /**
+     * The remote, as it is given to git.
+     *
+     * @return the URL
+     */
+    String remote() {
+<span class="fc" id="L203">        return remote;</span>
+    }
+
+    /**
+     * Whether {@code pom.xml} is rewritten and committed.
+     *
+     * @return {@code false} when it already names the remote
+     */
+    boolean pomChanges() {
+<span class="fc bfc" id="L212" title="All 2 branches covered.">        return !newPom.equals(in.pom());</span>
+    }
+
+    /**
+     * The POM with its {@code &lt;scm&gt;} naming the remote.
+     *
+     * @return the POM's text
+     */
+    String newPom() {
+<span class="fc" id="L221">        return newPom;</span>
+    }
+
+    /**
+     * Whether {@code origin} is added.
+     *
+     * @return {@code false} when it already names the remote
+     */
+    boolean addOrigin() {
+<span class="fc" id="L230">        return in.origin().isEmpty();</span>
+    }
+
+    /**
+     * The working set's {@code workspace.yaml} with the member's {@code repo:} naming the
+     * remote, when the project is a member and the file changes.
+     *
+     * @return the file's new text
+     */
+    Optional&lt;String&gt; newManifest() {
+<span class="fc" id="L240">        return newManifest;</span>
+    }
+
+    /**
+     * Why the push would fail, known before anything is changed: the remote did not
+     * answer, or its branch has commits the project does not.
+     *
+     * @return the reason, a sentence, or empty when the push can go ahead or is skipped
+     */
+    Optional&lt;String&gt; pushProblem() {
+<span class="fc bfc" id="L250" title="All 2 branches covered.">        if (!in.push()) {</span>
+<span class="fc" id="L251">            return Optional.empty();</span>
+        }
+<span class="fc" id="L253">        Probe probe = in.probe();</span>
+<span class="fc bfc" id="L254" title="All 2 branches covered.">        if (!probe.reachable()) {</span>
+<span class="pc bpc" id="L255" title="1 of 2 branches missed.">            return Optional.of(&quot;The remote could not be read&quot; + (probe.error().isBlank() ? &quot;&quot; : &quot;: &quot; + probe.error())</span>
+                    + &quot;. Create the repository on the git host first, empty, and check that you are signed in.&quot;);
+        }
+<span class="fc bfc" id="L258" title="All 4 branches covered.">        if (probe.branchHead().isPresent() &amp;&amp; !probe.contained()) {</span>
+<span class="fc" id="L259">            return Optional.of(&quot;The remote already has a branch &quot; + in.branch() + &quot; with commits this project&quot;</span>
+                    + &quot; does not have. Use an empty repository, or one that is this project's own.&quot;);
+        }
+<span class="fc" id="L262">        return Optional.empty();</span>
+    }
+
+    /**
+     * The commit message for the POM.
+     *
+     * @return the message
+     */
+    String commitMessage() {
+<span class="fc" id="L271">        return &quot;Point &quot; + in.root().getFileName() + &quot; at its remote\n\n&quot;</span>
+                + &quot;Generated by ike:kb-remote-publish: the &lt;scm&gt; of pom.xml names &quot; + remote
+                + &quot; in place of the project's own folder.&quot;;
+    }
+
+    /**
+     * The report the draft and publish goals both print.
+     *
+     * @return the report's lines
+     */
+    List&lt;String&gt; report() {
+<span class="fc" id="L282">        List&lt;String&gt; lines = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L283">        lines.add(&quot;Add remote: &quot; + in.root().getFileName());</span>
+<span class="fc" id="L284">        lines.add(&quot;  Folder:       &quot; + in.root());</span>
+<span class="fc" id="L285">        lines.add(&quot;  Remote:       &quot; + remote + &quot;  (&quot; + remoteState() + &quot;)&quot;);</span>
+<span class="fc bfc" id="L286" title="All 2 branches covered.">        lines.add(&quot;  origin:       &quot; + (addOrigin() ? &quot;added&quot; : &quot;already set&quot;));</span>
+<span class="fc bfc" id="L287" title="All 2 branches covered.">        if (pomChanges()) {</span>
+<span class="fc" id="L288">            lines.add(&quot;  pom.xml scm:  url                  &quot; + current.url() + &quot; → &quot; + wanted.url());</span>
+<span class="fc" id="L289">            lines.add(&quot;                connection           &quot; + current.connection() + &quot; → &quot; + wanted.connection());</span>
+<span class="fc" id="L290">            lines.add(&quot;                developerConnection  &quot; + current.developerConnection() + &quot; → &quot;</span>
+<span class="fc" id="L291">                    + wanted.developerConnection());</span>
+<span class="fc" id="L292">            lines.add(&quot;  Commit:       Point &quot; + in.root().getFileName() + &quot; at its remote (pom.xml alone)&quot;);</span>
+        } else {
+<span class="fc" id="L294">            lines.add(&quot;  pom.xml scm:  already names the remote&quot;);</span>
+        }
+<span class="fc" id="L296">        newManifest.ifPresent(yaml -&gt; lines.add(&quot;  Working set:  repo: of &quot; + in.root().getFileName() + &quot; in &quot;</span>
+<span class="fc" id="L297">                + in.manifest().map(Path::toString).orElse(&quot;workspace.yaml&quot;) + &quot; → &quot; + remote + &quot;, committed there&quot;));</span>
+<span class="fc bfc" id="L298" title="All 2 branches covered.">        lines.add(&quot;  Push:         &quot; + (in.push() ? &quot;branch &quot; + in.branch() + &quot; to origin, which it then tracks&quot;</span>
+<span class="fc" id="L299">                : &quot;skipped (-DskipPush); push it with git push -u origin &quot; + in.branch()));</span>
+<span class="fc" id="L300">        return lines;</span>
+    }
+
+    private String remoteState() {
+<span class="fc" id="L304">        Probe probe = in.probe();</span>
+<span class="fc bfc" id="L305" title="All 2 branches covered.">        if (!in.push()) {</span>
+<span class="fc" id="L306">            return &quot;not asked&quot;;</span>
+        }
+<span class="pc bpc" id="L308" title="1 of 2 branches missed.">        if (!probe.reachable()) {</span>
+<span class="nc" id="L309">            return &quot;could not be read&quot;;</span>
+        }
+<span class="fc bfc" id="L311" title="All 2 branches covered.">        if (probe.branchHead().isEmpty()) {</span>
+<span class="pc bpc" id="L312" title="1 of 2 branches missed.">            return probe.branches() == 0 ? &quot;empty&quot; : &quot;has no branch &quot; + in.branch();</span>
+        }
+<span class="pc bpc" id="L314" title="1 of 2 branches missed.">        return probe.contained() ? &quot;has branch &quot; + in.branch() + &quot;, which this project already contains&quot;</span>
+<span class="nc" id="L315">                : &quot;has branch &quot; + in.branch() + &quot; with other commits&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

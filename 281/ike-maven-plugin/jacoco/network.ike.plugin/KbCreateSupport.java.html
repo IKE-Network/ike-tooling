@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbCreateSupport.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbCreateSupport.java</span></div><h1>KbCreateSupport.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import network.ike.plugin.scaffold.DirectoryTemplateSource;
+import network.ike.plugin.scaffold.ManifestEntry;
+import network.ike.plugin.scaffold.ModelAdapters;
+import network.ike.plugin.scaffold.PathResolver;
+import network.ike.plugin.scaffold.ScaffoldApplier;
+import network.ike.plugin.scaffold.ScaffoldLockfile;
+import network.ike.plugin.scaffold.ScaffoldLockfileIo;
+import network.ike.plugin.scaffold.ScaffoldManifest;
+import network.ike.plugin.scaffold.ScaffoldMojoSupport;
+import network.ike.plugin.scaffold.ScaffoldPlan;
+import network.ike.plugin.scaffold.ScaffoldPlanner;
+import network.ike.plugin.scaffold.ScaffoldScope;
+import network.ike.plugin.scaffold.TierHandlers;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.MojoException;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+/**
+ * Shared mechanics of the {@code ike:kb-create-*} goals (IKE-Network/ike-issues#1370):
+ * the {@code kb/} templates and the project scaffold both come from the
+ * {@code ike-build-standards} scaffold zip of this plugin's own version, the one source
+ * the starter-set genesis and {@code ike:scaffold-publish} read too.
+ */
+final class KbCreateSupport {
+
+    /** The template directory inside the scaffold artifact. */
+    static final String TEMPLATE_ROOT = &quot;kb&quot;;
+
+    private KbCreateSupport() {
+    }
+
+    /**
+     * Unpacks the {@code ike-build-standards} scaffold zip matching this plugin's version.
+     *
+     * @param session the Maven session, for artifact resolution
+     * @param into    an empty directory to unpack into
+     * @return the scaffold tree's root, holding {@code scaffold-manifest.yaml}
+     * @throws MojoException if the artifact cannot be resolved or unpacked
+     */
+    static Path unpackScaffold(Session session, Path into) {
+        String coordinates = &quot;network.ike.tooling:ike-build-standards:zip:scaffold:&quot;
+<span class="nc" id="L76">                + StarterSetCreateSupport.pluginVersion();</span>
+        Path zipPath;
+        try {
+<span class="nc" id="L79">            zipPath = session.resolveArtifact(session.createArtifactCoordinates(coordinates)).getPath();</span>
+<span class="nc" id="L80">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L81">            throw new MojoException(&quot;Cannot resolve the standards scaffold artifact &quot; + coordinates</span>
+                    + &quot; carrying the knowledge-base templates&quot;, e);
+<span class="nc" id="L83">        }</span>
+<span class="nc" id="L84">        try (ZipFile zip = new ZipFile(zipPath.toFile())) {</span>
+<span class="nc" id="L85">            Path root = into.toAbsolutePath().normalize();</span>
+<span class="nc" id="L86">            Enumeration&lt;? extends ZipEntry&gt; entries = zip.entries();</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">            while (entries.hasMoreElements()) {</span>
+<span class="nc" id="L88">                ZipEntry entry = entries.nextElement();</span>
+<span class="nc" id="L89">                Path target = root.resolve(entry.getName()).normalize();</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">                if (!target.startsWith(root)) {</span>
+<span class="nc" id="L91">                    throw new MojoException(&quot;The scaffold artifact holds an entry outside its root: &quot;</span>
+<span class="nc" id="L92">                            + entry.getName());</span>
+                }
+<span class="nc bnc" id="L94" title="All 2 branches missed.">                if (entry.isDirectory()) {</span>
+<span class="nc" id="L95">                    Files.createDirectories(target);</span>
+<span class="nc" id="L96">                    continue;</span>
+                }
+<span class="nc" id="L98">                Files.createDirectories(target.getParent());</span>
+<span class="nc" id="L99">                try (InputStream in = zip.getInputStream(entry)) {</span>
+<span class="nc" id="L100">                    Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);</span>
+                }
+<span class="nc" id="L102">            }</span>
+<span class="nc" id="L103">            return root;</span>
+<span class="nc" id="L104">        } catch (IOException e) {</span>
+<span class="nc" id="L105">            throw new MojoException(&quot;Cannot unpack the standards scaffold artifact &quot; + zipPath, e);</span>
+        }
+    }
+
+    /**
+     * Reads the {@code kb/} templates of a scaffold tree.
+     *
+     * @param scaffoldRoot the scaffold tree's root
+     * @return template path within {@code kb/} to its text, sorted
+     * @throws MojoException if the tree has no {@code kb/} templates
+     */
+    static Map&lt;String, String&gt; templates(Path scaffoldRoot) {
+<span class="fc" id="L117">        Path root = scaffoldRoot.resolve(TEMPLATE_ROOT);</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">        if (!Files.isDirectory(root)) {</span>
+<span class="fc" id="L119">            throw new MojoException(&quot;The scaffold at &quot; + scaffoldRoot + &quot; carries no knowledge-base&quot;</span>
+                    + &quot; templates (kb/) — ike-build-standards and ike-maven-plugin versions must match&quot;);
+        }
+<span class="fc" id="L122">        Map&lt;String, String&gt; templates = new TreeMap&lt;&gt;();</span>
+<span class="fc" id="L123">        try (Stream&lt;Path&gt; files = Files.walk(root)) {</span>
+<span class="fc bfc" id="L124" title="All 2 branches covered.">            for (Path file : files.filter(Files::isRegularFile).toList()) {</span>
+<span class="fc" id="L125">                String relative = root.relativize(file).toString().replace('\\', '/');</span>
+<span class="fc" id="L126">                templates.put(relative, Files.readString(file, StandardCharsets.UTF_8));</span>
+<span class="fc" id="L127">            }</span>
+<span class="nc" id="L128">        } catch (IOException e) {</span>
+<span class="nc" id="L129">            throw new MojoException(&quot;Cannot read the knowledge-base templates under &quot; + root, e);</span>
+<span class="fc" id="L130">        }</span>
+<span class="fc" id="L131">        return templates;</span>
+    }
+
+    /**
+     * The {@code ike-parent} version the scaffold tested its standards with: the default
+     * parent of a new project.
+     *
+     * @param scaffoldRoot the scaffold tree's root
+     * @return the version
+     * @throws MojoException if the manifest names no foundation parent
+     */
+    static String foundationParentVersion(Path scaffoldRoot) {
+<span class="fc" id="L143">        ScaffoldManifest manifest = ScaffoldMojoSupport.loadManifest(scaffoldRoot);</span>
+<span class="pc bpc" id="L144" title="2 of 4 branches missed.">        if (manifest.foundation() == null || manifest.foundation().parent() == null) {</span>
+<span class="nc" id="L145">            throw new MojoException(&quot;The scaffold manifest names no foundation parent; set -DparentVersion&quot;);</span>
+        }
+<span class="fc" id="L147">        return manifest.foundation().parent().version();</span>
+    }
+
+    /**
+     * The files the project scope of the scaffold writes, by project-relative path: the
+     * wrapper, {@code .mvn}, {@code .gitignore}, {@code CLAUDE.md}, {@code README.md}.
+     *
+     * @param scaffoldRoot the scaffold tree's root
+     * @return the paths
+     */
+    static List&lt;String&gt; projectScaffoldFiles(Path scaffoldRoot) {
+<span class="fc" id="L158">        ScaffoldManifest manifest = ScaffoldMojoSupport.loadManifest(scaffoldRoot);</span>
+<span class="fc" id="L159">        List&lt;String&gt; paths = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L160" title="All 2 branches covered.">        for (ManifestEntry entry : manifest.entriesInScope(ScaffoldScope.PROJECT)) {</span>
+<span class="fc" id="L161">            paths.add(entry.dest());</span>
+<span class="fc" id="L162">        }</span>
+<span class="fc" id="L163">        paths.add(&quot;.ike/scaffold.lock&quot;);</span>
+<span class="fc" id="L164">        return paths;</span>
+    }
+
+    /**
+     * Applies the scaffold's project scope to a new project, as {@code ike:scaffold-publish}
+     * does, and writes its lockfile. The user scope ({@code ~/.gitconfig},
+     * {@code ~/.m2/settings.xml}) is left alone: creating a project changes nothing outside
+     * it.
+     *
+     * @param scaffoldRoot the scaffold tree's root
+     * @param projectRoot  the new project
+     * @param userHome     the user's home, which the manifest's paths resolve against
+     * @return the project-relative paths the scaffold wrote, lockfile included
+     */
+    static List&lt;String&gt; applyProjectScaffold(Path scaffoldRoot, Path projectRoot, Path userHome) {
+<span class="fc" id="L179">        ScaffoldManifest manifest = ScaffoldMojoSupport.loadManifest(scaffoldRoot);</span>
+<span class="fc" id="L180">        PathResolver resolver = new PathResolver(userHome, projectRoot);</span>
+<span class="fc" id="L181">        ScaffoldPlanner planner = new ScaffoldPlanner(new TierHandlers(), new ModelAdapters());</span>
+<span class="fc" id="L182">        Path lockPath = ScaffoldMojoSupport.projectLockfilePath(projectRoot);</span>
+<span class="fc" id="L183">        ScaffoldLockfile lockfile = ScaffoldMojoSupport.loadLockfileOrEmpty(lockPath);</span>
+<span class="fc" id="L184">        ScaffoldPlan plan = planner.plan(manifest, lockfile, ScaffoldScope.PROJECT, resolver,</span>
+                new DirectoryTemplateSource(scaffoldRoot));
+<span class="fc" id="L186">        ScaffoldLockfile applied = new ScaffoldApplier().apply(plan, lockfile);</span>
+<span class="fc" id="L187">        ScaffoldLockfileIo.write(applied, lockPath);</span>
+<span class="fc" id="L188">        List&lt;String&gt; written = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L189" title="All 2 branches covered.">        for (String path : projectScaffoldFiles(scaffoldRoot)) {</span>
+<span class="pc bpc" id="L190" title="1 of 2 branches missed.">            if (Files.exists(projectRoot.resolve(path))) {</span>
+<span class="fc" id="L191">                written.add(path);</span>
+            }
+<span class="fc" id="L193">        }</span>
+<span class="fc" id="L194">        return written;</span>
+    }
+
+    /**
+     * Runs a command in a directory, logging its output, and fails on a non-zero exit.
+     *
+     * @param log       where its output goes
+     * @param directory where it runs
+     * @param command   the command and its arguments
+     * @throws MojoException if it cannot run or exits non-zero
+     */
+    static void run(Log log, Path directory, String... command) {
+        try {
+<span class="nc" id="L207">            Process process = new ProcessBuilder(command)</span>
+<span class="nc" id="L208">                    .directory(directory.toFile())</span>
+<span class="nc" id="L209">                    .redirectErrorStream(true)</span>
+<span class="nc" id="L210">                    .start();</span>
+<span class="nc" id="L211">            try (BufferedReader reader = new BufferedReader(</span>
+<span class="nc" id="L212">                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {</span>
+<span class="nc" id="L213">                String line = reader.readLine();</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">                while (line != null) {</span>
+<span class="nc" id="L215">                    log.info(&quot;[kb-create] &quot; + line);</span>
+<span class="nc" id="L216">                    line = reader.readLine();</span>
+                }
+            }
+<span class="nc" id="L219">            int exit = process.waitFor();</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (exit != 0) {</span>
+<span class="nc" id="L221">                throw new MojoException(&quot;Step failed (exit &quot; + exit + &quot;): &quot; + String.join(&quot; &quot;, command));</span>
+            }
+<span class="nc" id="L223">        } catch (IOException e) {</span>
+<span class="nc" id="L224">            throw new MojoException(&quot;Cannot run: &quot; + String.join(&quot; &quot;, command), e);</span>
+<span class="nc" id="L225">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L226">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L227">            throw new MojoException(&quot;Interrupted running: &quot; + String.join(&quot; &quot;, command), e);</span>
+<span class="nc" id="L228">        }</span>
+<span class="nc" id="L229">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
