@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbCreatePublishMojo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbCreatePublishMojo.java</span></div><h1>KbCreatePublishMojo.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Mojo;
+import org.apache.maven.api.plugin.annotations.Parameter;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * Creates a new knowledge-base project, the executing half of the {@code ike:kb-create-*}
+ * pair (IKE-Network/ike-issues#1370): pins every knowledge source, writes the POM and files the
+ * {@code kb/} templates render, applies the standards scaffold's project scope (wrapper,
+ * {@code .mvn}, {@code .gitignore}, {@code CLAUDE.md}, {@code README.md}), makes a local
+ * git repository with one commit and no remote, and proves the project by running
+ * {@code ./mvnw validate} in it.
+ *
+ * &lt;p&gt;Run {@code ike:kb-create-draft} first: publish creates exactly what the draft showed.
+ * The folder may exist (a caller may have put the Maven wrapper in it), but never with a
+ * {@code pom.xml} or a {@code .git} in it. The project's {@code &lt;scm&gt;} names its own folder
+ * as a {@code file:} URL until a remote is added (decision 4).
+ *
+ * @since 280
+ */
+@Mojo(name = IkeGoal.NAME_KB_CREATE_PUBLISH, projectRequired = false)
+public class KbCreatePublishMojo extends KbCreateParameters implements org.apache.maven.api.plugin.Mojo {
+
+    /** Creates this goal instance. */
+<span class="fc" id="L52">    public KbCreatePublishMojo() {}</span>
+
+    @Inject
+    private org.apache.maven.api.plugin.Log log;
+
+    @Inject
+    private Session session;
+
+    /**
+     * Skip {@code ./mvnw validate} in the new project, for use without a network; the
+     * project must then be built before first use.
+     */
+    @Parameter(property = &quot;skipVerify&quot;, defaultValue = &quot;false&quot;)
+    boolean skipVerify;
+
+    /**
+     * Creates, commits and validates the project.
+     *
+     * @throws MojoException if the folder already holds a project, a knowledge source cannot be
+     *                       pinned, a file cannot be written, git fails, or the new
+     *                       project does not validate
+     */
+    @Override
+    public void execute() {
+<span class="nc" id="L76">        Path scaffold = null;</span>
+        try {
+<span class="nc" id="L78">            scaffold = Files.createTempDirectory(&quot;ike-kb-create-&quot;);</span>
+<span class="nc" id="L79">            Path root = KbCreateSupport.unpackScaffold(session, scaffold);</span>
+<span class="nc" id="L80">            KbCreatePlan plan = plan(session, log, root);</span>
+<span class="nc" id="L81">            Path target = target();</span>
+<span class="nc" id="L82">            refuseExisting(target);</span>
+<span class="nc" id="L83">            Map&lt;String, String&gt; files = plan.render(KbCreateSupport.templates(root));</span>
+<span class="nc" id="L84">            List&lt;String&gt; written = new ArrayList&lt;&gt;(write(target, files));</span>
+<span class="nc" id="L85">            written.addAll(KbCreateSupport.applyProjectScaffold(root, target, Path.of(System.getProperty(&quot;user.home&quot;))));</span>
+<span class="nc" id="L86">            commit(target, plan, written);</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">            if (skipVerify) {</span>
+<span class="nc" id="L88">                log.warn(&quot;Validation skipped (-DskipVerify): build the project before first use.&quot;);</span>
+            } else {
+<span class="nc" id="L90">                log.info(&quot;Validating the new project (./mvnw validate) …&quot;);</span>
+<span class="nc" id="L91">                KbCreateSupport.run(log, target, wrapper(target), &quot;-B&quot;, &quot;-q&quot;, &quot;validate&quot;);</span>
+<span class="nc" id="L92">                log.info(&quot;The new project validates.&quot;);</span>
+            }
+<span class="nc bnc" id="L94" title="All 2 branches missed.">            for (String line : plan.report(target.toString())) {</span>
+<span class="nc" id="L95">                log.info(line);</span>
+<span class="nc" id="L96">            }</span>
+<span class="nc" id="L97">            log.info(&quot;  Files:&quot;);</span>
+<span class="nc" id="L98">            written.forEach(file -&gt; log.info(&quot;    &quot; + file));</span>
+<span class="nc" id="L99">            log.info(&quot;Next:&quot;);</span>
+<span class="nc" id="L100">            log.info(&quot;  cd &quot; + target);</span>
+<span class="nc" id="L101">            log.info(&quot;  ./mvnw verify    assemble and verify the knowledge base&quot;);</span>
+<span class="nc" id="L102">            log.info(&quot;  ./mvnw deploy    publish it to &quot; + plan.inputs().distributionId());</span>
+<span class="nc" id="L103">            log.info(&quot;  To publish the repository: git remote add origin &lt;url&gt;, replace the three&quot;</span>
+                    + &quot; &lt;scm&gt; URLs in pom.xml with it, then git push -u origin main.&quot;);
+<span class="nc" id="L105">        } catch (IOException e) {</span>
+<span class="nc" id="L106">            throw new MojoException(&quot;Cannot create the knowledge base: &quot; + e.getMessage(), e);</span>
+        } finally {
+<span class="nc" id="L108">            KbCreateDraftMojo.deleteQuietly(scaffold);</span>
+        }
+<span class="nc" id="L110">    }</span>
+
+    /**
+     * Refuses a folder that already holds a project: creation runs once.
+     *
+     * @param target the project's folder
+     * @throws MojoException if it holds a {@code pom.xml} or a {@code .git}
+     */
+    static void refuseExisting(Path target) {
+<span class="fc bfc" id="L119" title="All 4 branches covered.">        if (Files.isRegularFile(target.resolve(&quot;pom.xml&quot;)) || Files.exists(target.resolve(&quot;.git&quot;))) {</span>
+<span class="fc" id="L120">            throw new MojoException(&quot;Creation runs once — &quot; + target + &quot; already holds a project&quot;</span>
+                    + &quot; (a pom.xml or a .git). Choose another -Dname or -DtargetDirectory.&quot;);
+        }
+<span class="fc" id="L123">    }</span>
+
+    /**
+     * Writes the rendered files.
+     *
+     * @param target the project's folder
+     * @param files  project-relative path to content
+     * @return the paths written
+     * @throws IOException if a file cannot be written
+     */
+    static List&lt;String&gt; write(Path target, Map&lt;String, String&gt; files) throws IOException {
+<span class="fc" id="L134">        List&lt;String&gt; written = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L135" title="All 2 branches covered.">        for (Map.Entry&lt;String, String&gt; file : files.entrySet()) {</span>
+<span class="fc" id="L136">            Path path = target.resolve(file.getKey());</span>
+<span class="fc" id="L137">            Files.createDirectories(path.getParent());</span>
+<span class="fc" id="L138">            Files.writeString(path, file.getValue(), StandardCharsets.UTF_8);</span>
+<span class="fc" id="L139">            written.add(file.getKey());</span>
+<span class="fc" id="L140">        }</span>
+<span class="fc" id="L141">        return written;</span>
+    }
+
+    private void commit(Path target, KbCreatePlan plan, List&lt;String&gt; written) {
+<span class="nc" id="L145">        KbCreateSupport.run(log, target, &quot;git&quot;, &quot;init&quot;, &quot;-q&quot;, &quot;-b&quot;, &quot;main&quot;);</span>
+<span class="nc" id="L146">        List&lt;String&gt; add = new ArrayList&lt;&gt;(List.of(&quot;git&quot;, &quot;add&quot;, &quot;--&quot;));</span>
+<span class="nc" id="L147">        add.addAll(written);</span>
+<span class="nc" id="L148">        KbCreateSupport.run(log, target, add.toArray(new String[0]));</span>
+<span class="nc" id="L149">        KbCreateSupport.run(log, target, &quot;git&quot;, &quot;commit&quot;, &quot;-q&quot;, &quot;-m&quot;,</span>
+<span class="nc" id="L150">                &quot;Genesis of &quot; + plan.inputs().artifactId() + &quot; (&quot; + plan.displayName() + &quot;)\n\n&quot;</span>
+<span class="nc" id="L151">                        + &quot;Generated by ike:kb-create-publish: a &quot; + plan.inputs().kind().label()</span>
+<span class="nc" id="L152">                        + &quot; publishing &quot; + String.join(&quot;, &quot;, plan.publishes()) + &quot;.&quot;);</span>
+<span class="nc" id="L153">    }</span>
+
+    private static String wrapper(Path target) {
+<span class="nc" id="L156">        boolean windows = System.getProperty(&quot;os.name&quot;, &quot;&quot;).toLowerCase(Locale.ROOT).startsWith(&quot;windows&quot;);</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        return target.resolve(windows ? &quot;mvnw.cmd&quot; : &quot;mvnw&quot;).toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

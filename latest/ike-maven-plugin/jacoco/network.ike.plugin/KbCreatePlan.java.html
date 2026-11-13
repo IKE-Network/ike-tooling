@@ -30,15 +30,15 @@ import java.util.stream.Collectors;
 
 /**
  * The genesis plan of a new knowledge-base project (IKE-Network/ike-issues#1370): its
- * coordinates, its pinned layers, whether it builds a Rocks store and with what heap, and
+ * coordinates, its pinned knowledge sources, whether it builds a Rocks store and with what heap, and
  * the files it writes, rendered from the {@code kb/} templates of ike-build-standards.
- * Pure: the layers arrive already pinned, and nothing here reads the network or the disk,
+ * Pure: the knowledge sources arrive already pinned, and nothing here reads the network or the disk,
  * so the draft and publish goals render the same facts and the plan is unit-testable.
  *
  * &lt;p&gt;The sizing rules are the issue's decision 6, from the knowledge-base descriptors on
  * Nexus (2026-11-11): a spined store's loaded heap comes to about
  * {@value #LOADED_HEAP_PER_INPUT_BYTE} times the total size of its input protobufs
- * (3.3 to 3.9 measured), so an assembly builds a Rocks store when its layers total
+ * (3.3 to 3.9 measured), so an assembly builds a Rocks store when its knowledge sources total
  * {@value #ROCKS_THRESHOLD_GIB} GiB or more: an estimated loaded heap of 8 GiB, past what
  * an ordinary machine gives a spined store to open and classify.
  */
@@ -66,8 +66,8 @@ final class KbCreatePlan {
     static final double REASONER_PER_LOADED_BYTE = 3.2;
 
     /**
-     * What an import adds to a source layer's live heap, per byte loaded. Not measured;
-     * the existing source layers run with heaps of 2 to 10 times their loaded store.
+     * What an import adds to a source's live heap, per byte loaded. Not measured;
+     * the existing sources run with heaps of 2 to 10 times their loaded store.
      */
     static final double IMPORT_PER_LOADED_BYTE = 1.0;
 
@@ -103,12 +103,12 @@ final class KbCreatePlan {
      * @param standalone            whether the project is its own Maven root
      *                              ({@code root=&quot;true&quot;}); {@code false} inside a workspace
      * @param scmUrl                the {@code file:} URL of the project's own folder
-     * @param layers                the protobuf layers, pinned, in load order
+     * @param knowledge sources                the knowledge sources, pinned, in load order
      * @param importer              the source importer's name, such as {@code snomed-rf2},
-     *                              for a source layer
-     * @param release               the source release, pinned, for a source layer given
+     *                              for a source
+     * @param release               the source release, pinned, for a source given
      *                              by coordinate
-     * @param releasePath           the source release as a file path, for a source layer
+     * @param releasePath           the source release as a file path, for a source
      *                              given by path
      * @param importerOptions       the importer's {@code name=value} options, or {@code null}
      * @param collection            the dashboard collection, or {@code null} for none
@@ -119,7 +119,7 @@ final class KbCreatePlan {
      * @param rocks                 {@code true} or {@code false} to force the Rocks store
      *                              either way, {@code null} to decide by size
      * @param heap                  the build heap, such as {@code -Xmx24g}, or {@code null}
-     *                              to size it from the layers
+     *                              to size it from the knowledge sources
      * @param editModule            the knowledge base's module UUID, whose versions alone
      *                              the authoring keeps, or {@code null} to keep every version
      * @param providerVersion       the {@code ike-knowledge-provider} version
@@ -130,16 +130,16 @@ final class KbCreatePlan {
      */
     record Inputs(KbKind kind, String groupId, String artifactId, String version,
                   String displayName, String description, String parentVersion,
-                  boolean standalone, String scmUrl, List&lt;KbLayer&gt; layers,
-                  String importer, KbLayer release, String releasePath, String importerOptions,
+                  boolean standalone, String scmUrl, List&lt;KbKnowledgeSource&gt; knowledgeSources,
+                  String importer, KbKnowledgeSource release, String releasePath, String importerOptions,
                   String collection, String distributionId, String releasesUrl,
                   String snapshotsUrl, String siteUrl, Boolean rocks, String heap,
                   String editModule, String providerVersion, String tinkarCoreVersion,
                   String rocksKbVersion, String rocksdbjniVersion, String rocksdbjniClassifier) {
 
-        /** Copies the layer list. */
+        /** Copies the knowledge source list. */
 <span class="fc" id="L141">        Inputs {</span>
-<span class="fc" id="L142">            layers = List.copyOf(layers);</span>
+<span class="fc" id="L142">            knowledgeSources = List.copyOf(knowledgeSources);</span>
 <span class="fc" id="L143">        }</span>
     }
 
@@ -154,16 +154,16 @@ final class KbCreatePlan {
      *
      * @param inputs everything it is made from
      * @throws IllegalArgumentException if the inputs break a rule of a knowledge base:
-     *                                  a malformed name, a source layer without its
+     *                                  a malformed name, a source without its
      *                                  importer and release, an assembly with one, a
-     *                                  layer twice, a starter set out of first place, or
+     *                                  knowledge source twice, a starter set out of first place, or
      *                                  reasoned and unreasoned protobufs together
      */
 <span class="fc" id="L162">    KbCreatePlan(Inputs inputs) {</span>
 <span class="fc" id="L163">        this.in = Objects.requireNonNull(inputs, &quot;inputs&quot;);</span>
 <span class="fc" id="L164">        check(inputs);</span>
 <span class="fc bfc" id="L165" title="All 2 branches covered.">        this.rocks = inputs.kind() == KbKind.ASSEMBLY</span>
-<span class="fc bfc" id="L166" title="All 6 branches covered.">                &amp;&amp; (inputs.rocks() != null ? inputs.rocks() : layerBytes() &gt;= ROCKS_THRESHOLD_GIB * GIB);</span>
+<span class="fc bfc" id="L166" title="All 6 branches covered.">                &amp;&amp; (inputs.rocks() != null ? inputs.rocks() : knowledgeSourceBytes() &gt;= ROCKS_THRESHOLD_GIB * GIB);</span>
 <span class="pc bpc" id="L167" title="1 of 4 branches missed.">        this.heap = inputs.heap() != null &amp;&amp; !inputs.heap().isBlank()</span>
 <span class="fc" id="L168">                ? inputs.heap().strip()</span>
 <span class="fc" id="L169">                : &quot;-Xmx&quot; + estimatedHeapGib() + &quot;g&quot;;</span>
@@ -176,25 +176,25 @@ final class KbCreatePlan {
 <span class="fc" id="L176">    }</span>
 
     /**
-     * Puts the starter set first when the layers need it: every knowledge base loads the
-     * IKE starter set before anything else, unless a {@code reasoned-pb} layer is its base,
+     * Puts the starter set first when the knowledge sources need it: every knowledge base loads the
+     * IKE starter set before anything else, unless a {@code reasoned-pb} knowledge source is its base,
      * which is standalone and already carries it.
      *
-     * @param requested         the layers as requested, in load order
+     * @param requested         the knowledge sources as requested, in load order
      * @param starterSetVersion the starter set's version when it is added
-     * @return the layers to pin, in load order
+     * @return the knowledge sources to pin, in load order
      */
-    static List&lt;KbLayer&gt; withStarterSet(List&lt;KbLayer&gt; requested, String starterSetVersion) {
-<span class="fc" id="L188">        boolean present = requested.stream().anyMatch(KbLayer::starterSet);</span>
-<span class="fc" id="L189">        boolean standaloneBase = requested.stream().anyMatch(KbLayer::reasoned);</span>
+    static List&lt;KbKnowledgeSource&gt; withStarterSet(List&lt;KbKnowledgeSource&gt; requested, String starterSetVersion) {
+<span class="fc" id="L188">        boolean present = requested.stream().anyMatch(KbKnowledgeSource::starterSet);</span>
+<span class="fc" id="L189">        boolean standaloneBase = requested.stream().anyMatch(KbKnowledgeSource::reasoned);</span>
 <span class="fc bfc" id="L190" title="All 4 branches covered.">        if (present || standaloneBase) {</span>
 <span class="fc" id="L191">            return List.copyOf(requested);</span>
         }
-<span class="fc" id="L193">        List&lt;KbLayer&gt; layers = new ArrayList&lt;&gt;();</span>
-<span class="fc" id="L194">        layers.add(KbLayer.parse(KbLayer.STARTER_SET_GROUP + &quot;:&quot; + KbLayer.STARTER_SET_ARTIFACT</span>
-                + &quot;:zip:&quot; + KbLayer.UNREASONED + &quot;:&quot; + starterSetVersion));
-<span class="fc" id="L196">        layers.addAll(requested);</span>
-<span class="fc" id="L197">        return List.copyOf(layers);</span>
+<span class="fc" id="L193">        List&lt;KbKnowledgeSource&gt; knowledgeSources = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L194">        knowledgeSources.add(KbKnowledgeSource.parse(KbKnowledgeSource.STARTER_SET_GROUP + &quot;:&quot; + KbKnowledgeSource.STARTER_SET_ARTIFACT</span>
+                + &quot;:zip:&quot; + KbKnowledgeSource.UNREASONED + &quot;:&quot; + starterSetVersion));
+<span class="fc" id="L196">        knowledgeSources.addAll(requested);</span>
+<span class="fc" id="L197">        return List.copyOf(knowledgeSources);</span>
     }
 
     private static void check(Inputs in) {
@@ -208,43 +208,43 @@ final class KbCreatePlan {
 <span class="pc bpc" id="L208" title="2 of 4 branches missed.">        if (in.version() == null || in.version().isBlank()) {</span>
 <span class="nc" id="L209">            throw new IllegalArgumentException(&quot;-Dversion is blank&quot;);</span>
         }
-<span class="fc bfc" id="L211" title="All 2 branches covered.">        if (in.layers().isEmpty()) {</span>
-<span class="fc" id="L212">            throw new IllegalArgumentException(&quot;A knowledge base needs at least one layer&quot;);</span>
+<span class="fc bfc" id="L211" title="All 2 branches covered.">        if (in.knowledgeSources().isEmpty()) {</span>
+<span class="fc" id="L212">            throw new IllegalArgumentException(&quot;A knowledge base needs at least one knowledge source&quot;);</span>
         }
 <span class="pc bpc" id="L214" title="1 of 4 branches missed.">        boolean source = in.importer() != null &amp;&amp; !in.importer().isBlank();</span>
 <span class="pc bpc" id="L215" title="1 of 6 branches missed.">        boolean release = in.release() != null || (in.releasePath() != null &amp;&amp; !in.releasePath().isBlank());</span>
-<span class="fc bfc" id="L216" title="All 6 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER &amp;&amp; (!source || !release)) {</span>
-<span class="fc" id="L217">            throw new IllegalArgumentException(&quot;A source layer needs -Dimporter (such as snomed-rf2)&quot;</span>
+<span class="fc bfc" id="L216" title="All 6 branches covered.">        if (in.kind() == KbKind.SOURCE &amp;&amp; (!source || !release)) {</span>
+<span class="fc" id="L217">            throw new IllegalArgumentException(&quot;A source needs -Dimporter (such as snomed-rf2)&quot;</span>
                     + &quot; and -Drelease (the release's coordinate or path)&quot;);
         }
 <span class="pc bpc" id="L220" title="1 of 6 branches missed.">        if (in.kind() == KbKind.ASSEMBLY &amp;&amp; (source || release)) {</span>
 <span class="fc" id="L221">            throw new IllegalArgumentException(&quot;An assembly imports no release: -Dimporter and -Drelease&quot;</span>
-<span class="fc" id="L222">                    + &quot; belong to -Dkind=&quot; + KbKind.SOURCE_LAYER.parameterValue());</span>
+<span class="fc" id="L222">                    + &quot; belong to -Dkind=&quot; + KbKind.SOURCE.parameterValue());</span>
         }
-<span class="fc bfc" id="L224" title="All 4 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER &amp;&amp; Boolean.TRUE.equals(in.rocks())) {</span>
-<span class="fc" id="L225">            throw new IllegalArgumentException(&quot;A source layer is loaded only under an assembly and&quot;</span>
+<span class="fc bfc" id="L224" title="All 4 branches covered.">        if (in.kind() == KbKind.SOURCE &amp;&amp; Boolean.TRUE.equals(in.rocks())) {</span>
+<span class="fc" id="L225">            throw new IllegalArgumentException(&quot;A source is loaded only under an assembly and&quot;</span>
                     + &quot; builds no Rocks store; -Drocks=true belongs to an assembly&quot;);
         }
 <span class="fc" id="L228">        Set&lt;String&gt; seen = new HashSet&lt;&gt;();</span>
-<span class="fc bfc" id="L229" title="All 2 branches covered.">        for (KbLayer layer : in.layers()) {</span>
-<span class="fc bfc" id="L230" title="All 2 branches covered.">            if (!seen.add(layer.groupId() + &quot;:&quot; + layer.artifactId())) {</span>
-<span class="fc" id="L231">                throw new IllegalArgumentException(&quot;A layer is listed twice: &quot;</span>
-<span class="fc" id="L232">                        + layer.groupId() + &quot;:&quot; + layer.artifactId());</span>
+<span class="fc bfc" id="L229" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc bfc" id="L230" title="All 2 branches covered.">            if (!seen.add(knowledgeSource.groupId() + &quot;:&quot; + knowledgeSource.artifactId())) {</span>
+<span class="fc" id="L231">                throw new IllegalArgumentException(&quot;A knowledge source is listed twice: &quot;</span>
+<span class="fc" id="L232">                        + knowledgeSource.groupId() + &quot;:&quot; + knowledgeSource.artifactId());</span>
             }
 <span class="fc" id="L234">        }</span>
-<span class="fc bfc" id="L235" title="All 2 branches covered.">        for (int index = 1; index &lt; in.layers().size(); index++) {</span>
-<span class="fc bfc" id="L236" title="All 2 branches covered.">            if (in.layers().get(index).starterSet()) {</span>
+<span class="fc bfc" id="L235" title="All 2 branches covered.">        for (int index = 1; index &lt; in.knowledgeSources().size(); index++) {</span>
+<span class="fc bfc" id="L236" title="All 2 branches covered.">            if (in.knowledgeSources().get(index).starterSet()) {</span>
 <span class="fc" id="L237">                throw new IllegalArgumentException(&quot;The starter set loads first, before every&quot;</span>
-                        + &quot; layer that resolves to its identities; it is listed at position &quot; + (index + 1));
+                        + &quot; knowledge source that resolves to its identities; it is listed at position &quot; + (index + 1));
             }
         }
-<span class="fc" id="L241">        boolean reasoned = in.layers().stream().anyMatch(KbLayer::reasoned);</span>
-<span class="fc" id="L242">        boolean unreasoned = in.layers().stream().anyMatch(KbLayer::unreasoned);</span>
+<span class="fc" id="L241">        boolean reasoned = in.knowledgeSources().stream().anyMatch(KbKnowledgeSource::reasoned);</span>
+<span class="fc" id="L242">        boolean unreasoned = in.knowledgeSources().stream().anyMatch(KbKnowledgeSource::unreasoned);</span>
 <span class="fc bfc" id="L243" title="All 4 branches covered.">        if (reasoned &amp;&amp; unreasoned) {</span>
 <span class="fc" id="L244">            throw new IllegalArgumentException(&quot;Reasoned and unreasoned protobufs are refused together&quot;</span>
                     + &quot; until kb-assemble is confirmed to accept the mix (IKE-Network/ike-issues#1370,&quot;
-<span class="fc" id="L246">                    + &quot; decision 10): &quot; + in.layers().stream()</span>
-<span class="fc" id="L247">                    .map(layer -&gt; layer.artifactId() + &quot;:&quot; + layer.classifier())</span>
+<span class="fc" id="L246">                    + &quot; decision 10): &quot; + in.knowledgeSources().stream()</span>
+<span class="fc" id="L247">                    .map(knowledgeSource -&gt; knowledgeSource.artifactId() + &quot;:&quot; + knowledgeSource.classifier())</span>
 <span class="fc" id="L248">                    .collect(Collectors.joining(&quot;, &quot;)));</span>
         }
 <span class="fc" id="L250">    }</span>
@@ -273,17 +273,17 @@ final class KbCreatePlan {
      * @return a sentence for the report
      */
     String rocksReason() {
-<span class="fc bfc" id="L276" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER) {</span>
-<span class="fc" id="L277">            return &quot;a source layer is loaded only under an assembly&quot;;</span>
+<span class="fc bfc" id="L276" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="fc" id="L277">            return &quot;a source is loaded only under an assembly&quot;;</span>
         }
 <span class="fc bfc" id="L279" title="All 2 branches covered.">        if (in.rocks() != null) {</span>
 <span class="fc" id="L280">            return &quot;set by -Drocks=&quot; + in.rocks();</span>
         }
-<span class="fc" id="L282">        String total = gib(layerBytes());</span>
-<span class="fc bfc" id="L283" title="All 2 branches covered.">        String known = unknownSizes() == 0 ? &quot;&quot; : &quot; (&quot; + unknownSizes() + &quot; layer size(s) unknown)&quot;;</span>
+<span class="fc" id="L282">        String total = gib(knowledgeSourceBytes());</span>
+<span class="fc bfc" id="L283" title="All 2 branches covered.">        String known = unknownSizes() == 0 ? &quot;&quot; : &quot; (&quot; + unknownSizes() + &quot; knowledge source size(s) unknown)&quot;;</span>
 <span class="fc bfc" id="L284" title="All 2 branches covered.">        return rocks</span>
-<span class="fc" id="L285">                ? &quot;the layers total &quot; + total + known + &quot;, at or above &quot; + ROCKS_THRESHOLD_GIB + &quot; GiB&quot;</span>
-<span class="fc" id="L286">                : &quot;the layers total &quot; + total + known + &quot;, below &quot; + ROCKS_THRESHOLD_GIB + &quot; GiB&quot;;</span>
+<span class="fc" id="L285">                ? &quot;the knowledge sources total &quot; + total + known + &quot;, at or above &quot; + ROCKS_THRESHOLD_GIB + &quot; GiB&quot;</span>
+<span class="fc" id="L286">                : &quot;the knowledge sources total &quot; + total + known + &quot;, below &quot; + ROCKS_THRESHOLD_GIB + &quot; GiB&quot;;</span>
     }
 
     /**
@@ -314,35 +314,35 @@ final class KbCreatePlan {
     }
 
     /**
-     * The total size of the protobuf layers whose size the repository reported.
+     * The total size of the knowledge sources whose size the repository reported.
      *
      * @return bytes
      */
-    long layerBytes() {
-<span class="fc bfc" id="L322" title="All 2 branches covered.">        return in.layers().stream().mapToLong(KbLayer::sizeBytes).filter(bytes -&gt; bytes &gt; 0).sum();</span>
+    long knowledgeSourceBytes() {
+<span class="fc bfc" id="L322" title="All 2 branches covered.">        return in.knowledgeSources().stream().mapToLong(KbKnowledgeSource::sizeBytes).filter(bytes -&gt; bytes &gt; 0).sum();</span>
     }
 
     /**
-     * How many layers' sizes the repository did not report.
+     * How many knowledge sources' sizes the repository did not report.
      *
      * @return the count
      */
     long unknownSizes() {
-<span class="fc bfc" id="L331" title="All 2 branches covered.">        return in.layers().stream().filter(layer -&gt; layer.sizeBytes() &lt; 0).count();</span>
+<span class="fc bfc" id="L331" title="All 2 branches covered.">        return in.knowledgeSources().stream().filter(knowledgeSource -&gt; knowledgeSource.sizeBytes() &lt; 0).count();</span>
     }
 
     /**
-     * The loaded heap a spined store of these layers is estimated to hold.
+     * The loaded heap a spined store of these knowledge sources is estimated to hold.
      *
      * @return bytes
      */
     long estimatedLoadedBytes() {
-<span class="fc" id="L340">        return (long) Math.ceil(LOADED_HEAP_PER_INPUT_BYTE * layerBytes());</span>
+<span class="fc" id="L340">        return (long) Math.ceil(LOADED_HEAP_PER_INPUT_BYTE * knowledgeSourceBytes());</span>
     }
 
     /**
      * The heap the build is given when none is set: the estimated loaded heap, plus what
-     * the reasoner (an assembly) or the import (a source layer) adds, with the collector's
+     * the reasoner (an assembly) or the import (a source) adds, with the collector's
      * room above it, never under {@value #MINIMUM_HEAP_GIB} GiB.
      *
      * @return whole GiB
@@ -433,15 +433,15 @@ final class KbCreatePlan {
         }
 <span class="fc" id="L434">        out.append(property(fragment, &quot;network.ike.knowledge__GA__ike-knowledge-provider__VERSION&quot;,</span>
 <span class="fc" id="L435">                in.providerVersion(), &quot;The assembler kb-assemble runs.&quot;));</span>
-<span class="fc bfc" id="L436" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER) {</span>
+<span class="fc bfc" id="L436" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
 <span class="fc" id="L437">            out.append(property(fragment, &quot;dev.ikm.tinkar__GA__tinkar-core__VERSION&quot;, in.tinkarCoreVersion(),</span>
 <span class="fc" id="L438">                    &quot;The &quot; + in.importer().strip() + &quot; importer's release train.&quot;));</span>
         }
-<span class="fc bfc" id="L440" title="All 2 branches covered.">        for (KbLayer layer : in.layers()) {</span>
-<span class="fc" id="L441">            out.append(property(fragment, layer.versionProperty(), layer.pinnedVersion(),</span>
-<span class="fc" id="L442">                    layerComment(layer)));</span>
+<span class="fc bfc" id="L440" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L441">            out.append(property(fragment, knowledgeSource.versionProperty(), knowledgeSource.pinnedVersion(),</span>
+<span class="fc" id="L442">                    knowledgeSourceComment(knowledgeSource)));</span>
 <span class="fc" id="L443">        }</span>
-<span class="fc bfc" id="L444" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER) {</span>
+<span class="fc bfc" id="L444" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
 <span class="fc bfc" id="L445" title="All 2 branches covered.">            String release = in.release() != null</span>
 <span class="fc" id="L446">                    ? in.release().coordinate(in.release().pinnedVersion())</span>
 <span class="fc" id="L447">                    : in.releasePath().strip();</span>
@@ -463,7 +463,7 @@ final class KbCreatePlan {
                     &quot;Every change set harvested from Komet, committed; the build folds them into one.&quot;));
 <span class="fc" id="L464">            out.append(property(fragment, &quot;kb.edits&quot;,</span>
                     &quot;${project.build.directory}/${project.artifactId}-${project.version}-edits.zip&quot;,
-                    &quot;The folded change set, loaded after the layers so its versions win.&quot;));
+                    &quot;The folded change set, loaded after the knowledge sources so its versions win.&quot;));
 <span class="fc" id="L467">            out.append(property(fragment, &quot;kb.install&quot;, &quot;${user.home}/Solor/&quot; + in.artifactId() + &quot;-authoring&quot;,</span>
                     &quot;Where -Pkomet installs the store Komet edits the knowledge base in: not&quot;
 <span class="fc" id="L469">                            + &quot; ~/Solor/&quot; + in.artifactId() + &quot;, where the IKE Dashboard unpacks a published store.&quot;));</span>
@@ -481,7 +481,7 @@ final class KbCreatePlan {
 <span class="fc" id="L481">        out.append(dependency(fragment, &quot;network.ike.knowledge&quot;, &quot;ike-knowledge-provider&quot;,</span>
                 &quot;${network.ike.knowledge__GA__ike-knowledge-provider__VERSION}&quot;, &quot;&quot;, &quot;runtime&quot;,
                 &quot;The assembler.&quot;));
-<span class="fc bfc" id="L484" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER) {</span>
+<span class="fc bfc" id="L484" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
 <span class="fc" id="L485">            out.append(dependency(fragment, &quot;dev.ikm.tinkar&quot;, &quot;importer-&quot; + in.importer().strip(),</span>
                     &quot;${dev.ikm.tinkar__GA__tinkar-core__VERSION}&quot;, &quot;&quot;, &quot;runtime&quot;,
                     &quot;The importer the SOURCE input names.&quot;));
@@ -494,12 +494,12 @@ final class KbCreatePlan {
 <span class="fc" id="L494">                    &quot;\n            &lt;classifier&gt;&quot; + in.rocksdbjniClassifier() + &quot;&lt;/classifier&gt;&quot;, &quot;runtime&quot;,</span>
                     &quot;The engine declares its platform natives optional, so they are named here.&quot;));
         }
-<span class="fc bfc" id="L497" title="All 2 branches covered.">        for (KbLayer layer : in.layers()) {</span>
-<span class="fc" id="L498">            out.append(dependency(fragment, layer.groupId(), layer.artifactId(), &quot;${&quot; + layer.versionProperty() + &quot;}&quot;,</span>
-<span class="fc" id="L499">                    &quot;\n            &lt;type&gt;&quot; + layer.extension() + &quot;&lt;/type&gt;&quot;</span>
-<span class="pc bpc" id="L500" title="1 of 2 branches missed.">                            + (layer.classifier().isEmpty() ? &quot;&quot;</span>
-<span class="fc" id="L501">                            : &quot;\n            &lt;classifier&gt;&quot; + layer.classifier() + &quot;&lt;/classifier&gt;&quot;),</span>
-                    &quot;provided&quot;, &quot;A layer, resolved before assembly.&quot;));
+<span class="fc bfc" id="L497" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L498">            out.append(dependency(fragment, knowledgeSource.groupId(), knowledgeSource.artifactId(), &quot;${&quot; + knowledgeSource.versionProperty() + &quot;}&quot;,</span>
+<span class="fc" id="L499">                    &quot;\n            &lt;type&gt;&quot; + knowledgeSource.extension() + &quot;&lt;/type&gt;&quot;</span>
+<span class="pc bpc" id="L500" title="1 of 2 branches missed.">                            + (knowledgeSource.classifier().isEmpty() ? &quot;&quot;</span>
+<span class="fc" id="L501">                            : &quot;\n            &lt;classifier&gt;&quot; + knowledgeSource.classifier() + &quot;&lt;/classifier&gt;&quot;),</span>
+                    &quot;provided&quot;, &quot;A knowledge source, resolved before assembly.&quot;));
 <span class="fc" id="L503">        }</span>
 <span class="fc" id="L504">        return trimTrailingNewline(out.toString());</span>
     }
@@ -508,16 +508,16 @@ final class KbCreatePlan {
 <span class="fc" id="L508">        String input = template(templates, &quot;fragments/input.xml&quot;);</span>
 <span class="fc" id="L509">        StringBuilder inputs = new StringBuilder();</span>
 <span class="fc" id="L510">        StringBuilder baseInputs = new StringBuilder();</span>
-<span class="fc bfc" id="L511" title="All 2 branches covered.">        for (KbLayer layer : in.layers()) {</span>
-<span class="fc" id="L512">            inputs.append(expand(input, Map.of(&quot;element&quot;, &quot;input&quot;, &quot;input&quot;, &quot;PB &quot; + layer.coordinate())));</span>
-<span class="fc" id="L513">            baseInputs.append(expand(input, Map.of(&quot;element&quot;, &quot;baseInput&quot;, &quot;input&quot;, &quot;PB &quot; + layer.coordinate())));</span>
+<span class="fc bfc" id="L511" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L512">            inputs.append(expand(input, Map.of(&quot;element&quot;, &quot;input&quot;, &quot;input&quot;, &quot;PB &quot; + knowledgeSource.coordinate())));</span>
+<span class="fc" id="L513">            baseInputs.append(expand(input, Map.of(&quot;element&quot;, &quot;baseInput&quot;, &quot;input&quot;, &quot;PB &quot; + knowledgeSource.coordinate())));</span>
 <span class="fc" id="L514">        }</span>
-<span class="fc bfc" id="L515" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER) {</span>
+<span class="fc bfc" id="L515" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
 <span class="pc bpc" id="L516" title="2 of 4 branches missed.">            String options = in.importerOptions() == null || in.importerOptions().isBlank()</span>
 <span class="pc" id="L517">                    ? &quot;&quot; : &quot; &quot; + in.importerOptions().strip();</span>
 <span class="fc" id="L518">            inputs.append(expand(input, Map.of(&quot;element&quot;, &quot;input&quot;,</span>
 <span class="fc" id="L519">                    &quot;input&quot;, xml(&quot;SOURCE &quot; + in.importer().strip() + &quot; ${source.release}&quot; + options))));</span>
-<span class="fc" id="L520">            return trimTrailingNewline(expand(template(templates, &quot;fragments/source-layer-plugins.xml&quot;),</span>
+<span class="fc" id="L520">            return trimTrailingNewline(expand(template(templates, &quot;fragments/source-plugins.xml&quot;),</span>
 <span class="fc" id="L521">                    Map.of(&quot;inputs&quot;, inputs.toString(), &quot;baseInputs&quot;, baseInputs.toString())));</span>
         }
 <span class="fc" id="L523">        inputs.append(expand(input, Map.of(&quot;element&quot;, &quot;input&quot;, &quot;input&quot;, &quot;PB ${kb.edits}&quot;)));</span>
@@ -539,16 +539,16 @@ final class KbCreatePlan {
 <span class="fc" id="L539">        tokens.put(&quot;kindLabel&quot;, in.kind().label());</span>
 <span class="fc" id="L540">        tokens.put(&quot;publishes&quot;, publishes().stream().map(coordinate -&gt; &quot;`&quot; + coordinate + &quot;`&quot;)</span>
 <span class="fc" id="L541">                .collect(Collectors.joining(&quot;, &quot;)));</span>
-<span class="fc" id="L542">        StringBuilder layers = new StringBuilder();</span>
-<span class="fc bfc" id="L543" title="All 2 branches covered.">        for (KbLayer layer : in.layers()) {</span>
-<span class="fc" id="L544">            layers.append(&quot;. `&quot;).append(layer.coordinate(layer.pinnedVersion())).append(&quot;`\n&quot;);</span>
+<span class="fc" id="L542">        StringBuilder knowledgeSources = new StringBuilder();</span>
+<span class="fc bfc" id="L543" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L544">            knowledgeSources.append(&quot;. `&quot;).append(knowledgeSource.coordinate(knowledgeSource.pinnedVersion())).append(&quot;`\n&quot;);</span>
 <span class="fc" id="L545">        }</span>
-<span class="fc bfc" id="L546" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER) {</span>
-<span class="fc" id="L547">            layers.append(&quot;. the &quot;).append(in.importer().strip()).append(&quot; release, `source.release`\n&quot;);</span>
+<span class="fc bfc" id="L546" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="fc" id="L547">            knowledgeSources.append(&quot;. the &quot;).append(in.importer().strip()).append(&quot; release, `source.release`\n&quot;);</span>
         } else {
-<span class="fc" id="L549">            layers.append(&quot;. the edits harvested from Komet into `changesets/`\n&quot;);</span>
+<span class="fc" id="L549">            knowledgeSources.append(&quot;. the edits harvested from Komet into `changesets/`\n&quot;);</span>
         }
-<span class="fc" id="L551">        tokens.put(&quot;layerList&quot;, trimTrailingNewline(layers.toString()));</span>
+<span class="fc" id="L551">        tokens.put(&quot;knowledgeSourceList&quot;, trimTrailingNewline(knowledgeSources.toString()));</span>
 <span class="fc" id="L552">        tokens.put(&quot;distributionId&quot;, in.distributionId());</span>
 <span class="fc" id="L553">        tokens.put(&quot;heap&quot;, heap);</span>
 <span class="fc bfc" id="L554" title="All 2 branches covered.">        tokens.put(&quot;authoringSection&quot;, in.kind() != KbKind.ASSEMBLY ? &quot;&quot; : &quot;&quot;&quot;</span>
@@ -575,17 +575,17 @@ final class KbCreatePlan {
 <span class="fc" id="L575">        lines.add(&quot;  Publishes:    &quot; + String.join(&quot;, &quot;, publishes()));</span>
 <span class="pc bpc" id="L576" title="1 of 2 branches missed.">        lines.add(&quot;  Folder:       &quot; + target + (in.standalone() ? &quot; (its own Maven root)&quot; : &quot; (a workspace member)&quot;));</span>
 <span class="fc" id="L577">        lines.add(&quot;  Parent:       network.ike.platform:ike-parent:&quot; + in.parentVersion());</span>
-<span class="fc" id="L578">        lines.add(&quot;  Layers, in load order, pinned:&quot;);</span>
-<span class="fc bfc" id="L579" title="All 2 branches covered.">        for (KbLayer layer : in.layers()) {</span>
-<span class="fc" id="L580">            lines.add(&quot;    &quot; + layer.coordinate(layer.pinnedVersion()) + size(layer));</span>
+<span class="fc" id="L578">        lines.add(&quot;  Knowledge sources, in load order, pinned:&quot;);</span>
+<span class="fc bfc" id="L579" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L580">            lines.add(&quot;    &quot; + knowledgeSource.coordinate(knowledgeSource.pinnedVersion()) + size(knowledgeSource));</span>
 <span class="fc" id="L581">        }</span>
-<span class="pc bpc" id="L582" title="1 of 2 branches missed.">        if (in.kind() == KbKind.SOURCE_LAYER) {</span>
-<span class="nc" id="L583">            lines.add(&quot;  Source:       &quot; + in.importer().strip() + &quot; &quot;</span>
+<span class="pc bpc" id="L582" title="1 of 2 branches missed.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="nc" id="L583">            lines.add(&quot;  Release:      &quot; + in.importer().strip() + &quot; &quot;</span>
 <span class="nc bnc" id="L584" title="All 2 branches missed.">                    + (in.release() != null ? in.release().coordinate(in.release().pinnedVersion()) + size(in.release())</span>
 <span class="nc" id="L585">                    : in.releasePath().strip())</span>
 <span class="nc bnc" id="L586" title="All 4 branches missed.">                    + (in.importerOptions() == null || in.importerOptions().isBlank() ? &quot;&quot; : &quot; &quot; + in.importerOptions().strip()));</span>
         }
-<span class="fc" id="L588">        lines.add(&quot;  Layers total: &quot; + gib(layerBytes()) + &quot;; estimated loaded heap &quot; + gib(estimatedLoadedBytes()));</span>
+<span class="fc" id="L588">        lines.add(&quot;  Knowledge sources total: &quot; + gib(knowledgeSourceBytes()) + &quot;; estimated loaded heap &quot; + gib(estimatedLoadedBytes()));</span>
 <span class="pc bpc" id="L589" title="1 of 2 branches missed.">        lines.add(&quot;  Rocks store:  &quot; + (rocks ? &quot;yes&quot; : &quot;no&quot;) + &quot; — &quot; + rocksReason());</span>
 <span class="pc bpc" id="L590" title="3 of 4 branches missed.">        lines.add(&quot;  Build heap:   &quot; + heap + (in.heap() != null &amp;&amp; !in.heap().isBlank() ? &quot; (set by -Dheap)&quot; : &quot; (estimated)&quot;));</span>
 <span class="fc" id="L591">        lines.add(&quot;  Deploys to:   &quot; + in.distributionId() + &quot; &quot; + in.snapshotsUrl());</span>
@@ -598,16 +598,16 @@ final class KbCreatePlan {
 <span class="pc bpc" id="L598" title="1 of 4 branches missed.">        if (in.heap() != null &amp;&amp; !in.heap().isBlank()) {</span>
 <span class="fc" id="L599">            return &quot;The build's heap, as set when the project was created.&quot;;</span>
         }
-<span class="fc" id="L601">        return &quot;Sized when the project was created: the layers total &quot; + gib(layerBytes())</span>
+<span class="fc" id="L601">        return &quot;Sized when the project was created: the knowledge sources total &quot; + gib(knowledgeSourceBytes())</span>
                 + &quot;, a spined store about &quot; + (long) LOADED_HEAP_PER_INPUT_BYTE + &quot; times that loaded (&quot;
 <span class="fc" id="L603">                + gib(estimatedLoadedBytes()) + &quot;), plus room for &quot;</span>
 <span class="fc bfc" id="L604" title="All 2 branches covered.">                + (in.kind() == KbKind.ASSEMBLY ? &quot;the reasoner&quot; : &quot;the import&quot;)</span>
                 + &quot; and the collector. Replace it with what the descriptor measures after a build.&quot;;
     }
 
-    private String layerComment(KbLayer layer) {
-<span class="fc" id="L609">        return layer.coordinate(layer.version()) + &quot;, pinned to the deploy on the repository when this&quot;</span>
-<span class="fc" id="L610">                + &quot; project was created&quot; + size(layer) + &quot;.&quot;;</span>
+    private String knowledgeSourceComment(KbKnowledgeSource knowledgeSource) {
+<span class="fc" id="L609">        return knowledgeSource.coordinate(knowledgeSource.version()) + &quot;, pinned to the deploy on the repository when this&quot;</span>
+<span class="fc" id="L610">                + &quot; project was created&quot; + size(knowledgeSource) + &quot;.&quot;;</span>
     }
 
     private String changeSetModules(String indent) {
@@ -619,14 +619,14 @@ final class KbCreatePlan {
 
     private String defaultDescription() {
 <span class="fc" id="L621">        String coordinate = in.groupId() + &quot;:&quot; + in.artifactId() + &quot;:zip:&quot; + publishedClassifier();</span>
-<span class="fc" id="L622">        String layers = in.layers().stream().map(KbLayer::artifactId).collect(Collectors.joining(&quot;, &quot;));</span>
-<span class="fc bfc" id="L623" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE_LAYER) {</span>
+<span class="fc" id="L622">        String knowledgeSources = in.knowledgeSources().stream().map(KbKnowledgeSource::artifactId).collect(Collectors.joining(&quot;, &quot;));</span>
+<span class="fc bfc" id="L623" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
 <span class="fc" id="L624">            return displayName + &quot;: a release read by the &quot; + in.importer().strip() + &quot; importer onto &quot;</span>
-                    + layers + &quot;, exported unclassified as a Tinkar protobuf (format 3) change set,&quot;
+                    + knowledgeSources + &quot;, exported unclassified as a Tinkar protobuf (format 3) change set,&quot;
                     + &quot; published as &quot; + coordinate + &quot;. The release is read in place; nothing&quot;
                     + &quot; licensed is committed here.&quot;;
         }
-<span class="fc" id="L629">        return displayName + &quot;: &quot; + layers + &quot;, with the edits authored in Komet, classified and&quot;</span>
+<span class="fc" id="L629">        return displayName + &quot;: &quot; + knowledgeSources + &quot;, with the edits authored in Komet, classified and&quot;</span>
                 + &quot; exported as a reasoned protobuf change set (format 3) that loads into a Spined&quot;
                 + &quot; Array or RocksDB knowledge base, published as &quot; + coordinate + &quot;.&quot;;
     }
@@ -705,8 +705,8 @@ final class KbCreatePlan {
 <span class="pc bpc" id="L705" title="1 of 2 branches missed.">        return text.endsWith(&quot;\n&quot;) ? text.substring(0, text.length() - 1) : text;</span>
     }
 
-    private static String size(KbLayer layer) {
-<span class="pc bpc" id="L709" title="1 of 2 branches missed.">        return layer.sizeBytes() &lt; 0 ? &quot;&quot; : &quot;, &quot; + gib(layer.sizeBytes());</span>
+    private static String size(KbKnowledgeSource knowledgeSource) {
+<span class="pc bpc" id="L709" title="1 of 2 branches missed.">        return knowledgeSource.sizeBytes() &lt; 0 ? &quot;&quot; : &quot;, &quot; + gib(knowledgeSource.sizeBytes());</span>
     }
 
     /**
@@ -728,8 +728,8 @@ final class KbCreatePlan {
      * @param spec the spec
      * @return the coordinate, when it is one
      */
-    static Optional&lt;KbLayer&gt; coordinateOf(String spec) {
-<span class="nc bnc" id="L732" title="All 2 branches missed.">        return KbLayer.isCoordinate(spec) ? Optional.of(KbLayer.parse(spec)) : Optional.empty();</span>
+    static Optional&lt;KbKnowledgeSource&gt; coordinateOf(String spec) {
+<span class="nc bnc" id="L732" title="All 2 branches missed.">        return KbKnowledgeSource.isCoordinate(spec) ? Optional.of(KbKnowledgeSource.parse(spec)) : Optional.empty();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

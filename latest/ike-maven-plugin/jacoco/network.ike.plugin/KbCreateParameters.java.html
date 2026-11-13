@@ -34,15 +34,15 @@ import java.util.Optional;
 
 /**
  * The shared input surface of the {@code ike:kb-create-*} pair
- * (IKE-Network/ike-issues#1370). Required: the name and, for a source layer, the importer
+ * (IKE-Network/ike-issues#1370). Required: the name and, for a source, the importer
  * and release. Everything else is defaulted from the existing knowledge bases of
- * {@code solor-kb-ws} or derived, and every layer is pinned against the repository before
+ * {@code solor-kb-ws} or derived, and every knowledge source is pinned against the repository before
  * anything is shown or written.
  */
 <span class="fc" id="L42">abstract class KbCreateParameters {</span>
 
-    /** The repository the layers are pinned against unless {@code -DlayerRepository} says. */
-    static final String DEFAULT_LAYER_REPOSITORY = &quot;https://nexus.tinkar.org/repository/ike-restricted/&quot;;
+    /** The repository the knowledge sources are pinned against unless {@code -DknowledgeSourceRepository} says. */
+    static final String DEFAULT_KNOWLEDGE_SOURCE_REPOSITORY = &quot;https://nexus.tinkar.org/repository/ike-restricted/&quot;;
 
     /** The restricted releases repository, the default deploy target (decision 5). */
     static final String DEFAULT_RELEASES = &quot;https://nexus.tinkar.org/repository/ike-restricted-releases/&quot;;
@@ -57,7 +57,7 @@ import java.util.Optional;
     @Parameter(property = &quot;name&quot;)
     String name;
 
-    /** {@code assembly} (the default) or {@code source-layer}. */
+    /** {@code assembly} (the default) or {@code source}. */
     @Parameter(property = &quot;kind&quot;)
     String kind;
 
@@ -73,31 +73,43 @@ import java.util.Optional;
     @Parameter(property = &quot;displayName&quot;)
     String displayName;
 
-    /** The POM {@code &lt;description&gt;}; derived from the kind and layers when absent. */
+    /** The POM {@code &lt;description&gt;}; derived from the kind and knowledge sources when absent. */
     @Parameter(property = &quot;description&quot;)
     String description;
 
     /**
-     * The protobuf layers in load order, comma-separated, each
+     * The knowledge sources in load order, comma-separated, each
      * {@code groupId:artifactId:zip:classifier:version}. The IKE starter set is put first
-     * unless it is listed or a {@code reasoned-pb} layer is the base.
+     * unless it is listed or a {@code reasoned-pb} knowledge source is the base.
      */
+    @Parameter(property = &quot;knowledgeSources&quot;)
+    String knowledgeSources;
+
+    /** Renamed {@code -DknowledgeSources}; refused with that word, so an old command is not silently ignored. */
     @Parameter(property = &quot;layers&quot;)
     String layers;
 
+    /** Renamed {@code -DknowledgeSourceRepository}; refused the same way. */
+    @Parameter(property = &quot;layerRepository&quot;)
+    String layerRepository;
+
+    /** Renamed {@code -DknowledgeSourceRepositoryId}; refused the same way. */
+    @Parameter(property = &quot;layerRepositoryId&quot;)
+    String layerRepositoryId;
+
     /** The starter set's version when it is put first. */
-<span class="fc" id="L89">    @Parameter(property = &quot;starterSetVersion&quot;, defaultValue = &quot;1-SNAPSHOT&quot;)</span>
+<span class="fc" id="L101">    @Parameter(property = &quot;starterSetVersion&quot;, defaultValue = &quot;1-SNAPSHOT&quot;)</span>
     String starterSetVersion = &quot;1-SNAPSHOT&quot;;
 
-    /** A source layer's importer, such as {@code snomed-rf2}: {@code dev.ikm.tinkar:importer-&lt;name&gt;}. */
+    /** A source's importer, such as {@code snomed-rf2}: {@code dev.ikm.tinkar:importer-&lt;name&gt;}. */
     @Parameter(property = &quot;importer&quot;)
     String importer;
 
-    /** A source layer's release: a Maven coordinate (pinned like a layer) or a path. */
+    /** A source's release: a Maven coordinate (pinned like a knowledge source) or a path. */
     @Parameter(property = &quot;release&quot;)
     String release;
 
-    /** A source layer's importer options, such as {@code release=full}. */
+    /** A source's importer options, such as {@code release=full}. */
     @Parameter(property = &quot;importerOptions&quot;)
     String importerOptions;
 
@@ -106,26 +118,26 @@ import java.util.Optional;
     String collection;
 
     /** The deploy repositories' server id. */
-<span class="fc" id="L109">    @Parameter(property = &quot;distributionId&quot;, defaultValue = &quot;ike-restricted&quot;)</span>
+<span class="fc" id="L121">    @Parameter(property = &quot;distributionId&quot;, defaultValue = &quot;ike-restricted&quot;)</span>
     String distributionId = &quot;ike-restricted&quot;;
 
     /** The releases repository a deploy goes to. */
-<span class="fc" id="L113">    @Parameter(property = &quot;releasesUrl&quot;, defaultValue = DEFAULT_RELEASES)</span>
+<span class="fc" id="L125">    @Parameter(property = &quot;releasesUrl&quot;, defaultValue = DEFAULT_RELEASES)</span>
     String releasesUrl = DEFAULT_RELEASES;
 
     /** The snapshots repository a deploy goes to. */
-<span class="fc" id="L117">    @Parameter(property = &quot;snapshotsUrl&quot;, defaultValue = DEFAULT_SNAPSHOTS)</span>
+<span class="fc" id="L129">    @Parameter(property = &quot;snapshotsUrl&quot;, defaultValue = DEFAULT_SNAPSHOTS)</span>
     String snapshotsUrl = DEFAULT_SNAPSHOTS;
 
     /** The site deploy URL ike-parent's enforcer requires; {@code https://ike.network/&lt;name&gt;/} when absent. */
     @Parameter(property = &quot;siteUrl&quot;)
     String siteUrl;
 
-    /** {@code true} or {@code false} to force the Rocks store; decided by the layers' size when absent. */
+    /** {@code true} or {@code false} to force the Rocks store; decided by the knowledge sources' size when absent. */
     @Parameter(property = &quot;rocks&quot;)
     String rocks;
 
-    /** The build heap, such as {@code -Xmx24g}; estimated from the layers when absent. */
+    /** The build heap, such as {@code -Xmx24g}; estimated from the knowledge sources when absent. */
     @Parameter(property = &quot;heap&quot;)
     String heap;
 
@@ -138,32 +150,32 @@ import java.util.Optional;
     String parentVersion;
 
     /** The {@code ike-knowledge-provider} version, as solor-kb-ws pins it. */
-<span class="fc" id="L141">    @Parameter(property = &quot;providerVersion&quot;, defaultValue = &quot;7-SNAPSHOT&quot;)</span>
+<span class="fc" id="L153">    @Parameter(property = &quot;providerVersion&quot;, defaultValue = &quot;7-SNAPSHOT&quot;)</span>
     String providerVersion = &quot;7-SNAPSHOT&quot;;
 
-    /** The {@code tinkar-core} version a source layer's importer comes from, as solor-kb-ws pins it. */
-<span class="fc" id="L145">    @Parameter(property = &quot;tinkarCoreVersion&quot;, defaultValue = &quot;1.127.7-SNAPSHOT&quot;)</span>
+    /** The {@code tinkar-core} version a source's importer comes from, as solor-kb-ws pins it. */
+<span class="fc" id="L157">    @Parameter(property = &quot;tinkarCoreVersion&quot;, defaultValue = &quot;1.127.7-SNAPSHOT&quot;)</span>
     String tinkarCoreVersion = &quot;1.127.7-SNAPSHOT&quot;;
 
     /** The {@code rocks-kb} version, as solor-kb-ws pins it. */
-<span class="fc" id="L149">    @Parameter(property = &quot;rocksKbVersion&quot;, defaultValue = &quot;0.1.5-SNAPSHOT&quot;)</span>
+<span class="fc" id="L161">    @Parameter(property = &quot;rocksKbVersion&quot;, defaultValue = &quot;0.1.5-SNAPSHOT&quot;)</span>
     String rocksKbVersion = &quot;0.1.5-SNAPSHOT&quot;;
 
     /** The {@code rocksdbjni} version, as solor-kb-ws pins it. */
-<span class="fc" id="L153">    @Parameter(property = &quot;rocksdbjniVersion&quot;, defaultValue = &quot;10.4.2-r2&quot;)</span>
+<span class="fc" id="L165">    @Parameter(property = &quot;rocksdbjniVersion&quot;, defaultValue = &quot;10.4.2-r2&quot;)</span>
     String rocksdbjniVersion = &quot;10.4.2-r2&quot;;
 
     /** The {@code rocksdbjni} platform classifier; the existing knowledge bases build on macOS. */
-<span class="fc" id="L157">    @Parameter(property = &quot;rocksdbjniClassifier&quot;, defaultValue = &quot;osx&quot;)</span>
+<span class="fc" id="L169">    @Parameter(property = &quot;rocksdbjniClassifier&quot;, defaultValue = &quot;osx&quot;)</span>
     String rocksdbjniClassifier = &quot;osx&quot;;
 
-    /** The repository the layers are pinned against. */
-<span class="fc" id="L161">    @Parameter(property = &quot;layerRepository&quot;, defaultValue = DEFAULT_LAYER_REPOSITORY)</span>
-    String layerRepository = DEFAULT_LAYER_REPOSITORY;
+    /** The repository the knowledge sources are pinned against. */
+<span class="fc" id="L173">    @Parameter(property = &quot;knowledgeSourceRepository&quot;, defaultValue = DEFAULT_KNOWLEDGE_SOURCE_REPOSITORY)</span>
+    String knowledgeSourceRepository = DEFAULT_KNOWLEDGE_SOURCE_REPOSITORY;
 
-    /** The server id whose login in {@code settings.xml} reads the layer repository. */
-<span class="fc" id="L165">    @Parameter(property = &quot;layerRepositoryId&quot;, defaultValue = &quot;ike-restricted&quot;)</span>
-    String layerRepositoryId = &quot;ike-restricted&quot;;
+    /** The server id whose login in {@code settings.xml} reads the knowledge source repository. */
+<span class="fc" id="L177">    @Parameter(property = &quot;knowledgeSourceRepositoryId&quot;, defaultValue = &quot;ike-restricted&quot;)</span>
+    String knowledgeSourceRepositoryId = &quot;ike-restricted&quot;;
 
     /** The project's folder; {@code &lt;name&gt;} under the directory Maven runs in when absent. */
     @Parameter(property = &quot;targetDirectory&quot;)
@@ -176,79 +188,107 @@ import java.util.Optional;
      * @throws MojoException if no name is given
      */
     Path target() {
-<span class="nc bnc" id="L179" title="All 4 branches missed.">        if (targetDirectory != null &amp;&amp; !targetDirectory.isBlank()) {</span>
-<span class="nc" id="L180">            return Path.of(targetDirectory).toAbsolutePath().normalize();</span>
+<span class="nc bnc" id="L191" title="All 4 branches missed.">        if (targetDirectory != null &amp;&amp; !targetDirectory.isBlank()) {</span>
+<span class="nc" id="L192">            return Path.of(targetDirectory).toAbsolutePath().normalize();</span>
         }
-<span class="nc bnc" id="L182" title="All 4 branches missed.">        if (name == null || name.isBlank()) {</span>
-<span class="nc" id="L183">            throw new MojoException(&quot;A knowledge base needs -Dname, its artifactId, such as -Dname=my-kb&quot;);</span>
+<span class="nc bnc" id="L194" title="All 4 branches missed.">        if (name == null || name.isBlank()) {</span>
+<span class="nc" id="L195">            throw new MojoException(&quot;A knowledge base needs -Dname, its artifactId, such as -Dname=my-kb&quot;);</span>
         }
-<span class="nc" id="L185">        return Path.of(System.getProperty(&quot;user.dir&quot;), name.strip()).toAbsolutePath().normalize();</span>
+<span class="nc" id="L197">        return Path.of(System.getProperty(&quot;user.dir&quot;), name.strip()).toAbsolutePath().normalize();</span>
     }
 
     /**
-     * Pins the layers against the repository and builds the plan.
+     * Refuses the parameter names of {@code ike-maven-plugin} 280 and 281, which called the knowledge
+     * sources &quot;layers&quot; (IKE-Network/ike-issues#1370; KEC, 2026-11-12). A refusal, not an alias, so a
+     * command that still uses the old word says which word replaced it.
+     *
+     * @param layers            the value of {@code -Dlayers}, or {@code null}
+     * @param layerRepository   the value of {@code -DlayerRepository}, or {@code null}
+     * @param layerRepositoryId the value of {@code -DlayerRepositoryId}, or {@code null}
+     * @throws MojoException if any of them is given
+     */
+    static void refuseOldNames(String layers, String layerRepository, String layerRepositoryId) {
+<span class="fc" id="L211">        List&lt;String&gt; renamed = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L212" title="All 2 branches covered.">        if (layers != null) {</span>
+<span class="fc" id="L213">            renamed.add(&quot;-Dlayers is now -DknowledgeSources&quot;);</span>
+        }
+<span class="fc bfc" id="L215" title="All 2 branches covered.">        if (layerRepository != null) {</span>
+<span class="fc" id="L216">            renamed.add(&quot;-DlayerRepository is now -DknowledgeSourceRepository&quot;);</span>
+        }
+<span class="fc bfc" id="L218" title="All 2 branches covered.">        if (layerRepositoryId != null) {</span>
+<span class="fc" id="L219">            renamed.add(&quot;-DlayerRepositoryId is now -DknowledgeSourceRepositoryId&quot;);</span>
+        }
+<span class="fc bfc" id="L221" title="All 2 branches covered.">        if (!renamed.isEmpty()) {</span>
+<span class="fc" id="L222">            throw new MojoException(String.join(&quot;; &quot;, renamed) + &quot;. The knowledge sources were called layers before&quot;</span>
+                    + &quot; ike-maven-plugin 282.&quot;);
+        }
+<span class="fc" id="L225">    }</span>
+
+    /**
+     * Pins the knowledge sources against the repository and builds the plan.
      *
      * @param session      the Maven session, for its settings and offline mode
      * @param log          where progress goes
      * @param scaffoldRoot the unpacked scaffold, for the default parent version
      * @return the plan
-     * @throws MojoException if a parameter is malformed, Maven runs offline, or a layer
+     * @throws MojoException if a parameter is malformed, Maven runs offline, or a knowledge source
      *                       cannot be pinned
      */
     KbCreatePlan plan(Session session, Log log, Path scaffoldRoot) {
-<span class="nc bnc" id="L199" title="All 4 branches missed.">        if (name == null || name.isBlank()) {</span>
-<span class="nc" id="L200">            throw new MojoException(&quot;A knowledge base needs -Dname, its artifactId, such as -Dname=my-kb&quot;);</span>
+<span class="nc" id="L238">        refuseOldNames(layers, layerRepository, layerRepositoryId);</span>
+<span class="nc bnc" id="L239" title="All 4 branches missed.">        if (name == null || name.isBlank()) {</span>
+<span class="nc" id="L240">            throw new MojoException(&quot;A knowledge base needs -Dname, its artifactId, such as -Dname=my-kb&quot;);</span>
         }
-<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (session.getSettings().isOffline()) {</span>
-<span class="nc" id="L203">            throw new MojoException(&quot;Creating a knowledge base pins every layer against &quot;</span>
-                    + layerRepository + &quot;; Maven is offline&quot;);
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        if (session.getSettings().isOffline()) {</span>
+<span class="nc" id="L243">            throw new MojoException(&quot;Creating a knowledge base pins every knowledge source against &quot;</span>
+                    + knowledgeSourceRepository + &quot;; Maven is offline&quot;);
         }
         try {
-<span class="nc" id="L207">            KbKind parsedKind = KbKind.parse(kind);</span>
-<span class="nc" id="L208">            List&lt;KbLayer&gt; requested = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L209" title="All 2 branches missed.">            if (layers != null) {</span>
-<span class="nc bnc" id="L210" title="All 2 branches missed.">                for (String spec : layers.split(&quot;,&quot;)) {</span>
-<span class="nc bnc" id="L211" title="All 2 branches missed.">                    if (!spec.isBlank()) {</span>
-<span class="nc" id="L212">                        requested.add(KbLayer.parse(spec));</span>
+<span class="nc" id="L247">            KbKind parsedKind = KbKind.parse(kind);</span>
+<span class="nc" id="L248">            List&lt;KbKnowledgeSource&gt; requested = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">            if (knowledgeSources != null) {</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">                for (String spec : knowledgeSources.split(&quot;,&quot;)) {</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">                    if (!spec.isBlank()) {</span>
+<span class="nc" id="L252">                        requested.add(KbKnowledgeSource.parse(spec));</span>
                     }
                 }
             }
-<span class="nc" id="L216">            List&lt;KbLayer&gt; ordered = KbCreatePlan.withStarterSet(requested, starterSetVersion);</span>
-<span class="nc" id="L217">            KbLayerResolver resolver = resolver(session, log);</span>
-<span class="nc" id="L218">            List&lt;KbLayer&gt; pinned = new ArrayList&lt;&gt;();</span>
-<span class="nc bnc" id="L219" title="All 2 branches missed.">            for (KbLayer layer : ordered) {</span>
-<span class="nc" id="L220">                log.info(&quot;Pinning &quot; + layer.coordinate(layer.version()) + &quot; …&quot;);</span>
-<span class="nc" id="L221">                pinned.add(resolver.pin(layer));</span>
-<span class="nc" id="L222">            }</span>
-<span class="nc" id="L223">            KbLayer pinnedRelease = null;</span>
-<span class="nc" id="L224">            String releasePath = null;</span>
-<span class="nc bnc" id="L225" title="All 4 branches missed.">            if (release != null &amp;&amp; !release.isBlank()) {</span>
-<span class="nc" id="L226">                Optional&lt;KbLayer&gt; coordinate = KbCreatePlan.coordinateOf(release.strip());</span>
-<span class="nc bnc" id="L227" title="All 2 branches missed.">                if (coordinate.isPresent()) {</span>
-<span class="nc" id="L228">                    log.info(&quot;Pinning &quot; + release.strip() + &quot; …&quot;);</span>
-<span class="nc" id="L229">                    pinnedRelease = resolver.pin(coordinate.get());</span>
+<span class="nc" id="L256">            List&lt;KbKnowledgeSource&gt; ordered = KbCreatePlan.withStarterSet(requested, starterSetVersion);</span>
+<span class="nc" id="L257">            KbKnowledgeSourceResolver resolver = resolver(session, log);</span>
+<span class="nc" id="L258">            List&lt;KbKnowledgeSource&gt; pinned = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">            for (KbKnowledgeSource knowledgeSource : ordered) {</span>
+<span class="nc" id="L260">                log.info(&quot;Pinning &quot; + knowledgeSource.coordinate(knowledgeSource.version()) + &quot; …&quot;);</span>
+<span class="nc" id="L261">                pinned.add(resolver.pin(knowledgeSource));</span>
+<span class="nc" id="L262">            }</span>
+<span class="nc" id="L263">            KbKnowledgeSource pinnedRelease = null;</span>
+<span class="nc" id="L264">            String releasePath = null;</span>
+<span class="nc bnc" id="L265" title="All 4 branches missed.">            if (release != null &amp;&amp; !release.isBlank()) {</span>
+<span class="nc" id="L266">                Optional&lt;KbKnowledgeSource&gt; coordinate = KbCreatePlan.coordinateOf(release.strip());</span>
+<span class="nc bnc" id="L267" title="All 2 branches missed.">                if (coordinate.isPresent()) {</span>
+<span class="nc" id="L268">                    log.info(&quot;Pinning &quot; + release.strip() + &quot; …&quot;);</span>
+<span class="nc" id="L269">                    pinnedRelease = resolver.pin(coordinate.get());</span>
                 } else {
-<span class="nc" id="L231">                    releasePath = release.strip();</span>
+<span class="nc" id="L271">                    releasePath = release.strip();</span>
                 }
             }
-<span class="nc" id="L234">            Path target = target();</span>
-<span class="nc" id="L235">            return new KbCreatePlan(new KbCreatePlan.Inputs(parsedKind, groupId, name.strip(), version,</span>
+<span class="nc" id="L274">            Path target = target();</span>
+<span class="nc" id="L275">            return new KbCreatePlan(new KbCreatePlan.Inputs(parsedKind, groupId, name.strip(), version,</span>
                     displayName, description,
-<span class="nc bnc" id="L237" title="All 4 branches missed.">                    parentVersion != null &amp;&amp; !parentVersion.isBlank() ? parentVersion.strip()</span>
-<span class="nc" id="L238">                            : KbCreateSupport.foundationParentVersion(scaffoldRoot),</span>
-<span class="nc bnc" id="L239" title="All 2 branches missed.">                    !insideWorkspace(target), target.toUri().toString(), pinned,</span>
+<span class="nc bnc" id="L277" title="All 4 branches missed.">                    parentVersion != null &amp;&amp; !parentVersion.isBlank() ? parentVersion.strip()</span>
+<span class="nc" id="L278">                            : KbCreateSupport.foundationParentVersion(scaffoldRoot),</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                    !insideWorkspace(target), target.toUri().toString(), pinned,</span>
                     importer, pinnedRelease, releasePath, importerOptions, collection,
                     distributionId, releasesUrl, snapshotsUrl,
-<span class="nc bnc" id="L242" title="All 4 branches missed.">                    siteUrl != null &amp;&amp; !siteUrl.isBlank() ? siteUrl.strip() : &quot;https://ike.network/&quot; + name.strip() + &quot;/&quot;,</span>
-<span class="nc" id="L243">                    parseRocks(rocks), heap, editModule, providerVersion, tinkarCoreVersion,</span>
+<span class="nc bnc" id="L282" title="All 4 branches missed.">                    siteUrl != null &amp;&amp; !siteUrl.isBlank() ? siteUrl.strip() : &quot;https://ike.network/&quot; + name.strip() + &quot;/&quot;,</span>
+<span class="nc" id="L283">                    parseRocks(rocks), heap, editModule, providerVersion, tinkarCoreVersion,</span>
                     rocksKbVersion, rocksdbjniVersion, rocksdbjniClassifier));
-<span class="nc" id="L245">        } catch (IllegalArgumentException e) {</span>
-<span class="nc" id="L246">            throw new MojoException(e.getMessage(), e);</span>
-<span class="nc" id="L247">        } catch (IOException e) {</span>
-<span class="nc" id="L248">            throw new MojoException(&quot;Cannot pin the layers: &quot; + e.getMessage(), e);</span>
-<span class="nc" id="L249">        } catch (InterruptedException e) {</span>
-<span class="nc" id="L250">            Thread.currentThread().interrupt();</span>
-<span class="nc" id="L251">            throw new MojoException(&quot;Interrupted pinning the layers&quot;, e);</span>
+<span class="nc" id="L285">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L286">            throw new MojoException(e.getMessage(), e);</span>
+<span class="nc" id="L287">        } catch (IOException e) {</span>
+<span class="nc" id="L288">            throw new MojoException(&quot;Cannot pin the knowledge sources: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L289">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L290">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L291">            throw new MojoException(&quot;Interrupted pinning the knowledge sources&quot;, e);</span>
         }
     }
 
@@ -260,8 +300,8 @@ import java.util.Optional;
      * @return {@code true} inside a workspace
      */
     static boolean insideWorkspace(Path target) {
-<span class="fc" id="L263">        Path parent = target.getParent();</span>
-<span class="pc bpc" id="L264" title="1 of 4 branches missed.">        return parent != null &amp;&amp; Files.isRegularFile(parent.resolve(&quot;workspace.yaml&quot;));</span>
+<span class="fc" id="L303">        Path parent = target.getParent();</span>
+<span class="pc bpc" id="L304" title="1 of 4 branches missed.">        return parent != null &amp;&amp; Files.isRegularFile(parent.resolve(&quot;workspace.yaml&quot;));</span>
     }
 
     /**
@@ -272,36 +312,36 @@ import java.util.Optional;
      * @throws IllegalArgumentException for any other value
      */
     static Boolean parseRocks(String value) {
-<span class="pc bpc" id="L275" title="1 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
-<span class="fc" id="L276">            return null;</span>
+<span class="pc bpc" id="L315" title="1 of 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="fc" id="L316">            return null;</span>
         }
-<span class="fc bfc" id="L278" title="All 3 branches covered.">        return switch (value.strip().toLowerCase(Locale.ROOT)) {</span>
-<span class="fc" id="L279">            case &quot;true&quot; -&gt; Boolean.TRUE;</span>
-<span class="fc" id="L280">            case &quot;false&quot; -&gt; Boolean.FALSE;</span>
-<span class="fc" id="L281">            default -&gt; throw new IllegalArgumentException(&quot;-Drocks takes true or false, or nothing to decide by size; got &quot; + value);</span>
+<span class="fc bfc" id="L318" title="All 3 branches covered.">        return switch (value.strip().toLowerCase(Locale.ROOT)) {</span>
+<span class="fc" id="L319">            case &quot;true&quot; -&gt; Boolean.TRUE;</span>
+<span class="fc" id="L320">            case &quot;false&quot; -&gt; Boolean.FALSE;</span>
+<span class="fc" id="L321">            default -&gt; throw new IllegalArgumentException(&quot;-Drocks takes true or false, or nothing to decide by size; got &quot; + value);</span>
         };
     }
 
-    private KbLayerResolver resolver(Session session, Log log) {
-<span class="nc" id="L286">        String username = null;</span>
-<span class="nc" id="L287">        String password = null;</span>
-<span class="nc bnc" id="L288" title="All 2 branches missed.">        for (Server server : session.getSettings().getServers()) {</span>
-<span class="nc bnc" id="L289" title="All 2 branches missed.">            if (layerRepositoryId.equals(server.getId())) {</span>
-<span class="nc" id="L290">                String secret = server.getPassword();</span>
-<span class="nc bnc" id="L291" title="All 6 branches missed.">                if (secret != null &amp;&amp; secret.startsWith(&quot;{&quot;) &amp;&amp; secret.endsWith(&quot;}&quot;)) {</span>
-<span class="nc" id="L292">                    log.warn(&quot;The password for &quot; + layerRepositoryId + &quot; is encrypted; reading &quot;</span>
-                            + layerRepository + &quot; without a login&quot;);
+    private KbKnowledgeSourceResolver resolver(Session session, Log log) {
+<span class="nc" id="L326">        String username = null;</span>
+<span class="nc" id="L327">        String password = null;</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">        for (Server server : session.getSettings().getServers()) {</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            if (knowledgeSourceRepositoryId.equals(server.getId())) {</span>
+<span class="nc" id="L330">                String secret = server.getPassword();</span>
+<span class="nc bnc" id="L331" title="All 6 branches missed.">                if (secret != null &amp;&amp; secret.startsWith(&quot;{&quot;) &amp;&amp; secret.endsWith(&quot;}&quot;)) {</span>
+<span class="nc" id="L332">                    log.warn(&quot;The password for &quot; + knowledgeSourceRepositoryId + &quot; is encrypted; reading &quot;</span>
+                            + knowledgeSourceRepository + &quot; without a login&quot;);
                 } else {
-<span class="nc" id="L295">                    username = server.getUsername();</span>
-<span class="nc" id="L296">                    password = secret;</span>
+<span class="nc" id="L335">                    username = server.getUsername();</span>
+<span class="nc" id="L336">                    password = secret;</span>
                 }
             }
-<span class="nc" id="L299">        }</span>
-<span class="nc bnc" id="L300" title="All 2 branches missed.">        if (username == null) {</span>
-<span class="nc" id="L301">            log.info(&quot;No login for &quot; + layerRepositoryId + &quot; in settings.xml; reading &quot; + layerRepository + &quot; anonymously&quot;);</span>
+<span class="nc" id="L339">        }</span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">        if (username == null) {</span>
+<span class="nc" id="L341">            log.info(&quot;No login for &quot; + knowledgeSourceRepositoryId + &quot; in settings.xml; reading &quot; + knowledgeSourceRepository + &quot; anonymously&quot;);</span>
         }
-<span class="nc" id="L303">        return new KbLayerResolver(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build(),</span>
-<span class="nc" id="L304">                URI.create(layerRepository), username, password, TIMEOUT);</span>
+<span class="nc" id="L343">        return new KbKnowledgeSourceResolver(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build(),</span>
+<span class="nc" id="L344">                URI.create(knowledgeSourceRepository), username, password, TIMEOUT);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

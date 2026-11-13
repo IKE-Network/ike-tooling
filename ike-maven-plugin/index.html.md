@@ -1,6 +1,6 @@
 ---
-date_published: 2026-11-11
-date_modified: 2026-11-11
+date_published: 2026-11-12
+date_modified: 2026-11-12
 canonical_url: https://ike.network/ike-tooling/ike-maven-plugin/index.html
 ---
 
@@ -113,7 +113,7 @@ mvn ike:scaffold-publish
 | changeset-compact | knowledge | Rewrite a format-1 or format-2 change set in format 3 |
 | schema-import | knowledge | Import an XML Schema as a ledger section, a node catalog (HL7 ELM first) |
 | starter-set-create-{draft,publish} | genesis | Genesis of a new starter-set project |
-| kb-create-{draft,publish} | genesis | Create a knowledge-base project from protobuf layers on a Maven repository |
+| kb-create-{draft,publish} | genesis | Create a knowledge-base project from knowledge sources on a Maven repository |
 | kb-remote-{draft,publish} | genesis | Give a knowledge-base project its remote: origin, the POM’s scm, and the push |
 | cascade-export | inspection | Export the foundation release-cascade topology, machine-readable |
 | env | inspection | Print runtime environment diagnostics |

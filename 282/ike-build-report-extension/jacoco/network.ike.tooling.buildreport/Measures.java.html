@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Measures.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Build-Report Extension</a> &gt; <a href="index.source.html" class="el_package">network.ike.tooling.buildreport</a> &gt; <span class="el_source">Measures.java</span></div><h1>Measures.java</h1><pre class="source lang-java linenums">package network.ike.tooling.buildreport;
+
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * What one session was like, in numbers (ike-issues#1207): warnings by
+ * kind, tests, coverage, time, sizes, and whatever measurements its
+ * tests left behind.
+ *
+ * &lt;p&gt;Values are keyed by {@link MeasureKey#key()} for the measures the
+ * extension derives itself, and by the names the ledger or a test
+ * chose for the rest. A quantity the session could not measure is
+ * absent, never zero: a build that ran no tests has no
+ * {@code tests.run}, so a bound on it is reported as not measured
+ * rather than tripped.&lt;/p&gt;
+ *
+ * @param values  the session's measures, in collection order
+ * @param modules per-module measures, keyed by module artifact id and
+ *                then by measure key
+ * @param slowest the slowest test classes, slowest first
+ * @param notes   what could not be measured and why, one line each
+ */
+public record Measures(
+        Map&lt;String, Double&gt; values,
+        Map&lt;String, Map&lt;String, Double&gt;&gt; modules,
+        List&lt;SlowSuite&gt; slowest,
+        List&lt;String&gt; notes) {
+
+    /**
+     * One test class and the time it took.
+     *
+     * @param module  the module that ran it
+     * @param suite   the test class name as the report named it
+     * @param seconds its elapsed time in seconds
+     */
+<span class="fc" id="L40">    public record SlowSuite(String module, String suite, double seconds) {</span>
+    }
+
+    /**
+     * Defensively copies every part, preserving order.
+     *
+     * @param values  the session's measures
+     * @param modules per-module measures
+     * @param slowest the slowest test classes
+     * @param notes   what could not be measured
+     */
+<span class="fc" id="L51">    public Measures {</span>
+<span class="fc" id="L52">        values = Collections.unmodifiableMap(new LinkedHashMap&lt;&gt;(</span>
+<span class="fc" id="L53">                Objects.requireNonNullElse(values, Map.of())));</span>
+<span class="fc" id="L54">        Map&lt;String, Map&lt;String, Double&gt;&gt; perModule = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L55">        Objects.requireNonNullElse(modules, Map.&lt;String, Map&lt;String, Double&gt;&gt;of()).forEach(</span>
+<span class="fc" id="L56">                (module, map) -&gt; perModule.put(module, Collections.unmodifiableMap(new LinkedHashMap&lt;&gt;(map))));</span>
+<span class="fc" id="L57">        modules = Collections.unmodifiableMap(perModule);</span>
+<span class="fc" id="L58">        slowest = List.copyOf(Objects.requireNonNullElse(slowest, List.of()));</span>
+<span class="fc" id="L59">        notes = List.copyOf(Objects.requireNonNullElse(notes, List.of()));</span>
+<span class="fc" id="L60">    }</span>
+
+    /**
+     * Returns the measures of a session nothing was collected for.
+     *
+     * @return empty measures
+     */
+    public static Measures empty() {
+<span class="fc" id="L68">        return new Measures(Map.of(), Map.of(), List.of(), List.of());</span>
+    }
+
+    /**
+     * Reports whether the session measured anything at all.
+     *
+     * @return {@code true} when there are no values
+     */
+    public boolean isEmpty() {
+<span class="fc" id="L77">        return values.isEmpty();</span>
+    }
+
+    /**
+     * Looks up one session-level measure.
+     *
+     * @param key the measure key text
+     * @return the value, or {@code null} when it was not measured
+     */
+    public Double value(String key) {
+<span class="fc" id="L87">        return values.get(key);</span>
+    }
+
+    /**
+     * Looks up one enumerated session-level measure.
+     *
+     * @param key the measure
+     * @return the value, or {@code null} when it was not measured
+     */
+    public Double value(MeasureKey key) {
+<span class="fc" id="L97">        return values.get(key.key());</span>
+    }
+
+    /**
+     * Reports whether an enumerated measure was taken.
+     *
+     * @param key the measure
+     * @return {@code true} when a value is present
+     */
+    public boolean has(MeasureKey key) {
+<span class="fc" id="L107">        return values.containsKey(key.key());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

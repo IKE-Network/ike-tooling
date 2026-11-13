@@ -1,0 +1,735 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang=""><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="stylesheet" href="jacoco-resources/ike-theme.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>KbCreatePlan.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><a href="../index.html" style="font-weight:bold;margin-right:8px">← Project Site</a> | <span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">IKE Maven Plugin</a> &gt; <a href="index.source.html" class="el_package">network.ike.plugin</a> &gt; <span class="el_source">KbCreatePlan.java</span></div><h1>KbCreatePlan.java</h1><pre class="source lang-java linenums">/*
+ * Copyright © 2026 IKE Network (support@ike.network)
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.plugin;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+/**
+ * The genesis plan of a new knowledge-base project (IKE-Network/ike-issues#1370): its
+ * coordinates, its pinned knowledge sources, whether it builds a Rocks store and with what heap, and
+ * the files it writes, rendered from the {@code kb/} templates of ike-build-standards.
+ * Pure: the knowledge sources arrive already pinned, and nothing here reads the network or the disk,
+ * so the draft and publish goals render the same facts and the plan is unit-testable.
+ *
+ * &lt;p&gt;The sizing rules are the issue's decision 6, from the knowledge-base descriptors on
+ * Nexus (2026-11-11): a spined store's loaded heap comes to about
+ * {@value #LOADED_HEAP_PER_INPUT_BYTE} times the total size of its input protobufs
+ * (3.3 to 3.9 measured), so an assembly builds a Rocks store when its knowledge sources total
+ * {@value #ROCKS_THRESHOLD_GIB} GiB or more: an estimated loaded heap of 8 GiB, past what
+ * an ordinary machine gives a spined store to open and classify.
+ */
+final class KbCreatePlan {
+
+    /** Bytes in a gibibyte. */
+    static final long GIB = 1L &lt;&lt; 30;
+
+    /** Input protobufs, in GiB, from which an assembly builds a Rocks store (decision 6). */
+    static final long ROCKS_THRESHOLD_GIB = 2;
+
+    /** Loaded heap per byte of input protobuf: 3.3 to 3.9 measured, rounded up. */
+    static final double LOADED_HEAP_PER_INPUT_BYTE = 4.0;
+
+    /**
+     * Heap per byte of live heap: the collector's room above the live set, the dashboard's
+     * measured term ({@code HeapSizing.DEFAULT_MEASURED_ROOM}, solor-gudid-kb, 2026-10-25).
+     */
+    static final double COLLECTOR_ROOM = 1.35;
+
+    /**
+     * What the ELK reasoner adds to an assembly's live heap, per byte loaded: the upper
+     * bound measured on solor-gudid-kb (43.9 GiB over 13.6 loaded, 2026-11-11).
+     */
+    static final double REASONER_PER_LOADED_BYTE = 3.2;
+
+    /**
+     * What an import adds to a source's live heap, per byte loaded. Not measured;
+     * the existing sources run with heaps of 2 to 10 times their loaded store.
+     */
+    static final double IMPORT_PER_LOADED_BYTE = 1.0;
+
+    /**
+     * The POM's template, by its path within {@code kb/}. It is not named {@code pom.xml}: a
+     * release reads every {@code pom.xml} in the repository as a Maven model, and the template
+     * is not one until its tokens are filled in.
+     */
+    static final String POM_TEMPLATE = &quot;pom-template.xml&quot;;
+
+    /** The least heap a generated project is given, in GiB. */
+    static final long MINIMUM_HEAP_GIB = 8;
+
+    /** An artifactId: lower-case words joined by hyphens. */
+<span class="fc" id="L85">    private static final Pattern ARTIFACT_ID = Pattern.compile(&quot;[a-z0-9]+(?:[.-][a-z0-9]+)*&quot;);</span>
+
+    /** A groupId: dot-separated Java-like segments. */
+<span class="fc" id="L88">    private static final Pattern GROUP_ID = Pattern.compile(&quot;[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*&quot;);</span>
+
+    /** A {@code @token@} left after expansion. */
+<span class="fc" id="L91">    private static final Pattern LEFTOVER = Pattern.compile(&quot;@([a-zA-Z]+)@&quot;);</span>
+
+    /**
+     * Everything the plan is made from.
+     *
+     * @param kind                  what the project builds
+     * @param groupId               the project's group
+     * @param artifactId            the project's artifact, which also names its folder
+     * @param version               the project's version
+     * @param displayName           the POM {@code &lt;name&gt;}, or {@code null} to derive it
+     * @param description           the POM {@code &lt;description&gt;}, or {@code null} to derive it
+     * @param parentVersion         the {@code ike-parent} version
+     * @param standalone            whether the project is its own Maven root
+     *                              ({@code root=&quot;true&quot;}); {@code false} inside a workspace
+     * @param scmUrl                the {@code file:} URL of the project's own folder
+     * @param knowledge sources                the knowledge sources, pinned, in load order
+     * @param importer              the source importer's name, such as {@code snomed-rf2},
+     *                              for a source
+     * @param release               the source release, pinned, for a source given
+     *                              by coordinate
+     * @param releasePath           the source release as a file path, for a source
+     *                              given by path
+     * @param importerOptions       the importer's {@code name=value} options, or {@code null}
+     * @param collection            the dashboard collection, or {@code null} for none
+     * @param distributionId        the deploy repositories' server id
+     * @param releasesUrl           the releases repository
+     * @param snapshotsUrl          the snapshots repository
+     * @param siteUrl               the site deploy URL ike-parent's enforcer requires
+     * @param rocks                 {@code true} or {@code false} to force the Rocks store
+     *                              either way, {@code null} to decide by size
+     * @param heap                  the build heap, such as {@code -Xmx24g}, or {@code null}
+     *                              to size it from the knowledge sources
+     * @param editModule            the knowledge base's module UUID, whose versions alone
+     *                              the authoring keeps, or {@code null} to keep every version
+     * @param providerVersion       the {@code ike-knowledge-provider} version
+     * @param tinkarCoreVersion     the {@code tinkar-core} version, for the importer
+     * @param rocksKbVersion        the {@code rocks-kb} version, for a Rocks store
+     * @param rocksdbjniVersion     the {@code rocksdbjni} version, for a Rocks store
+     * @param rocksdbjniClassifier  the {@code rocksdbjni} platform classifier
+     */
+    record Inputs(KbKind kind, String groupId, String artifactId, String version,
+                  String displayName, String description, String parentVersion,
+                  boolean standalone, String scmUrl, List&lt;KbKnowledgeSource&gt; knowledgeSources,
+                  String importer, KbKnowledgeSource release, String releasePath, String importerOptions,
+                  String collection, String distributionId, String releasesUrl,
+                  String snapshotsUrl, String siteUrl, Boolean rocks, String heap,
+                  String editModule, String providerVersion, String tinkarCoreVersion,
+                  String rocksKbVersion, String rocksdbjniVersion, String rocksdbjniClassifier) {
+
+        /** Copies the knowledge source list. */
+<span class="fc" id="L141">        Inputs {</span>
+<span class="fc" id="L142">            knowledgeSources = List.copyOf(knowledgeSources);</span>
+<span class="fc" id="L143">        }</span>
+    }
+
+    private final Inputs in;
+    private final boolean rocks;
+    private final String heap;
+    private final String displayName;
+    private final String description;
+
+    /**
+     * Builds and checks the plan.
+     *
+     * @param inputs everything it is made from
+     * @throws IllegalArgumentException if the inputs break a rule of a knowledge base:
+     *                                  a malformed name, a source without its
+     *                                  importer and release, an assembly with one, a
+     *                                  knowledge source twice, a starter set out of first place, or
+     *                                  reasoned and unreasoned protobufs together
+     */
+<span class="fc" id="L162">    KbCreatePlan(Inputs inputs) {</span>
+<span class="fc" id="L163">        this.in = Objects.requireNonNull(inputs, &quot;inputs&quot;);</span>
+<span class="fc" id="L164">        check(inputs);</span>
+<span class="fc bfc" id="L165" title="All 2 branches covered.">        this.rocks = inputs.kind() == KbKind.ASSEMBLY</span>
+<span class="fc bfc" id="L166" title="All 6 branches covered.">                &amp;&amp; (inputs.rocks() != null ? inputs.rocks() : knowledgeSourceBytes() &gt;= ROCKS_THRESHOLD_GIB * GIB);</span>
+<span class="pc bpc" id="L167" title="1 of 4 branches missed.">        this.heap = inputs.heap() != null &amp;&amp; !inputs.heap().isBlank()</span>
+<span class="fc" id="L168">                ? inputs.heap().strip()</span>
+<span class="fc" id="L169">                : &quot;-Xmx&quot; + estimatedHeapGib() + &quot;g&quot;;</span>
+<span class="pc bpc" id="L170" title="1 of 4 branches missed.">        this.displayName = inputs.displayName() != null &amp;&amp; !inputs.displayName().isBlank()</span>
+<span class="fc" id="L171">                ? inputs.displayName().strip()</span>
+<span class="fc" id="L172">                : displayNameOf(inputs.artifactId());</span>
+<span class="pc bpc" id="L173" title="1 of 4 branches missed.">        this.description = inputs.description() != null &amp;&amp; !inputs.description().isBlank()</span>
+<span class="fc" id="L174">                ? inputs.description().strip()</span>
+<span class="fc" id="L175">                : defaultDescription();</span>
+<span class="fc" id="L176">    }</span>
+
+    /**
+     * Puts the starter set first when the knowledge sources need it: every knowledge base loads the
+     * IKE starter set before anything else, unless a {@code reasoned-pb} knowledge source is its base,
+     * which is standalone and already carries it.
+     *
+     * @param requested         the knowledge sources as requested, in load order
+     * @param starterSetVersion the starter set's version when it is added
+     * @return the knowledge sources to pin, in load order
+     */
+    static List&lt;KbKnowledgeSource&gt; withStarterSet(List&lt;KbKnowledgeSource&gt; requested, String starterSetVersion) {
+<span class="fc" id="L188">        boolean present = requested.stream().anyMatch(KbKnowledgeSource::starterSet);</span>
+<span class="fc" id="L189">        boolean standaloneBase = requested.stream().anyMatch(KbKnowledgeSource::reasoned);</span>
+<span class="fc bfc" id="L190" title="All 4 branches covered.">        if (present || standaloneBase) {</span>
+<span class="fc" id="L191">            return List.copyOf(requested);</span>
+        }
+<span class="fc" id="L193">        List&lt;KbKnowledgeSource&gt; knowledgeSources = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L194">        knowledgeSources.add(KbKnowledgeSource.parse(KbKnowledgeSource.STARTER_SET_GROUP + &quot;:&quot; + KbKnowledgeSource.STARTER_SET_ARTIFACT</span>
+                + &quot;:zip:&quot; + KbKnowledgeSource.UNREASONED + &quot;:&quot; + starterSetVersion));
+<span class="fc" id="L196">        knowledgeSources.addAll(requested);</span>
+<span class="fc" id="L197">        return List.copyOf(knowledgeSources);</span>
+    }
+
+    private static void check(Inputs in) {
+<span class="pc bpc" id="L201" title="1 of 4 branches missed.">        if (in.artifactId() == null || !ARTIFACT_ID.matcher(in.artifactId()).matches()) {</span>
+<span class="fc" id="L202">            throw new IllegalArgumentException(&quot;-Dname must be an artifactId: lower-case letters and&quot;</span>
+<span class="fc" id="L203">                    + &quot; digits joined by hyphens, such as my-kb; got &quot; + in.artifactId());</span>
+        }
+<span class="pc bpc" id="L205" title="2 of 4 branches missed.">        if (in.groupId() == null || !GROUP_ID.matcher(in.groupId()).matches()) {</span>
+<span class="nc" id="L206">            throw new IllegalArgumentException(&quot;-DgroupId is not a Maven groupId: &quot; + in.groupId());</span>
+        }
+<span class="pc bpc" id="L208" title="2 of 4 branches missed.">        if (in.version() == null || in.version().isBlank()) {</span>
+<span class="nc" id="L209">            throw new IllegalArgumentException(&quot;-Dversion is blank&quot;);</span>
+        }
+<span class="fc bfc" id="L211" title="All 2 branches covered.">        if (in.knowledgeSources().isEmpty()) {</span>
+<span class="fc" id="L212">            throw new IllegalArgumentException(&quot;A knowledge base needs at least one knowledge source&quot;);</span>
+        }
+<span class="pc bpc" id="L214" title="1 of 4 branches missed.">        boolean source = in.importer() != null &amp;&amp; !in.importer().isBlank();</span>
+<span class="pc bpc" id="L215" title="1 of 6 branches missed.">        boolean release = in.release() != null || (in.releasePath() != null &amp;&amp; !in.releasePath().isBlank());</span>
+<span class="fc bfc" id="L216" title="All 6 branches covered.">        if (in.kind() == KbKind.SOURCE &amp;&amp; (!source || !release)) {</span>
+<span class="fc" id="L217">            throw new IllegalArgumentException(&quot;A source needs -Dimporter (such as snomed-rf2)&quot;</span>
+                    + &quot; and -Drelease (the release's coordinate or path)&quot;);
+        }
+<span class="pc bpc" id="L220" title="1 of 6 branches missed.">        if (in.kind() == KbKind.ASSEMBLY &amp;&amp; (source || release)) {</span>
+<span class="fc" id="L221">            throw new IllegalArgumentException(&quot;An assembly imports no release: -Dimporter and -Drelease&quot;</span>
+<span class="fc" id="L222">                    + &quot; belong to -Dkind=&quot; + KbKind.SOURCE.parameterValue());</span>
+        }
+<span class="fc bfc" id="L224" title="All 4 branches covered.">        if (in.kind() == KbKind.SOURCE &amp;&amp; Boolean.TRUE.equals(in.rocks())) {</span>
+<span class="fc" id="L225">            throw new IllegalArgumentException(&quot;A source is loaded only under an assembly and&quot;</span>
+                    + &quot; builds no Rocks store; -Drocks=true belongs to an assembly&quot;);
+        }
+<span class="fc" id="L228">        Set&lt;String&gt; seen = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L229" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc bfc" id="L230" title="All 2 branches covered.">            if (!seen.add(knowledgeSource.groupId() + &quot;:&quot; + knowledgeSource.artifactId())) {</span>
+<span class="fc" id="L231">                throw new IllegalArgumentException(&quot;A knowledge source is listed twice: &quot;</span>
+<span class="fc" id="L232">                        + knowledgeSource.groupId() + &quot;:&quot; + knowledgeSource.artifactId());</span>
+            }
+<span class="fc" id="L234">        }</span>
+<span class="fc bfc" id="L235" title="All 2 branches covered.">        for (int index = 1; index &lt; in.knowledgeSources().size(); index++) {</span>
+<span class="fc bfc" id="L236" title="All 2 branches covered.">            if (in.knowledgeSources().get(index).starterSet()) {</span>
+<span class="fc" id="L237">                throw new IllegalArgumentException(&quot;The starter set loads first, before every&quot;</span>
+                        + &quot; knowledge source that resolves to its identities; it is listed at position &quot; + (index + 1));
+            }
+        }
+<span class="fc" id="L241">        boolean reasoned = in.knowledgeSources().stream().anyMatch(KbKnowledgeSource::reasoned);</span>
+<span class="fc" id="L242">        boolean unreasoned = in.knowledgeSources().stream().anyMatch(KbKnowledgeSource::unreasoned);</span>
+<span class="fc bfc" id="L243" title="All 4 branches covered.">        if (reasoned &amp;&amp; unreasoned) {</span>
+<span class="fc" id="L244">            throw new IllegalArgumentException(&quot;Reasoned and unreasoned protobufs are refused together&quot;</span>
+                    + &quot; until kb-assemble is confirmed to accept the mix (IKE-Network/ike-issues#1370,&quot;
+<span class="fc" id="L246">                    + &quot; decision 10): &quot; + in.knowledgeSources().stream()</span>
+<span class="fc" id="L247">                    .map(knowledgeSource -&gt; knowledgeSource.artifactId() + &quot;:&quot; + knowledgeSource.classifier())</span>
+<span class="fc" id="L248">                    .collect(Collectors.joining(&quot;, &quot;)));</span>
+        }
+<span class="fc" id="L250">    }</span>
+
+    /**
+     * What the project is made from.
+     *
+     * @return the inputs
+     */
+    Inputs inputs() {
+<span class="nc" id="L258">        return in;</span>
+    }
+
+    /**
+     * Whether the project builds a Rocks store.
+     *
+     * @return {@code true} when it does
+     */
+    boolean rocks() {
+<span class="fc" id="L267">        return rocks;</span>
+    }
+
+    /**
+     * Why the project does or does not build a Rocks store.
+     *
+     * @return a sentence for the report
+     */
+    String rocksReason() {
+<span class="fc bfc" id="L276" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="fc" id="L277">            return &quot;a source is loaded only under an assembly&quot;;</span>
+        }
+<span class="fc bfc" id="L279" title="All 2 branches covered.">        if (in.rocks() != null) {</span>
+<span class="fc" id="L280">            return &quot;set by -Drocks=&quot; + in.rocks();</span>
+        }
+<span class="fc" id="L282">        String total = gib(knowledgeSourceBytes());</span>
+<span class="fc bfc" id="L283" title="All 2 branches covered.">        String known = unknownSizes() == 0 ? &quot;&quot; : &quot; (&quot; + unknownSizes() + &quot; knowledge source size(s) unknown)&quot;;</span>
+<span class="fc bfc" id="L284" title="All 2 branches covered.">        return rocks</span>
+<span class="fc" id="L285">                ? &quot;the knowledge sources total &quot; + total + known + &quot;, at or above &quot; + ROCKS_THRESHOLD_GIB + &quot; GiB&quot;</span>
+<span class="fc" id="L286">                : &quot;the knowledge sources total &quot; + total + known + &quot;, below &quot; + ROCKS_THRESHOLD_GIB + &quot; GiB&quot;;</span>
+    }
+
+    /**
+     * The build heap, as a JVM argument.
+     *
+     * @return such as {@code -Xmx16g}
+     */
+    String heap() {
+<span class="fc" id="L295">        return heap;</span>
+    }
+
+    /**
+     * The POM {@code &lt;name&gt;}.
+     *
+     * @return the display name
+     */
+    String displayName() {
+<span class="nc" id="L304">        return displayName;</span>
+    }
+
+    /**
+     * The POM {@code &lt;description&gt;}.
+     *
+     * @return the description
+     */
+    String description() {
+<span class="nc" id="L313">        return description;</span>
+    }
+
+    /**
+     * The total size of the knowledge sources whose size the repository reported.
+     *
+     * @return bytes
+     */
+    long knowledgeSourceBytes() {
+<span class="fc bfc" id="L322" title="All 2 branches covered.">        return in.knowledgeSources().stream().mapToLong(KbKnowledgeSource::sizeBytes).filter(bytes -&gt; bytes &gt; 0).sum();</span>
+    }
+
+    /**
+     * How many knowledge sources' sizes the repository did not report.
+     *
+     * @return the count
+     */
+    long unknownSizes() {
+<span class="fc bfc" id="L331" title="All 2 branches covered.">        return in.knowledgeSources().stream().filter(knowledgeSource -&gt; knowledgeSource.sizeBytes() &lt; 0).count();</span>
+    }
+
+    /**
+     * The loaded heap a spined store of these knowledge sources is estimated to hold.
+     *
+     * @return bytes
+     */
+    long estimatedLoadedBytes() {
+<span class="fc" id="L340">        return (long) Math.ceil(LOADED_HEAP_PER_INPUT_BYTE * knowledgeSourceBytes());</span>
+    }
+
+    /**
+     * The heap the build is given when none is set: the estimated loaded heap, plus what
+     * the reasoner (an assembly) or the import (a source) adds, with the collector's
+     * room above it, never under {@value #MINIMUM_HEAP_GIB} GiB.
+     *
+     * @return whole GiB
+     */
+    long estimatedHeapGib() {
+<span class="fc bfc" id="L351" title="All 2 branches covered.">        double added = in.kind() == KbKind.ASSEMBLY ? REASONER_PER_LOADED_BYTE : IMPORT_PER_LOADED_BYTE;</span>
+<span class="fc" id="L352">        double bytes = COLLECTOR_ROOM * (1 + added) * estimatedLoadedBytes();</span>
+<span class="fc" id="L353">        return Math.max(MINIMUM_HEAP_GIB, (long) Math.ceil(bytes / GIB));</span>
+    }
+
+    /**
+     * The classifier of the protobuf the project publishes.
+     *
+     * @return {@code unreasoned-pb} or {@code reasoned-pb}
+     */
+    String publishedClassifier() {
+<span class="fc" id="L362">        return in.kind().publishedClassifier();</span>
+    }
+
+    /**
+     * The coordinates the project publishes.
+     *
+     * @return one coordinate per published file
+     */
+    List&lt;String&gt; publishes() {
+<span class="fc" id="L371">        List&lt;String&gt; published = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L372">        String base = in.groupId() + &quot;:&quot; + in.artifactId() + &quot;:zip:&quot;;</span>
+<span class="fc" id="L373">        published.add(base + publishedClassifier() + &quot;:&quot; + in.version());</span>
+<span class="fc bfc" id="L374" title="All 2 branches covered.">        if (rocks) {</span>
+<span class="fc" id="L375">            published.add(base + &quot;rkb:&quot; + in.version());</span>
+        }
+<span class="fc" id="L377">        return published;</span>
+    }
+
+    /**
+     * Renders every file the project starts with, from the {@code kb/} templates.
+     *
+     * @param templates the templates, by path within {@code kb/}
+     * @return project-relative path to content, in writing order
+     * @throws IllegalStateException if a template is missing or a token is left unexpanded
+     */
+    Map&lt;String, String&gt; render(Map&lt;String, String&gt; templates) {
+<span class="fc" id="L388">        Map&lt;String, String&gt; files = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L389">        files.put(&quot;pom.xml&quot;, expand(template(templates, POM_TEMPLATE), pomTokens(templates)));</span>
+<span class="fc" id="L390">        files.put(&quot;README.adoc&quot;, expand(template(templates, &quot;files/README.adoc&quot;), readmeTokens()));</span>
+<span class="fc" id="L391">        files.put(&quot;.mvn/jvm.config&quot;, template(templates, &quot;files/jvm.config&quot;));</span>
+<span class="fc bfc" id="L392" title="All 2 branches covered.">        if (rocks) {</span>
+<span class="fc" id="L393">            files.put(&quot;src/assembly/rkb.xml&quot;, expand(template(templates, &quot;files/rkb.xml&quot;),</span>
+<span class="fc" id="L394">                    Map.of(&quot;artifactId&quot;, in.artifactId())));</span>
+        }
+<span class="fc bfc" id="L396" title="All 2 branches covered.">        if (in.kind() == KbKind.ASSEMBLY) {</span>
+<span class="fc" id="L397">            files.put(&quot;changesets/.gitkeep&quot;, template(templates, &quot;files/gitkeep&quot;));</span>
+        }
+<span class="fc" id="L399">        return files;</span>
+    }
+
+    private Map&lt;String, String&gt; pomTokens(Map&lt;String, String&gt; templates) {
+<span class="fc" id="L403">        Map&lt;String, String&gt; tokens = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L404" title="All 2 branches covered.">        tokens.put(&quot;rootAttribute&quot;, in.standalone() ? &quot;\n         root=\&quot;true\&quot;&quot; : &quot;&quot;);</span>
+<span class="fc" id="L405">        tokens.put(&quot;parentVersion&quot;, in.parentVersion());</span>
+<span class="fc" id="L406">        tokens.put(&quot;groupId&quot;, in.groupId());</span>
+<span class="fc" id="L407">        tokens.put(&quot;artifactId&quot;, in.artifactId());</span>
+<span class="fc" id="L408">        tokens.put(&quot;version&quot;, in.version());</span>
+<span class="fc" id="L409">        tokens.put(&quot;displayName&quot;, xml(displayName));</span>
+<span class="fc" id="L410">        tokens.put(&quot;description&quot;, xml(description));</span>
+<span class="fc" id="L411">        tokens.put(&quot;scmUrl&quot;, xml(in.scmUrl()));</span>
+<span class="fc" id="L412">        tokens.put(&quot;distributionId&quot;, in.distributionId());</span>
+<span class="fc" id="L413">        tokens.put(&quot;releasesUrl&quot;, xml(in.releasesUrl()));</span>
+<span class="fc" id="L414">        tokens.put(&quot;snapshotsUrl&quot;, xml(in.snapshotsUrl()));</span>
+<span class="fc" id="L415">        tokens.put(&quot;siteUrl&quot;, xml(in.siteUrl()));</span>
+<span class="fc" id="L416">        tokens.put(&quot;properties&quot;, properties(templates));</span>
+<span class="fc" id="L417">        tokens.put(&quot;dependencies&quot;, dependencies(templates));</span>
+<span class="fc" id="L418">        tokens.put(&quot;plugins&quot;, plugins(templates));</span>
+<span class="fc bfc" id="L419" title="All 2 branches covered.">        tokens.put(&quot;profiles&quot;, in.kind() == KbKind.ASSEMBLY</span>
+<span class="fc" id="L420">                ? expand(template(templates, &quot;fragments/komet-profile.xml&quot;),</span>
+<span class="fc" id="L421">                Map.of(&quot;changeSetModules&quot;, changeSetModules(&quot;                                    &quot;)))</span>
+<span class="fc" id="L422">                : &quot;&quot;);</span>
+<span class="fc" id="L423">        return tokens;</span>
+    }
+
+    private String properties(Map&lt;String, String&gt; templates) {
+<span class="fc" id="L427">        String fragment = template(templates, &quot;fragments/property.xml&quot;);</span>
+<span class="fc" id="L428">        StringBuilder out = new StringBuilder();</span>
+<span class="pc bpc" id="L429" title="1 of 4 branches missed.">        if (in.collection() != null &amp;&amp; !in.collection().isBlank()) {</span>
+<span class="fc" id="L430">            out.append(property(fragment, &quot;ike.kbAssemble.collection&quot;, in.collection().strip(),</span>
+                    &quot;The collection named in every store's descriptor: the IKE Dashboard keeps each&quot;
+                            + &quot; knowledge base of a collection it tracks at hand, downloaded or not.&quot;));
+        }
+<span class="fc" id="L434">        out.append(property(fragment, &quot;network.ike.knowledge__GA__ike-knowledge-provider__VERSION&quot;,</span>
+<span class="fc" id="L435">                in.providerVersion(), &quot;The assembler kb-assemble runs.&quot;));</span>
+<span class="fc bfc" id="L436" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="fc" id="L437">            out.append(property(fragment, &quot;dev.ikm.tinkar__GA__tinkar-core__VERSION&quot;, in.tinkarCoreVersion(),</span>
+<span class="fc" id="L438">                    &quot;The &quot; + in.importer().strip() + &quot; importer's release train.&quot;));</span>
+        }
+<span class="fc bfc" id="L440" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L441">            out.append(property(fragment, knowledgeSource.versionProperty(), knowledgeSource.pinnedVersion(),</span>
+<span class="fc" id="L442">                    knowledgeSourceComment(knowledgeSource)));</span>
+<span class="fc" id="L443">        }</span>
+<span class="fc bfc" id="L444" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="fc bfc" id="L445" title="All 2 branches covered.">            String release = in.release() != null</span>
+<span class="fc" id="L446">                    ? in.release().coordinate(in.release().pinnedVersion())</span>
+<span class="fc" id="L447">                    : in.releasePath().strip();</span>
+<span class="fc bfc" id="L448" title="All 2 branches covered.">            String comment = in.release() != null</span>
+<span class="fc" id="L449">                    ? &quot;The source release, pinned to the deploy of &quot; + in.release().version()</span>
+<span class="fc" id="L450">                    + &quot; on the repository when this project was created&quot; + size(in.release()) + &quot;.&quot;</span>
+<span class="fc" id="L451">                    : &quot;The source release, read in place; nothing licensed is committed here.&quot;;</span>
+<span class="fc" id="L452">            out.append(property(fragment, &quot;source.release&quot;, release, comment));</span>
+        }
+<span class="fc bfc" id="L454" title="All 2 branches covered.">        if (rocks) {</span>
+<span class="fc" id="L455">            out.append(property(fragment, &quot;dev.ikm.ike__GA__rocks-kb__VERSION&quot;, in.rocksKbVersion(),</span>
+                    &quot;The Rocks KB engine, for the RocksDB store built beside the protobuf.&quot;));
+<span class="fc" id="L457">            out.append(property(fragment, &quot;rocksdbjni.version&quot;, in.rocksdbjniVersion(),</span>
+                    &quot;RocksDB's native library, for the platform the build runs on.&quot;));
+        }
+<span class="fc" id="L460">        out.append(property(fragment, &quot;kb.heap&quot;, heap, heapComment()));</span>
+<span class="fc bfc" id="L461" title="All 2 branches covered.">        if (in.kind() == KbKind.ASSEMBLY) {</span>
+<span class="fc" id="L462">            out.append(property(fragment, &quot;kb.changesets&quot;, &quot;${project.basedir}/changesets&quot;,</span>
+                    &quot;Every change set harvested from Komet, committed; the build folds them into one.&quot;));
+<span class="fc" id="L464">            out.append(property(fragment, &quot;kb.edits&quot;,</span>
+                    &quot;${project.build.directory}/${project.artifactId}-${project.version}-edits.zip&quot;,
+                    &quot;The folded change set, loaded after the knowledge sources so its versions win.&quot;));
+<span class="fc" id="L467">            out.append(property(fragment, &quot;kb.install&quot;, &quot;${user.home}/Solor/&quot; + in.artifactId() + &quot;-authoring&quot;,</span>
+                    &quot;Where -Pkomet installs the store Komet edits the knowledge base in: not&quot;
+<span class="fc" id="L469">                            + &quot; ~/Solor/&quot; + in.artifactId() + &quot;, where the IKE Dashboard unpacks a published store.&quot;));</span>
+<span class="pc bpc" id="L470" title="1 of 4 branches missed.">            if (in.editModule() != null &amp;&amp; !in.editModule().isBlank()) {</span>
+<span class="fc" id="L471">                out.append(property(fragment, &quot;kb.modules&quot;, in.editModule().strip(),</span>
+                        &quot;The knowledge base's module: only versions stamped in it are kept.&quot;));
+            }
+        }
+<span class="fc" id="L475">        return trimTrailingNewline(out.toString());</span>
+    }
+
+    private String dependencies(Map&lt;String, String&gt; templates) {
+<span class="fc" id="L479">        String fragment = template(templates, &quot;fragments/dependency.xml&quot;);</span>
+<span class="fc" id="L480">        StringBuilder out = new StringBuilder();</span>
+<span class="fc" id="L481">        out.append(dependency(fragment, &quot;network.ike.knowledge&quot;, &quot;ike-knowledge-provider&quot;,</span>
+                &quot;${network.ike.knowledge__GA__ike-knowledge-provider__VERSION}&quot;, &quot;&quot;, &quot;runtime&quot;,
+                &quot;The assembler.&quot;));
+<span class="fc bfc" id="L484" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="fc" id="L485">            out.append(dependency(fragment, &quot;dev.ikm.tinkar&quot;, &quot;importer-&quot; + in.importer().strip(),</span>
+                    &quot;${dev.ikm.tinkar__GA__tinkar-core__VERSION}&quot;, &quot;&quot;, &quot;runtime&quot;,
+                    &quot;The importer the SOURCE input names.&quot;));
+        }
+<span class="fc bfc" id="L489" title="All 2 branches covered.">        if (rocks) {</span>
+<span class="fc" id="L490">            out.append(dependency(fragment, &quot;dev.ikm.ike&quot;, &quot;rocks-kb-engine&quot;,</span>
+                    &quot;${dev.ikm.ike__GA__rocks-kb__VERSION}&quot;, &quot;&quot;, &quot;runtime&quot;,
+                    &quot;The RocksDB store controller, which the rocks-store execution selects.&quot;));
+<span class="fc" id="L493">            out.append(dependency(fragment, &quot;dev.ikm.jpms&quot;, &quot;rocksdbjni&quot;, &quot;${rocksdbjni.version}&quot;,</span>
+<span class="fc" id="L494">                    &quot;\n            &lt;classifier&gt;&quot; + in.rocksdbjniClassifier() + &quot;&lt;/classifier&gt;&quot;, &quot;runtime&quot;,</span>
+                    &quot;The engine declares its platform natives optional, so they are named here.&quot;));
+        }
+<span class="fc bfc" id="L497" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L498">            out.append(dependency(fragment, knowledgeSource.groupId(), knowledgeSource.artifactId(), &quot;${&quot; + knowledgeSource.versionProperty() + &quot;}&quot;,</span>
+<span class="fc" id="L499">                    &quot;\n            &lt;type&gt;&quot; + knowledgeSource.extension() + &quot;&lt;/type&gt;&quot;</span>
+<span class="pc bpc" id="L500" title="1 of 2 branches missed.">                            + (knowledgeSource.classifier().isEmpty() ? &quot;&quot;</span>
+<span class="fc" id="L501">                            : &quot;\n            &lt;classifier&gt;&quot; + knowledgeSource.classifier() + &quot;&lt;/classifier&gt;&quot;),</span>
+                    &quot;provided&quot;, &quot;A knowledge source, resolved before assembly.&quot;));
+<span class="fc" id="L503">        }</span>
+<span class="fc" id="L504">        return trimTrailingNewline(out.toString());</span>
+    }
+
+    private String plugins(Map&lt;String, String&gt; templates) {
+<span class="fc" id="L508">        String input = template(templates, &quot;fragments/input.xml&quot;);</span>
+<span class="fc" id="L509">        StringBuilder inputs = new StringBuilder();</span>
+<span class="fc" id="L510">        StringBuilder baseInputs = new StringBuilder();</span>
+<span class="fc bfc" id="L511" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L512">            inputs.append(expand(input, Map.of(&quot;element&quot;, &quot;input&quot;, &quot;input&quot;, &quot;PB &quot; + knowledgeSource.coordinate())));</span>
+<span class="fc" id="L513">            baseInputs.append(expand(input, Map.of(&quot;element&quot;, &quot;baseInput&quot;, &quot;input&quot;, &quot;PB &quot; + knowledgeSource.coordinate())));</span>
+<span class="fc" id="L514">        }</span>
+<span class="fc bfc" id="L515" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="pc bpc" id="L516" title="2 of 4 branches missed.">            String options = in.importerOptions() == null || in.importerOptions().isBlank()</span>
+<span class="pc" id="L517">                    ? &quot;&quot; : &quot; &quot; + in.importerOptions().strip();</span>
+<span class="fc" id="L518">            inputs.append(expand(input, Map.of(&quot;element&quot;, &quot;input&quot;,</span>
+<span class="fc" id="L519">                    &quot;input&quot;, xml(&quot;SOURCE &quot; + in.importer().strip() + &quot; ${source.release}&quot; + options))));</span>
+<span class="fc" id="L520">            return trimTrailingNewline(expand(template(templates, &quot;fragments/source-plugins.xml&quot;),</span>
+<span class="fc" id="L521">                    Map.of(&quot;inputs&quot;, inputs.toString(), &quot;baseInputs&quot;, baseInputs.toString())));</span>
+        }
+<span class="fc" id="L523">        inputs.append(expand(input, Map.of(&quot;element&quot;, &quot;input&quot;, &quot;input&quot;, &quot;PB ${kb.edits}&quot;)));</span>
+<span class="fc" id="L524">        Map&lt;String, String&gt; tokens = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L525">        tokens.put(&quot;inputs&quot;, inputs.toString());</span>
+<span class="fc" id="L526">        tokens.put(&quot;changeSetModules&quot;, changeSetModules(&quot;                            &quot;));</span>
+<span class="fc bfc" id="L527" title="All 2 branches covered.">        tokens.put(&quot;rocksExecution&quot;, rocks ? template(templates, &quot;fragments/rocks-execution.xml&quot;) : &quot;&quot;);</span>
+<span class="fc bfc" id="L528" title="All 2 branches covered.">        tokens.put(&quot;rocksAssemblyPlugin&quot;, rocks ? template(templates, &quot;fragments/rocks-assembly-plugin.xml&quot;) : &quot;&quot;);</span>
+<span class="fc" id="L529">        return trimTrailingNewline(expand(template(templates, &quot;fragments/assembly-plugins.xml&quot;), tokens));</span>
+    }
+
+    private Map&lt;String, String&gt; readmeTokens() {
+<span class="fc" id="L533">        Map&lt;String, String&gt; tokens = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L534">        tokens.put(&quot;displayName&quot;, displayName);</span>
+<span class="fc" id="L535">        tokens.put(&quot;description&quot;, description);</span>
+<span class="fc" id="L536">        tokens.put(&quot;groupId&quot;, in.groupId());</span>
+<span class="fc" id="L537">        tokens.put(&quot;artifactId&quot;, in.artifactId());</span>
+<span class="fc" id="L538">        tokens.put(&quot;version&quot;, in.version());</span>
+<span class="fc" id="L539">        tokens.put(&quot;kindLabel&quot;, in.kind().label());</span>
+<span class="fc" id="L540">        tokens.put(&quot;publishes&quot;, publishes().stream().map(coordinate -&gt; &quot;`&quot; + coordinate + &quot;`&quot;)</span>
+<span class="fc" id="L541">                .collect(Collectors.joining(&quot;, &quot;)));</span>
+<span class="fc" id="L542">        StringBuilder knowledgeSources = new StringBuilder();</span>
+<span class="fc bfc" id="L543" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L544">            knowledgeSources.append(&quot;. `&quot;).append(knowledgeSource.coordinate(knowledgeSource.pinnedVersion())).append(&quot;`\n&quot;);</span>
+<span class="fc" id="L545">        }</span>
+<span class="fc bfc" id="L546" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="fc" id="L547">            knowledgeSources.append(&quot;. the &quot;).append(in.importer().strip()).append(&quot; release, `source.release`\n&quot;);</span>
+        } else {
+<span class="fc" id="L549">            knowledgeSources.append(&quot;. the edits harvested from Komet into `changesets/`\n&quot;);</span>
+        }
+<span class="fc" id="L551">        tokens.put(&quot;knowledgeSourceList&quot;, trimTrailingNewline(knowledgeSources.toString()));</span>
+<span class="fc" id="L552">        tokens.put(&quot;distributionId&quot;, in.distributionId());</span>
+<span class="fc" id="L553">        tokens.put(&quot;heap&quot;, heap);</span>
+<span class="fc bfc" id="L554" title="All 2 branches covered.">        tokens.put(&quot;authoringSection&quot;, in.kind() != KbKind.ASSEMBLY ? &quot;&quot; : &quot;&quot;&quot;</span>
+
+                == Authoring
+
+                `./mvnw install -Pkomet` harvests the change sets Komet captured in the authoring store
+                into `changesets/`, then installs the classified store at `~/Solor/%s-authoring` for
+                Komet to open. Commit `changesets/`: the next build folds it in.
+<span class="fc" id="L561">                &quot;&quot;&quot;.formatted(in.artifactId()));</span>
+<span class="fc" id="L562">        return tokens;</span>
+    }
+
+    /**
+     * The report the draft and publish goals both print.
+     *
+     * @param target where the project is written
+     * @return the report's lines
+     */
+    List&lt;String&gt; report(String target) {
+<span class="fc" id="L572">        List&lt;String&gt; lines = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L573">        lines.add(&quot;Knowledge base: &quot; + displayName + &quot; (&quot; + in.kind().label() + &quot;)&quot;);</span>
+<span class="fc" id="L574">        lines.add(&quot;  Coordinates:  &quot; + in.groupId() + &quot;:&quot; + in.artifactId() + &quot;:&quot; + in.version());</span>
+<span class="fc" id="L575">        lines.add(&quot;  Publishes:    &quot; + String.join(&quot;, &quot;, publishes()));</span>
+<span class="pc bpc" id="L576" title="1 of 2 branches missed.">        lines.add(&quot;  Folder:       &quot; + target + (in.standalone() ? &quot; (its own Maven root)&quot; : &quot; (a workspace member)&quot;));</span>
+<span class="fc" id="L577">        lines.add(&quot;  Parent:       network.ike.platform:ike-parent:&quot; + in.parentVersion());</span>
+<span class="fc" id="L578">        lines.add(&quot;  Knowledge sources, in load order, pinned:&quot;);</span>
+<span class="fc bfc" id="L579" title="All 2 branches covered.">        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {</span>
+<span class="fc" id="L580">            lines.add(&quot;    &quot; + knowledgeSource.coordinate(knowledgeSource.pinnedVersion()) + size(knowledgeSource));</span>
+<span class="fc" id="L581">        }</span>
+<span class="pc bpc" id="L582" title="1 of 2 branches missed.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="nc" id="L583">            lines.add(&quot;  Release:      &quot; + in.importer().strip() + &quot; &quot;</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">                    + (in.release() != null ? in.release().coordinate(in.release().pinnedVersion()) + size(in.release())</span>
+<span class="nc" id="L585">                    : in.releasePath().strip())</span>
+<span class="nc bnc" id="L586" title="All 4 branches missed.">                    + (in.importerOptions() == null || in.importerOptions().isBlank() ? &quot;&quot; : &quot; &quot; + in.importerOptions().strip()));</span>
+        }
+<span class="fc" id="L588">        lines.add(&quot;  Knowledge sources total: &quot; + gib(knowledgeSourceBytes()) + &quot;; estimated loaded heap &quot; + gib(estimatedLoadedBytes()));</span>
+<span class="pc bpc" id="L589" title="1 of 2 branches missed.">        lines.add(&quot;  Rocks store:  &quot; + (rocks ? &quot;yes&quot; : &quot;no&quot;) + &quot; — &quot; + rocksReason());</span>
+<span class="pc bpc" id="L590" title="3 of 4 branches missed.">        lines.add(&quot;  Build heap:   &quot; + heap + (in.heap() != null &amp;&amp; !in.heap().isBlank() ? &quot; (set by -Dheap)&quot; : &quot; (estimated)&quot;));</span>
+<span class="fc" id="L591">        lines.add(&quot;  Deploys to:   &quot; + in.distributionId() + &quot; &quot; + in.snapshotsUrl());</span>
+<span class="pc bpc" id="L592" title="3 of 4 branches missed.">        lines.add(&quot;  Collection:   &quot; + (in.collection() == null || in.collection().isBlank() ? &quot;none&quot; : in.collection().strip()));</span>
+<span class="fc" id="L593">        lines.add(&quot;  SCM:          &quot; + in.scmUrl() + &quot; (until a remote is added)&quot;);</span>
+<span class="fc" id="L594">        return lines;</span>
+    }
+
+    private String heapComment() {
+<span class="pc bpc" id="L598" title="1 of 4 branches missed.">        if (in.heap() != null &amp;&amp; !in.heap().isBlank()) {</span>
+<span class="fc" id="L599">            return &quot;The build's heap, as set when the project was created.&quot;;</span>
+        }
+<span class="fc" id="L601">        return &quot;Sized when the project was created: the knowledge sources total &quot; + gib(knowledgeSourceBytes())</span>
+                + &quot;, a spined store about &quot; + (long) LOADED_HEAP_PER_INPUT_BYTE + &quot; times that loaded (&quot;
+<span class="fc" id="L603">                + gib(estimatedLoadedBytes()) + &quot;), plus room for &quot;</span>
+<span class="fc bfc" id="L604" title="All 2 branches covered.">                + (in.kind() == KbKind.ASSEMBLY ? &quot;the reasoner&quot; : &quot;the import&quot;)</span>
+                + &quot; and the collector. Replace it with what the descriptor measures after a build.&quot;;
+    }
+
+    private String knowledgeSourceComment(KbKnowledgeSource knowledgeSource) {
+<span class="fc" id="L609">        return knowledgeSource.coordinate(knowledgeSource.version()) + &quot;, pinned to the deploy on the repository when this&quot;</span>
+<span class="fc" id="L610">                + &quot; project was created&quot; + size(knowledgeSource) + &quot;.&quot;;</span>
+    }
+
+    private String changeSetModules(String indent) {
+<span class="pc bpc" id="L614" title="1 of 4 branches missed.">        if (in.editModule() == null || in.editModule().isBlank()) {</span>
+<span class="fc" id="L615">            return &quot;&quot;;</span>
+        }
+<span class="fc" id="L617">        return &quot;\n&quot; + indent + &quot;&lt;changeSetModules&gt;${kb.modules}&lt;/changeSetModules&gt;&quot;;</span>
+    }
+
+    private String defaultDescription() {
+<span class="fc" id="L621">        String coordinate = in.groupId() + &quot;:&quot; + in.artifactId() + &quot;:zip:&quot; + publishedClassifier();</span>
+<span class="fc" id="L622">        String knowledgeSources = in.knowledgeSources().stream().map(KbKnowledgeSource::artifactId).collect(Collectors.joining(&quot;, &quot;));</span>
+<span class="fc bfc" id="L623" title="All 2 branches covered.">        if (in.kind() == KbKind.SOURCE) {</span>
+<span class="fc" id="L624">            return displayName + &quot;: a release read by the &quot; + in.importer().strip() + &quot; importer onto &quot;</span>
+                    + knowledgeSources + &quot;, exported unclassified as a Tinkar protobuf (format 3) change set,&quot;
+                    + &quot; published as &quot; + coordinate + &quot;. The release is read in place; nothing&quot;
+                    + &quot; licensed is committed here.&quot;;
+        }
+<span class="fc" id="L629">        return displayName + &quot;: &quot; + knowledgeSources + &quot;, with the edits authored in Komet, classified and&quot;</span>
+                + &quot; exported as a reasoned protobuf change set (format 3) that loads into a Spined&quot;
+                + &quot; Array or RocksDB knowledge base, published as &quot; + coordinate + &quot;.&quot;;
+    }
+
+    /**
+     * Derives a display name from an artifactId: title case, and a trailing {@code kb}
+     * spelled out.
+     *
+     * @param artifactId the artifactId
+     * @return such as {@code Gudid Nuva Knowledge Base} for {@code gudid-nuva-kb}
+     */
+    static String displayNameOf(String artifactId) {
+<span class="fc" id="L642">        String title = StarterSetPlan.titleCase(artifactId.replace('.', '-'));</span>
+<span class="fc bfc" id="L643" title="All 2 branches covered.">        return title.endsWith(&quot; Kb&quot;)</span>
+<span class="fc" id="L644">                ? title.substring(0, title.length() - 3) + &quot; Knowledge Base&quot;</span>
+<span class="fc bfc" id="L645" title="All 2 branches covered.">                : title.equals(&quot;Kb&quot;) ? &quot;Knowledge Base&quot; : title;</span>
+    }
+
+    private static String property(String fragment, String name, String value, String comment) {
+<span class="fc" id="L649">        return expand(fragment, Map.of(&quot;comment&quot;, xmlComment(comment), &quot;name&quot;, name, &quot;value&quot;, xml(value)));</span>
+    }
+
+    private static String dependency(String fragment, String groupId, String artifactId, String version,
+                                     String typeAndClassifier, String scope, String comment) {
+<span class="fc" id="L654">        Map&lt;String, String&gt; tokens = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L655">        tokens.put(&quot;comment&quot;, xmlComment(comment));</span>
+<span class="fc" id="L656">        tokens.put(&quot;groupId&quot;, groupId);</span>
+<span class="fc" id="L657">        tokens.put(&quot;artifactId&quot;, artifactId);</span>
+<span class="fc" id="L658">        tokens.put(&quot;version&quot;, version);</span>
+<span class="fc" id="L659">        tokens.put(&quot;typeAndClassifier&quot;, typeAndClassifier);</span>
+<span class="fc" id="L660">        tokens.put(&quot;scope&quot;, scope);</span>
+<span class="fc" id="L661">        return expand(fragment, tokens);</span>
+    }
+
+    private static String template(Map&lt;String, String&gt; templates, String path) {
+<span class="fc" id="L665">        String template = templates.get(path);</span>
+<span class="fc bfc" id="L666" title="All 2 branches covered.">        if (template == null) {</span>
+<span class="fc" id="L667">            throw new IllegalStateException(&quot;The kb templates carry no &quot; + path</span>
+                    + &quot; — ike-build-standards and ike-maven-plugin versions must match&quot;);
+        }
+<span class="fc" id="L670">        return template;</span>
+    }
+
+    /**
+     * Expands every {@code @token@} of a template, refusing any left over.
+     *
+     * @param template the template
+     * @param tokens   the values, by token name
+     * @return the expanded text
+     * @throws IllegalStateException if a token is left unexpanded
+     */
+    static String expand(String template, Map&lt;String, String&gt; tokens) {
+<span class="fc" id="L682">        StringBuilder out = new StringBuilder();</span>
+<span class="fc" id="L683">        Matcher matcher = LEFTOVER.matcher(template);</span>
+<span class="fc" id="L684">        int from = 0;</span>
+<span class="fc bfc" id="L685" title="All 2 branches covered.">        while (matcher.find()) {</span>
+<span class="fc" id="L686">            String value = tokens.get(matcher.group(1));</span>
+<span class="fc bfc" id="L687" title="All 2 branches covered.">            if (value == null) {</span>
+<span class="fc" id="L688">                throw new IllegalStateException(&quot;Unknown template token: @&quot; + matcher.group(1) + &quot;@&quot;);</span>
+            }
+<span class="fc" id="L690">            out.append(template, from, matcher.start()).append(value);</span>
+<span class="fc" id="L691">            from = matcher.end();</span>
+<span class="fc" id="L692">        }</span>
+<span class="fc" id="L693">        return out.append(template.substring(from)).toString();</span>
+    }
+
+    private static String xml(String text) {
+<span class="fc" id="L697">        return text.replace(&quot;&amp;&quot;, &quot;&amp;amp;&quot;).replace(&quot;&lt;&quot;, &quot;&amp;lt;&quot;).replace(&quot;&gt;&quot;, &quot;&amp;gt;&quot;);</span>
+    }
+
+    private static String xmlComment(String text) {
+<span class="fc" id="L701">        return text.replace(&quot;--&quot;, &quot;- -&quot;);</span>
+    }
+
+    private static String trimTrailingNewline(String text) {
+<span class="pc bpc" id="L705" title="1 of 2 branches missed.">        return text.endsWith(&quot;\n&quot;) ? text.substring(0, text.length() - 1) : text;</span>
+    }
+
+    private static String size(KbKnowledgeSource knowledgeSource) {
+<span class="pc bpc" id="L709" title="1 of 2 branches missed.">        return knowledgeSource.sizeBytes() &lt; 0 ? &quot;&quot; : &quot;, &quot; + gib(knowledgeSource.sizeBytes());</span>
+    }
+
+    /**
+     * A size for a person to read.
+     *
+     * @param bytes the size
+     * @return such as {@code 2.74 GiB} or {@code 461.6 MiB}
+     */
+    static String gib(long bytes) {
+<span class="fc bfc" id="L719" title="All 2 branches covered.">        if (bytes &gt;= GIB) {</span>
+<span class="fc" id="L720">            return String.format(Locale.ROOT, &quot;%.2f GiB&quot;, bytes / (double) GIB);</span>
+        }
+<span class="fc" id="L722">        return String.format(Locale.ROOT, &quot;%.1f MiB&quot;, bytes / (double) (1L &lt;&lt; 20));</span>
+    }
+
+    /**
+     * Whether a release spec is a coordinate, for parameters that accept either form.
+     *
+     * @param spec the spec
+     * @return the coordinate, when it is one
+     */
+    static Optional&lt;KbKnowledgeSource&gt; coordinateOf(String spec) {
+<span class="nc bnc" id="L732" title="All 2 branches missed.">        return KbKnowledgeSource.isCoordinate(spec) ? Optional.of(KbKnowledgeSource.parse(spec)) : Optional.empty();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
