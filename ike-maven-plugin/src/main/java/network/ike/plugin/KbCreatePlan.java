@@ -30,15 +30,15 @@ import java.util.stream.Collectors;
 
 /**
  * The genesis plan of a new knowledge-base project (IKE-Network/ike-issues#1370): its
- * coordinates, its pinned layers, whether it builds a Rocks store and with what heap, and
+ * coordinates, its pinned knowledge sources, whether it builds a Rocks store and with what heap, and
  * the files it writes, rendered from the {@code kb/} templates of ike-build-standards.
- * Pure: the layers arrive already pinned, and nothing here reads the network or the disk,
+ * Pure: the knowledge sources arrive already pinned, and nothing here reads the network or the disk,
  * so the draft and publish goals render the same facts and the plan is unit-testable.
  *
  * <p>The sizing rules are the issue's decision 6, from the knowledge-base descriptors on
  * Nexus (2026-11-11): a spined store's loaded heap comes to about
  * {@value #LOADED_HEAP_PER_INPUT_BYTE} times the total size of its input protobufs
- * (3.3 to 3.9 measured), so an assembly builds a Rocks store when its layers total
+ * (3.3 to 3.9 measured), so an assembly builds a Rocks store when its knowledge sources total
  * {@value #ROCKS_THRESHOLD_GIB} GiB or more: an estimated loaded heap of 8 GiB, past what
  * an ordinary machine gives a spined store to open and classify.
  */
@@ -66,8 +66,8 @@ final class KbCreatePlan {
     static final double REASONER_PER_LOADED_BYTE = 3.2;
 
     /**
-     * What an import adds to a source layer's live heap, per byte loaded. Not measured;
-     * the existing source layers run with heaps of 2 to 10 times their loaded store.
+     * What an import adds to a source's live heap, per byte loaded. Not measured;
+     * the existing sources run with heaps of 2 to 10 times their loaded store.
      */
     static final double IMPORT_PER_LOADED_BYTE = 1.0;
 
@@ -103,12 +103,12 @@ final class KbCreatePlan {
      * @param standalone            whether the project is its own Maven root
      *                              ({@code root="true"}); {@code false} inside a workspace
      * @param scmUrl                the {@code file:} URL of the project's own folder
-     * @param layers                the protobuf layers, pinned, in load order
+     * @param knowledge sources                the knowledge sources, pinned, in load order
      * @param importer              the source importer's name, such as {@code snomed-rf2},
-     *                              for a source layer
-     * @param release               the source release, pinned, for a source layer given
+     *                              for a source
+     * @param release               the source release, pinned, for a source given
      *                              by coordinate
-     * @param releasePath           the source release as a file path, for a source layer
+     * @param releasePath           the source release as a file path, for a source
      *                              given by path
      * @param importerOptions       the importer's {@code name=value} options, or {@code null}
      * @param collection            the dashboard collection, or {@code null} for none
@@ -119,7 +119,7 @@ final class KbCreatePlan {
      * @param rocks                 {@code true} or {@code false} to force the Rocks store
      *                              either way, {@code null} to decide by size
      * @param heap                  the build heap, such as {@code -Xmx24g}, or {@code null}
-     *                              to size it from the layers
+     *                              to size it from the knowledge sources
      * @param editModule            the knowledge base's module UUID, whose versions alone
      *                              the authoring keeps, or {@code null} to keep every version
      * @param providerVersion       the {@code ike-knowledge-provider} version
@@ -130,16 +130,16 @@ final class KbCreatePlan {
      */
     record Inputs(KbKind kind, String groupId, String artifactId, String version,
                   String displayName, String description, String parentVersion,
-                  boolean standalone, String scmUrl, List<KbLayer> layers,
-                  String importer, KbLayer release, String releasePath, String importerOptions,
+                  boolean standalone, String scmUrl, List<KbKnowledgeSource> knowledgeSources,
+                  String importer, KbKnowledgeSource release, String releasePath, String importerOptions,
                   String collection, String distributionId, String releasesUrl,
                   String snapshotsUrl, String siteUrl, Boolean rocks, String heap,
                   String editModule, String providerVersion, String tinkarCoreVersion,
                   String rocksKbVersion, String rocksdbjniVersion, String rocksdbjniClassifier) {
 
-        /** Copies the layer list. */
+        /** Copies the knowledge source list. */
         Inputs {
-            layers = List.copyOf(layers);
+            knowledgeSources = List.copyOf(knowledgeSources);
         }
     }
 
@@ -154,16 +154,16 @@ final class KbCreatePlan {
      *
      * @param inputs everything it is made from
      * @throws IllegalArgumentException if the inputs break a rule of a knowledge base:
-     *                                  a malformed name, a source layer without its
+     *                                  a malformed name, a source without its
      *                                  importer and release, an assembly with one, a
-     *                                  layer twice, a starter set out of first place, or
+     *                                  knowledge source twice, a starter set out of first place, or
      *                                  reasoned and unreasoned protobufs together
      */
     KbCreatePlan(Inputs inputs) {
         this.in = Objects.requireNonNull(inputs, "inputs");
         check(inputs);
         this.rocks = inputs.kind() == KbKind.ASSEMBLY
-                && (inputs.rocks() != null ? inputs.rocks() : layerBytes() >= ROCKS_THRESHOLD_GIB * GIB);
+                && (inputs.rocks() != null ? inputs.rocks() : knowledgeSourceBytes() >= ROCKS_THRESHOLD_GIB * GIB);
         this.heap = inputs.heap() != null && !inputs.heap().isBlank()
                 ? inputs.heap().strip()
                 : "-Xmx" + estimatedHeapGib() + "g";
@@ -176,25 +176,25 @@ final class KbCreatePlan {
     }
 
     /**
-     * Puts the starter set first when the layers need it: every knowledge base loads the
-     * IKE starter set before anything else, unless a {@code reasoned-pb} layer is its base,
+     * Puts the starter set first when the knowledge sources need it: every knowledge base loads the
+     * IKE starter set before anything else, unless a {@code reasoned-pb} knowledge source is its base,
      * which is standalone and already carries it.
      *
-     * @param requested         the layers as requested, in load order
+     * @param requested         the knowledge sources as requested, in load order
      * @param starterSetVersion the starter set's version when it is added
-     * @return the layers to pin, in load order
+     * @return the knowledge sources to pin, in load order
      */
-    static List<KbLayer> withStarterSet(List<KbLayer> requested, String starterSetVersion) {
-        boolean present = requested.stream().anyMatch(KbLayer::starterSet);
-        boolean standaloneBase = requested.stream().anyMatch(KbLayer::reasoned);
+    static List<KbKnowledgeSource> withStarterSet(List<KbKnowledgeSource> requested, String starterSetVersion) {
+        boolean present = requested.stream().anyMatch(KbKnowledgeSource::starterSet);
+        boolean standaloneBase = requested.stream().anyMatch(KbKnowledgeSource::reasoned);
         if (present || standaloneBase) {
             return List.copyOf(requested);
         }
-        List<KbLayer> layers = new ArrayList<>();
-        layers.add(KbLayer.parse(KbLayer.STARTER_SET_GROUP + ":" + KbLayer.STARTER_SET_ARTIFACT
-                + ":zip:" + KbLayer.UNREASONED + ":" + starterSetVersion));
-        layers.addAll(requested);
-        return List.copyOf(layers);
+        List<KbKnowledgeSource> knowledgeSources = new ArrayList<>();
+        knowledgeSources.add(KbKnowledgeSource.parse(KbKnowledgeSource.STARTER_SET_GROUP + ":" + KbKnowledgeSource.STARTER_SET_ARTIFACT
+                + ":zip:" + KbKnowledgeSource.UNREASONED + ":" + starterSetVersion));
+        knowledgeSources.addAll(requested);
+        return List.copyOf(knowledgeSources);
     }
 
     private static void check(Inputs in) {
@@ -208,43 +208,43 @@ final class KbCreatePlan {
         if (in.version() == null || in.version().isBlank()) {
             throw new IllegalArgumentException("-Dversion is blank");
         }
-        if (in.layers().isEmpty()) {
-            throw new IllegalArgumentException("A knowledge base needs at least one layer");
+        if (in.knowledgeSources().isEmpty()) {
+            throw new IllegalArgumentException("A knowledge base needs at least one knowledge source");
         }
         boolean source = in.importer() != null && !in.importer().isBlank();
         boolean release = in.release() != null || (in.releasePath() != null && !in.releasePath().isBlank());
-        if (in.kind() == KbKind.SOURCE_LAYER && (!source || !release)) {
-            throw new IllegalArgumentException("A source layer needs -Dimporter (such as snomed-rf2)"
+        if (in.kind() == KbKind.SOURCE && (!source || !release)) {
+            throw new IllegalArgumentException("A source needs -Dimporter (such as snomed-rf2)"
                     + " and -Drelease (the release's coordinate or path)");
         }
         if (in.kind() == KbKind.ASSEMBLY && (source || release)) {
             throw new IllegalArgumentException("An assembly imports no release: -Dimporter and -Drelease"
-                    + " belong to -Dkind=" + KbKind.SOURCE_LAYER.parameterValue());
+                    + " belong to -Dkind=" + KbKind.SOURCE.parameterValue());
         }
-        if (in.kind() == KbKind.SOURCE_LAYER && Boolean.TRUE.equals(in.rocks())) {
-            throw new IllegalArgumentException("A source layer is loaded only under an assembly and"
+        if (in.kind() == KbKind.SOURCE && Boolean.TRUE.equals(in.rocks())) {
+            throw new IllegalArgumentException("A source is loaded only under an assembly and"
                     + " builds no Rocks store; -Drocks=true belongs to an assembly");
         }
         Set<String> seen = new HashSet<>();
-        for (KbLayer layer : in.layers()) {
-            if (!seen.add(layer.groupId() + ":" + layer.artifactId())) {
-                throw new IllegalArgumentException("A layer is listed twice: "
-                        + layer.groupId() + ":" + layer.artifactId());
+        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {
+            if (!seen.add(knowledgeSource.groupId() + ":" + knowledgeSource.artifactId())) {
+                throw new IllegalArgumentException("A knowledge source is listed twice: "
+                        + knowledgeSource.groupId() + ":" + knowledgeSource.artifactId());
             }
         }
-        for (int index = 1; index < in.layers().size(); index++) {
-            if (in.layers().get(index).starterSet()) {
+        for (int index = 1; index < in.knowledgeSources().size(); index++) {
+            if (in.knowledgeSources().get(index).starterSet()) {
                 throw new IllegalArgumentException("The starter set loads first, before every"
-                        + " layer that resolves to its identities; it is listed at position " + (index + 1));
+                        + " knowledge source that resolves to its identities; it is listed at position " + (index + 1));
             }
         }
-        boolean reasoned = in.layers().stream().anyMatch(KbLayer::reasoned);
-        boolean unreasoned = in.layers().stream().anyMatch(KbLayer::unreasoned);
+        boolean reasoned = in.knowledgeSources().stream().anyMatch(KbKnowledgeSource::reasoned);
+        boolean unreasoned = in.knowledgeSources().stream().anyMatch(KbKnowledgeSource::unreasoned);
         if (reasoned && unreasoned) {
             throw new IllegalArgumentException("Reasoned and unreasoned protobufs are refused together"
                     + " until kb-assemble is confirmed to accept the mix (IKE-Network/ike-issues#1370,"
-                    + " decision 10): " + in.layers().stream()
-                    .map(layer -> layer.artifactId() + ":" + layer.classifier())
+                    + " decision 10): " + in.knowledgeSources().stream()
+                    .map(knowledgeSource -> knowledgeSource.artifactId() + ":" + knowledgeSource.classifier())
                     .collect(Collectors.joining(", ")));
         }
     }
@@ -273,17 +273,17 @@ final class KbCreatePlan {
      * @return a sentence for the report
      */
     String rocksReason() {
-        if (in.kind() == KbKind.SOURCE_LAYER) {
-            return "a source layer is loaded only under an assembly";
+        if (in.kind() == KbKind.SOURCE) {
+            return "a source is loaded only under an assembly";
         }
         if (in.rocks() != null) {
             return "set by -Drocks=" + in.rocks();
         }
-        String total = gib(layerBytes());
-        String known = unknownSizes() == 0 ? "" : " (" + unknownSizes() + " layer size(s) unknown)";
+        String total = gib(knowledgeSourceBytes());
+        String known = unknownSizes() == 0 ? "" : " (" + unknownSizes() + " knowledge source size(s) unknown)";
         return rocks
-                ? "the layers total " + total + known + ", at or above " + ROCKS_THRESHOLD_GIB + " GiB"
-                : "the layers total " + total + known + ", below " + ROCKS_THRESHOLD_GIB + " GiB";
+                ? "the knowledge sources total " + total + known + ", at or above " + ROCKS_THRESHOLD_GIB + " GiB"
+                : "the knowledge sources total " + total + known + ", below " + ROCKS_THRESHOLD_GIB + " GiB";
     }
 
     /**
@@ -314,35 +314,35 @@ final class KbCreatePlan {
     }
 
     /**
-     * The total size of the protobuf layers whose size the repository reported.
+     * The total size of the knowledge sources whose size the repository reported.
      *
      * @return bytes
      */
-    long layerBytes() {
-        return in.layers().stream().mapToLong(KbLayer::sizeBytes).filter(bytes -> bytes > 0).sum();
+    long knowledgeSourceBytes() {
+        return in.knowledgeSources().stream().mapToLong(KbKnowledgeSource::sizeBytes).filter(bytes -> bytes > 0).sum();
     }
 
     /**
-     * How many layers' sizes the repository did not report.
+     * How many knowledge sources' sizes the repository did not report.
      *
      * @return the count
      */
     long unknownSizes() {
-        return in.layers().stream().filter(layer -> layer.sizeBytes() < 0).count();
+        return in.knowledgeSources().stream().filter(knowledgeSource -> knowledgeSource.sizeBytes() < 0).count();
     }
 
     /**
-     * The loaded heap a spined store of these layers is estimated to hold.
+     * The loaded heap a spined store of these knowledge sources is estimated to hold.
      *
      * @return bytes
      */
     long estimatedLoadedBytes() {
-        return (long) Math.ceil(LOADED_HEAP_PER_INPUT_BYTE * layerBytes());
+        return (long) Math.ceil(LOADED_HEAP_PER_INPUT_BYTE * knowledgeSourceBytes());
     }
 
     /**
      * The heap the build is given when none is set: the estimated loaded heap, plus what
-     * the reasoner (an assembly) or the import (a source layer) adds, with the collector's
+     * the reasoner (an assembly) or the import (a source) adds, with the collector's
      * room above it, never under {@value #MINIMUM_HEAP_GIB} GiB.
      *
      * @return whole GiB
@@ -433,15 +433,15 @@ final class KbCreatePlan {
         }
         out.append(property(fragment, "network.ike.knowledge__GA__ike-knowledge-provider__VERSION",
                 in.providerVersion(), "The assembler kb-assemble runs."));
-        if (in.kind() == KbKind.SOURCE_LAYER) {
+        if (in.kind() == KbKind.SOURCE) {
             out.append(property(fragment, "dev.ikm.tinkar__GA__tinkar-core__VERSION", in.tinkarCoreVersion(),
                     "The " + in.importer().strip() + " importer's release train."));
         }
-        for (KbLayer layer : in.layers()) {
-            out.append(property(fragment, layer.versionProperty(), layer.pinnedVersion(),
-                    layerComment(layer)));
+        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {
+            out.append(property(fragment, knowledgeSource.versionProperty(), knowledgeSource.pinnedVersion(),
+                    knowledgeSourceComment(knowledgeSource)));
         }
-        if (in.kind() == KbKind.SOURCE_LAYER) {
+        if (in.kind() == KbKind.SOURCE) {
             String release = in.release() != null
                     ? in.release().coordinate(in.release().pinnedVersion())
                     : in.releasePath().strip();
@@ -463,7 +463,7 @@ final class KbCreatePlan {
                     "Every change set harvested from Komet, committed; the build folds them into one."));
             out.append(property(fragment, "kb.edits",
                     "${project.build.directory}/${project.artifactId}-${project.version}-edits.zip",
-                    "The folded change set, loaded after the layers so its versions win."));
+                    "The folded change set, loaded after the knowledge sources so its versions win."));
             out.append(property(fragment, "kb.install", "${user.home}/Solor/" + in.artifactId() + "-authoring",
                     "Where -Pkomet installs the store Komet edits the knowledge base in: not"
                             + " ~/Solor/" + in.artifactId() + ", where the IKE Dashboard unpacks a published store."));
@@ -481,7 +481,7 @@ final class KbCreatePlan {
         out.append(dependency(fragment, "network.ike.knowledge", "ike-knowledge-provider",
                 "${network.ike.knowledge__GA__ike-knowledge-provider__VERSION}", "", "runtime",
                 "The assembler."));
-        if (in.kind() == KbKind.SOURCE_LAYER) {
+        if (in.kind() == KbKind.SOURCE) {
             out.append(dependency(fragment, "dev.ikm.tinkar", "importer-" + in.importer().strip(),
                     "${dev.ikm.tinkar__GA__tinkar-core__VERSION}", "", "runtime",
                     "The importer the SOURCE input names."));
@@ -494,12 +494,12 @@ final class KbCreatePlan {
                     "\n            <classifier>" + in.rocksdbjniClassifier() + "</classifier>", "runtime",
                     "The engine declares its platform natives optional, so they are named here."));
         }
-        for (KbLayer layer : in.layers()) {
-            out.append(dependency(fragment, layer.groupId(), layer.artifactId(), "${" + layer.versionProperty() + "}",
-                    "\n            <type>" + layer.extension() + "</type>"
-                            + (layer.classifier().isEmpty() ? ""
-                            : "\n            <classifier>" + layer.classifier() + "</classifier>"),
-                    "provided", "A layer, resolved before assembly."));
+        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {
+            out.append(dependency(fragment, knowledgeSource.groupId(), knowledgeSource.artifactId(), "${" + knowledgeSource.versionProperty() + "}",
+                    "\n            <type>" + knowledgeSource.extension() + "</type>"
+                            + (knowledgeSource.classifier().isEmpty() ? ""
+                            : "\n            <classifier>" + knowledgeSource.classifier() + "</classifier>"),
+                    "provided", "A knowledge source, resolved before assembly."));
         }
         return trimTrailingNewline(out.toString());
     }
@@ -508,16 +508,16 @@ final class KbCreatePlan {
         String input = template(templates, "fragments/input.xml");
         StringBuilder inputs = new StringBuilder();
         StringBuilder baseInputs = new StringBuilder();
-        for (KbLayer layer : in.layers()) {
-            inputs.append(expand(input, Map.of("element", "input", "input", "PB " + layer.coordinate())));
-            baseInputs.append(expand(input, Map.of("element", "baseInput", "input", "PB " + layer.coordinate())));
+        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {
+            inputs.append(expand(input, Map.of("element", "input", "input", "PB " + knowledgeSource.coordinate())));
+            baseInputs.append(expand(input, Map.of("element", "baseInput", "input", "PB " + knowledgeSource.coordinate())));
         }
-        if (in.kind() == KbKind.SOURCE_LAYER) {
+        if (in.kind() == KbKind.SOURCE) {
             String options = in.importerOptions() == null || in.importerOptions().isBlank()
                     ? "" : " " + in.importerOptions().strip();
             inputs.append(expand(input, Map.of("element", "input",
                     "input", xml("SOURCE " + in.importer().strip() + " ${source.release}" + options))));
-            return trimTrailingNewline(expand(template(templates, "fragments/source-layer-plugins.xml"),
+            return trimTrailingNewline(expand(template(templates, "fragments/source-plugins.xml"),
                     Map.of("inputs", inputs.toString(), "baseInputs", baseInputs.toString())));
         }
         inputs.append(expand(input, Map.of("element", "input", "input", "PB ${kb.edits}")));
@@ -539,16 +539,16 @@ final class KbCreatePlan {
         tokens.put("kindLabel", in.kind().label());
         tokens.put("publishes", publishes().stream().map(coordinate -> "`" + coordinate + "`")
                 .collect(Collectors.joining(", ")));
-        StringBuilder layers = new StringBuilder();
-        for (KbLayer layer : in.layers()) {
-            layers.append(". `").append(layer.coordinate(layer.pinnedVersion())).append("`\n");
+        StringBuilder knowledgeSources = new StringBuilder();
+        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {
+            knowledgeSources.append(". `").append(knowledgeSource.coordinate(knowledgeSource.pinnedVersion())).append("`\n");
         }
-        if (in.kind() == KbKind.SOURCE_LAYER) {
-            layers.append(". the ").append(in.importer().strip()).append(" release, `source.release`\n");
+        if (in.kind() == KbKind.SOURCE) {
+            knowledgeSources.append(". the ").append(in.importer().strip()).append(" release, `source.release`\n");
         } else {
-            layers.append(". the edits harvested from Komet into `changesets/`\n");
+            knowledgeSources.append(". the edits harvested from Komet into `changesets/`\n");
         }
-        tokens.put("layerList", trimTrailingNewline(layers.toString()));
+        tokens.put("knowledgeSourceList", trimTrailingNewline(knowledgeSources.toString()));
         tokens.put("distributionId", in.distributionId());
         tokens.put("heap", heap);
         tokens.put("authoringSection", in.kind() != KbKind.ASSEMBLY ? "" : """
@@ -575,17 +575,17 @@ final class KbCreatePlan {
         lines.add("  Publishes:    " + String.join(", ", publishes()));
         lines.add("  Folder:       " + target + (in.standalone() ? " (its own Maven root)" : " (a workspace member)"));
         lines.add("  Parent:       network.ike.platform:ike-parent:" + in.parentVersion());
-        lines.add("  Layers, in load order, pinned:");
-        for (KbLayer layer : in.layers()) {
-            lines.add("    " + layer.coordinate(layer.pinnedVersion()) + size(layer));
+        lines.add("  Knowledge sources, in load order, pinned:");
+        for (KbKnowledgeSource knowledgeSource : in.knowledgeSources()) {
+            lines.add("    " + knowledgeSource.coordinate(knowledgeSource.pinnedVersion()) + size(knowledgeSource));
         }
-        if (in.kind() == KbKind.SOURCE_LAYER) {
-            lines.add("  Source:       " + in.importer().strip() + " "
+        if (in.kind() == KbKind.SOURCE) {
+            lines.add("  Release:      " + in.importer().strip() + " "
                     + (in.release() != null ? in.release().coordinate(in.release().pinnedVersion()) + size(in.release())
                     : in.releasePath().strip())
                     + (in.importerOptions() == null || in.importerOptions().isBlank() ? "" : " " + in.importerOptions().strip()));
         }
-        lines.add("  Layers total: " + gib(layerBytes()) + "; estimated loaded heap " + gib(estimatedLoadedBytes()));
+        lines.add("  Knowledge sources total: " + gib(knowledgeSourceBytes()) + "; estimated loaded heap " + gib(estimatedLoadedBytes()));
         lines.add("  Rocks store:  " + (rocks ? "yes" : "no") + " — " + rocksReason());
         lines.add("  Build heap:   " + heap + (in.heap() != null && !in.heap().isBlank() ? " (set by -Dheap)" : " (estimated)"));
         lines.add("  Deploys to:   " + in.distributionId() + " " + in.snapshotsUrl());
@@ -598,16 +598,16 @@ final class KbCreatePlan {
         if (in.heap() != null && !in.heap().isBlank()) {
             return "The build's heap, as set when the project was created.";
         }
-        return "Sized when the project was created: the layers total " + gib(layerBytes())
+        return "Sized when the project was created: the knowledge sources total " + gib(knowledgeSourceBytes())
                 + ", a spined store about " + (long) LOADED_HEAP_PER_INPUT_BYTE + " times that loaded ("
                 + gib(estimatedLoadedBytes()) + "), plus room for "
                 + (in.kind() == KbKind.ASSEMBLY ? "the reasoner" : "the import")
                 + " and the collector. Replace it with what the descriptor measures after a build.";
     }
 
-    private String layerComment(KbLayer layer) {
-        return layer.coordinate(layer.version()) + ", pinned to the deploy on the repository when this"
-                + " project was created" + size(layer) + ".";
+    private String knowledgeSourceComment(KbKnowledgeSource knowledgeSource) {
+        return knowledgeSource.coordinate(knowledgeSource.version()) + ", pinned to the deploy on the repository when this"
+                + " project was created" + size(knowledgeSource) + ".";
     }
 
     private String changeSetModules(String indent) {
@@ -619,14 +619,14 @@ final class KbCreatePlan {
 
     private String defaultDescription() {
         String coordinate = in.groupId() + ":" + in.artifactId() + ":zip:" + publishedClassifier();
-        String layers = in.layers().stream().map(KbLayer::artifactId).collect(Collectors.joining(", "));
-        if (in.kind() == KbKind.SOURCE_LAYER) {
+        String knowledgeSources = in.knowledgeSources().stream().map(KbKnowledgeSource::artifactId).collect(Collectors.joining(", "));
+        if (in.kind() == KbKind.SOURCE) {
             return displayName + ": a release read by the " + in.importer().strip() + " importer onto "
-                    + layers + ", exported unclassified as a Tinkar protobuf (format 3) change set,"
+                    + knowledgeSources + ", exported unclassified as a Tinkar protobuf (format 3) change set,"
                     + " published as " + coordinate + ". The release is read in place; nothing"
                     + " licensed is committed here.";
         }
-        return displayName + ": " + layers + ", with the edits authored in Komet, classified and"
+        return displayName + ": " + knowledgeSources + ", with the edits authored in Komet, classified and"
                 + " exported as a reasoned protobuf change set (format 3) that loads into a Spined"
                 + " Array or RocksDB knowledge base, published as " + coordinate + ".";
     }
@@ -705,8 +705,8 @@ final class KbCreatePlan {
         return text.endsWith("\n") ? text.substring(0, text.length() - 1) : text;
     }
 
-    private static String size(KbLayer layer) {
-        return layer.sizeBytes() < 0 ? "" : ", " + gib(layer.sizeBytes());
+    private static String size(KbKnowledgeSource knowledgeSource) {
+        return knowledgeSource.sizeBytes() < 0 ? "" : ", " + gib(knowledgeSource.sizeBytes());
     }
 
     /**
@@ -728,7 +728,7 @@ final class KbCreatePlan {
      * @param spec the spec
      * @return the coordinate, when it is one
      */
-    static Optional<KbLayer> coordinateOf(String spec) {
-        return KbLayer.isCoordinate(spec) ? Optional.of(KbLayer.parse(spec)) : Optional.empty();
+    static Optional<KbKnowledgeSource> coordinateOf(String spec) {
+        return KbKnowledgeSource.isCoordinate(spec) ? Optional.of(KbKnowledgeSource.parse(spec)) : Optional.empty();
     }
 }

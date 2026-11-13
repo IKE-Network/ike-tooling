@@ -32,7 +32,7 @@ import java.util.Map;
 
 /**
  * Creates a new knowledge-base project, the executing half of the {@code ike:kb-create-*}
- * pair (IKE-Network/ike-issues#1370): pins every layer, writes the POM and files the
+ * pair (IKE-Network/ike-issues#1370): pins every knowledge source, writes the POM and files the
  * {@code kb/} templates render, applies the standards scaffold's project scope (wrapper,
  * {@code .mvn}, {@code .gitignore}, {@code CLAUDE.md}, {@code README.md}), makes a local
  * git repository with one commit and no remote, and proves the project by running
@@ -67,7 +67,7 @@ public class KbCreatePublishMojo extends KbCreateParameters implements org.apach
     /**
      * Creates, commits and validates the project.
      *
-     * @throws MojoException if the folder already holds a project, a layer cannot be
+     * @throws MojoException if the folder already holds a project, a knowledge source cannot be
      *                       pinned, a file cannot be written, git fails, or the new
      *                       project does not validate
      */

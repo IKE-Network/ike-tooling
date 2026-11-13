@@ -54,33 +54,33 @@ class KbCreatePlanTest {
         templates = KbCreateSupport.templates(SCAFFOLD);
     }
 
-    private static KbLayer layer(String spec, String pinned, long bytes) {
-        return KbLayer.parse(spec).pinned(pinned, bytes);
+    private static KbKnowledgeSource knowledgeSource(String spec, String pinned, long bytes) {
+        return KbKnowledgeSource.parse(spec).pinned(pinned, bytes);
     }
 
-    private static KbLayer starterSet() {
-        return layer("network.ike.foundation:ike-starter-set:zip:unreasoned-pb:1-SNAPSHOT", "1-20261107.045844-2", MIB);
+    private static KbKnowledgeSource starterSet() {
+        return knowledgeSource("network.ike.foundation:ike-starter-set:zip:unreasoned-pb:1-SNAPSHOT", "1-20261107.045844-2", MIB);
     }
 
-    private static KbLayer snomed() {
-        return layer("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT",
+    private static KbKnowledgeSource snomed() {
+        return knowledgeSource("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT",
                 "20260601.2-20261111.020518-1", 462 * MIB);
     }
 
-    private static KbLayer gudid() {
-        return layer("network.ike.data:gudid-kb:zip:unreasoned-pb:20261001.2-SNAPSHOT",
+    private static KbKnowledgeSource gudid() {
+        return knowledgeSource("network.ike.data:gudid-kb:zip:unreasoned-pb:20261001.2-SNAPSHOT",
                 "20261001.2-20261111.021610-1", 2809 * MIB);
     }
 
-    private static KbCreatePlan.Inputs assembly(List<KbLayer> layers, Boolean rocks) {
+    private static KbCreatePlan.Inputs assembly(List<KbKnowledgeSource> knowledgeSources, Boolean rocks) {
         return new KbCreatePlan.Inputs(KbKind.ASSEMBLY, "network.ike.data", "my-kb", "1-SNAPSHOT",
-                null, null, "224", true, "file:///work/my-kb/", layers, null, null, null, null, null,
+                null, null, "224", true, "file:///work/my-kb/", knowledgeSources, null, null, null, null, null,
                 "ike-restricted", "https://repo/releases/", "https://repo/snapshots/", "https://ike.network/my-kb/",
                 rocks, null, null, "7-SNAPSHOT", "1.127.7-SNAPSHOT", "0.1.5-SNAPSHOT", "10.4.2-r2", "osx");
     }
 
-    private static KbCreatePlan.Inputs sourceLayer(String importer, KbLayer release, String releasePath, Boolean rocks) {
-        return new KbCreatePlan.Inputs(KbKind.SOURCE_LAYER, "network.ike.data", "nuva-kb", "20250509.1-SNAPSHOT",
+    private static KbCreatePlan.Inputs sourceInputs(String importer, KbKnowledgeSource release, String releasePath, Boolean rocks) {
+        return new KbCreatePlan.Inputs(KbKind.SOURCE, "network.ike.data", "nuva-kb", "20250509.1-SNAPSHOT",
                 "SNOMED CT NUVA Extension", null, "224", true, "file:///work/nuva-kb/", List.of(starterSet(), snomed()),
                 importer, release, releasePath, "release=full author=\"Snomed NUVA Extension Author\"", null,
                 "ike-restricted", "https://repo/releases/", "https://repo/snapshots/", "https://ike.network/nuva-kb/",
@@ -110,31 +110,31 @@ class KbCreatePlanTest {
     @Test
     @DisplayName("The starter set goes first unless listed or a reasoned base carries it")
     void starterSetFirst() {
-        List<KbLayer> requested = List.of(KbLayer.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:1-SNAPSHOT"));
-        List<KbLayer> layers = KbCreatePlan.withStarterSet(requested, "1-SNAPSHOT");
-        assertThat(layers).hasSize(2);
-        assertThat(layers.getFirst().starterSet()).isTrue();
-        assertThat(layers.getFirst().classifier()).isEqualTo("unreasoned-pb");
+        List<KbKnowledgeSource> requested = List.of(KbKnowledgeSource.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:1-SNAPSHOT"));
+        List<KbKnowledgeSource> knowledgeSources = KbCreatePlan.withStarterSet(requested, "1-SNAPSHOT");
+        assertThat(knowledgeSources).hasSize(2);
+        assertThat(knowledgeSources.getFirst().starterSet()).isTrue();
+        assertThat(knowledgeSources.getFirst().classifier()).isEqualTo("unreasoned-pb");
 
-        List<KbLayer> listed = List.of(KbLayer.parse("network.ike.foundation:ike-starter-set:zip:unreasoned-pb:2-SNAPSHOT"));
+        List<KbKnowledgeSource> listed = List.of(KbKnowledgeSource.parse("network.ike.foundation:ike-starter-set:zip:unreasoned-pb:2-SNAPSHOT"));
         assertThat(KbCreatePlan.withStarterSet(listed, "1-SNAPSHOT")).isEqualTo(listed);
 
-        List<KbLayer> reasoned = List.of(KbLayer.parse("network.ike.data:solor-kb:zip:reasoned-pb:1-SNAPSHOT"));
+        List<KbKnowledgeSource> reasoned = List.of(KbKnowledgeSource.parse("network.ike.data:solor-kb:zip:reasoned-pb:1-SNAPSHOT"));
         assertThat(KbCreatePlan.withStarterSet(reasoned, "1-SNAPSHOT")).isEqualTo(reasoned);
     }
 
     @Test
-    @DisplayName("Malformed names and misplaced or repeated layers are refused")
+    @DisplayName("Malformed names and misplaced or repeated knowledge sources are refused")
     void refusesBrokenInputs() {
         KbCreatePlan.Inputs good = assembly(List.of(starterSet(), snomed()), null);
         assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(new KbCreatePlan.Inputs(
                 good.kind(), good.groupId(), "My KB", good.version(), null, null, good.parentVersion(), true,
-                good.scmUrl(), good.layers(), null, null, null, null, null, good.distributionId(), good.releasesUrl(),
+                good.scmUrl(), good.knowledgeSources(), null, null, null, null, null, good.distributionId(), good.releasesUrl(),
                 good.snapshotsUrl(), good.siteUrl(), null, null, null, good.providerVersion(), good.tinkarCoreVersion(),
                 good.rocksKbVersion(), good.rocksdbjniVersion(), good.rocksdbjniClassifier())))
                 .withMessageContaining("artifactId");
         assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(assembly(List.of(), null)))
-                .withMessageContaining("at least one layer");
+                .withMessageContaining("at least one knowledge source");
         assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(assembly(List.of(starterSet(), snomed(), snomed()), null)))
                 .withMessageContaining("listed twice");
         assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(assembly(List.of(snomed(), starterSet()), null)))
@@ -144,7 +144,7 @@ class KbCreatePlanTest {
     @Test
     @DisplayName("Reasoned and unreasoned protobufs are refused together (decision 10)")
     void refusesMixedProtobufs() {
-        KbLayer reasoned = layer("network.ike.data:solor-kb:zip:reasoned-pb:1-SNAPSHOT", "1-20261111.021342-1", 721 * MIB);
+        KbKnowledgeSource reasoned = knowledgeSource("network.ike.data:solor-kb:zip:reasoned-pb:1-SNAPSHOT", "1-20261111.021342-1", 721 * MIB);
         assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(assembly(List.of(reasoned, snomed()), null)))
                 .withMessageContaining("decision 10")
                 .withMessageContaining("solor-kb:reasoned-pb")
@@ -153,29 +153,29 @@ class KbCreatePlanTest {
     }
 
     @Test
-    @DisplayName("A source layer needs its importer and release; an assembly takes neither")
+    @DisplayName("A source needs its importer and release; an assembly takes neither")
     void kindRules() {
-        assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(sourceLayer(null, null, "/r.zip", null)))
+        assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(sourceInputs(null, null, "/r.zip", null)))
                 .withMessageContaining("-Dimporter");
-        assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(sourceLayer("snomed-rf2", null, null, null)))
+        assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(sourceInputs("snomed-rf2", null, null, null)))
                 .withMessageContaining("-Drelease");
-        assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(sourceLayer("snomed-rf2", null, "/r.zip", true)))
+        assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(sourceInputs("snomed-rf2", null, "/r.zip", true)))
                 .withMessageContaining("no Rocks store");
         KbCreatePlan.Inputs good = assembly(List.of(starterSet()), null);
         assertThatIllegalArgumentException().isThrownBy(() -> new KbCreatePlan(new KbCreatePlan.Inputs(
                 good.kind(), good.groupId(), good.artifactId(), good.version(), null, null, good.parentVersion(), true,
-                good.scmUrl(), good.layers(), "snomed-rf2", null, "/r.zip", null, null, good.distributionId(),
+                good.scmUrl(), good.knowledgeSources(), "snomed-rf2", null, "/r.zip", null, null, good.distributionId(),
                 good.releasesUrl(), good.snapshotsUrl(), good.siteUrl(), null, null, null, good.providerVersion(),
                 good.tinkarCoreVersion(), good.rocksKbVersion(), good.rocksdbjniVersion(), good.rocksdbjniClassifier())))
                 .withMessageContaining("An assembly imports no release");
     }
 
     @Test
-    @DisplayName("Rocks is built from 2 GiB of layers, below it not, and either way when forced (decision 6)")
+    @DisplayName("Rocks is built from 2 GiB of knowledge sources, below it not, and either way when forced (decision 6)")
     void rocksThreshold() {
-        KbLayer justUnder = layer("network.ike.data:big-kb:zip:unreasoned-pb:1", "1", 2 * KbCreatePlan.GIB - MIB - 1);
+        KbKnowledgeSource justUnder = knowledgeSource("network.ike.data:big-kb:zip:unreasoned-pb:1", "1", 2 * KbCreatePlan.GIB - MIB - 1);
         assertThat(new KbCreatePlan(assembly(List.of(starterSet(), justUnder), null)).rocks()).isFalse();
-        KbLayer atThreshold = layer("network.ike.data:big-kb:zip:unreasoned-pb:1", "1", 2 * KbCreatePlan.GIB - MIB);
+        KbKnowledgeSource atThreshold = knowledgeSource("network.ike.data:big-kb:zip:unreasoned-pb:1", "1", 2 * KbCreatePlan.GIB - MIB);
         KbCreatePlan at = new KbCreatePlan(assembly(List.of(starterSet(), atThreshold), null));
         assertThat(at.rocks()).isTrue();
         assertThat(at.rocksReason()).contains("at or above 2 GiB");
@@ -184,12 +184,12 @@ class KbCreatePlanTest {
         KbCreatePlan forced = new KbCreatePlan(assembly(List.of(starterSet()), true));
         assertThat(forced.rocks()).isTrue();
         assertThat(forced.rocksReason()).isEqualTo("set by -Drocks=true");
-        assertThat(new KbCreatePlan(sourceLayer("snomed-rf2", null, "/r.zip", null)).rocksReason())
-                .contains("source layer");
+        assertThat(new KbCreatePlan(sourceInputs("snomed-rf2", null, "/r.zip", null)).rocksReason())
+                .contains("source");
     }
 
     @Test
-    @DisplayName("The heap follows the layers: 4× loaded, room for the reasoner and collector, 8 GiB at least")
+    @DisplayName("The heap follows the knowledge sources: 4× loaded, room for the reasoner and collector, 8 GiB at least")
     void heapEstimate() {
         KbCreatePlan small = new KbCreatePlan(assembly(List.of(starterSet()), null));
         assertThat(small.heap()).isEqualTo("-Xmx8g");
@@ -205,11 +205,11 @@ class KbCreatePlanTest {
     @Test
     @DisplayName("Unknown sizes are left out of the total and said so")
     void unknownSizes() {
-        KbLayer unknown = KbLayer.parse("network.ike.data:mystery-kb:zip:unreasoned-pb:1");
+        KbKnowledgeSource unknown = KbKnowledgeSource.parse("network.ike.data:mystery-kb:zip:unreasoned-pb:1");
         KbCreatePlan plan = new KbCreatePlan(assembly(List.of(starterSet(), unknown), null));
         assertThat(plan.unknownSizes()).isEqualTo(1);
-        assertThat(plan.layerBytes()).isEqualTo(MIB);
-        assertThat(plan.rocksReason()).contains("1 layer size(s) unknown");
+        assertThat(plan.knowledgeSourceBytes()).isEqualTo(MIB);
+        assertThat(plan.rocksReason()).contains("1 knowledge source size(s) unknown");
     }
 
     @Test
@@ -261,7 +261,7 @@ class KbCreatePlanTest {
         KbCreatePlan.Inputs base = assembly(List.of(starterSet()), null);
         KbCreatePlan plan = new KbCreatePlan(new KbCreatePlan.Inputs(base.kind(), base.groupId(), base.artifactId(),
                 base.version(), "Tom & Jerry <KB>", "Cats & mice", base.parentVersion(), false, base.scmUrl(),
-                base.layers(), null, null, null, null, "SOLOR", base.distributionId(), base.releasesUrl(),
+                base.knowledgeSources(), null, null, null, null, "SOLOR", base.distributionId(), base.releasesUrl(),
                 base.snapshotsUrl(), base.siteUrl(), null, "-Xmx24g", "84cb2ae1-2790-4f0d-967d-0193b5d3f2d3",
                 base.providerVersion(), base.tinkarCoreVersion(), base.rocksKbVersion(), base.rocksdbjniVersion(),
                 base.rocksdbjniClassifier()));
@@ -281,11 +281,11 @@ class KbCreatePlanTest {
     }
 
     @Test
-    @DisplayName("A source layer renders the import, its importer and a verify on its base")
-    void rendersSourceLayer() throws Exception {
-        KbLayer release = layer("dev.ikm.data.nuva-sct-ext:nuva-sct-ext-origin:zip:nuva-1.0.0-SNAPSHOT",
+    @DisplayName("A source renders the import, its importer and a verify on its base")
+    void rendersSource() throws Exception {
+        KbKnowledgeSource release = knowledgeSource("dev.ikm.data.nuva-sct-ext:nuva-sct-ext-origin:zip:nuva-1.0.0-SNAPSHOT",
                 "nuva-1.0.0-20261019.164040-1", 700_000);
-        KbCreatePlan plan = new KbCreatePlan(sourceLayer("snomed-rf2", release, null, null));
+        KbCreatePlan plan = new KbCreatePlan(sourceInputs("snomed-rf2", release, null, null));
         Map<String, String> files = plan.render(templates);
 
         assertThat(files).containsOnlyKeys("pom.xml", "README.adoc", ".mvn/jvm.config");
@@ -310,7 +310,7 @@ class KbCreatePlanTest {
     @Test
     @DisplayName("A release given by path is read in place")
     void releaseByPath() throws Exception {
-        KbCreatePlan plan = new KbCreatePlan(sourceLayer("snomed-rf2", null, "/data/SnomedCT_NUVA.zip", null));
+        KbCreatePlan plan = new KbCreatePlan(sourceInputs("snomed-rf2", null, "/data/SnomedCT_NUVA.zip", null));
         Document pom = xml(plan.render(templates).get("pom.xml"));
         assertThat(property(pom, "source.release")).isEqualTo("/data/SnomedCT_NUVA.zip");
     }
@@ -340,7 +340,7 @@ class KbCreatePlanTest {
     }
 
     @Test
-    @DisplayName("The report names every pinned layer, the Rocks decision and the heap")
+    @DisplayName("The report names every pinned knowledge source, the Rocks decision and the heap")
     void report() {
         KbCreatePlan plan = new KbCreatePlan(assembly(List.of(starterSet(), snomed(), gudid()), null));
         List<String> report = plan.report("/work/my-kb");

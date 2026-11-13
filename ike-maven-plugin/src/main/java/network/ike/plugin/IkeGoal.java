@@ -193,14 +193,14 @@ public enum IkeGoal implements GoalRef, ConstantBackedEnum {
                     + "generated project builds green (ike-issues#866)."),
     /** {@code ike:kb-create-draft} — preview a new knowledge-base project. */
     KB_CREATE_DRAFT(IkeGoal.NAME_KB_CREATE_DRAFT, KbCreateDraftMojo.class,
-            "Preview a new knowledge-base project: its coordinates, every layer "
+            "Preview a new knowledge-base project: its coordinates, every knowledge source "
                     + "pinned to the exact deploy it is built from, whether a Rocks "
                     + "store is built and why, the heap, and the files publish would "
                     + "write. Reads the repository; writes nothing (ike-issues#1370)."),
     /** {@code ike:kb-create-publish} — create a new knowledge-base project. */
     KB_CREATE_PUBLISH(IkeGoal.NAME_KB_CREATE_PUBLISH, KbCreatePublishMojo.class,
             "Create a new knowledge-base project: a Maven 4 project from the "
-                    + "standards templates with its layers pinned, the standards "
+                    + "standards templates with its knowledge sources pinned, the standards "
                     + "scaffold applied, a local git repository with one commit and "
                     + "no remote, validated with ./mvnw validate (ike-issues#1370)."),
     /** {@code ike:kb-remote-draft} — preview giving a project its remote. */

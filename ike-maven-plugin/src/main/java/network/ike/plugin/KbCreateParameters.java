@@ -34,15 +34,15 @@ import java.util.Optional;
 
 /**
  * The shared input surface of the {@code ike:kb-create-*} pair
- * (IKE-Network/ike-issues#1370). Required: the name and, for a source layer, the importer
+ * (IKE-Network/ike-issues#1370). Required: the name and, for a source, the importer
  * and release. Everything else is defaulted from the existing knowledge bases of
- * {@code solor-kb-ws} or derived, and every layer is pinned against the repository before
+ * {@code solor-kb-ws} or derived, and every knowledge source is pinned against the repository before
  * anything is shown or written.
  */
 abstract class KbCreateParameters {
 
-    /** The repository the layers are pinned against unless {@code -DlayerRepository} says. */
-    static final String DEFAULT_LAYER_REPOSITORY = "https://nexus.tinkar.org/repository/ike-restricted/";
+    /** The repository the knowledge sources are pinned against unless {@code -DknowledgeSourceRepository} says. */
+    static final String DEFAULT_KNOWLEDGE_SOURCE_REPOSITORY = "https://nexus.tinkar.org/repository/ike-restricted/";
 
     /** The restricted releases repository, the default deploy target (decision 5). */
     static final String DEFAULT_RELEASES = "https://nexus.tinkar.org/repository/ike-restricted-releases/";
@@ -57,7 +57,7 @@ abstract class KbCreateParameters {
     @Parameter(property = "name")
     String name;
 
-    /** {@code assembly} (the default) or {@code source-layer}. */
+    /** {@code assembly} (the default) or {@code source}. */
     @Parameter(property = "kind")
     String kind;
 
@@ -73,31 +73,43 @@ abstract class KbCreateParameters {
     @Parameter(property = "displayName")
     String displayName;
 
-    /** The POM {@code <description>}; derived from the kind and layers when absent. */
+    /** The POM {@code <description>}; derived from the kind and knowledge sources when absent. */
     @Parameter(property = "description")
     String description;
 
     /**
-     * The protobuf layers in load order, comma-separated, each
+     * The knowledge sources in load order, comma-separated, each
      * {@code groupId:artifactId:zip:classifier:version}. The IKE starter set is put first
-     * unless it is listed or a {@code reasoned-pb} layer is the base.
+     * unless it is listed or a {@code reasoned-pb} knowledge source is the base.
      */
+    @Parameter(property = "knowledgeSources")
+    String knowledgeSources;
+
+    /** Renamed {@code -DknowledgeSources}; refused with that word, so an old command is not silently ignored. */
     @Parameter(property = "layers")
     String layers;
+
+    /** Renamed {@code -DknowledgeSourceRepository}; refused the same way. */
+    @Parameter(property = "layerRepository")
+    String layerRepository;
+
+    /** Renamed {@code -DknowledgeSourceRepositoryId}; refused the same way. */
+    @Parameter(property = "layerRepositoryId")
+    String layerRepositoryId;
 
     /** The starter set's version when it is put first. */
     @Parameter(property = "starterSetVersion", defaultValue = "1-SNAPSHOT")
     String starterSetVersion = "1-SNAPSHOT";
 
-    /** A source layer's importer, such as {@code snomed-rf2}: {@code dev.ikm.tinkar:importer-<name>}. */
+    /** A source's importer, such as {@code snomed-rf2}: {@code dev.ikm.tinkar:importer-<name>}. */
     @Parameter(property = "importer")
     String importer;
 
-    /** A source layer's release: a Maven coordinate (pinned like a layer) or a path. */
+    /** A source's release: a Maven coordinate (pinned like a knowledge source) or a path. */
     @Parameter(property = "release")
     String release;
 
-    /** A source layer's importer options, such as {@code release=full}. */
+    /** A source's importer options, such as {@code release=full}. */
     @Parameter(property = "importerOptions")
     String importerOptions;
 
@@ -121,11 +133,11 @@ abstract class KbCreateParameters {
     @Parameter(property = "siteUrl")
     String siteUrl;
 
-    /** {@code true} or {@code false} to force the Rocks store; decided by the layers' size when absent. */
+    /** {@code true} or {@code false} to force the Rocks store; decided by the knowledge sources' size when absent. */
     @Parameter(property = "rocks")
     String rocks;
 
-    /** The build heap, such as {@code -Xmx24g}; estimated from the layers when absent. */
+    /** The build heap, such as {@code -Xmx24g}; estimated from the knowledge sources when absent. */
     @Parameter(property = "heap")
     String heap;
 
@@ -141,7 +153,7 @@ abstract class KbCreateParameters {
     @Parameter(property = "providerVersion", defaultValue = "7-SNAPSHOT")
     String providerVersion = "7-SNAPSHOT";
 
-    /** The {@code tinkar-core} version a source layer's importer comes from, as solor-kb-ws pins it. */
+    /** The {@code tinkar-core} version a source's importer comes from, as solor-kb-ws pins it. */
     @Parameter(property = "tinkarCoreVersion", defaultValue = "1.127.7-SNAPSHOT")
     String tinkarCoreVersion = "1.127.7-SNAPSHOT";
 
@@ -157,13 +169,13 @@ abstract class KbCreateParameters {
     @Parameter(property = "rocksdbjniClassifier", defaultValue = "osx")
     String rocksdbjniClassifier = "osx";
 
-    /** The repository the layers are pinned against. */
-    @Parameter(property = "layerRepository", defaultValue = DEFAULT_LAYER_REPOSITORY)
-    String layerRepository = DEFAULT_LAYER_REPOSITORY;
+    /** The repository the knowledge sources are pinned against. */
+    @Parameter(property = "knowledgeSourceRepository", defaultValue = DEFAULT_KNOWLEDGE_SOURCE_REPOSITORY)
+    String knowledgeSourceRepository = DEFAULT_KNOWLEDGE_SOURCE_REPOSITORY;
 
-    /** The server id whose login in {@code settings.xml} reads the layer repository. */
-    @Parameter(property = "layerRepositoryId", defaultValue = "ike-restricted")
-    String layerRepositoryId = "ike-restricted";
+    /** The server id whose login in {@code settings.xml} reads the knowledge source repository. */
+    @Parameter(property = "knowledgeSourceRepositoryId", defaultValue = "ike-restricted")
+    String knowledgeSourceRepositoryId = "ike-restricted";
 
     /** The project's folder; {@code <name>} under the directory Maven runs in when absent. */
     @Parameter(property = "targetDirectory")
@@ -186,44 +198,72 @@ abstract class KbCreateParameters {
     }
 
     /**
-     * Pins the layers against the repository and builds the plan.
+     * Refuses the parameter names of {@code ike-maven-plugin} 280 and 281, which called the knowledge
+     * sources "layers" (IKE-Network/ike-issues#1370; KEC, 2026-11-12). A refusal, not an alias, so a
+     * command that still uses the old word says which word replaced it.
+     *
+     * @param layers            the value of {@code -Dlayers}, or {@code null}
+     * @param layerRepository   the value of {@code -DlayerRepository}, or {@code null}
+     * @param layerRepositoryId the value of {@code -DlayerRepositoryId}, or {@code null}
+     * @throws MojoException if any of them is given
+     */
+    static void refuseOldNames(String layers, String layerRepository, String layerRepositoryId) {
+        List<String> renamed = new ArrayList<>();
+        if (layers != null) {
+            renamed.add("-Dlayers is now -DknowledgeSources");
+        }
+        if (layerRepository != null) {
+            renamed.add("-DlayerRepository is now -DknowledgeSourceRepository");
+        }
+        if (layerRepositoryId != null) {
+            renamed.add("-DlayerRepositoryId is now -DknowledgeSourceRepositoryId");
+        }
+        if (!renamed.isEmpty()) {
+            throw new MojoException(String.join("; ", renamed) + ". The knowledge sources were called layers before"
+                    + " ike-maven-plugin 282.");
+        }
+    }
+
+    /**
+     * Pins the knowledge sources against the repository and builds the plan.
      *
      * @param session      the Maven session, for its settings and offline mode
      * @param log          where progress goes
      * @param scaffoldRoot the unpacked scaffold, for the default parent version
      * @return the plan
-     * @throws MojoException if a parameter is malformed, Maven runs offline, or a layer
+     * @throws MojoException if a parameter is malformed, Maven runs offline, or a knowledge source
      *                       cannot be pinned
      */
     KbCreatePlan plan(Session session, Log log, Path scaffoldRoot) {
+        refuseOldNames(layers, layerRepository, layerRepositoryId);
         if (name == null || name.isBlank()) {
             throw new MojoException("A knowledge base needs -Dname, its artifactId, such as -Dname=my-kb");
         }
         if (session.getSettings().isOffline()) {
-            throw new MojoException("Creating a knowledge base pins every layer against "
-                    + layerRepository + "; Maven is offline");
+            throw new MojoException("Creating a knowledge base pins every knowledge source against "
+                    + knowledgeSourceRepository + "; Maven is offline");
         }
         try {
             KbKind parsedKind = KbKind.parse(kind);
-            List<KbLayer> requested = new ArrayList<>();
-            if (layers != null) {
-                for (String spec : layers.split(",")) {
+            List<KbKnowledgeSource> requested = new ArrayList<>();
+            if (knowledgeSources != null) {
+                for (String spec : knowledgeSources.split(",")) {
                     if (!spec.isBlank()) {
-                        requested.add(KbLayer.parse(spec));
+                        requested.add(KbKnowledgeSource.parse(spec));
                     }
                 }
             }
-            List<KbLayer> ordered = KbCreatePlan.withStarterSet(requested, starterSetVersion);
-            KbLayerResolver resolver = resolver(session, log);
-            List<KbLayer> pinned = new ArrayList<>();
-            for (KbLayer layer : ordered) {
-                log.info("Pinning " + layer.coordinate(layer.version()) + " …");
-                pinned.add(resolver.pin(layer));
+            List<KbKnowledgeSource> ordered = KbCreatePlan.withStarterSet(requested, starterSetVersion);
+            KbKnowledgeSourceResolver resolver = resolver(session, log);
+            List<KbKnowledgeSource> pinned = new ArrayList<>();
+            for (KbKnowledgeSource knowledgeSource : ordered) {
+                log.info("Pinning " + knowledgeSource.coordinate(knowledgeSource.version()) + " …");
+                pinned.add(resolver.pin(knowledgeSource));
             }
-            KbLayer pinnedRelease = null;
+            KbKnowledgeSource pinnedRelease = null;
             String releasePath = null;
             if (release != null && !release.isBlank()) {
-                Optional<KbLayer> coordinate = KbCreatePlan.coordinateOf(release.strip());
+                Optional<KbKnowledgeSource> coordinate = KbCreatePlan.coordinateOf(release.strip());
                 if (coordinate.isPresent()) {
                     log.info("Pinning " + release.strip() + " …");
                     pinnedRelease = resolver.pin(coordinate.get());
@@ -245,10 +285,10 @@ abstract class KbCreateParameters {
         } catch (IllegalArgumentException e) {
             throw new MojoException(e.getMessage(), e);
         } catch (IOException e) {
-            throw new MojoException("Cannot pin the layers: " + e.getMessage(), e);
+            throw new MojoException("Cannot pin the knowledge sources: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new MojoException("Interrupted pinning the layers", e);
+            throw new MojoException("Interrupted pinning the knowledge sources", e);
         }
     }
 
@@ -282,15 +322,15 @@ abstract class KbCreateParameters {
         };
     }
 
-    private KbLayerResolver resolver(Session session, Log log) {
+    private KbKnowledgeSourceResolver resolver(Session session, Log log) {
         String username = null;
         String password = null;
         for (Server server : session.getSettings().getServers()) {
-            if (layerRepositoryId.equals(server.getId())) {
+            if (knowledgeSourceRepositoryId.equals(server.getId())) {
                 String secret = server.getPassword();
                 if (secret != null && secret.startsWith("{") && secret.endsWith("}")) {
-                    log.warn("The password for " + layerRepositoryId + " is encrypted; reading "
-                            + layerRepository + " without a login");
+                    log.warn("The password for " + knowledgeSourceRepositoryId + " is encrypted; reading "
+                            + knowledgeSourceRepository + " without a login");
                 } else {
                     username = server.getUsername();
                     password = secret;
@@ -298,9 +338,9 @@ abstract class KbCreateParameters {
             }
         }
         if (username == null) {
-            log.info("No login for " + layerRepositoryId + " in settings.xml; reading " + layerRepository + " anonymously");
+            log.info("No login for " + knowledgeSourceRepositoryId + " in settings.xml; reading " + knowledgeSourceRepository + " anonymously");
         }
-        return new KbLayerResolver(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build(),
-                URI.create(layerRepository), username, password, TIMEOUT);
+        return new KbKnowledgeSourceResolver(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build(),
+                URI.create(knowledgeSourceRepository), username, password, TIMEOUT);
     }
 }

@@ -26,14 +26,14 @@ import java.util.stream.Collectors;
 enum KbKind {
 
     /**
-     * A source release imported onto its base layers and exported unclassified as an
+     * A source release imported onto the knowledge sources it is built on, and exported unclassified as an
      * {@code unreasoned-pb}, the shape of {@code nuva-kb}: one {@code SOURCE} input, a
      * {@code knowledge-verify} against the base, no Rocks store, no authoring.
      */
-    SOURCE_LAYER("source-layer", "source layer", "unreasoned-pb"),
+    SOURCE("source", "source", "unreasoned-pb"),
 
     /**
-     * Layers combined, with the edits harvested from Komet, classified and exported as a
+     * Knowledge sources combined, with the edits harvested from Komet, classified and exported as a
      * {@code reasoned-pb}, the shape of {@code pizza-kb}: a round-trip
      * {@code knowledge-verify}, a Rocks store when the size warrants it, and a
      * {@code komet} profile for authoring.
@@ -53,7 +53,7 @@ enum KbKind {
     /**
      * The value {@code -Dkind} takes for this kind.
      *
-     * @return such as {@code source-layer}
+     * @return such as {@code source}
      */
     String parameterValue() {
         return parameterValue;
@@ -62,7 +62,7 @@ enum KbKind {
     /**
      * How a report names this kind.
      *
-     * @return such as {@code source layer}
+     * @return such as {@code source}
      */
     String label() {
         return label;
@@ -78,7 +78,7 @@ enum KbKind {
     }
 
     /**
-     * Reads {@code -Dkind}: {@code source-layer} or {@code assembly}, case and
+     * Reads {@code -Dkind}: {@code source} or {@code assembly}, case and
      * underscores ignored; absent means {@link #ASSEMBLY}.
      *
      * @param value the parameter value, or {@code null}
@@ -90,6 +90,10 @@ enum KbKind {
             return ASSEMBLY;
         }
         String normalized = value.strip().toLowerCase(Locale.ROOT).replace('_', '-');
+        if (normalized.equals("source-layer")) {
+            throw new IllegalArgumentException("-Dkind=source-layer is now -Dkind=source. The knowledge sources were called"
+                    + " layers before ike-maven-plugin 282.");
+        }
         for (KbKind kind : values()) {
             if (kind.parameterValue.equals(normalized)) {
                 return kind;

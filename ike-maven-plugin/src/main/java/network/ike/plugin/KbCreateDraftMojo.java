@@ -30,15 +30,15 @@ import java.util.stream.Stream;
 
 /**
  * Previews a new knowledge-base project, the side-effect-free half of the
- * {@code ike:kb-create-*} pair (IKE-Network/ike-issues#1370): the coordinates, every layer
+ * {@code ike:kb-create-*} pair (IKE-Network/ike-issues#1370): the coordinates, every knowledge source
  * pinned to the exact deploy it will be built from and its size, whether a Rocks store is
  * built and why, the heap, where it deploys, and every file publish would write. The
- * repository is read to pin the layers; nothing is written. Rerun as
+ * repository is read to pin the knowledge sources; nothing is written. Rerun as
  * {@code kb-create-publish} with the same inputs to create exactly what this draft shows.
  *
  * <pre>{@code
  * mvn ike:kb-create-draft -Dname=my-kb \
- *     -Dlayers=network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT
+ *     -DknowledgeSources=network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT
  * }</pre>
  *
  * @since 280
@@ -58,7 +58,7 @@ public class KbCreateDraftMojo extends KbCreateParameters implements org.apache.
     /**
      * Prints the plan.
      *
-     * @throws MojoException if a parameter is malformed, a layer cannot be pinned, or the
+     * @throws MojoException if a parameter is malformed, a knowledge source cannot be pinned, or the
      *                       templates cannot be read
      */
     @Override

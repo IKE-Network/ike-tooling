@@ -43,8 +43,20 @@ class KbCreateSupportTest {
         Map<String, String> templates = KbCreateSupport.templates(KbCreatePlanTest.SCAFFOLD);
         assertThat(templates).containsKeys(KbCreatePlan.POM_TEMPLATE, "files/README.adoc", "files/rkb.xml", "files/gitkeep",
                 "files/jvm.config", "fragments/property.xml", "fragments/dependency.xml", "fragments/input.xml",
-                "fragments/assembly-plugins.xml", "fragments/source-layer-plugins.xml",
+                "fragments/assembly-plugins.xml", "fragments/source-plugins.xml",
                 "fragments/rocks-execution.xml", "fragments/rocks-assembly-plugin.xml", "fragments/komet-profile.xml");
+    }
+
+    @Test
+    @DisplayName("The parameter names before 282 are refused, each with the name that replaced it")
+    void oldNamesRefused() {
+        KbCreateParameters.refuseOldNames(null, null, null);
+        assertThatThrownBy(() -> KbCreateParameters.refuseOldNames("a:b:zip:unreasoned-pb:1", null, "ike-restricted"))
+                .isInstanceOf(MojoException.class)
+                .hasMessage("-Dlayers is now -DknowledgeSources; -DlayerRepositoryId is now -DknowledgeSourceRepositoryId."
+                        + " The knowledge sources were called layers before ike-maven-plugin 282.");
+        assertThatThrownBy(() -> KbCreateParameters.refuseOldNames(null, "https://repo/", null))
+                .hasMessageStartingWith("-DlayerRepository is now -DknowledgeSourceRepository.");
     }
 
     @Test

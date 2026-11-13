@@ -19,9 +19,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * One artifact a new knowledge base loads, by Maven coordinate: a protobuf layer
+ * One artifact a new knowledge base loads, by Maven coordinate: a protobuf knowledge source
  * ({@code groupId:artifactId:zip:classifier:version}) or a source release
- * ({@code groupId:artifactId:extension[:classifier]:version}). A layer starts as
+ * ({@code groupId:artifactId:extension[:classifier]:version}). A knowledge source starts as
  * requested and is then pinned (IKE-Network/ike-issues#1370, decision 9): a snapshot is
  * fixed to the exact timestamped deploy Nexus holds, so a later deploy under the same
  * snapshot version cannot change what the knowledge base is built from.
@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
  *                      by its timestamp; equal to {@code version} until pinned
  * @param sizeBytes     the artifact's size on the repository, or {@code -1} when not known
  */
-record KbLayer(String groupId, String artifactId, String extension, String classifier,
+record KbKnowledgeSource(String groupId, String artifactId, String extension, String classifier,
                String version, String pinnedVersion, long sizeBytes) {
 
     /** The starter set's group: every knowledge base is built on it. */
@@ -61,7 +61,7 @@ record KbLayer(String groupId, String artifactId, String extension, String class
      *
      * @throws IllegalArgumentException if a required part is blank
      */
-    KbLayer {
+    KbKnowledgeSource {
         for (String part : new String[]{groupId, artifactId, extension, version, pinnedVersion}) {
             if (part == null || part.isBlank()) {
                 throw new IllegalArgumentException("A coordinate needs a groupId, artifactId,"
@@ -77,10 +77,10 @@ record KbLayer(String groupId, String artifactId, String extension, String class
      * {@code groupId:artifactId:extension:classifier:version}.
      *
      * @param spec the coordinate
-     * @return the unpinned layer
+     * @return the unpinned knowledge source
      * @throws IllegalArgumentException if the spec is not such a coordinate
      */
-    static KbLayer parse(String spec) {
+    static KbKnowledgeSource parse(String spec) {
         if (spec == null || spec.isBlank()) {
             throw new IllegalArgumentException("An empty coordinate");
         }
@@ -91,8 +91,8 @@ record KbLayer(String groupId, String artifactId, String extension, String class
             }
         }
         return switch (parts.length) {
-            case 4 -> new KbLayer(parts[0], parts[1], parts[2], "", parts[3], parts[3], -1);
-            case 5 -> new KbLayer(parts[0], parts[1], parts[2], parts[3], parts[4], parts[4], -1);
+            case 4 -> new KbKnowledgeSource(parts[0], parts[1], parts[2], "", parts[3], parts[3], -1);
+            case 5 -> new KbKnowledgeSource(parts[0], parts[1], parts[2], parts[3], parts[4], parts[4], -1);
             default -> throw new IllegalArgumentException("Not groupId:artifactId:extension[:classifier]:version: " + spec);
         };
     }
@@ -116,14 +116,14 @@ record KbLayer(String groupId, String artifactId, String extension, String class
     }
 
     /**
-     * This layer pinned to an exact version, with its size.
+     * This knowledge source pinned to an exact version, with its size.
      *
      * @param exactVersion the exact version
      * @param bytes        the size on the repository
-     * @return the pinned layer
+     * @return the pinned knowledge source
      */
-    KbLayer pinned(String exactVersion, long bytes) {
-        return new KbLayer(groupId, artifactId, extension, classifier, version, exactVersion, bytes);
+    KbKnowledgeSource pinned(String exactVersion, long bytes) {
+        return new KbKnowledgeSource(groupId, artifactId, extension, classifier, version, exactVersion, bytes);
     }
 
     /**
@@ -197,7 +197,7 @@ record KbLayer(String groupId, String artifactId, String extension, String class
     }
 
     /**
-     * The typed-marker property that pins this layer's version, as
+     * The typed-marker property that pins this knowledge source's version, as
      * {@code ike-version-management-extension} names it.
      *
      * @return {@code <groupId>__GA__<artifactId>__VERSION}
@@ -207,7 +207,7 @@ record KbLayer(String groupId, String artifactId, String extension, String class
     }
 
     /**
-     * Whether this layer is the IKE starter set.
+     * Whether this knowledge source is the IKE starter set.
      *
      * @return {@code true} for {@code network.ike.foundation:ike-starter-set}
      */
@@ -216,7 +216,7 @@ record KbLayer(String groupId, String artifactId, String extension, String class
     }
 
     /**
-     * Whether this layer is a classified, standalone protobuf.
+     * Whether this knowledge source is a classified, standalone protobuf.
      *
      * @return {@code true} for the {@code reasoned-pb} classifier
      */
@@ -225,7 +225,7 @@ record KbLayer(String groupId, String artifactId, String extension, String class
     }
 
     /**
-     * Whether this layer is an unclassified protobuf.
+     * Whether this knowledge source is an unclassified protobuf.
      *
      * @return {@code true} for the {@code unreasoned-pb} classifier
      */

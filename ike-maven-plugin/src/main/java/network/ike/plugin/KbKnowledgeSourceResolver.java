@@ -37,13 +37,13 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
- * Pins a knowledge base's layers against a Maven repository without downloading them
+ * Pins a knowledge base's knowledge sources against a Maven repository without downloading them
  * (IKE-Network/ike-issues#1370): a snapshot is fixed to the exact deploy its
- * {@code maven-metadata.xml} names for the layer's extension and classifier, and a
+ * {@code maven-metadata.xml} names for the knowledge source's extension and classifier, and a
  * {@code HEAD} of the file proves it is there and says its size, which decides whether a
- * Rocks store is built (decision 6). A layer of several gigabytes is never transferred.
+ * Rocks store is built (decision 6). A knowledge source of several gigabytes is never transferred.
  */
-final class KbLayerResolver {
+final class KbKnowledgeSourceResolver {
 
     private final HttpClient client;
     private final URI repository;
@@ -60,7 +60,7 @@ final class KbLayerResolver {
      * @param password   the password, or {@code null} to read anonymously
      * @param timeout    the timeout of each request
      */
-    KbLayerResolver(HttpClient client, URI repository, String username, String password, Duration timeout) {
+    KbKnowledgeSourceResolver(HttpClient client, URI repository, String username, String password, Duration timeout) {
         this.client = client;
         String url = repository.toString();
         this.repository = URI.create(url.endsWith("/") ? url : url + "/");
@@ -81,18 +81,18 @@ final class KbLayerResolver {
     }
 
     /**
-     * Pins a layer and reads its size.
+     * Pins a knowledge source and reads its size.
      *
-     * @param layer the layer as requested
-     * @return the layer at its exact version, with its size ({@code -1} when the
+     * @param knowledge source the knowledge source as requested
+     * @return the knowledge source at its exact version, with its size ({@code -1} when the
      *         repository does not say)
      * @throws IOException          if the repository cannot be read, holds no deploy of a
      *                              requested snapshot, or does not hold the file
      * @throws InterruptedException if interrupted
      */
-    KbLayer pin(KbLayer layer) throws IOException, InterruptedException {
-        String exact = layer.exact() ? layer.version() : snapshotVersion(layer);
-        KbLayer pinned = layer.pinned(exact, -1);
+    KbKnowledgeSource pin(KbKnowledgeSource knowledgeSource) throws IOException, InterruptedException {
+        String exact = knowledgeSource.exact() ? knowledgeSource.version() : snapshotVersion(knowledgeSource);
+        KbKnowledgeSource pinned = knowledgeSource.pinned(exact, -1);
         HttpResponse<Void> head = send(pinned.filePath(), "HEAD", HttpResponse.BodyHandlers.discarding());
         if (head.statusCode() == 404) {
             throw new IOException(pinned.coordinate(exact) + " is not on " + repository);
@@ -102,44 +102,44 @@ final class KbLayerResolver {
                     + " answered " + head.statusCode() + unauthorizedHint(head.statusCode()));
         }
         OptionalLong length = head.headers().firstValueAsLong("Content-Length");
-        return layer.pinned(exact, length.orElse(-1));
+        return knowledgeSource.pinned(exact, length.orElse(-1));
     }
 
     /**
      * The exact deploy a snapshot names, from its version's {@code maven-metadata.xml}.
      *
-     * @param layer the snapshot layer
+     * @param knowledge source the snapshot knowledge source
      * @return the timestamped version
      * @throws IOException          if the metadata cannot be read or names no deploy of
-     *                              the layer's extension and classifier
+     *                              the knowledge source's extension and classifier
      * @throws InterruptedException if interrupted
      */
-    private String snapshotVersion(KbLayer layer) throws IOException, InterruptedException {
-        String metadataPath = layer.folderPath() + "maven-metadata.xml";
+    private String snapshotVersion(KbKnowledgeSource knowledgeSource) throws IOException, InterruptedException {
+        String metadataPath = knowledgeSource.folderPath() + "maven-metadata.xml";
         HttpResponse<byte[]> metadata = send(metadataPath, "GET", HttpResponse.BodyHandlers.ofByteArray());
         if (metadata.statusCode() == 404) {
-            throw new IOException(layer.coordinate(layer.version()) + " has never been deployed to " + repository);
+            throw new IOException(knowledgeSource.coordinate(knowledgeSource.version()) + " has never been deployed to " + repository);
         }
         if (metadata.statusCode() != 200) {
             throw new IOException("GET " + metadataPath + " on " + repository + " answered "
                     + metadata.statusCode() + unauthorizedHint(metadata.statusCode()));
         }
-        return snapshotVersion(layer, metadata.body()).orElseThrow(() -> new IOException(
+        return snapshotVersion(knowledgeSource, metadata.body()).orElseThrow(() -> new IOException(
                 metadataPath + " on " + repository + " names no deploy of "
-                        + layer.coordinate(layer.version())));
+                        + knowledgeSource.coordinate(knowledgeSource.version())));
     }
 
     /**
-     * Reads the exact deploy a version's metadata names for a layer: the
+     * Reads the exact deploy a version's metadata names for a knowledge source: the
      * {@code snapshotVersion} entry of its extension and classifier, else the version's
      * last {@code snapshot} timestamp and build number.
      *
-     * @param layer    the snapshot layer
+     * @param knowledge source    the snapshot knowledge source
      * @param metadata the bytes of its version's {@code maven-metadata.xml}
      * @return the timestamped version, when the metadata names one
      * @throws IOException if the metadata is not well-formed XML
      */
-    static Optional<String> snapshotVersion(KbLayer layer, byte[] metadata) throws IOException {
+    static Optional<String> snapshotVersion(KbKnowledgeSource knowledgeSource, byte[] metadata) throws IOException {
         Document document = parse(metadata);
         NodeList entries = document.getElementsByTagName("snapshotVersion");
         for (int index = 0; index < entries.getLength(); index++) {
@@ -147,7 +147,7 @@ final class KbLayerResolver {
             String extension = text(entry, "extension");
             String classifier = text(entry, "classifier");
             String value = text(entry, "value");
-            if (layer.extension().equals(extension) && layer.classifier().equals(classifier) && !value.isEmpty()) {
+            if (knowledgeSource.extension().equals(extension) && knowledgeSource.classifier().equals(classifier) && !value.isEmpty()) {
                 return Optional.of(value);
             }
         }
@@ -157,7 +157,7 @@ final class KbLayerResolver {
             String timestamp = text(snapshot, "timestamp");
             String buildNumber = text(snapshot, "buildNumber");
             if (!timestamp.isEmpty() && !buildNumber.isEmpty()) {
-                String base = KbLayer.baseVersion(layer.version());
+                String base = KbKnowledgeSource.baseVersion(knowledgeSource.version());
                 return Optional.of(base.substring(0, base.length() - "SNAPSHOT".length())
                         + timestamp + "-" + buildNumber);
             }

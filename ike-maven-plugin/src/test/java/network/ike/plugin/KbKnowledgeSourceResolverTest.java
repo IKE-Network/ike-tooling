@@ -39,10 +39,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Pins layers against a real HTTP server standing in for a Maven repository: metadata is
+ * Pins knowledge sources against a real HTTP server standing in for a Maven repository: metadata is
  * served by GET, files answer HEAD with their length, and a login can be demanded.
  */
-class KbLayerResolverTest {
+class KbKnowledgeSourceResolverTest {
 
     private static final String PREFIX = "/repository/ike-restricted/";
 
@@ -92,9 +92,9 @@ class KbLayerResolverTest {
         }
     }
 
-    private KbLayerResolver resolver(String username, String password) {
+    private KbKnowledgeSourceResolver resolver(String username, String password) {
         URI repository = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + PREFIX);
-        return new KbLayerResolver(HttpClient.newHttpClient(), repository, username, password, Duration.ofSeconds(10));
+        return new KbKnowledgeSourceResolver(HttpClient.newHttpClient(), repository, username, password, Duration.ofSeconds(10));
     }
 
     private static String metadata(String... snapshotVersions) {
@@ -123,8 +123,8 @@ class KbLayerResolverTest {
                 "unreasoned-pb|zip|20260601.2-20261111.020518-1").getBytes(StandardCharsets.UTF_8));
         files.put(folder + "snomedct-kb-20260601.2-20261111.020518-1-unreasoned-pb.zip", new byte[4096]);
 
-        KbLayer pinned = resolver(null, null)
-                .pin(KbLayer.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT"));
+        KbKnowledgeSource pinned = resolver(null, null)
+                .pin(KbKnowledgeSource.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT"));
 
         assertThat(pinned.pinnedVersion()).isEqualTo("20260601.2-20261111.020518-1");
         assertThat(pinned.version()).isEqualTo("20260601.2-SNAPSHOT");
@@ -139,8 +139,8 @@ class KbLayerResolverTest {
                 .getBytes(StandardCharsets.UTF_8));
         files.put(folder + "snomedct-kb-20260601.2-20261111.020518-1-unreasoned-pb.zip", new byte[10]);
 
-        KbLayer pinned = resolver(null, null)
-                .pin(KbLayer.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT"));
+        KbKnowledgeSource pinned = resolver(null, null)
+                .pin(KbKnowledgeSource.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT"));
 
         assertThat(pinned.pinnedVersion()).isEqualTo("20260601.2-20261111.020518-1");
     }
@@ -150,7 +150,7 @@ class KbLayerResolverTest {
     void exactVersionNeedsNoMetadata() throws Exception {
         files.put("network/ike/data/gudid-origin/20261001/gudid-origin-20261001.zip", new byte[77]);
 
-        KbLayer pinned = resolver(null, null).pin(KbLayer.parse("network.ike.data:gudid-origin:zip:20261001"));
+        KbKnowledgeSource pinned = resolver(null, null).pin(KbKnowledgeSource.parse("network.ike.data:gudid-origin:zip:20261001"));
 
         assertThat(pinned.pinnedVersion()).isEqualTo("20261001");
         assertThat(pinned.sizeBytes()).isEqualTo(77);
@@ -161,7 +161,7 @@ class KbLayerResolverTest {
     @DisplayName("A snapshot never deployed is reported as such")
     void neverDeployed() {
         assertThatThrownBy(() -> resolver(null, null)
-                .pin(KbLayer.parse("network.ike.data:missing-kb:zip:unreasoned-pb:1-SNAPSHOT")))
+                .pin(KbKnowledgeSource.parse("network.ike.data:missing-kb:zip:unreasoned-pb:1-SNAPSHOT")))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("has never been deployed");
     }
@@ -174,7 +174,7 @@ class KbLayerResolverTest {
                 .getBytes(StandardCharsets.UTF_8));
 
         assertThatThrownBy(() -> resolver(null, null)
-                .pin(KbLayer.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT")))
+                .pin(KbKnowledgeSource.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT")))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("20260601.2-20261111.020518-1")
                 .hasMessageContaining("is not on");
@@ -186,7 +186,7 @@ class KbLayerResolverTest {
         requiredAuthorization = "Basic " + Base64.getEncoder()
                 .encodeToString("reader:secret".getBytes(StandardCharsets.UTF_8));
         files.put("network/ike/data/gudid-origin/20261001/gudid-origin-20261001.zip", new byte[1]);
-        KbLayer release = KbLayer.parse("network.ike.data:gudid-origin:zip:20261001");
+        KbKnowledgeSource release = KbKnowledgeSource.parse("network.ike.data:gudid-origin:zip:20261001");
 
         assertThatThrownBy(() -> resolver(null, null).pin(release))
                 .isInstanceOf(IOException.class)
@@ -200,11 +200,11 @@ class KbLayerResolverTest {
     @Test
     @DisplayName("Metadata that is not XML is refused, and a DOCTYPE is never processed")
     void malformedMetadata() {
-        KbLayer layer = KbLayer.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT");
-        assertThatThrownBy(() -> KbLayerResolver.snapshotVersion(layer, "not xml".getBytes(StandardCharsets.UTF_8)))
+        KbKnowledgeSource knowledgeSource = KbKnowledgeSource.parse("network.ike.data:snomedct-kb:zip:unreasoned-pb:20260601.2-SNAPSHOT");
+        assertThatThrownBy(() -> KbKnowledgeSourceResolver.snapshotVersion(knowledgeSource, "not xml".getBytes(StandardCharsets.UTF_8)))
                 .isInstanceOf(IOException.class);
         String doctype = "<?xml version=\"1.0\"?><!DOCTYPE metadata [<!ENTITY x \"y\">]><metadata/>";
-        assertThatThrownBy(() -> KbLayerResolver.snapshotVersion(layer, doctype.getBytes(StandardCharsets.UTF_8)))
+        assertThatThrownBy(() -> KbKnowledgeSourceResolver.snapshotVersion(knowledgeSource, doctype.getBytes(StandardCharsets.UTF_8)))
                 .isInstanceOf(IOException.class);
     }
 }
